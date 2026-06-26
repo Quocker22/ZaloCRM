@@ -565,6 +565,8 @@ model Contact {
   friendInviteSentCount  Int       @default(0) @map("friend_invite_sent_count")
   friendInviteLastSentAt DateTime? @map("friend_invite_last_sent_at")
   importBatchId      String?   @map("import_batch_id") // soft FK -> phone_list_imports.id (model later)
+  // Idempotency key for external imports (e.g. "gmaps:{place_id}"). Unique per org.
+  externalKey      String?   @map("external_key")
 
   // ── Compliance ─────────────────────────────────────────────────────────────
   consentStatus    String    @default("implicit") @map("consent_status") // implicit/granted/revoked
@@ -715,6 +717,9 @@ model Contact {
   @@index([orgId, hasZalo])
   @@index([orgId, friendInviteSentCount]) // #3: lọc "SĐT đã gửi kết bạn ≥ N" nhanh
   @@index([orgId, importBatchId])
+  // externalKey uniqueness enforced via PARTIAL unique index in migration 20260626120000_contact_external_key
+  // (WHERE external_key IS NOT NULL). NOT declared as @@unique to avoid Prisma full-vs-partial index drift.
+  // Legacy rows with NULL externalKey remain freely allowed. Look up with findFirst, not findUnique.
   @@index([orgId, consentStatus])
   @@index([orgId, province, district])
   @@index([orgId, lastInboundAt])
