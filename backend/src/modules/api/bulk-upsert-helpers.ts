@@ -10,7 +10,7 @@ export type PreparedContact =
       createData: Record<string, unknown>; fillData: Record<string, unknown> }
   | { ok: false; reason: 'missing_external_key' };
 
-const FILLABLE = ['fullName', 'phone', 'email', 'province', 'district', 'addressLine'] as const;
+const FILLABLE = ['fullName', 'phone', 'province', 'district', 'addressLine'] as const;
 
 export function prepareContact(
   input: BulkContactInput,

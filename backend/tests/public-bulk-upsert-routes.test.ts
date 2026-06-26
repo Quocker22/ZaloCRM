@@ -84,4 +84,26 @@ describe('POST /api/public/contacts/bulk', () => {
     expect(res.statusCode).toBe(400);
     await app.close();
   });
+
+  it('handles P2002 race: create rejects, re-fetches and treats as update', async () => {
+    // First findFirst (initial lookup) returns null — no existing contact
+    findFirst.mockResolvedValueOnce(null);
+    // create rejects with P2002 (concurrent insert race)
+    create.mockRejectedValueOnce({ code: 'P2002' });
+    // Second findFirst (re-fetch after race) returns the now-existing contact
+    findFirst.mockResolvedValueOnce({ id: 'c-race', fullName: null, phone: null, phoneNormalized: null, province: null, district: null, addressLine: null });
+    update.mockResolvedValue({ id: 'c-race' });
+
+    const app = await build();
+    const res = await app.inject({
+      method: 'POST', url: '/api/public/contacts/bulk',
+      headers: { 'x-api-key': 'k' },
+      payload: { contacts: [{ externalKey: 'gmaps:race', phone: '0901234567', fullName: 'Race Winner' }] },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.results[0]).toMatchObject({ index: 0, status: 'updated', contactId: 'c-race' });
+    expect(body.summary).toMatchObject({ created: 0, updated: 1, error: 0 });
+    await app.close();
+  });
 });

@@ -138,8 +138,27 @@ export async function publicApiRoutes(app: FastifyInstance): Promise<void> {
           where: { orgId, externalKey: prepared.externalKey },
         });
         if (!existing) {
-          const c = await prisma.contact.create({ data: prepared.createData as any });
-          created++; results.push({ index: i, status: 'created', contactId: c.id, externalKey: prepared.externalKey });
+          try {
+            const c = await prisma.contact.create({ data: prepared.createData as any });
+            created++; results.push({ index: i, status: 'created', contactId: c.id, externalKey: prepared.externalKey });
+          } catch (e: any) {
+            if (e?.code === 'P2002') {
+              // Lost a concurrent insert race — the row now exists. Re-fetch and fall through to fill-empty update.
+              const now = await prisma.contact.findFirst({ where: { orgId, externalKey: prepared.externalKey } });
+              if (now) {
+                const data: Record<string, unknown> = {};
+                for (const [k, v] of Object.entries(prepared.fillData)) {
+                  if ((now as any)[k] === null || (now as any)[k] === undefined) data[k] = v;
+                }
+                if (Object.keys(data).length > 0) await prisma.contact.update({ where: { id: now.id }, data });
+                updated++; results.push({ index: i, status: 'updated', contactId: now.id, externalKey: prepared.externalKey });
+              } else {
+                throw e;
+              }
+            } else {
+              throw e;
+            }
+          }
         } else {
           // Fill only fields that are null/empty on the existing row (never overwrite sale edits).
           const data: Record<string, unknown> = {};
