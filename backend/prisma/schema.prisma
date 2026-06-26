@@ -565,6 +565,8 @@ model Contact {
   friendInviteSentCount  Int       @default(0) @map("friend_invite_sent_count")
   friendInviteLastSentAt DateTime? @map("friend_invite_last_sent_at")
   importBatchId      String?   @map("import_batch_id") // soft FK -> phone_list_imports.id (model later)
+  // Idempotency key for external imports (e.g. "gmaps:{place_id}"). Unique per org.
+  externalKey      String?   @map("external_key")
 
   // ── Compliance ─────────────────────────────────────────────────────────────
   consentStatus    String    @default("implicit") @map("consent_status") // implicit/granted/revoked
@@ -715,6 +717,7 @@ model Contact {
   @@index([orgId, hasZalo])
   @@index([orgId, friendInviteSentCount]) // #3: lọc "SĐT đã gửi kết bạn ≥ N" nhanh
   @@index([orgId, importBatchId])
+  @@unique([orgId, externalKey], name: "contacts_org_external_key_key")
   @@index([orgId, consentStatus])
   @@index([orgId, province, district])
   @@index([orgId, lastInboundAt])
