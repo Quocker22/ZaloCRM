@@ -8,6 +8,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
+import { prepareContact, type BulkContactInput } from './bulk-upsert-helpers.js';
 
 // ── API key auth middleware ────────────────────────────────────────────────────
 
@@ -111,6 +112,51 @@ export async function publicApiRoutes(app: FastifyInstance): Promise<void> {
       logger.error('[public-api] POST /contacts error:', err);
       return reply.status(500).send({ error: 'Failed to create contact' });
     }
+  });
+
+  app.post('/api/public/contacts/bulk', async (request: FastifyRequest, reply: FastifyReply) => {
+    const orgId = (request as any).orgId as string;
+    const body = request.body as { importBatchId?: string; source?: string; contacts?: BulkContactInput[] };
+    const contacts = body?.contacts;
+    if (!Array.isArray(contacts) || contacts.length === 0) {
+      return reply.status(400).send({ error: 'contacts (non-empty array) is required' });
+    }
+    if (contacts.length > 500) {
+      return reply.status(400).send({ error: 'batch too large (max 500)' });
+    }
+
+    const results: Array<Record<string, unknown>> = [];
+    let created = 0, updated = 0, error = 0;
+
+    for (let i = 0; i < contacts.length; i++) {
+      try {
+        const prepared = prepareContact(contacts[i], { orgId, importBatchId: body.importBatchId });
+        if (!prepared.ok) {
+          error++; results.push({ index: i, status: 'error', reason: prepared.reason }); continue;
+        }
+        const existing = await prisma.contact.findFirst({
+          where: { orgId, externalKey: prepared.externalKey },
+        });
+        if (!existing) {
+          const c = await prisma.contact.create({ data: prepared.createData as any });
+          created++; results.push({ index: i, status: 'created', contactId: c.id, externalKey: prepared.externalKey });
+        } else {
+          // Fill only fields that are null/empty on the existing row (never overwrite sale edits).
+          const data: Record<string, unknown> = {};
+          for (const [k, v] of Object.entries(prepared.fillData)) {
+            if ((existing as any)[k] === null || (existing as any)[k] === undefined) data[k] = v;
+          }
+          if (Object.keys(data).length > 0) {
+            await prisma.contact.update({ where: { id: existing.id }, data });
+          }
+          updated++; results.push({ index: i, status: 'updated', contactId: existing.id, externalKey: prepared.externalKey });
+        }
+      } catch (err) {
+        logger.error('[public-api] bulk item error:', err);
+        error++; results.push({ index: i, status: 'error', reason: 'internal' });
+      }
+    }
+    return { results, summary: { created, updated, error } };
   });
 
   app.put('/api/public/contacts/:id', async (request: FastifyRequest, reply: FastifyReply) => {
