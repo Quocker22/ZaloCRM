@@ -106,4 +106,49 @@ describe('POST /api/public/contacts/bulk', () => {
     expect(body.summary).toMatchObject({ created: 0, updated: 1, error: 0 });
     await app.close();
   });
+
+  it('rejects an empty contacts array with 400', async () => {
+    const app = await build();
+    const res = await app.inject({
+      method: 'POST', url: '/api/public/contacts/bulk',
+      headers: { 'x-api-key': 'k' }, payload: { contacts: [] },
+    });
+    expect(res.statusCode).toBe(400);
+    await app.close();
+  });
+
+  it('rejects a missing contacts field with 400', async () => {
+    const app = await build();
+    const res = await app.inject({
+      method: 'POST', url: '/api/public/contacts/bulk',
+      headers: { 'x-api-key': 'k' }, payload: { source: 'gmaps' },
+    });
+    expect(res.statusCode).toBe(400);
+    await app.close();
+  });
+
+  it('isolates a per-item DB error: bad item → error, good item → created in same batch', async () => {
+    // item 0: valid key, findFirst null → create throws a NON-P2002 DB error → 'error'
+    // item 1: valid key, findFirst null → create succeeds → 'created'
+    findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+    create
+      .mockRejectedValueOnce(new Error('connection reset'))
+      .mockResolvedValueOnce({ id: 'c-2' });
+
+    const app = await build();
+    const res = await app.inject({
+      method: 'POST', url: '/api/public/contacts/bulk',
+      headers: { 'x-api-key': 'k' },
+      payload: { contacts: [
+        { externalKey: 'gmaps:bad', phone: '0901111111' },
+        { externalKey: 'gmaps:good', phone: '0902222222' },
+      ] },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.results[0]).toMatchObject({ index: 0, status: 'error' });
+    expect(body.results[1]).toMatchObject({ index: 1, status: 'created', contactId: 'c-2' });
+    expect(body.summary).toMatchObject({ created: 1, error: 1 });
+    await app.close();
+  });
 });

@@ -39,4 +39,37 @@ describe('prepareContact', () => {
     expect(r.createData.tags).toEqual(['nha_hang']);
     expect(r.fillData.fullName).toBe('NH ABC');          // fillable
   });
+
+  it('preserves caller metadata and merges noPhone flag', () => {
+    const r = prepareContact(
+      { externalKey: 'gmaps:abc', phone: 'bad', metadata: { placeId: 'ChIJ', rating: 4.5 } },
+      { orgId: 'org-1' },
+    );
+    if (!r.ok) throw new Error('expected ok');
+    // caller metadata kept...
+    expect(r.createData.metadata).toMatchObject({ placeId: 'ChIJ', rating: 4.5 });
+    // ...and noPhone added because the phone was present but invalid
+    expect((r.createData.metadata as any).noPhone).toBe(true);
+  });
+
+  it('does not set noPhone when phone is simply absent', () => {
+    const r = prepareContact({ externalKey: 'gmaps:abc' }, { orgId: 'org-1' });
+    if (!r.ok) throw new Error('expected ok');
+    expect((r.createData.metadata as any).noPhone).toBeUndefined();
+  });
+
+  it('defaults source to gmaps but honors an explicit source', () => {
+    const def = prepareContact({ externalKey: 'gmaps:a' }, { orgId: 'o' });
+    const cust = prepareContact({ externalKey: 'gmaps:b', source: 'tiktok' }, { orgId: 'o' });
+    if (!def.ok || !cust.ok) throw new Error('expected ok');
+    expect(def.createData.source).toBe('gmaps');
+    expect(cust.createData.source).toBe('tiktok');
+  });
+
+  it('omits empty tags array from fillData', () => {
+    const r = prepareContact({ externalKey: 'gmaps:abc', tags: [], fullName: 'X' }, { orgId: 'o' });
+    if (!r.ok) throw new Error('expected ok');
+    expect('tags' in r.fillData).toBe(false); // empty array not fillable
+    expect(r.fillData.fullName).toBe('X');     // but non-empty value is
+  });
 });
