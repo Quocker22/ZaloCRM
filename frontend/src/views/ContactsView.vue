@@ -452,8 +452,14 @@
               <td class="c-extra">
                 <div class="cl-action">
                   <button class="cl-btn cl-btn-profile" @click.stop="openProfile(contact)" title="Xem & sửa hồ sơ khách hàng">👤 Hồ sơ</button>
-                  <!-- 💬 bỏ khỏi dòng KH Cha (chốt 2026-06-04): chat mở từ friend row,
-                       vì 1 KH Cha có thể nhiều nick → chọn nick cụ thể ở row con. -->
+                  <button
+                    v-if="contact.phone || contact.phoneNormalized"
+                    class="cl-btn cl-btn-friend"
+                    :disabled="friendSending === contact.id"
+                    @click.stop="sendFriendRequest(contact)"
+                    title="Gửi lời mời kết bạn Zalo cho khách này (dùng nick Zalo đã kết nối)">
+                    {{ friendSending === contact.id ? '⏳ Đang gửi…' : '➕ Kết bạn' }}
+                  </button>
                 </div>
               </td>
             </tr>
@@ -685,6 +691,7 @@ import type { Contact } from '@/composables/use-contacts';
 import MobileContactView from '@/views/MobileContactView.vue';
 import { useMobile } from '@/composables/use-mobile';
 import { useFriendSocket, type FriendUpdatedPayload } from '@/composables/use-friend-socket';
+import { useZaloAccounts } from '@/composables/use-zalo-accounts';
 
 const { isMobile } = useMobile();
 const router = useRouter();
@@ -701,6 +708,7 @@ function toggleScoreSort() {
 }
 const { duplicateTotal, fetchDuplicateGroups } = useContactIntelligence();
 const toast = useToast();
+const { accounts: zaloAccounts, fetchAccounts: fetchZaloAccounts } = useZaloAccounts();
 
 // ── Column toggle ───────────────────────────────────────────────────────────
 // 2 LEVEL:
@@ -771,6 +779,41 @@ function openProfile(c: Contact) {
   showProfileDialog.value = true;
 }
 function onProfileSaved() { fetchContacts(); }
+
+// ── Gửi kết bạn Zalo cho 1 khách thẳng từ danh sách Khách hàng ──────────────
+const friendSending = ref<string | null>(null);
+async function sendFriendRequest(contact: Contact) {
+  // Lấy nick Zalo đang kết nối (nick đầu tiên connected).
+  const nick = (zaloAccounts.value || []).find((a: any) => a.status === 'connected') || (zaloAccounts.value || [])[0];
+  if (!nick) {
+    alert('Chưa có nick Zalo nào kết nối. Vào Cài đặt → Tài khoản Zalo để quét QR đăng nhập trước.');
+    return;
+  }
+  const name = contact.crmName || contact.fullName || 'khách này';
+  if (!confirm(`Gửi lời mời kết bạn Zalo cho "${name}" bằng nick "${nick.displayName || nick.name || 'Zalo'}"?\n\nThao tác này sẽ gửi THẬT một lời mời kết bạn trên Zalo.`)) {
+    return;
+  }
+  friendSending.value = contact.id;
+  try {
+    const res = await api.post<{ state?: string; ok?: boolean; reason?: string }>(
+      `/campaigns/contacts/${contact.id}/friend-request`,
+      { zaloAccountId: nick.id },
+    );
+    const st = res.data?.state;
+    if (st === 'sent') alert(`✓ Đã gửi lời mời kết bạn cho "${name}". Chờ khách đồng ý là nhắn tin được.`);
+    else if (st === 'no_zalo') alert(`Số điện thoại của "${name}" không có tài khoản Zalo.`);
+    else alert(`Kết quả: ${st || 'đã xử lý'}.`);
+    fetchContacts();
+  } catch (e: any) {
+    const code = e?.response?.data?.error;
+    if (code === 'already_attempted') alert(`Đã từng gửi kết bạn cho "${name}" bằng nick này rồi.`);
+    else if (code === 'contact_has_no_phone') alert(`"${name}" chưa có số điện thoại.`);
+    else if (code === 'consent_revoked') alert(`"${name}" đã từ chối nhận tin — không gửi.`);
+    else alert(`Gửi kết bạn lỗi: ${code || e?.message || 'không rõ'}`);
+  } finally {
+    friendSending.value = null;
+  }
+}
 // 2026-06-03: form Thêm KH dùng chính CustomerProfileDialog mode='create' (đồng nhất style Smax)
 const showCreateProfile = ref(false);
 function onContactCreated(_c: { id: string; fullName: string | null; phone: string | null }) {
@@ -1516,6 +1559,7 @@ onMounted(() => {
   loadStats();
   loadMasterStatuses();
   loadUsers();
+  fetchZaloAccounts(); // để nút "Kết bạn" biết nick Zalo nào đang kết nối
 });
 
 // M55.2 2026-05-30 — Handle /contacts?focus={id} từ AddCustomerQuickDialog
@@ -2627,6 +2671,9 @@ watch(
 .cl-btn:hover { border-color: var(--smax-primary); color: var(--smax-primary); }
 .cl-btn-profile { background: var(--smax-primary-soft); border-color: var(--smax-primary); color: var(--smax-primary); font-weight: 600; }
 .cl-btn-profile:hover { background: var(--smax-primary); color: var(--surface); }
+.cl-btn-friend { background: #e7f7ee; border-color: #16a34a; color: #15803d; font-weight: 600; }
+.cl-btn-friend:hover:not(:disabled) { background: #16a34a; color: #fff; }
+.cl-btn-friend:disabled { opacity: .6; cursor: wait; }
 .fr-row .cl-btn { width: 22px; height: 22px; padding: 0; text-align: center; line-height: 20px; }
 .fr-row .cl-action { gap: 3px; }
 .cl-btn-primary { background: var(--smax-primary); color: var(--surface); border-color: var(--smax-primary); }

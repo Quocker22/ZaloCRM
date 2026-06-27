@@ -68,6 +68,7 @@ import { teamRoutes } from './modules/auth/team-routes.js';
 import { orgRoutes } from './modules/auth/org-routes.js';
 import { zaloAccessRoutes } from './modules/zalo/zalo-access-routes.js';
 import { zaloSyncRoutes } from './modules/zalo/zalo-sync-routes.js';
+import { campaignRoutes } from './modules/campaign/campaign-routes.js';
 import { zaloDashboardRoutes } from './modules/zalo/zalo-dashboard-routes.js';
 import { zaloPool } from './modules/zalo/zalo-pool.js';
 import { registerZaloSocketHandlers } from './modules/zalo/zalo-socket.js';
@@ -335,6 +336,7 @@ async function bootstrap() {
   await app.register(friendRoutes);
   await app.register(profileRoutes);
   await app.register(credentialRoutes);
+  await app.register(campaignRoutes);
 
   // Open-core: extension route registrations (no-op in Community edition).
   await ee?.registerExtensionRoutes?.(app);
