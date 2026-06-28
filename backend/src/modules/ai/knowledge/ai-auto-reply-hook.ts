@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { buildRagSystemPrompt, parseRagReply, decideAction, type HistoryTurn } from './rag-reply.js';
+import { classifyIntent, intentHint, INTERNAL_REPLY } from './intent.js';
 
 export interface HookDeps {
   search(orgId: string, query: string, topK: number): Promise<Array<{ content: string }>>;
@@ -74,7 +75,30 @@ export async function onIncomingMessageHook(
     return 'handoff' as const;
   };
 
-  // 2. Search KB (failure degrades to empty context → low confidence → handoff)
+  // send helper: gửi text qua Zalo + ghi log. Trả 'sent' hoặc 'skipped' (gửi lỗi → handoff).
+  const send = async (text: string, confidence: number): Promise<'sent' | 'handoff'> => {
+    if (!cfg.autoReplyEnabled) return handoff({ content: text, confidence }, 'handoff');
+    if (!conv.zaloAccountId || !conv.externalThreadId) return handoff({ content: text, confidence }, 'skipped');
+    const threadType: 0 | 1 = conv.threadType === 'group' ? 1 : 0;
+    try {
+      await deps.sendReply(conv.zaloAccountId, conv.externalThreadId, threadType, text);
+    } catch {
+      // Do NOT retry blindly (avoid double-send). Fall back to handoff.
+      return handoff({ content: text, confidence }, 'skipped');
+    }
+    await deps.recordSuggestion({ messageId: message.id, conversationId: conv.id, content: text, confidence, decision: 'sent' });
+    return 'sent';
+  };
+
+  // 2. Intent router (deterministic, trước LLM). Câu nội bộ → trả lời cố định ở code,
+  // KHÔNG gọi LLM (an toàn tuyệt đối, không rủi ro model bịa). Các intent khác → hint cho LLM.
+  const intent = classifyIntent(message.content);
+  if (intent === 'internal') {
+    return send(INTERNAL_REPLY, 1);
+  }
+  const hint = intentHint(intent);
+
+  // 3. Search KB (failure degrades to empty context → low confidence → handoff)
   let chunks: string[] = [];
   try {
     chunks = (await deps.search(input.orgId, message.content, cfg.topK)).map((h) => h.content);
@@ -90,39 +114,20 @@ export async function onIncomingMessageHook(
     history = [];
   }
 
-  // 3. Generate
+  // 4. Generate (với intent hint)
   let rep;
   try {
-    const system = buildRagSystemPrompt(cfg.bizName, chunks, history);
+    const system = buildRagSystemPrompt(cfg.bizName, chunks, history, hint);
     const raw = await deps.generate(system, message.content);
     rep = parseRagReply(raw);
   } catch {
     return handoff({ content: '', confidence: 0 }, 'skipped');
   }
 
-  // 4. Decide (code, not LLM)
+  // 5. Decide (code, not LLM)
   const action = decideAction(rep, { autoReplyEnabled: cfg.autoReplyEnabled, threshold: cfg.threshold });
   if (action === 'handoff') {
     return handoff({ content: rep.reply, confidence: rep.confidence }, 'handoff');
   }
-
-  // action === 'send'
-  if (!conv.zaloAccountId || !conv.externalThreadId) {
-    return handoff({ content: rep.reply, confidence: rep.confidence }, 'skipped');
-  }
-  const threadType: 0 | 1 = conv.threadType === 'group' ? 1 : 0;
-  try {
-    await deps.sendReply(conv.zaloAccountId, conv.externalThreadId, threadType, rep.reply);
-  } catch {
-    // Do NOT retry blindly (avoid double-send). Fall back to handoff.
-    return handoff({ content: rep.reply, confidence: rep.confidence }, 'skipped');
-  }
-  await deps.recordSuggestion({
-    messageId: message.id,
-    conversationId: conv.id,
-    content: rep.reply,
-    confidence: rep.confidence,
-    decision: 'sent',
-  });
-  return 'sent';
+  return send(rep.reply, rep.confidence);
 }

@@ -33,8 +33,9 @@ export async function ingestDocument(
   orgId: string,
   doc: { title: string; source?: string; content: string },
   cfg: EmbedConfig,
+  chunkRunes: number = CHUNK_RUNES,
 ): Promise<{ documentId: string; chunks: number }> {
-  const chunks = chunkText(doc.content, CHUNK_RUNES);
+  const chunks = chunkText(doc.content, chunkRunes);
   const document = await deps.prisma.knowledgeDocument.create({
     data: { orgId, title: doc.title, source: doc.source ?? 'upload', content: doc.content },
   });
