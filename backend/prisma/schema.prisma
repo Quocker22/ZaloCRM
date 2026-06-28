@@ -53,6 +53,8 @@ model Organization {
   aiConfig                    AiConfig?
   aiSuggestions               AiSuggestion[]
   aiSuggestionsApplied        AiSuggestionApplied[]
+  knowledgeDocuments          KnowledgeDocument[]
+  knowledgeChunks             KnowledgeChunk[]
   pinnedConversations         PinnedConversation[]
   groupPolls                  GroupPoll[]
   // 2026-06-21 (E1 quét group) — roster member + lịch sử lần quét cấp org.
@@ -1678,6 +1680,14 @@ model AiConfig {
   aiAssistantEnabled          Boolean  @default(true) @map("ai_assistant_enabled")
   aiAssistantPromptTemplate   String?  @map("ai_assistant_prompt_template") @db.Text
   aiAssistantSkipNoisePattern String   @default("^(ok|oke|okay|uhm|um|ờ|à|ừ|a|o|yes|no|y|n|\\.|\\.\\.|\\.\\.\\.)\\s*$") @map("ai_assistant_skip_noise_pattern")
+  // RAG knowledge base 2026-06-28 — xem docs/superpowers/specs/2026-06-28-ai-knowledge-base-rag-design.md
+  kbEnabled                    Boolean  @default(false) @map("kb_enabled")
+  autoReplyEnabled             Boolean  @default(false) @map("auto_reply_enabled")
+  autoReplyConfidenceThreshold Float    @default(0.7)   @map("auto_reply_confidence_threshold")
+  autoReplyTagOnHandoff        String   @default("auto:can-sale") @map("auto_reply_tag_on_handoff")
+  embedProvider                String   @default("local") @map("embed_provider")
+  embedModel                   String   @default("bge-m3") @map("embed_model")
+  embedBaseUrl                 String   @default("http://localhost:11434/v1") @map("embed_base_url")
   createdAt                   DateTime @default(now()) @map("created_at")
   updatedAt                   DateTime @updatedAt @map("updated_at")
 
@@ -2724,6 +2734,31 @@ model AutomationCampaign {
   @@index([triggerId, state])
   @@index([broadcastId, state])
   @@map("automation_campaigns")
+}
+
+// Community "Chiến dịch gửi hàng loạt" — bật/tắt tự động gửi 1 đợt/ngày.
+// Một dòng = (tệp × nick × mode). Cron mỗi giờ: dòng enabled chưa chạy hôm nay →
+// gửi 1 đợt (runFriendBatch/runMessageBatch), set lastRunAt. Stateless progress
+// vẫn derive từ friendship_attempts / contacts.lastOutboundAt; bảng này chỉ giữ
+// cấu hình lịch + nội dung tin.
+model BulkCampaignSchedule {
+  id            String    @id @default(uuid())
+  orgId         String    @map("org_id")
+  customerListId String   @map("customer_list_id")
+  zaloAccountId String    @map("zalo_account_id")
+  mode          String    // 'friend' | 'message'
+  message       String    @db.Text
+  perDay        Int       @default(20) @map("per_day")
+  enabled       Boolean   @default(true)
+  lastRunAt     DateTime? @map("last_run_at")
+  lastRunSent   Int       @default(0) @map("last_run_sent")
+  createdById   String    @map("created_by_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@unique([customerListId, zaloAccountId, mode])
+  @@index([enabled, lastRunAt])
+  @@map("bulk_campaign_schedules")
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -4052,4 +4087,43 @@ model MediaUsageEvent {
   @@index([mediaAssetId])
   @@index([orgId, createdAt])
   @@map("media_usage_events")
+}
+
+// ── RAG Knowledge Base 2026-06-28 ───────────────────────────────────────────
+// Tài liệu DN + chunk embedding cho RAG. Vector lưu Float[] (double precision[]),
+// KHÔNG pgvector — cosine tính ở app. Xem spec 2026-06-28-ai-knowledge-base-rag.
+model KnowledgeDocument {
+  id        String   @id @default(cuid())
+  orgId     String   @map("org_id")
+  title     String
+  source    String   @default("upload")
+  content   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org    Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  chunks KnowledgeChunk[]
+
+  @@index([orgId])
+  @@map("knowledge_documents")
+}
+
+model KnowledgeChunk {
+  id            String   @id @default(cuid())
+  orgId         String   @map("org_id")
+  documentId    String   @map("document_id")
+  ord           Int
+  content       String   @db.Text
+  embedding     Float[]
+  embedProvider String   @map("embed_provider")
+  embedModel    String   @map("embed_model")
+  embedDim      Int      @map("embed_dim")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  org      Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  document KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([documentId])
+  @@map("knowledge_chunks")
 }
