@@ -17,6 +17,7 @@ import {
 import { listProviderModels, invalidateModelCache } from './providers/list-models.js';
 import { logger } from '../../shared/utils/logger.js';
 import { prisma } from '../../shared/database/prisma-client.js';
+import { registerKnowledgeRoutes } from './knowledge/knowledge-routes.js';
 
 async function assertConversationReadAccess(request: FastifyRequest, reply: FastifyReply, conversationId: string) {
   const user = request.user!;
@@ -83,6 +84,9 @@ function sendHandledError(reply: FastifyReply, err: unknown, fallback: string) {
 
 export async function aiRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authMiddleware);
+
+  // RAG knowledge base 2026-06-28 — ingest/list/delete tài liệu KB (auth qua authMiddleware ở trên).
+  registerKnowledgeRoutes(app);
 
   /* Danh sách provider (cả 5) + baseUrl + trạng thái key per-org. */
   app.get('/api/v1/ai/providers', async (request: FastifyRequest, reply: FastifyReply) => {
