@@ -580,3 +580,20 @@ DROP POLICY IF EXISTS tenant_isolation ON "zalo_lead_events";
 CREATE POLICY tenant_isolation ON "zalo_lead_events"
   USING ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on')
   WITH CHECK ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on');
+
+-- ── RAG Knowledge Base (thêm 2026-06-28) ───────────────────────────────────
+-- knowledge_documents
+ALTER TABLE "knowledge_documents" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "knowledge_documents" FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON "knowledge_documents";
+CREATE POLICY tenant_isolation ON "knowledge_documents"
+  USING ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on');
+
+-- knowledge_chunks
+ALTER TABLE "knowledge_chunks" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "knowledge_chunks" FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON "knowledge_chunks";
+CREATE POLICY tenant_isolation ON "knowledge_chunks"
+  USING ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on');
