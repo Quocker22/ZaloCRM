@@ -10,6 +10,20 @@ describe('buildRagSystemPrompt', () => {
     expect(s.toLowerCase()).toContain('json');
     expect(s.toLowerCase()).toContain('needs_human');
   });
+  it('hướng dẫn bán hàng: hỏi nhu cầu + chống bịa', () => {
+    const s = buildRagSystemPrompt('LEDNELIA', []);
+    expect(s.toLowerCase()).toContain('nhu cầu');
+    expect(s.toLowerCase()).toContain('bịa');
+  });
+  it('chèn lịch sử hội thoại khi có', () => {
+    const s = buildRagSystemPrompt('LEDNELIA', ['x'], [
+      { role: 'customer', content: 'có bóng decor không' },
+      { role: 'shop', content: 'dạ có ạ' },
+    ]);
+    expect(s).toContain('có bóng decor không');
+    expect(s).toContain('KHÁCH:');
+    expect(s).toContain('SHOP:');
+  });
 });
 
 describe('parseRagReply', () => {

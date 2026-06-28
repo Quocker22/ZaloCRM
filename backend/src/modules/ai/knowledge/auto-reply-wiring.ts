@@ -54,6 +54,19 @@ export async function runAutoReplyForMessage(ctx: AutoReplyContext): Promise<voi
     await onIncomingMessageHook(
       {
         search: (orgId, query, topK) => searchKnowledge(kbDeps, orgId, query, topK, embedCfg),
+        getHistory: async (conversationId, limit) => {
+          // N tin text gần nhất (KHÔNG gồm tin hiện tại — nó chưa được xử lý xong), cũ → mới.
+          const rows = await prisma.message.findMany({
+            where: { conversationId, contentType: 'text', isDeleted: false, id: { not: ctx.messageId } },
+            select: { senderType: true, content: true },
+            orderBy: { sentAt: 'desc' },
+            take: limit,
+          });
+          return rows
+            .reverse()
+            .filter((m) => m.content)
+            .map((m) => ({ role: m.senderType === 'self' ? ('shop' as const) : ('customer' as const), content: m.content as string }));
+        },
         generate: (system, prompt) =>
           generateText(cfg.provider, llmApiKey, cfg.model, system, prompt, 800, llmBaseUrl),
         sendReply: async (accountId, threadId, threadType, text) => {
@@ -99,8 +112,9 @@ export async function runAutoReplyForMessage(ctx: AutoReplyContext): Promise<voi
           bizName: ctx.bizName,
           autoReplyEnabled: cfg.autoReplyEnabled,
           threshold: cfg.autoReplyConfidenceThreshold,
-          topK: 5,
+          topK: 6,
           tagOnHandoff: cfg.autoReplyTagOnHandoff,
+          historyLimit: 8,
         },
       },
     );

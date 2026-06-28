@@ -5,6 +5,7 @@ import { onIncomingMessageHook } from '../../../src/modules/ai/knowledge/ai-auto
 function deps(genReply: string) {
   return {
     search: vi.fn(async () => [{ content: 'Mở 9h-22h' }]),
+    getHistory: vi.fn(async () => []),
     generate: vi.fn(async () => genReply),
     sendReply: vi.fn(async () => {}),
     addTag: vi.fn(async () => {}),
@@ -17,7 +18,7 @@ const baseInput = (over: any = {}) => ({
   orgId: 'org1',
   conversation: { ...conv, ...(over.conversation ?? {}) },
   message: { id: 'm1', content: 'mấy giờ mở?', isSelf: false, ...(over.message ?? {}) },
-  cfg: { bizName: 'ABC', autoReplyEnabled: true, threshold: 0.7, topK: 5, tagOnHandoff: 'auto:can-sale', ...(over.cfg ?? {}) },
+  cfg: { bizName: 'ABC', autoReplyEnabled: true, threshold: 0.7, topK: 5, tagOnHandoff: 'auto:can-sale', historyLimit: 8, ...(over.cfg ?? {}) },
 });
 const confident = '{"reply":"9h-22h","confidence":0.9,"needs_human":false,"reason":""}';
 

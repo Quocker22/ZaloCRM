@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { buildRagSystemPrompt, parseRagReply, decideAction } from './rag-reply.js';
+import { buildRagSystemPrompt, parseRagReply, decideAction, type HistoryTurn } from './rag-reply.js';
 
 export interface HookDeps {
   search(orgId: string, query: string, topK: number): Promise<Array<{ content: string }>>;
+  /** Lịch sử hội thoại gần nhất (cũ → mới), KHÔNG gồm tin hiện tại. Giữ ngữ cảnh cho RAG. */
+  getHistory(conversationId: string, limit: number): Promise<HistoryTurn[]>;
   generate(system: string, prompt: string): Promise<string>;
   sendReply(accountId: string, threadId: string, threadType: 0 | 1, text: string): Promise<void>;
   addTag(contactId: string, tag: string): Promise<void>;
@@ -28,7 +30,14 @@ export interface HookInput {
     hasHandoffTag: boolean;
   };
   message: { id: string; content: string; isSelf: boolean };
-  cfg: { bizName: string; autoReplyEnabled: boolean; threshold: number; topK: number; tagOnHandoff: string };
+  cfg: {
+    bizName: string;
+    autoReplyEnabled: boolean;
+    threshold: number;
+    topK: number;
+    tagOnHandoff: string;
+    historyLimit: number;
+  };
 }
 
 /**
@@ -73,10 +82,18 @@ export async function onIncomingMessageHook(
     chunks = [];
   }
 
+  // History for context (failure degrades to empty — không chặn trả lời).
+  let history: HistoryTurn[] = [];
+  try {
+    history = await deps.getHistory(conv.id, cfg.historyLimit);
+  } catch {
+    history = [];
+  }
+
   // 3. Generate
   let rep;
   try {
-    const system = buildRagSystemPrompt(cfg.bizName, chunks);
+    const system = buildRagSystemPrompt(cfg.bizName, chunks, history);
     const raw = await deps.generate(system, message.content);
     rep = parseRagReply(raw);
   } catch {
