@@ -11,6 +11,7 @@ import { publishMessagePersisted } from '../../shared/bridge-bus.js';
 import { randomUUID } from 'node:crypto';
 import { emitWebhook } from '../api/webhook-service.js';
 import { runAutomationRules } from '../../shared/ee-registry/automation.js';
+import { runAutoReplyForMessage } from '../ai/knowledge/auto-reply-wiring.js';
 import { automationEventBus } from '../../shared/ee-registry/event-bus.js';
 import { applyContactAggregateFromMessage, applyContactInteraction, applyFriendAggregate } from '../contacts/contact-aggregate.js';
 import { followMergedInto } from '../contacts/resolve-contact.js';
@@ -650,6 +651,18 @@ export async function handleIncomingMessage(
           : null,
         message: { id: message.id, content: message.content, contentType: message.contentType, senderType: message.senderType },
       });
+
+      // RAG auto-reply 2026-06-28 (luồng B) — fire-and-forget, chỉ chạy khi AiConfig.autoReplyEnabled.
+      // Quyết định gửi/handoff ở ai-auto-reply-hook (đã test); wiring nuốt mọi lỗi, không block inbound.
+      if (message.contentType === 'text' && message.content) {
+        void runAutoReplyForMessage({
+          orgId: account.orgId,
+          bizName: org?.name ?? '',
+          conversationId: conversation.id,
+          messageId: message.id,
+          messageContent: message.content,
+        });
+      }
 
       // Wave 3 Event Log — customer_reply (KH trả lời, Mục tiêu dừng chuỗi).
       // Hook sau runAutomationRules để KHÔNG block phase chính. Filter 1-1 theo memory

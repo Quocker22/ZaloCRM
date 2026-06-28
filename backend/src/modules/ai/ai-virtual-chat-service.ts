@@ -106,7 +106,28 @@ async function runVirtualChatAiReply(
       return;
     }
 
-    const systemPrompt = config.aiAssistantPromptTemplate || DEFAULT_VIRTUAL_CHAT_PROMPT;
+    let systemPrompt = config.aiAssistantPromptTemplate || DEFAULT_VIRTUAL_CHAT_PROMPT;
+    // RAG 2026-06-28 (luồng A) — nếu kbEnabled, tìm tài liệu KB liên quan tới tin sale
+    // đang soạn và nối vào system prompt để gợi ý bám sát tài liệu DN. Lỗi KB không
+    // làm hỏng gợi ý (chèn rỗng).
+    if (config.kbEnabled) {
+      try {
+        const { searchKnowledge } = await import('./knowledge/knowledge-service.js');
+        const { generateEmbedding } = await import('./knowledge/embedding.js');
+        const hits = await searchKnowledge(
+          { prisma: prisma as never, embed: generateEmbedding },
+          orgId,
+          ctx.latestSaleMessage,
+          5,
+          { provider: config.embedProvider, model: config.embedModel, baseUrl: config.embedBaseUrl },
+        );
+        if (hits.length) {
+          systemPrompt += `\n\n=== TÀI LIỆU THAM KHẢO (knowledge base) ===\n${hits.map((h) => `- ${h.content}`).join('\n')}`;
+        }
+      } catch (err) {
+        logger.warn(`[ai-virtual-chat] KB search failed for org=${orgId}: ${String(err)}`);
+      }
+    }
     const userPrompt = buildUserPrompt(ctx);
 
     // 5. Generate AI reply with timeout
