@@ -66,6 +66,11 @@ export function buildRagSystemPrompt(
     '- CHỐNG LẶP: không lặp lại câu/ý đã nói trong LỊCH SỬ. Không hỏi cùng một câu nhu cầu 2 lần.',
     '- Mỗi câu trả lời tối đa 1 câu hỏi. Nếu đã đủ dữ kiện để báo giá/gợi ý/chuyển sale thì làm luôn, đừng hỏi thêm.',
     '- CHỐNG BỊA: chỉ dùng thông tin trong TÀI LIỆU + LỊCH SỬ. Không bịa tên/mã/giá/tồn.',
+    '- CHỐNG TỰ TÍNH SỐ: chỉ được nhắc lại con số xuất hiện NGUYÊN VĂN trong TÀI LIỆU/LỊCH SỬ/tin khách.',
+    '  TUYỆT ĐỐI không tự cộng/nhân/ước lượng/đổi đơn vị: không tính "tổng combo", không gộp giá nhiều món',
+    '  thành một con số, không ước tính tiền điện/công suất/số tháng. Khi khách hỏi combo: liệt kê giá TỪNG món',
+    '  (đúng giá trong tài liệu) rồi nói "để em nhờ sale chốt tổng và báo giá tốt nhất ạ" (needs_human=true).',
+    '  Khi khách hỏi con số không có trong tài liệu (tiền điện, công suất...) → chuyển sale, KHÔNG tự đoán.',
     '- Giọng: xưng "em", gọi "anh/chị", tự nhiên, 2-4 câu.',
     '',
     '=== LỊCH SỬ HỘI THOẠI (cũ → mới) ===',
@@ -82,6 +87,35 @@ export function buildRagSystemPrompt(
     '- needs_human=false cho: tư vấn thường, từ chối câu lạc đề, hỏi nhu cầu.',
     '- confidence: mức chắc câu trả lời đúng+đủ dựa trên tài liệu (thấp nếu phải đoán).',
   ].join('\n');
+}
+
+/**
+ * Chuẩn hoá một chuỗi thành tập các "token số" để so khớp chống-tự-tính.
+ * - Bỏ dấu chấm/phẩy ngăn nghìn kiểu VN: "380.000" → "380000", "1,5" → "15" (đủ cho mục đích so khớp).
+ * - Lấy mọi cụm chữ số liền (≥3 chữ số để tập trung vào giá/tiền, bỏ qua "2 cuộn", "5m", "12V" vốn
+ *   thường là số nhỏ và đã nằm trong tên sản phẩm/tin khách nếu hợp lệ).
+ * Trả về Set các chuỗi số đã chuẩn hoá.
+ */
+function numericTokens(text: string): Set<string> {
+  const cleaned = text.replace(/[.,](?=\d)/g, ''); // bỏ separator chỉ khi đứng trước chữ số
+  const out = new Set<string>();
+  for (const m of cleaned.matchAll(/\d{3,}/g)) out.add(m[0]);
+  return out;
+}
+
+/**
+ * Guard chống bot TỰ TÍNH/ƯỚC LƯỢNG số (tổng combo, tiền điện...). Trả về true nếu reply
+ * chứa một con số (≥3 chữ số, tức cỡ giá tiền) KHÔNG xuất hiện trong nguồn cho phép
+ * (TÀI LIỆU + LỊCH SỬ + tin khách). Khi true → caller phải handoff (không auto-send con số bịa).
+ * Codex-reviewed 2026-06-29: prompt-only không đủ với model yếu, cần chốt chặn ở code.
+ */
+export function replyHasUnsupportedNumber(reply: string, sources: string[]): boolean {
+  const allow = new Set<string>();
+  for (const s of sources) for (const t of numericTokens(s)) allow.add(t);
+  for (const t of numericTokens(reply)) {
+    if (!allow.has(t)) return true;
+  }
+  return false;
 }
 
 /** Extract the first {...} block and parse. On any failure, default to a safe handoff. */
@@ -103,8 +137,17 @@ export function parseRagReply(raw: string): RagReply {
   }
 }
 
-/** Decision lives in code, never in the LLM. Send only when confident AND auto enabled. */
-export function decideAction(rep: RagReply, opts: { autoReplyEnabled: boolean; threshold: number }): Action {
-  if (opts.autoReplyEnabled && !rep.needsHuman && rep.confidence >= opts.threshold) return 'send';
-  return 'handoff';
+/**
+ * Decision lives in code, never in the LLM. Send only when confident AND auto enabled AND
+ * the reply contains no fabricated number. `numberSources` = allowlist text (KB chunks +
+ * history + customer message); if a money-sized number in the reply isn't found there, the
+ * model invented it (combo total, tiền điện...) → handoff. Omit numberSources to skip the guard.
+ */
+export function decideAction(
+  rep: RagReply,
+  opts: { autoReplyEnabled: boolean; threshold: number; numberSources?: string[] },
+): Action {
+  if (!opts.autoReplyEnabled || rep.needsHuman || rep.confidence < opts.threshold) return 'handoff';
+  if (opts.numberSources && replyHasUnsupportedNumber(rep.reply, opts.numberSources)) return 'handoff';
+  return 'send';
 }

@@ -136,8 +136,14 @@ export async function onIncomingMessageHook(
     return handoff({ content: '', confidence: 0 }, 'skipped');
   }
 
-  // 5. Decide (code, not LLM)
-  const action = decideAction(rep, { autoReplyEnabled: cfg.autoReplyEnabled, threshold: cfg.threshold });
+  // 5. Decide (code, not LLM). numberSources = allowlist chống bot tự tính số (combo total,
+  // tiền điện...): nếu reply chứa con số cỡ giá tiền KHÔNG có trong KB/lịch sử/tin khách → handoff.
+  const numberSources = [...chunks, ...history.map((h) => h.content), message.content];
+  const action = decideAction(rep, {
+    autoReplyEnabled: cfg.autoReplyEnabled,
+    threshold: cfg.threshold,
+    numberSources,
+  });
   if (action === 'handoff') {
     return handoff({ content: rep.reply, confidence: rep.confidence }, 'handoff');
   }

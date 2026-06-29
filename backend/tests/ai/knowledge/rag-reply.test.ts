@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { describe, it, expect } from 'vitest';
-import { buildRagSystemPrompt, parseRagReply, decideAction } from '../../../src/modules/ai/knowledge/rag-reply.js';
+import { buildRagSystemPrompt, parseRagReply, decideAction, replyHasUnsupportedNumber } from '../../../src/modules/ai/knowledge/rag-reply.js';
 
 describe('buildRagSystemPrompt', () => {
   it('chứa biz name + chunk + JSON + needs_human', () => {
@@ -58,5 +58,38 @@ describe('decideAction', () => {
   });
   it('confidence thấp → handoff', () => {
     expect(decideAction({ ...base, confidence: 0.3 }, { autoReplyEnabled: true, threshold: 0.7 })).toBe('handoff');
+  });
+  it('số bịa trong reply (combo total) → handoff dù confidence cao', () => {
+    const rep = { ...base, reply: 'Combo 2 cuộn 210.000đ và cáp 170.000đ, tổng cộng 380.000đ ạ.' };
+    const sources = ['Led dây COB 5m: Giá bán 105.000đ', 'cáp 16 sợi: Giá bán 170.000đ'];
+    expect(decideAction(rep, { autoReplyEnabled: true, threshold: 0.7, numberSources: sources })).toBe('handoff');
+  });
+  it('giá thật có trong KB → vẫn send', () => {
+    const rep = { ...base, reply: 'Dạ Led dây COB 5m giá 105.000đ ạ.' };
+    const sources = ['Led dây COB 5m: Giá bán 105.000đ'];
+    expect(decideAction(rep, { autoReplyEnabled: true, threshold: 0.7, numberSources: sources })).toBe('send');
+  });
+});
+
+describe('replyHasUnsupportedNumber (chống bot tự tính số)', () => {
+  it('flag tổng combo bịa (380.000 không có trong nguồn)', () => {
+    const sources = ['Led dây COB 5m: 105.000đ', 'cáp 16 sợi: 170.000đ', 'Đồng hồ: 260.000đ'];
+    expect(replyHasUnsupportedNumber('tổng cộng 380.000đ ạ', sources)).toBe(true);
+  });
+  it('flag tiền điện ước lượng (không có dữ liệu)', () => {
+    const sources = ['Led dây COB 5m: 105.000đ'];
+    expect(replyHasUnsupportedNumber('tiền điện khoảng 15.000đ đến 30.000đ một tháng', sources)).toBe(true);
+  });
+  it('KHÔNG flag giá thật lặp lại đúng từ KB', () => {
+    const sources = ['Led dây COB 5m 12V: Giá bán 105.000đ. Tồn 239'];
+    expect(replyHasUnsupportedNumber('Dạ loại này 105.000đ ạ', sources)).toBe(false);
+  });
+  it('KHÔNG flag khi reply không có số cỡ giá tiền', () => {
+    expect(replyHasUnsupportedNumber('Dạ bên em có 2 màu ạ, anh/chị thích màu nào?', ['x'])).toBe(false);
+  });
+  it('khớp được dù KB ghi có dấu chấm nghìn còn reply cũng vậy', () => {
+    const sources = ['Giá bán: 1.200.000đ'];
+    expect(replyHasUnsupportedNumber('Dạ giá 1.200.000đ ạ', sources)).toBe(false);
+    expect(replyHasUnsupportedNumber('Dạ giá 1.500.000đ ạ', sources)).toBe(true);
   });
 });
