@@ -31,6 +31,9 @@ export async function generateWithOpenaiCompat(
           { role: 'user', content: prompt },
         ],
         [tokenParam]: maxTokens,
+        // stream:false rõ ràng — một số gateway (vd 9router) MẶC ĐỊNH trả SSE
+        // (`data: {...}`) khi thiếu field này, làm response.json() crash.
+        stream: false,
       }),
       signal: controller.signal,
     });
