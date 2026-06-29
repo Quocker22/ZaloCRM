@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { buildRagSystemPrompt, parseRagReply, decideAction, type HistoryTurn } from './rag-reply.js';
+import { buildRagSystemPrompt, parseRagReply, decideAction, replyHasUnsupportedNumber, type HistoryTurn } from './rag-reply.js';
 import { classifyIntent, intentHint, INTERNAL_REPLY, COMPLAINT_REPLY } from './intent.js';
 
 export interface HookDeps {
@@ -64,12 +64,27 @@ export async function onIncomingMessageHook(
   if (conv.isVirtual || (conv.hasHandoffTag && !cfg.skipHandoffTag)) return 'ignored';
   if (await deps.alreadyHandled(message.id)) return 'ignored';
 
-  const handoff = async (rep: { content: string; confidence: number }, decision: string) => {
+  // deliver=true → vẫn GỬI câu cho khách trước khi handoff (vd "em chuyển sale báo giá sỉ
+  // tốt nhất nhé"). Tránh để khách im lặng khi bot chủ động chuyển sale. CHỈ gửi khi có nội
+  // dung thật + an toàn (không gửi khi content rỗng hoặc bị guard chặn số bịa).
+  const handoff = async (
+    rep: { content: string; confidence: number },
+    decision: string,
+    deliver = false,
+  ) => {
     if (conv.contactId && !cfg.skipHandoffTag) {
       try {
         await deps.addTag(conv.contactId, cfg.tagOnHandoff);
       } catch {
         /* tag failure is non-fatal; still record */
+      }
+    }
+    if (deliver && cfg.autoReplyEnabled && rep.content.trim() && conv.zaloAccountId && conv.externalThreadId) {
+      const threadType: 0 | 1 = conv.threadType === 'group' ? 1 : 0;
+      try {
+        await deps.sendReply(conv.zaloAccountId, conv.externalThreadId, threadType, rep.content);
+      } catch {
+        /* gửi lỗi → vẫn handoff (đã tag + record) */
       }
     }
     await deps.recordSuggestion({
@@ -152,7 +167,12 @@ export async function onIncomingMessageHook(
     numberSources,
   });
   if (action === 'handoff') {
-    return handoff({ content: rep.reply, confidence: rep.confidence }, 'handoff');
+    // Nếu handoff CHỈ vì needs_human (vd chốt đơn sỉ, đơn lớn) mà câu trả lời KHÔNG bịa số
+    // và đủ tự tin → vẫn GỬI câu cho khách ("em chuyển sale báo giá sỉ nhé") để khách không
+    // bị im lặng. Nếu handoff vì guard chặn số bịa hoặc confidence thấp → KHÔNG gửi (an toàn).
+    const fabricated = replyHasUnsupportedNumber(rep.reply, numberSources);
+    const deliver = !fabricated && rep.confidence >= cfg.threshold;
+    return handoff({ content: rep.reply, confidence: rep.confidence }, 'handoff', deliver);
   }
   return send(rep.reply, rep.confidence);
 }

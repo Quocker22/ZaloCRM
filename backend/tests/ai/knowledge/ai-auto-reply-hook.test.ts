@@ -37,14 +37,23 @@ describe('onIncomingMessageHook', () => {
     expect(d.sendReply).not.toHaveBeenCalled();
     expect(d.addTag).toHaveBeenCalledWith('ct', 'auto:can-sale');
   });
-  it('needs_human → handoff', async () => {
-    const d = deps('{"reply":"x","confidence":0.9,"needs_human":true,"reason":"giá"}');
+  it('needs_human + câu sạch (không bịa số) → handoff NHƯNG VẪN gửi câu cho khách', async () => {
+    // Khách hỏi giá sỉ: bot chuyển sale nhưng phải nói "em chuyển sale báo giá nhé", không im.
+    const d = deps('{"reply":"Dạ em chuyển sale báo giá sỉ tốt nhất nhé","confidence":0.9,"needs_human":true,"reason":"giá sỉ"}');
+    expect(await onIncomingMessageHook(d, baseInput())).toBe('handoff');
+    expect(d.sendReply).toHaveBeenCalled(); // KHÔNG để khách im lặng
+    expect(d.addTag).toHaveBeenCalledWith('ct', 'auto:can-sale');
+  });
+  it('confidence thấp → handoff, KHÔNG gửi (câu không chắc)', async () => {
+    const d = deps('{"reply":"chắc là vậy","confidence":0.2,"needs_human":false,"reason":""}');
     expect(await onIncomingMessageHook(d, baseInput())).toBe('handoff');
     expect(d.sendReply).not.toHaveBeenCalled();
   });
-  it('confidence thấp → handoff', async () => {
-    const d = deps('{"reply":"x","confidence":0.2,"needs_human":false,"reason":""}');
+  it('handoff vì bịa số → KHÔNG gửi (guard chặn)', async () => {
+    // reply chứa 999.000đ không có trong KB ("Mở 9h-22h") → guard chặn, không gửi số bịa.
+    const d = deps('{"reply":"Dạ tổng cộng 999.000đ ạ","confidence":0.95,"needs_human":false,"reason":""}');
     expect(await onIncomingMessageHook(d, baseInput())).toBe('handoff');
+    expect(d.sendReply).not.toHaveBeenCalled();
   });
   it('tin của self → ignored', async () => {
     const d = deps(confident);
