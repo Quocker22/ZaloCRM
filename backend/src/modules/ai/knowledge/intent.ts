@@ -25,11 +25,15 @@ const INTERNAL_KW = [
   'nhập ở đâu', 'nhập hàng ở', 'tồn kho tổng', 'số liệu bán', 'dữ liệu khách', 'kpi',
   'chính sách nội bộ', 'bao nhiêu nhân viên', 'lương',
 ];
+// Khiếu nại RÕ RÀNG: cụm từ chỉ sản phẩm ĐÃ lỗi/đã có vấn đề (không mơ hồ).
 const COMPLAINT_KW = [
-  'cháy rồi', 'bị cháy', 'hỏng', 'bị lỗi', 'lỗi rồi', 'không sáng', 'chập', 'đứt', 'hư',
-  'kém chất lượng', 'tệ', 'khiếu nại', 'trả hàng', 'hoàn tiền', 'không dùng được', 'sai hàng',
-  'giao thiếu', 'vỡ', 'mới mua đã',
+  'cháy rồi', 'bị cháy', 'bị hỏng', 'hỏng rồi', 'bị lỗi', 'lỗi rồi', 'không sáng', 'bị chập',
+  'bị đứt', 'bị hư', 'hư rồi', 'kém chất lượng', 'khiếu nại', 'trả hàng', 'hoàn tiền',
+  'không dùng được', 'sai hàng', 'giao thiếu', 'bị vỡ', 'vỡ rồi', 'mới mua đã', 'dùng vài bữa đã',
 ];
+// Từ ngắn mơ hồ ('hư','hỏng','tệ'...) CHỈ tính khiếu nại khi đi kèm dấu hiệu ĐÃ XẢY RA.
+// "sợ hư", "khỏi hư", "có bền không hay hư" = lo trước khi mua → KHÔNG phải khiếu nại.
+const PRESALE_CONCERN_RE = /\b(sợ|khỏi|tránh|đỡ|ít|hay bị|có bền|bền không|hãng nào|loại nào|mua loại)\b/i;
 const WARRANTY_KW = ['bảo hành', 'đổi trả', 'đổi hàng', 'bảo hành bao lâu', 'còn bảo hành'];
 const SHIPPING_KW = ['giao hàng', 'giao tận', 'ship', 'vận chuyển', 'phí giao', 'mấy ngày tới', 'giao tới', 'gửi về'];
 const SHOP_INFO_KW = ['shop ở đâu', 'địa chỉ', 'ở đâu vậy', 'số điện thoại', 'sđt', 'hotline', 'giờ mở cửa', 'mấy giờ mở', 'cửa hàng ở'];
@@ -80,9 +84,10 @@ export function classifyIntent(message: string): Intent {
   const t = message.toLowerCase().trim();
   if (hasKw(t, INTERNAL_KW)) return 'internal';
   // Khiếu nại ưu tiên cao (rủi ro): "mua về cháy rồi" phải handoff, không để đi bán tiếp.
-  // Dùng hasWord (whole-word) — keyword ngắn 'hư'/'tệ'/'vỡ' KHÔNG được dính substring
-  // ("nhưng", "tệp"...). Đây là nguồn gốc bug warranty-macro nổ giữa hội thoại bán hàng.
-  if (hasWord(t, COMPLAINT_KW)) return 'complaint';
+  // Dùng hasWord (whole-word) — keyword ngắn KHÔNG được dính substring ("nhưng", "tệp"...).
+  // NHƯNG nếu câu mang ý LO TRƯỚC KHI MUA ("nguồn nào bền khỏi hư", "sợ nóng") → KHÔNG phải
+  // khiếu nại, để đi tiếp luồng tư vấn bán hàng (codex round-2: né bug warranty trên câu pre-sale).
+  if (hasWord(t, COMPLAINT_KW) && !PRESALE_CONCERN_RE.test(t)) return 'complaint';
   // Discount trước large_order: "lấy số lượng nhiều CÓ GIẢM KHÔNG" trọng tâm là hỏi giảm giá
   // (trả lời cụ thể hơn), dù vẫn dẫn tới chuyển sale như large_order.
   if (hasKw(t, DISCOUNT_KW)) return 'discount';

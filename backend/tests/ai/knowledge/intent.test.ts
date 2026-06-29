@@ -46,6 +46,16 @@ describe('classifyIntent', () => {
     expect(classifyIntent('khách muốn nhìn rõ ban đêm, nhưng ngân sách không cao')).not.toBe('complaint');
     expect(classifyIntent('led của tôi là loại 2 chân hay 4 chân thì chưa biết')).not.toBe('complaint');
   });
+  it('câu LO TRƯỚC KHI MUA ("khỏi hư", "sợ hư", "có bền không") KHÔNG phải complaint', () => {
+    // Codex round-2: "nguồn nào bền khỏi hư" là tư vấn mua, không phải báo lỗi sản phẩm.
+    expect(classifyIntent('nguồn tổ ong hãng nào bền, mua loại nào để khỏi sợ nóng hư')).not.toBe('complaint');
+    expect(classifyIntent('nguồn nào ít nóng, sợ dùng lâu hư')).not.toBe('complaint');
+    expect(classifyIntent('led này có bền không hay dùng vài bữa hư')).not.toBe('complaint');
+  });
+  it('khiếu nại có "bị/rồi/đã" vẫn bắt đúng', () => {
+    expect(classifyIntent('nguồn mới mua đã hỏng rồi')).toBe('complaint');
+    expect(classifyIntent('hàng bị hư rồi shop ơi')).toBe('complaint');
+  });
   it('bảo hành', () => {
     expect(classifyIntent('bên mình bảo hành bao lâu')).toBe('warranty');
   });
