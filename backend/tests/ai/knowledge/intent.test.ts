@@ -62,6 +62,12 @@ describe('classifyIntent', () => {
     expect(classifyIntent('shop bán hàng giả không, nghe nói toàn hàng lởm')).not.toBe('complaint');
     expect(classifyIntent('có phải hàng fake không')).not.toBe('complaint');
   });
+  it('PHÀN NÀN DỊCH VỤ / meta ("xin lỗi rồi quên báo giá","trả lời chậm") KHÔNG phải complaint', () => {
+    // Codex round-5: 'lỗi rồi' dính "xin lỗi rồi" + phàn nàn tốc độ → bị nổ warranty macro hijack tin nhiều ý.
+    expect(classifyIntent('bạn đừng chỉ xin lỗi rồi quên báo giá nha')).not.toBe('complaint');
+    expect(classifyIntent('lần trước shop trả lời chậm quá đó')).not.toBe('complaint');
+    expect(classifyIntent('đừng báo sai như mấy shop lừa đảo nha')).not.toBe('complaint');
+  });
   it('bảo hành', () => {
     expect(classifyIntent('bên mình bảo hành bao lâu')).toBe('warranty');
   });
