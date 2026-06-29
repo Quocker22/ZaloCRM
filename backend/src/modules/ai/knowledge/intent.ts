@@ -31,9 +31,13 @@ const COMPLAINT_KW = [
   'bị đứt', 'bị hư', 'hư rồi', 'kém chất lượng', 'khiếu nại', 'trả hàng', 'hoàn tiền',
   'không dùng được', 'sai hàng', 'giao thiếu', 'bị vỡ', 'vỡ rồi', 'mới mua đã', 'dùng vài bữa đã',
 ];
-// Từ ngắn mơ hồ ('hư','hỏng','tệ'...) CHỈ tính khiếu nại khi đi kèm dấu hiệu ĐÃ XẢY RA.
-// "sợ hư", "khỏi hư", "có bền không hay hư" = lo trước khi mua → KHÔNG phải khiếu nại.
-const PRESALE_CONCERN_RE = /\b(sợ|khỏi|tránh|đỡ|ít|hay bị|có bền|bền không|hãng nào|loại nào|mua loại)\b/i;
+// Từ ngắn mơ hồ ('hư','hỏng','tệ','kém chất lượng'...) CHỈ tính khiếu nại khi đi kèm dấu hiệu
+// ĐÃ XẢY RA với ĐƠN CỦA CHÍNH KHÁCH. Loại trừ 2 nhóm:
+//  - Lo trước khi mua: "sợ hư", "có bền không", "hãng nào bền".
+//  - Tin đồn/nghi ngờ trước mua (không phải đơn của khách): "nghe nói...", "có phải...không",
+//    "đúng không", "shop bán hàng giả không" → tư vấn/trấn an, KHÔNG hỏi mã đơn như khiếu nại thật.
+const PRESALE_CONCERN_RE =
+  /\b(sợ|khỏi|tránh|đỡ|ít|hay bị|có bền|bền không|hãng nào|loại nào|mua loại|nghe nói|có phải|đúng không|fake|hàng giả|hàng nhái)\b/i;
 const WARRANTY_KW = ['bảo hành', 'đổi trả', 'đổi hàng', 'bảo hành bao lâu', 'còn bảo hành'];
 const SHIPPING_KW = ['giao hàng', 'giao tận', 'ship', 'vận chuyển', 'phí giao', 'mấy ngày tới', 'giao tới', 'gửi về'];
 const SHOP_INFO_KW = ['shop ở đâu', 'địa chỉ', 'ở đâu vậy', 'số điện thoại', 'sđt', 'hotline', 'giờ mở cửa', 'mấy giờ mở', 'cửa hàng ở'];
