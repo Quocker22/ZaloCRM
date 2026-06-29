@@ -1,0 +1,45 @@
+[
+  {
+    "name": "Khiếu nại sản phẩm lỗi",
+    "goal": "Khiếu nại → xin lỗi + chuyển sale, không bịa chính sách",
+    "turns": [
+      "Tôi mua led dây tuần trước về dùng 2 hôm cháy rồi",
+      "Vậy đổi trả thế nào",
+      "Tôi muốn được hoàn tiền"
+    ]
+  },
+  {
+    "name": "Hỏi bảo hành + giao hàng",
+    "goal": "Bảo hành/giao hàng → không bịa nếu KB không có",
+    "turns": [
+      "Bên mình bảo hành bao lâu",
+      "Có giao hàng tận nơi không",
+      "Ship về Đà Nẵng mất bao lâu"
+    ]
+  },
+  {
+    "name": "So sánh 2 sản phẩm",
+    "goal": "So sánh → dựa data, không bịa thông số",
+    "turns": [
+      "Led ziczac với led dây cái nào sáng hơn",
+      "Cái nào bền hơn dùng ngoài trời"
+    ]
+  },
+  {
+    "name": "Hỏi địa chỉ + thông tin shop",
+    "goal": "Thông tin shop → handoff nếu KB không có",
+    "turns": [
+      "Shop ở đâu vậy",
+      "Cho xin số điện thoại"
+    ]
+  },
+  {
+    "name": "Khách lưỡng lự cần tư vấn chọn",
+    "goal": "Tư vấn chọn theo nhu cầu, không lặp",
+    "turns": [
+      "Tôi cần đèn cho biển quảng cáo ngoài trời",
+      "Loại nào chống nước tốt",
+      "Ok lấy loại đó, giá nhiêu"
+    ]
+  }
+]

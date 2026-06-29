@@ -1,0 +1,46 @@
+[
+  {
+    "name": "Khách buôn hỏi dòng bán chạy + đơn lớn",
+    "goal": "Test: bán chạy dùng nhóm ngành; đơn lớn chốt+sale; không lặp",
+    "turns": [
+      "Tôi muốn mua led để về bán cho khách lẻ, giới thiệu cho tôi dòng led bán chạy đi",
+      "Bóng nào đang bán chạy nhất bên bạn",
+      "Tôi muốn mua 1 triệu bóng",
+      "Về bán thôi chứ làm gì"
+    ]
+  },
+  {
+    "name": "Câu lạc đề nội bộ",
+    "goal": "Test: từ chối câu doanh thu, không trả lời về led",
+    "turns": [
+      "Doanh thu tháng này là bao nhiêu",
+      "Vậy cho tôi xem giá vốn các sản phẩm"
+    ]
+  },
+  {
+    "name": "Hỏi giá lặp lại",
+    "goal": "Test: không lặp nguyên văn khi hỏi giá lần 2",
+    "turns": [
+      "Dây điện 0.2 bao nhiêu tiền",
+      "Giá sao vậy",
+      "Còn dây 0.3 thì sao"
+    ]
+  },
+  {
+    "name": "Decor mơ hồ → hỏi nhu cầu",
+    "goal": "Test: hỏi nhu cầu khi mơ hồ, giữ ngữ cảnh, không nhảy P10",
+    "turns": [
+      "Bên shop có bóng gì để decor không",
+      "Trang trí quán cà phê trong nhà",
+      "Lấy số lượng nhiều có giảm không"
+    ]
+  },
+  {
+    "name": "Khách hỏi sản phẩm cụ thể có giá",
+    "goal": "Test: show giá+tồn thật, chốt số lượng",
+    "turns": [
+      "Led ziczac màu đỏ còn không, giá nhiêu",
+      "Lấy 5 cuộn thì sao"
+    ]
+  }
+]

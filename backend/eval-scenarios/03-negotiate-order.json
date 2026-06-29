@@ -1,0 +1,47 @@
+[
+  {
+    "name": "Đàm phán giá / mặc cả",
+    "goal": "Mặc cả → không tự giảm, chuyển sale; giữ thái độ",
+    "turns": [
+      "Dây điện 0.2 giá 1800 đắt quá, bớt chút đi",
+      "Lấy 100 mét thì giá nhiêu",
+      "Shop khác bán rẻ hơn đó"
+    ]
+  },
+  {
+    "name": "Hỏi kỹ thuật / lắp đặt",
+    "goal": "Hỏi kỹ thuật → trả nếu KB có, không bịa thông số",
+    "turns": [
+      "Led ziczac 12V dùng nguồn bao nhiêu W",
+      "1 cuộn dài bao nhiêu mét",
+      "Lắp ngoài trời được không"
+    ]
+  },
+  {
+    "name": "Khách do dự rồi từ chối",
+    "goal": "Khách từ chối → lịch sự, không nài ép, để ngỏ",
+    "turns": [
+      "Cho xem vài mẫu led dây đi",
+      "Để tôi suy nghĩ thêm đã",
+      "Thôi để hôm khác"
+    ]
+  },
+  {
+    "name": "Chốt đơn hoàn chỉnh có địa chỉ",
+    "goal": "Chốt đơn đầy đủ → xác nhận, xin thông tin giao",
+    "turns": [
+      "Tôi lấy 10 cuộn led ziczac đỏ",
+      "Giao về 123 Lê Lợi Đà Nẵng",
+      "Khi nào có hàng"
+    ]
+  },
+  {
+    "name": "Hỏi nhiều sản phẩm + chào hỏi",
+    "goal": "Chào hỏi tự nhiên, hỏi nhiều SP → trả gọn",
+    "turns": [
+      "Alo shop ơi",
+      "Có bán nguồn 12V không, với cả dây điện nữa",
+      "Nguồn 12V loại 300W giá nhiêu"
+    ]
+  }
+]
