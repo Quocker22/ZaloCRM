@@ -49,6 +49,29 @@ function hasKw(text: string, kws: string[]): boolean {
   return kws.some((k) => text.includes(k));
 }
 
+// Tập chữ cái tiếng Việt (có dấu) — dùng để xác định "ranh giới từ".
+const VN_LETTER = 'a-zàáảãạăắằẳẵặâấầẩẫậeèéẻẽẹêếềểễệiìíỉĩịoòóỏõọôốồổỗộơớờởỡợuùúủũụưứừửữựyỳýỷỹỵđ';
+const wordCache = new Map<string, RegExp>();
+function wordRe(k: string): RegExp {
+  let re = wordCache.get(k);
+  if (!re) {
+    // Bao biên: trước/sau keyword KHÔNG được là chữ cái tiếng Việt → khớp nguyên từ.
+    const esc = k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    re = new RegExp(`(?<![${VN_LETTER}])${esc}(?![${VN_LETTER}])`, 'i');
+    wordCache.set(k, re);
+  }
+  return re;
+}
+
+/**
+ * Khớp keyword theo RANH GIỚI TỪ (whole-word), tránh bắt nhầm substring.
+ * BẮT BUỘC cho keyword ngắn nguy hiểm: 'hư' nằm trong 'nhưng', 'tệ' trong 'tệp',
+ * 'vỡ' / 'đứt' / 'chập' dễ dính chữ khác. Bug cũ: mọi câu có "nhưng" → complaint.
+ */
+function hasWord(text: string, kws: string[]): boolean {
+  return kws.some((k) => wordRe(k).test(text));
+}
+
 /**
  * Classify customer message into a sales intent. Order matters: more specific /
  * higher-priority intents win (internal block first, then large order, etc.).
@@ -57,7 +80,9 @@ export function classifyIntent(message: string): Intent {
   const t = message.toLowerCase().trim();
   if (hasKw(t, INTERNAL_KW)) return 'internal';
   // Khiếu nại ưu tiên cao (rủi ro): "mua về cháy rồi" phải handoff, không để đi bán tiếp.
-  if (hasKw(t, COMPLAINT_KW)) return 'complaint';
+  // Dùng hasWord (whole-word) — keyword ngắn 'hư'/'tệ'/'vỡ' KHÔNG được dính substring
+  // ("nhưng", "tệp"...). Đây là nguồn gốc bug warranty-macro nổ giữa hội thoại bán hàng.
+  if (hasWord(t, COMPLAINT_KW)) return 'complaint';
   // Discount trước large_order: "lấy số lượng nhiều CÓ GIẢM KHÔNG" trọng tâm là hỏi giảm giá
   // (trả lời cụ thể hơn), dù vẫn dẫn tới chuyển sale như large_order.
   if (hasKw(t, DISCOUNT_KW)) return 'discount';

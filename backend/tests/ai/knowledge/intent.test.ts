@@ -36,6 +36,15 @@ describe('classifyIntent', () => {
     expect(classifyIntent('mua led dây 2 hôm cháy rồi')).toBe('complaint');
     expect(classifyIntent('hàng bị lỗi tôi muốn hoàn tiền')).toBe('complaint');
     expect(classifyIntent('đèn không sáng')).toBe('complaint');
+    expect(classifyIntent('đèn bị vỡ khi nhận')).toBe('complaint');
+    expect(classifyIntent('sản phẩm quá tệ, tôi muốn trả hàng')).toBe('complaint');
+  });
+  it('KHÔNG bắt nhầm complaint qua substring (bug "nhưng" chứa "hư")', () => {
+    // Bug cũ: keyword 'hư' khớp substring trong "nhưng" → mọi câu sửa đơn nổ warranty macro.
+    expect(classifyIntent('đổi sang COB trắng, nhưng vẫn dùng nguồn cũ được không?')).not.toBe('complaint');
+    expect(classifyIntent('giao quận 7, nhưng tôi chưa chắc lấy COB hay ziczac')).not.toBe('complaint');
+    expect(classifyIntent('khách muốn nhìn rõ ban đêm, nhưng ngân sách không cao')).not.toBe('complaint');
+    expect(classifyIntent('led của tôi là loại 2 chân hay 4 chân thì chưa biết')).not.toBe('complaint');
   });
   it('bảo hành', () => {
     expect(classifyIntent('bên mình bảo hành bao lâu')).toBe('warranty');
