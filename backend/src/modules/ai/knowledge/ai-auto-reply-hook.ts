@@ -38,6 +38,12 @@ export interface HookInput {
     topK: number;
     tagOnHandoff: string;
     historyLimit: number;
+    /**
+     * Chế độ TEST: bỏ qua filter hasHandoffTag VÀ không tự gắn tag khi handoff.
+     * Production = false (giữ nguyên: đã chuyển sale thì AI im, nhường người thật).
+     * Bật khi test thật trên Zalo để bot không tự im sau lần handoff đầu.
+     */
+    skipHandoffTag?: boolean;
   };
 }
 
@@ -52,13 +58,14 @@ export async function onIncomingMessageHook(
 ): Promise<'sent' | 'handoff' | 'ignored'> {
   const { conversation: conv, message, cfg } = input;
 
-  // 1. Filter
+  // 1. Filter. skipHandoffTag (chế độ test) → bỏ qua chốt chặn hasHandoffTag để bot
+  // không tự im sau lần handoff đầu trong lúc test thật.
   if (message.isSelf || !message.content.trim()) return 'ignored';
-  if (conv.isVirtual || conv.hasHandoffTag) return 'ignored';
+  if (conv.isVirtual || (conv.hasHandoffTag && !cfg.skipHandoffTag)) return 'ignored';
   if (await deps.alreadyHandled(message.id)) return 'ignored';
 
   const handoff = async (rep: { content: string; confidence: number }, decision: string) => {
-    if (conv.contactId) {
+    if (conv.contactId && !cfg.skipHandoffTag) {
       try {
         await deps.addTag(conv.contactId, cfg.tagOnHandoff);
       } catch {
@@ -98,7 +105,7 @@ export async function onIncomingMessageHook(
   }
   if (intent === 'complaint') {
     // Khiếu nại: gửi câu trấn an cố định + LUÔN gắn tag để sale vào xử lý (handoff).
-    if (conv.contactId) {
+    if (conv.contactId && !cfg.skipHandoffTag) {
       try { await deps.addTag(conv.contactId, cfg.tagOnHandoff); } catch { /* non-fatal */ }
     }
     if (cfg.autoReplyEnabled && conv.zaloAccountId && conv.externalThreadId) {

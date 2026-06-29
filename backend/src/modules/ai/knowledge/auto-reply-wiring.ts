@@ -115,6 +115,9 @@ export async function runAutoReplyForMessage(ctx: AutoReplyContext): Promise<voi
           topK: 6,
           tagOnHandoff: cfg.autoReplyTagOnHandoff,
           historyLimit: 8,
+          // Chế độ test: đặt AI_AUTOREPLY_SKIP_HANDOFF_TAG=1 để bot không tự im sau handoff
+          // (không gắn tag + bỏ qua filter tag). Mặc định production = không bật.
+          skipHandoffTag: process.env.AI_AUTOREPLY_SKIP_HANDOFF_TAG === '1',
         },
       },
     );
