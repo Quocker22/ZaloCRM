@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { buildRagSystemPrompt, parseRagReply, decideAction, type HistoryTurn } from './rag-reply.js';
-import { classifyIntent, intentHint, INTERNAL_REPLY } from './intent.js';
+import { classifyIntent, intentHint, INTERNAL_REPLY, COMPLAINT_REPLY } from './intent.js';
 
 export interface HookDeps {
   search(orgId: string, query: string, topK: number): Promise<Array<{ content: string }>>;
@@ -90,11 +90,23 @@ export async function onIncomingMessageHook(
     return 'sent';
   };
 
-  // 2. Intent router (deterministic, trước LLM). Câu nội bộ → trả lời cố định ở code,
-  // KHÔNG gọi LLM (an toàn tuyệt đối, không rủi ro model bịa). Các intent khác → hint cho LLM.
+  // 2. Intent router (deterministic, trước LLM). Câu nội bộ + khiếu nại → xử lý cố định
+  // ở code, KHÔNG gọi LLM (an toàn trên tình huống nhạy cảm). Intent khác → hint cho LLM.
   const intent = classifyIntent(message.content);
   if (intent === 'internal') {
     return send(INTERNAL_REPLY, 1);
+  }
+  if (intent === 'complaint') {
+    // Khiếu nại: gửi câu trấn an cố định + LUÔN gắn tag để sale vào xử lý (handoff).
+    if (conv.contactId) {
+      try { await deps.addTag(conv.contactId, cfg.tagOnHandoff); } catch { /* non-fatal */ }
+    }
+    if (cfg.autoReplyEnabled && conv.zaloAccountId && conv.externalThreadId) {
+      const threadType: 0 | 1 = conv.threadType === 'group' ? 1 : 0;
+      try { await deps.sendReply(conv.zaloAccountId, conv.externalThreadId, threadType, COMPLAINT_REPLY); } catch { /* gửi lỗi → vẫn đã tag */ }
+    }
+    await deps.recordSuggestion({ messageId: message.id, conversationId: conv.id, content: COMPLAINT_REPLY, confidence: 1, decision: 'complaint' });
+    return 'handoff';
   }
   const hint = intentHint(intent);
 

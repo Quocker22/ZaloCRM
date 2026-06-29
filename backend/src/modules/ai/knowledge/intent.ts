@@ -6,11 +6,16 @@
 
 export type Intent =
   | 'internal'      // hỏi nội bộ (doanh thu, giá vốn, nhà cung cấp...) → chặn cứng
+  | 'complaint'     // khiếu nại, sản phẩm lỗi → handoff sale ngay (rủi ro cao)
   | 'large_order'   // đơn rất lớn → handoff sale
   | 'order'         // ý định chốt số lượng cụ thể
   | 'discount'      // hỏi giảm giá/chiết khấu
+  | 'warranty'      // hỏi bảo hành/đổi trả
+  | 'shipping'      // hỏi giao hàng/ship
+  | 'shop_info'     // hỏi địa chỉ/SĐT/giờ mở cửa
   | 'price'         // hỏi giá
   | 'stock'         // hỏi còn hàng/tồn
+  | 'compare'       // so sánh 2 sản phẩm
   | 'general'       // bán chạy/phổ biến/có dòng nào
   | 'normal';       // còn lại (tư vấn thường / mơ hồ)
 
@@ -20,6 +25,15 @@ const INTERNAL_KW = [
   'nhập ở đâu', 'nhập hàng ở', 'tồn kho tổng', 'số liệu bán', 'dữ liệu khách', 'kpi',
   'chính sách nội bộ', 'bao nhiêu nhân viên', 'lương',
 ];
+const COMPLAINT_KW = [
+  'cháy rồi', 'bị cháy', 'hỏng', 'bị lỗi', 'lỗi rồi', 'không sáng', 'chập', 'đứt', 'hư',
+  'kém chất lượng', 'tệ', 'khiếu nại', 'trả hàng', 'hoàn tiền', 'không dùng được', 'sai hàng',
+  'giao thiếu', 'vỡ', 'mới mua đã',
+];
+const WARRANTY_KW = ['bảo hành', 'đổi trả', 'đổi hàng', 'bảo hành bao lâu', 'còn bảo hành'];
+const SHIPPING_KW = ['giao hàng', 'giao tận', 'ship', 'vận chuyển', 'phí giao', 'mấy ngày tới', 'giao tới', 'gửi về'];
+const SHOP_INFO_KW = ['shop ở đâu', 'địa chỉ', 'ở đâu vậy', 'số điện thoại', 'sđt', 'hotline', 'giờ mở cửa', 'mấy giờ mở', 'cửa hàng ở'];
+const COMPARE_KW = ['cái nào', 'loại nào tốt hơn', 'so sánh', 'khác gì', 'nên chọn', 'sáng hơn', 'bền hơn', 'tốt hơn', 'hơn cái nào'];
 const LARGE_ORDER_KW = [
   '1 triệu', 'một triệu', 'triệu bóng', 'triệu cái', 'lấy sỉ', 'mua sỉ', 'số lượng lớn',
   'số lượng nhiều', 'cả container', 'nguyên lô', 'đại lý', 'phân phối',
@@ -42,14 +56,20 @@ function hasKw(text: string, kws: string[]): boolean {
 export function classifyIntent(message: string): Intent {
   const t = message.toLowerCase().trim();
   if (hasKw(t, INTERNAL_KW)) return 'internal';
+  // Khiếu nại ưu tiên cao (rủi ro): "mua về cháy rồi" phải handoff, không để đi bán tiếp.
+  if (hasKw(t, COMPLAINT_KW)) return 'complaint';
   // Discount trước large_order: "lấy số lượng nhiều CÓ GIẢM KHÔNG" trọng tâm là hỏi giảm giá
   // (trả lời cụ thể hơn), dù vẫn dẫn tới chuyển sale như large_order.
   if (hasKw(t, DISCOUNT_KW)) return 'discount';
   if (hasKw(t, LARGE_ORDER_KW)) return 'large_order';
+  if (hasKw(t, WARRANTY_KW)) return 'warranty';
+  if (hasKw(t, SHIPPING_KW)) return 'shipping';
+  if (hasKw(t, SHOP_INFO_KW)) return 'shop_info';
   // order intent: từ khóa mua + có số lượng (tránh bắt nhầm "mua gì để decor")
   if (hasKw(t, ORDER_KW) && (ORDER_QTY.test(t) || /\bchốt|đặt hàng|order\b/.test(t))) return 'order';
   if (hasKw(t, PRICE_KW)) return 'price';
   if (hasKw(t, STOCK_KW)) return 'stock';
+  if (hasKw(t, COMPARE_KW)) return 'compare';
   if (hasKw(t, GENERAL_KW)) return 'general';
   return 'normal';
 }
@@ -57,6 +77,12 @@ export function classifyIntent(message: string): Intent {
 // Câu từ chối nội bộ — trả thẳng ở code, KHÔNG gọi LLM (an toàn tuyệt đối, 0 token).
 export const INTERNAL_REPLY =
   'Dạ phần này là thông tin nội bộ nên em không cung cấp được ạ. Anh/chị cần tư vấn đèn LED hay kiểm tra mã hàng nào không ạ?';
+
+// Khiếu nại — rủi ro cao, xử lý cố định ở code + handoff sale ngay (codex khuyến nghị).
+// Không để LLM tự ứng biến trên tình huống nhạy cảm.
+export const COMPLAINT_REPLY =
+  'Dạ LEDNELIA xin lỗi anh/chị vì sự cố này ạ. Em sẽ chuyển ngay cho nhân viên hỗ trợ kiểm tra giúp mình. ' +
+  'Anh/chị cho em xin SĐT/mã đơn, sản phẩm đã mua và ảnh/video tình trạng sản phẩm để bên em xử lý nhanh nhất nhé.';
 
 /**
  * Hint chèn vào đầu prompt để ép LLM trả lời đúng kiểu cho intent đã phát hiện.
@@ -76,6 +102,14 @@ export function intentHint(intent: Intent): string {
       return 'INTENT: HỎI TỒN. BẮT BUỘC: câu đầu PHẢI nói còn/hết + số tồn từ TÀI LIỆU nếu có.';
     case 'general':
       return 'INTENT: HỎI CHUNG/BÁN CHẠY. BẮT BUỘC: dùng dữ liệu nhóm ngành + thống kê trong TÀI LIỆU. KHÔNG nói "bán chạy nhất". Nói "nhiều mẫu/phổ biến nhất là nhóm...".';
+    case 'warranty':
+      return 'INTENT: HỎI BẢO HÀNH/ĐỔI TRẢ. BẮT BUỘC: nếu TÀI LIỆU có chính sách bảo hành thì trả lời theo đó. NẾU KHÔNG CÓ → nói "chính sách bảo hành để nhân viên xác nhận chính xác cho mình", đặt needs_human=true. KHÔNG bịa số tháng/điều kiện.';
+    case 'shipping':
+      return 'INTENT: HỎI GIAO HÀNG. BẮT BUỘC: nếu TÀI LIỆU có chính sách giao hàng thì trả lời theo đó. NẾU KHÔNG CÓ (phí/thời gian cụ thể) → nói nhân viên sẽ xác nhận, đặt needs_human=true. KHÔNG bịa phí/thời gian.';
+    case 'shop_info':
+      return 'INTENT: HỎI THÔNG TIN SHOP (địa chỉ/SĐT/giờ). BẮT BUỘC: nếu TÀI LIỆU có thì trả lời. NẾU KHÔNG CÓ → nói nhân viên sẽ cung cấp, đặt needs_human=true. KHÔNG bịa địa chỉ/SĐT.';
+    case 'compare':
+      return 'INTENT: SO SÁNH SẢN PHẨM. BẮT BUỘC: nếu TÀI LIỆU không có thông số kỹ thuật (độ sáng/công suất/chống nước) → KHÔNG kết luận cái nào hơn. Nói chưa đủ thông số để kết luận, hỏi nhu cầu (trong nhà/ngoài trời) rồi gợi ý hướng hoặc chuyển nhân viên tư vấn.';
     default:
       return '';
   }

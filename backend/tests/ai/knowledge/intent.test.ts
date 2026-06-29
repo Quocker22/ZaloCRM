@@ -32,6 +32,26 @@ describe('classifyIntent', () => {
     expect(classifyIntent('bóng nào bán chạy nhất')).toBe('general');
     expect(classifyIntent('có những dòng nào')).toBe('general');
   });
+  it('khiếu nại', () => {
+    expect(classifyIntent('mua led dây 2 hôm cháy rồi')).toBe('complaint');
+    expect(classifyIntent('hàng bị lỗi tôi muốn hoàn tiền')).toBe('complaint');
+    expect(classifyIntent('đèn không sáng')).toBe('complaint');
+  });
+  it('bảo hành', () => {
+    expect(classifyIntent('bên mình bảo hành bao lâu')).toBe('warranty');
+  });
+  it('giao hàng', () => {
+    expect(classifyIntent('có giao hàng tận nơi không')).toBe('shipping');
+    expect(classifyIntent('ship về Đà Nẵng mất mấy ngày')).toBe('shipping');
+  });
+  it('thông tin shop', () => {
+    expect(classifyIntent('shop ở đâu vậy')).toBe('shop_info');
+    expect(classifyIntent('cho xin số điện thoại')).toBe('shop_info');
+  });
+  it('so sánh', () => {
+    expect(classifyIntent('led ziczac với led dây cái nào sáng hơn')).toBe('compare');
+    expect(classifyIntent('cái nào bền hơn dùng ngoài trời')).toBe('compare');
+  });
   it('thường/mơ hồ', () => {
     expect(classifyIntent('tư vấn đèn led đi')).toBe('normal');
     expect(classifyIntent('trang trí quán cà phê trong nhà')).toBe('normal');
