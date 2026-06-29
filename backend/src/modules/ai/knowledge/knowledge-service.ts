@@ -57,6 +57,25 @@ export async function ingestDocument(
   return { documentId: document.id, chunks: chunks.length };
 }
 
+// Từ dừng/quá chung — không dùng làm khóa lexical (tránh match tràn lan).
+const LEXICAL_STOP = new Set([
+  'led', 'đèn', 'shop', 'em', 'anh', 'chị', 'cho', 'coi', 'xem', 'có', 'không', 'ko', 'giá',
+  'bao', 'nhiêu', 'loại', 'dòng', 'mẫu', 'cái', 'của', 'là', 'nha', 'ạ', 'với', 'và', 'mua',
+  'bán', 'cần', 'tư', 'vấn', 'này', 'kia', 'đó', 'thì', 'mà', 'ở', 'về',
+]);
+
+/**
+ * Token đặc trưng trong query để bổ trợ tìm theo TỪ KHÓA (lexical), bù cho việc
+ * vector search bỏ sót khớp tên/mã sản phẩm hiếm (vd "matrix", "P10", "ziczac").
+ * Lấy token ≥3 ký tự, không phải stopword.
+ */
+function lexicalTerms(query: string): string[] {
+  return query
+    .toLowerCase()
+    .split(/[^a-zà-ỹ0-9]+/i)
+    .filter((w) => w.length >= 3 && !LEXICAL_STOP.has(w));
+}
+
 export async function searchKnowledge(
   deps: IngestDeps,
   orgId: string,
@@ -69,5 +88,23 @@ export async function searchKnowledge(
     where: { orgId },
     select: { id: true, content: true, embedding: true, embedDim: true },
   });
-  return rankChunks(queryVec, rows, topK);
+  const vectorHits = rankChunks(queryVec, rows, topK);
+
+  // HYBRID: bù chunk khớp TỪ KHÓA đặc trưng mà vector search bỏ sót (vd khách hỏi
+  // "led matrix" nhưng embedding không kéo "Card điều khiển ST Matrix" lên top-K).
+  const terms = lexicalTerms(query);
+  if (terms.length === 0) return vectorHits;
+  const seen = new Set(vectorHits.map((h) => h.chunkId));
+  const lexHits: Hit[] = [];
+  for (const r of rows) {
+    if (seen.has(r.id)) continue;
+    const lc = r.content.toLowerCase();
+    if (terms.some((t) => lc.includes(t))) {
+      lexHits.push({ chunkId: r.id, content: r.content, score: 0 });
+      if (lexHits.length >= topK) break;
+    }
+  }
+  if (lexHits.length === 0) return vectorHits;
+  // Giữ chunk vector tốt nhất + chèn vài chunk lexical (tổng tối đa topK + 3, đủ ngữ cảnh).
+  return [...vectorHits, ...lexHits].slice(0, topK + 3);
 }

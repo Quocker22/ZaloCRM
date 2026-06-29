@@ -47,4 +47,26 @@ describe('searchKnowledge', () => {
     (deps.embed as any).mockRejectedValueOnce(new Error('embed down'));
     await expect(ingestDocument(deps, 'org1', { title: 'd', content: 'x' }, cfg)).rejects.toThrow();
   });
+
+  it('HYBRID: bù chunk khớp từ khóa mà vector bỏ sót (vd "matrix")', async () => {
+    // 3 chunk: 2 cái dài (vector kéo lên top), 1 cái ngắn chứa "matrix" (vector bỏ sót).
+    const { deps } = fakeDeps();
+    await ingestDocument(
+      deps,
+      'org1',
+      { title: 'kb', content: 'Led dây ziczac trắng dài dài dài dài.\n\nLed neon cam dài dài dài dài.\n\nCard ST Matrix.' },
+      cfg,
+    );
+    // topK=2 → vector chỉ lấy 2 chunk dài; lexical phải chèn chunk "matrix" vào.
+    const hits = await searchKnowledge(deps, 'org1', 'cho anh led matrix coi', 2, cfg);
+    expect(hits.some((h) => h.content.includes('Matrix'))).toBe(true);
+  });
+
+  it('HYBRID: query không có từ khóa đặc trưng → không chèn thừa', async () => {
+    const { deps } = fakeDeps();
+    await ingestDocument(deps, 'org1', { title: 'kb', content: 'Led dây ziczac.\n\nLed neon cam.' }, cfg);
+    // chỉ toàn stopword ("cho anh xem có gì") → không lexical term → giữ nguyên top-K vector.
+    const hits = await searchKnowledge(deps, 'org1', 'cho anh xem có gì', 1, cfg);
+    expect(hits.length).toBe(1);
+  });
 });
