@@ -17,6 +17,17 @@ export interface HookDeps {
     confidence: number;
     decision: string;
   }): Promise<void>;
+  /**
+   * Sau khi GỬI text thành công: nếu câu trả lời nhắc tới ĐÚNG 1 sản phẩm có ảnh trong kho ảnh
+   * (crawl từ web), gửi kèm ảnh thật. Optional — không có thì bỏ qua (bot vẫn chạy như cũ).
+   * Trả về true nếu đã gửi ảnh. Nuốt mọi lỗi (ảnh lỗi không được chặn luồng text).
+   */
+  sendProductImage?(
+    accountId: string,
+    threadId: string,
+    threadType: 0 | 1,
+    replyText: string,
+  ): Promise<boolean>;
 }
 
 export interface HookInput {
@@ -109,6 +120,14 @@ export async function onIncomingMessageHook(
       return handoff({ content: text, confidence }, 'skipped');
     }
     await deps.recordSuggestion({ messageId: message.id, conversationId: conv.id, content: text, confidence, decision: 'sent' });
+    // Sau khi gửi text OK: gửi kèm ảnh SP nếu câu trả lời nhắc đúng 1 sản phẩm có ảnh.
+    if (deps.sendProductImage) {
+      try {
+        await deps.sendProductImage(conv.zaloAccountId, conv.externalThreadId, threadType, text);
+      } catch {
+        /* ảnh lỗi không chặn luồng — text đã gửi thành công */
+      }
+    }
     return 'sent';
   };
 

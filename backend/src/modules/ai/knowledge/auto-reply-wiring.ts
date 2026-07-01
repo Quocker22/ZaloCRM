@@ -10,6 +10,7 @@ import { logger } from '../../../shared/utils/logger.js';
 import { generateEmbedding } from './embedding.js';
 import { searchKnowledge, type IngestDeps } from './knowledge-service.js';
 import { onIncomingMessageHook } from './ai-auto-reply-hook.js';
+import { findImageForReply } from './product-image.js';
 
 const kbDeps: IngestDeps = { prisma: prisma as unknown as IngestDeps['prisma'], embed: generateEmbedding };
 
@@ -71,6 +72,17 @@ export async function runAutoReplyForMessage(ctx: AutoReplyContext): Promise<voi
           generateText(cfg.provider, llmApiKey, cfg.model, system, prompt, 800, llmBaseUrl),
         sendReply: async (accountId, threadId, threadType, text) => {
           await zaloOps.sendMessage(accountId, threadId, threadType, { msg: text });
+        },
+        sendProductImage: async (accountId, threadId, threadType, replyText) => {
+          const imgPath = findImageForReply(replyText);
+          if (!imgPath) return false;
+          try {
+            await zaloOps.sendImage(accountId, threadId, threadType, [imgPath]);
+            return true;
+          } catch (err) {
+            logger.warn({ err }, '[ai/kb] gửi ảnh sản phẩm lỗi (bỏ qua)');
+            return false;
+          }
         },
         addTag: async (contactId, tag) => {
           const c = await prisma.contact.findUnique({ where: { id: contactId }, select: { tags: true } });
