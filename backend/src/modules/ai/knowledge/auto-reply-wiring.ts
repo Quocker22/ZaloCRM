@@ -11,6 +11,7 @@ import { generateEmbedding } from './embedding.js';
 import { searchKnowledge, type IngestDeps } from './knowledge-service.js';
 import { onIncomingMessageHook } from './ai-auto-reply-hook.js';
 import { findImageForReply } from './product-image.js';
+import { buildSummaryPrompt, formatGroupSummary, groupName } from './handoff-group.js';
 
 const kbDeps: IngestDeps = { prisma: prisma as unknown as IngestDeps['prisma'], embed: generateEmbedding };
 
@@ -106,6 +107,71 @@ export async function runAutoReplyForMessage(ctx: AutoReplyContext): Promise<voi
               confidence: rec.confidence,
             },
           });
+        },
+        openHandoffGroup: async (conversationId, latestCustomerMsg, decision) => {
+          // Sale UID cấu hình qua env (hệ thống chưa map user→Zalo UID). Không có → bỏ qua.
+          const saleUid = process.env.AI_HANDOFF_SALE_ZALO_UID?.trim();
+          if (!saleUid) return;
+          if (!conv.zaloAccountId || !conv.contactId) return;
+          // Khách phải có zalo_uid mới add vào group được.
+          const contact = await prisma.contact.findUnique({
+            where: { id: conv.contactId },
+            select: { zaloUid: true, fullName: true, crmName: true },
+          });
+          if (!contact?.zaloUid) return;
+          // Chống tạo trùng: đã có group cho conversation này thì gửi tóm tắt vào group cũ.
+          const existing = await prisma.aiSuggestion.findFirst({
+            where: { orgId: ctx.orgId, conversationId, type: 'handoff_group' },
+            orderBy: { createdAt: 'desc' },
+            select: { content: true },
+          });
+          const customerName = contact.crmName || contact.fullName || '';
+          // Tóm tắt vấn đề cho sale (LLM). Lỗi → tóm tắt tối giản.
+          let summary = '';
+          try {
+            const rows = await prisma.message.findMany({
+              where: { conversationId, contentType: 'text', isDeleted: false },
+              select: { senderType: true, content: true },
+              orderBy: { sentAt: 'desc' },
+              take: 12,
+            });
+            const hist = rows
+              .reverse()
+              .filter((m) => m.content)
+              .map((m) => ({ role: m.senderType === 'self' ? ('shop' as const) : ('customer' as const), content: m.content as string }));
+            const { system, prompt } = buildSummaryPrompt(ctx.bizName, customerName, hist, latestCustomerMsg);
+            summary = await generateText(cfg.provider, llmApiKey, cfg.model, system, prompt, 400, llmBaseUrl);
+          } catch {
+            summary = `Khách ${customerName || ''} cần sale hỗ trợ (${decision}). Tin gần nhất: ${latestCustomerMsg}`;
+          }
+          const text = formatGroupSummary(customerName, summary);
+          try {
+            if (existing?.content) {
+              // đã có group → gửi tóm tắt cập nhật vào group cũ (content lưu groupId)
+              await zaloOps.sendMessage(conv.zaloAccountId, existing.content, 1, { msg: text });
+              return;
+            }
+            const grp = await zaloOps.createGroup(conv.zaloAccountId, {
+              name: groupName(customerName),
+              memberIds: [saleUid, contact.zaloUid],
+            });
+            const groupId = (grp as { groupId?: string })?.groupId;
+            if (!groupId) return;
+            await zaloOps.sendMessage(conv.zaloAccountId, groupId, 1, { msg: text });
+            // lưu groupId để chống tạo trùng lần sau (dùng bảng aiSuggestion sẵn có)
+            await prisma.aiSuggestion.create({
+              data: {
+                orgId: ctx.orgId,
+                conversationId,
+                messageId: ctx.messageId,
+                type: 'handoff_group',
+                content: groupId,
+                confidence: 1,
+              },
+            });
+          } catch (err) {
+            logger.warn({ err }, '[ai/kb] tạo group handoff lỗi (bỏ qua)');
+          }
         },
       },
       {

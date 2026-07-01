@@ -28,6 +28,12 @@ export interface HookDeps {
     threadType: 0 | 1,
     replyText: string,
   ): Promise<boolean>;
+  /**
+   * Khi HANDOFF ca đáng giá (chốt đơn/đơn lớn/khiếu nại): tạo group Zalo (bot+sale+khách)
+   * rồi gửi tin tóm tắt vấn đề cho sale đọc. Optional — chỉ chạy khi có cấu hình sale UID.
+   * Nuốt mọi lỗi (không chặn luồng handoff). replyToCustomer = câu bot vừa nói với khách.
+   */
+  openHandoffGroup?(conversationId: string, latestCustomerMsg: string, decision: string): Promise<void>;
 }
 
 export interface HookInput {
@@ -105,6 +111,15 @@ export async function onIncomingMessageHook(
       confidence: rep.confidence,
       decision,
     });
+    // Ca ĐÁNG GIÁ (needs_human: chốt đơn/đơn lớn/khiếu nại) → mở group sale + tóm tắt.
+    // KHÔNG mở cho 'skipped' (gửi lỗi / thiếu thread) hay câu vặt confidence thấp.
+    if (deps.openHandoffGroup && (decision === 'handoff' || decision === 'complaint')) {
+      try {
+        await deps.openHandoffGroup(conv.id, message.content, decision);
+      } catch {
+        /* lỗi tạo group không chặn luồng handoff */
+      }
+    }
     return 'handoff' as const;
   };
 
@@ -147,6 +162,9 @@ export async function onIncomingMessageHook(
       try { await deps.sendReply(conv.zaloAccountId, conv.externalThreadId, threadType, COMPLAINT_REPLY); } catch { /* gửi lỗi → vẫn đã tag */ }
     }
     await deps.recordSuggestion({ messageId: message.id, conversationId: conv.id, content: COMPLAINT_REPLY, confidence: 1, decision: 'complaint' });
+    if (deps.openHandoffGroup) {
+      try { await deps.openHandoffGroup(conv.id, message.content, 'complaint'); } catch { /* non-fatal */ }
+    }
     return 'handoff';
   }
   const hint = intentHint(intent);

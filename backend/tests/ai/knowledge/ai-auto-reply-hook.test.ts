@@ -11,6 +11,7 @@ function deps(genReply: string) {
     addTag: vi.fn(async () => {}),
     alreadyHandled: vi.fn(async () => false),
     recordSuggestion: vi.fn(async () => {}),
+    openHandoffGroup: vi.fn(async () => {}),
   };
 }
 const conv = { id: 'c1', isVirtual: false, zaloAccountId: 'a', externalThreadId: 't', threadType: 'user', contactId: 'ct', hasHandoffTag: false };
@@ -29,6 +30,21 @@ describe('onIncomingMessageHook', () => {
     expect(r).toBe('sent');
     expect(d.sendReply).toHaveBeenCalled();
     expect(d.addTag).not.toHaveBeenCalled();
+  });
+  it('gửi thành công → KHÔNG mở group handoff (câu vặt không cần sale)', async () => {
+    const d = deps(confident);
+    await onIncomingMessageHook(d, baseInput());
+    expect(d.openHandoffGroup).not.toHaveBeenCalled();
+  });
+  it('needs_human handoff → MỞ group handoff cho sale', async () => {
+    const d = deps('{"reply":"Dạ em chuyển sale báo giá sỉ nhé","confidence":0.9,"needs_human":true,"reason":"giá sỉ"}');
+    await onIncomingMessageHook(d, baseInput());
+    expect(d.openHandoffGroup).toHaveBeenCalledWith('c1', expect.any(String), 'handoff');
+  });
+  it('khiếu nại → MỞ group handoff (decision=complaint)', async () => {
+    const d = deps(confident);
+    await onIncomingMessageHook(d, baseInput({ message: { content: 'hàng tôi mua bị hư rồi' } }));
+    expect(d.openHandoffGroup).toHaveBeenCalledWith('c1', 'hàng tôi mua bị hư rồi', 'complaint');
   });
   it('autoReply tắt → handoff (gắn tag, không gửi)', async () => {
     const d = deps(confident);
