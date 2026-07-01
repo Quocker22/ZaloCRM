@@ -68,6 +68,15 @@ describe('classifyIntent', () => {
     expect(classifyIntent('lần trước shop trả lời chậm quá đó')).not.toBe('complaint');
     expect(classifyIntent('đừng báo sai như mấy shop lừa đảo nha')).not.toBe('complaint');
   });
+  it('HỎI CHÍNH SÁCH đổi trả/hoàn tiền trước mua KHÔNG phải complaint (codex round-8)', () => {
+    // 'trả hàng'/'hoàn tiền' trong câu HỎI POLICY không được nổ warranty-macro khiếu nại.
+    expect(classifyIntent('shop có chính sách đổi trả hoàn tiền không')).not.toBe('complaint');
+    expect(classifyIntent('lỡ mua về không ưng thì trả lại được không')).not.toBe('complaint');
+    expect(classifyIntent('bên em có cho đổi trả không')).not.toBe('complaint');
+    // khiếu nại thật (đã mua + đã lỗi) vẫn complaint
+    expect(classifyIntent('hàng tôi mua bị lỗi, tôi muốn trả hàng hoàn tiền')).toBe('complaint');
+    expect(classifyIntent('sản phẩm lỗi quá, trả hàng cho tôi')).toBe('complaint');
+  });
   it('INTERNAL/DISCOUNT substring + disclaimer (codex round-6)', () => {
     // 'giá vốn' dính "giá vốn dĩ"; 'sỉ' dính "liêm sỉ"/"sỉn màu"; khách tự phủ nhận "không hỏi giá vốn".
     expect(classifyIntent('Giá vốn dĩ em thấy mỗi loại khác nhau, báo giá lẻ giúp em')).not.toBe('internal');

@@ -32,14 +32,16 @@ const COMPLAINT_KW = [
   'bị chập', 'bị đứt', 'bị hư', 'hư rồi', 'kém chất lượng', 'khiếu nại', 'trả hàng', 'hoàn tiền',
   'không dùng được', 'sai hàng', 'giao thiếu', 'bị vỡ', 'vỡ rồi', 'mới mua đã', 'dùng vài bữa đã',
 ];
-// Từ ngắn mơ hồ ('hư','hỏng','tệ','kém chất lượng'...) CHỈ tính khiếu nại khi đi kèm dấu hiệu
-// ĐÃ XẢY RA với ĐƠN CỦA CHÍNH KHÁCH. Loại trừ 3 nhóm:
+// Từ ngắn mơ hồ ('hư','hỏng','tệ','kém chất lượng','trả hàng','hoàn tiền'...) CHỈ tính khiếu nại khi
+// đi kèm dấu hiệu ĐÃ XẢY RA với ĐƠN CỦA CHÍNH KHÁCH. Loại trừ 4 nhóm (KHÔNG dùng \b — JS \b không
+// nhận chữ tiếng Việt có dấu):
 //  - Lo trước khi mua: "sợ hư", "có bền không", "hãng nào bền".
 //  - Tin đồn/nghi ngờ trước mua: "nghe nói...", "có phải...không", "shop bán hàng giả không".
-//  - PHÀN NÀN DỊCH VỤ (không phải sản phẩm lỗi): "xin lỗi", "trả lời/phản hồi chậm", "lừa đảo",
-//    "đừng báo sai" → KHÔNG nổ macro bảo hành hỏi mã đơn; trả lời bình thường + xin lỗi ngắn nếu cần.
+//  - PHÀN NÀN DỊCH VỤ (không phải sản phẩm lỗi): "xin lỗi", "trả lời/phản hồi chậm", "lừa đảo".
+//  - HỎI CHÍNH SÁCH TRƯỚC MUA: "có chính sách đổi trả/hoàn tiền không", "cho đổi trả không",
+//    "được trả lại không" → hỏi policy, KHÔNG phải khiếu nại đơn đã lỗi.
 const PRESALE_CONCERN_RE =
-  /\b(sợ|khỏi|tránh|đỡ|ít|hay bị|có bền|bền không|hãng nào|loại nào|mua loại|nghe nói|có phải|đúng không|fake|hàng giả|hàng nhái|xin lỗi|trả lời chậm|phản hồi chậm|trả lời thiếu|đừng báo sai|lừa đảo)\b/i;
+  /(sợ|khỏi|tránh|đỡ|ít |hay bị|có bền|bền không|hãng nào|loại nào|mua loại|nghe nói|có phải|đúng không|fake|hàng giả|hàng nhái|xin lỗi|trả lời chậm|phản hồi chậm|trả lời thiếu|đừng báo sai|lừa đảo|chính sách|có cho|cho đổi|được đổi|được trả|có đổi trả|có hoàn tiền|có được|có nhận)/i;
 const WARRANTY_KW = ['bảo hành', 'đổi trả', 'đổi hàng', 'bảo hành bao lâu', 'còn bảo hành'];
 const SHIPPING_KW = ['giao hàng', 'giao tận', 'ship', 'vận chuyển', 'phí giao', 'mấy ngày tới', 'giao tới', 'gửi về'];
 const SHOP_INFO_KW = ['shop ở đâu', 'địa chỉ', 'ở đâu vậy', 'số điện thoại', 'sđt', 'hotline', 'giờ mở cửa', 'mấy giờ mở', 'cửa hàng ở'];
