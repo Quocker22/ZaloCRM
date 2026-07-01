@@ -464,9 +464,12 @@ async function getPinConversations(accountId: string) {
 }
 
 // ─── Group Management ───────────────────────────────────────────────────────
-async function createGroup(accountId: string, options: { name: string; memberIds: string[] }) {
+// zca-js createGroup nhận { name?, members: string[] } — KHÔNG phải memberIds.
+// Nhận cả 2 tên để tương thích caller cũ, nhưng map đúng sang `members` cho zca-js.
+async function createGroup(accountId: string, options: { name?: string; members?: string[]; memberIds?: string[] }) {
+  const members = options.members ?? options.memberIds ?? [];
   return exec({ accountId, category: 'group_admin', operation: 'createGroup' },
-    (api) => api.createGroup(options));
+    (api) => api.createGroup({ name: options.name, members }));
 }
 
 async function renameGroup(accountId: string, name: string, groupId: string) {

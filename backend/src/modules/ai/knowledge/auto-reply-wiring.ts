@@ -39,6 +39,25 @@ export async function runAutoReplyForMessage(ctx: AutoReplyContext): Promise<voi
     });
     if (!conv) return;
 
+    // IM LẶNG TRONG GROUP HANDOFF: nếu tin đến từ 1 GROUP mà bot đã tạo để chuyển sale,
+    // bot KHÔNG tự trả lời — để sale nói với khách. CHỈ trả lời khi bot bị @tag.
+    if (conv.threadType === 'group' && conv.externalThreadId) {
+      const isHandoffGroup = await prisma.aiSuggestion.count({
+        where: { orgId: ctx.orgId, type: 'handoff_group', content: conv.externalThreadId },
+      });
+      if (isHandoffGroup > 0) {
+        // Bot chỉ nói khi được @tag. Lấy UID bot + mentions của tin để kiểm.
+        const acct = conv.zaloAccountId
+          ? await prisma.zaloAccount.findUnique({ where: { id: conv.zaloAccountId }, select: { zaloUid: true } })
+          : null;
+        const msg = await prisma.message.findUnique({ where: { id: ctx.messageId }, select: { mentions: true } });
+        const botUid = acct?.zaloUid ?? '';
+        const mentionsStr = msg?.mentions ? JSON.stringify(msg.mentions) : '';
+        const botMentioned = botUid !== '' && mentionsStr.includes(botUid);
+        if (!botMentioned) return; // không tag bot → im lặng, để sale xử lý
+      }
+    }
+
     const tags = conv.contactId
       ? ((await prisma.contact.findUnique({ where: { id: conv.contactId }, select: { tags: true } }))?.tags as
           | string[]
@@ -153,7 +172,7 @@ export async function runAutoReplyForMessage(ctx: AutoReplyContext): Promise<voi
             }
             const grp = await zaloOps.createGroup(conv.zaloAccountId, {
               name: groupName(customerName),
-              memberIds: [saleUid, contact.zaloUid],
+              members: [saleUid, contact.zaloUid],
             });
             const groupId = (grp as { groupId?: string })?.groupId;
             if (!groupId) return;
