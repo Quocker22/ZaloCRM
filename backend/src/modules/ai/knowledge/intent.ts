@@ -86,17 +86,25 @@ function hasWord(text: string, kws: string[]): boolean {
  * Classify customer message into a sales intent. Order matters: more specific /
  * higher-priority intents win (internal block first, then large order, etc.).
  */
+// Khách TỰ PHỦ NHẬN hỏi thông tin nội bộ ("em không hỏi giá vốn đâu", "đâu phải hỏi giá vốn",
+// "chứ không hỏi giá sỉ") → KHÔNG chặn như câu nội bộ thật. Chỉ cần có dấu phủ nhận gần cụm.
+// "vốn dĩ" = trạng từ ("vốn dĩ đẹp") — 'giá vốn' dính "giá vốn dĩ" là giả, loại luôn.
+// KHÔNG dùng \b (JS \b không nhận diện chữ tiếng Việt có dấu → khớp sai ở ranh giới).
+const INTERNAL_DISCLAIM_RE = /(không hỏi|đâu hỏi|đâu phải|chứ không|không phải là|có phải đâu|không cần biết|vốn dĩ)/i;
+
 export function classifyIntent(message: string): Intent {
   const t = message.toLowerCase().trim();
-  if (hasKw(t, INTERNAL_KW)) return 'internal';
+  // hasWord (whole-word) cho INTERNAL — 'giá vốn' KHÔNG dính "giá vốn dĩ", 'sỉ' KHÔNG dính "liêm sỉ".
+  // + Bỏ qua khi khách TỰ PHỦ NHẬN đang hỏi ("không hỏi giá vốn đâu").
+  if (hasWord(t, INTERNAL_KW) && !INTERNAL_DISCLAIM_RE.test(t)) return 'internal';
   // Khiếu nại ưu tiên cao (rủi ro): "mua về cháy rồi" phải handoff, không để đi bán tiếp.
   // Dùng hasWord (whole-word) — keyword ngắn KHÔNG được dính substring ("nhưng", "tệp"...).
   // NHƯNG nếu câu mang ý LO TRƯỚC KHI MUA ("nguồn nào bền khỏi hư", "sợ nóng") → KHÔNG phải
   // khiếu nại, để đi tiếp luồng tư vấn bán hàng (codex round-2: né bug warranty trên câu pre-sale).
   if (hasWord(t, COMPLAINT_KW) && !PRESALE_CONCERN_RE.test(t)) return 'complaint';
-  // Discount trước large_order: "lấy số lượng nhiều CÓ GIẢM KHÔNG" trọng tâm là hỏi giảm giá
-  // (trả lời cụ thể hơn), dù vẫn dẫn tới chuyển sale như large_order.
-  if (hasKw(t, DISCOUNT_KW)) return 'discount';
+  // Discount trước large_order: "lấy số lượng nhiều CÓ GIẢM KHÔNG" trọng tâm là hỏi giảm giá.
+  // hasWord — 'sỉ'/'giá sỉ' KHÔNG dính "liêm sỉ", "sỉn màu".
+  if (hasWord(t, DISCOUNT_KW)) return 'discount';
   if (hasKw(t, LARGE_ORDER_KW)) return 'large_order';
   if (hasKw(t, WARRANTY_KW)) return 'warranty';
   if (hasKw(t, SHIPPING_KW)) return 'shipping';

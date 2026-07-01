@@ -68,6 +68,15 @@ describe('classifyIntent', () => {
     expect(classifyIntent('lần trước shop trả lời chậm quá đó')).not.toBe('complaint');
     expect(classifyIntent('đừng báo sai như mấy shop lừa đảo nha')).not.toBe('complaint');
   });
+  it('INTERNAL/DISCOUNT substring + disclaimer (codex round-6)', () => {
+    // 'giá vốn' dính "giá vốn dĩ"; 'sỉ' dính "liêm sỉ"/"sỉn màu"; khách tự phủ nhận "không hỏi giá vốn".
+    expect(classifyIntent('Giá vốn dĩ em thấy mỗi loại khác nhau, báo giá lẻ giúp em')).not.toBe('internal');
+    expect(classifyIntent('em còn liêm sỉ, không hỏi giá vốn đâu, báo giá bán lẻ thôi')).not.toBe('internal');
+    expect(classifyIntent('màu này hơi sỉn, có màu tươi hơn không')).not.toBe('discount');
+    // internal/discount THẬT vẫn bắt
+    expect(classifyIntent('giá vốn của shop bao nhiêu')).toBe('internal');
+    expect(classifyIntent('lấy sỉ có giảm giá không')).toBe('discount');
+  });
   it('bảo hành', () => {
     expect(classifyIntent('bên mình bảo hành bao lâu')).toBe('warranty');
   });
