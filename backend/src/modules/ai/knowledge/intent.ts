@@ -42,6 +42,11 @@ const COMPLAINT_KW = [
 //    "được trả lại không" → hỏi policy, KHÔNG phải khiếu nại đơn đã lỗi.
 const PRESALE_CONCERN_RE =
   /(sợ|khỏi|tránh|đỡ|ít |hay bị|có bền|bền không|hãng nào|loại nào|mua loại|nghe nói|có phải|đúng không|fake|hàng giả|hàng nhái|xin lỗi|trả lời chậm|phản hồi chậm|trả lời thiếu|đừng báo sai|lừa đảo|chính sách|có cho|cho đổi|được đổi|được trả|có đổi trả|có hoàn tiền|có được|có nhận)/i;
+// Khách PHỦ ĐỊNH keyword ("đừng báo khiếu nại", "không giảm giá", "chớ hoàn tiền") → keyword
+// KHÔNG tính là ý định thật. Bắt cụm phủ định + keyword gần nhau (trong ~15 ký tự).
+// KHÔNG dùng \b (JS \b không nhận chữ tiếng Việt có dấu như "đừng").
+const NEGATED_RE =
+  /(đừng|không|chớ|khỏi cần|khỏi|đâu có|chẳng)[^.!?]{0,15}?(khiếu nại|giảm giá|giảm|chiết khấu|hoàn tiền|trả hàng|bảo hành|bớt)/i;
 const WARRANTY_KW = ['bảo hành', 'đổi trả', 'đổi hàng', 'bảo hành bao lâu', 'còn bảo hành'];
 const SHIPPING_KW = ['giao hàng', 'giao tận', 'ship', 'vận chuyển', 'phí giao', 'mấy ngày tới', 'giao tới', 'gửi về'];
 const SHOP_INFO_KW = ['shop ở đâu', 'địa chỉ', 'ở đâu vậy', 'số điện thoại', 'sđt', 'hotline', 'giờ mở cửa', 'mấy giờ mở', 'cửa hàng ở'];
@@ -103,12 +108,13 @@ export function classifyIntent(message: string): Intent {
   // Dùng hasWord (whole-word) — keyword ngắn KHÔNG được dính substring ("nhưng", "tệp"...).
   // NHƯNG nếu câu mang ý LO TRƯỚC KHI MUA ("nguồn nào bền khỏi hư", "sợ nóng") → KHÔNG phải
   // khiếu nại, để đi tiếp luồng tư vấn bán hàng (codex round-2: né bug warranty trên câu pre-sale).
-  if (hasWord(t, COMPLAINT_KW) && !PRESALE_CONCERN_RE.test(t)) return 'complaint';
-  // Discount trước large_order: "lấy số lượng nhiều CÓ GIẢM KHÔNG" trọng tâm là hỏi giảm giá.
-  // hasWord — 'sỉ'/'giá sỉ' KHÔNG dính "liêm sỉ", "sỉn màu".
-  if (hasWord(t, DISCOUNT_KW)) return 'discount';
+  // + NEGATED_RE: khách phủ định ("đừng báo khiếu nại") → không tính complaint.
+  if (hasWord(t, COMPLAINT_KW) && !PRESALE_CONCERN_RE.test(t) && !NEGATED_RE.test(t)) return 'complaint';
+  // Discount: "lấy nhiều CÓ GIẢM KHÔNG" là hỏi giảm. hasWord — 'sỉ' KHÔNG dính "liêm sỉ".
+  // + NEGATED_RE: "đừng giảm giá/làm tròn" → khách KHÔNG xin giảm, không tính discount.
+  if (hasWord(t, DISCOUNT_KW) && !NEGATED_RE.test(t)) return 'discount';
   if (hasKw(t, LARGE_ORDER_KW)) return 'large_order';
-  if (hasKw(t, WARRANTY_KW)) return 'warranty';
+  if (hasKw(t, WARRANTY_KW) && !NEGATED_RE.test(t)) return 'warranty';
   if (hasKw(t, SHIPPING_KW)) return 'shipping';
   if (hasKw(t, SHOP_INFO_KW)) return 'shop_info';
   // order intent: từ khóa mua + có số lượng (tránh bắt nhầm "mua gì để decor")

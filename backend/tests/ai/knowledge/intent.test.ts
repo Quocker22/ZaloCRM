@@ -77,6 +77,14 @@ describe('classifyIntent', () => {
     expect(classifyIntent('hàng tôi mua bị lỗi, tôi muốn trả hàng hoàn tiền')).toBe('complaint');
     expect(classifyIntent('sản phẩm lỗi quá, trả hàng cho tôi')).toBe('complaint');
   });
+  it('PHỦ ĐỊNH keyword ("đừng khiếu nại","đừng giảm giá") KHÔNG kích intent đó (mô phỏng r10)', () => {
+    expect(classifyIntent('đừng báo khiếu nại, chỉ hỏi giá thôi')).not.toBe('complaint');
+    expect(classifyIntent('đừng giảm giá hay làm tròn gì cả')).not.toBe('discount');
+    expect(classifyIntent('không cần bảo hành đâu, báo giá thôi')).not.toBe('warranty');
+    // thật vẫn đúng
+    expect(classifyIntent('hàng bị hư rồi, tôi khiếu nại')).toBe('complaint');
+    expect(classifyIntent('lấy 100 cái có giảm giá không')).toBe('discount');
+  });
   it('INTERNAL/DISCOUNT substring + disclaimer (codex round-6)', () => {
     // 'giá vốn' dính "giá vốn dĩ"; 'sỉ' dính "liêm sỉ"/"sỉn màu"; khách tự phủ nhận "không hỏi giá vốn".
     expect(classifyIntent('Giá vốn dĩ em thấy mỗi loại khác nhau, báo giá lẻ giúp em')).not.toBe('internal');
