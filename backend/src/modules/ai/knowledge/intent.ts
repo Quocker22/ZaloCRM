@@ -137,9 +137,9 @@ export const COMPLAINT_REPLY =
 export function intentHint(intent: Intent): string {
   switch (intent) {
     case 'large_order':
-      return 'INTENT: ĐƠN LỚN. BẮT BUỘC: chốt lead + chuyển sale, đặt needs_human=true. KHÔNG hỏi "mua làm gì".';
+      return 'INTENT: ĐƠN LỚN/SỈ. VẪN CHỐT ĐƠN như thường (điền order + checkout_stage): số lượng lớn KHÔNG phải lý do chuyển sale. "lấy hết"/"còn nhiêu lấy hết" → dùng số tồn kho làm qty. Chỉ chuyển sale nếu THIẾU GIÁ hoặc khách hỏi GIẢM GIÁ.';
     case 'order':
-      return 'INTENT: CHỐT ĐƠN. BẮT BUỘC: xác nhận sản phẩm + số lượng khách nói, xin khu vực giao hoặc chuyển sale. KHÔNG hỏi lại nhu cầu trang trí.';
+      return 'INTENT: CHỐT ĐƠN. BẮT BUỘC: xác nhận sản phẩm + số lượng khách nói (điền order + checkout_stage). KHÔNG hỏi lại nhu cầu trang trí. Chỉ chuyển sale nếu thiếu giá.';
     case 'discount':
       return 'INTENT: HỎI GIẢM GIÁ. BẮT BUỘC: nói giảm giá tùy số lượng (chưa có mức cố định), hỏi số lượng để chuyển sale. KHÔNG bịa mức giảm.';
     case 'price':
