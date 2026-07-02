@@ -35,8 +35,21 @@ function nameFromChunk(content: string): string | null {
 
 export type KbLookup = (query: string) => Promise<Array<{ content: string }>>;
 
+/** Token hoá tên SP (bỏ dấu, tách từ ≥2 ký tự) để so khớp tên query vs chunk. */
+function nameTokens(s: string): Set<string> {
+  const noAccent = s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  return new Set(
+    noAccent
+      .replace(/\([^)]*\)/g, ' ')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .split(' ')
+      .filter((t) => t.length >= 2),
+  );
+}
+
 /**
- * Với mỗi món khách chốt, tìm chunk KB khớp nhất (top-1 của search) và lấy giá.
+ * Với mỗi món khách chốt, tìm chunk KB có TÊN KHỚP ĐỦ query (≥60% token query xuất hiện
+ * trong tên chunk) VÀ có giá. Siết matching để tránh gán nhầm giá SP khác (rủi ro tiền thật).
  * search do caller cung cấp (tái dùng hybrid search sẵn có).
  */
 export async function resolveOrder(order: OrderLine[], lookup: KbLookup): Promise<ResolvedOrder> {
@@ -45,16 +58,22 @@ export async function resolveOrder(order: OrderLine[], lookup: KbLookup): Promis
     const qty = Math.max(1, Math.floor(line.qty || 1));
     let unitPrice: number | null = null;
     let name = line.name;
+    const qTokens = nameTokens(line.name);
     try {
       const hits = await lookup(line.name);
-      // chunk khớp nhất CÓ giá; nếu top có tên thì dùng tên KB.
       for (const h of hits) {
-        const p = parsePriceFromChunk(h.content);
         const n = nameFromChunk(h.content);
-        if (n && unitPrice === null) name = n; // ưu tiên tên chunk đầu tiên
+        if (!n) continue;
+        // tên chunk phải chứa ĐỦ token query (≥60%) mới coi là đúng SP.
+        const nTokens = nameTokens(n);
+        const overlap = [...qTokens].filter((t) => nTokens.has(t)).length;
+        const ratio = qTokens.size ? overlap / qTokens.size : 0;
+        if (ratio < 0.6) continue; // không đủ khớp tên → bỏ qua chunk này
+        const p = parsePriceFromChunk(h.content);
+        if (unitPrice === null) name = n; // tên KB của SP khớp đầu tiên
         if (p !== null) {
           unitPrice = p;
-          if (n) name = n;
+          name = n;
           break;
         }
       }

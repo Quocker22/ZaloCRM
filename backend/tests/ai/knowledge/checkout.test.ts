@@ -45,6 +45,12 @@ describe('order-checkout', () => {
     const r = await resolveOrder([{ name: 'led A', qty: 1 }, { name: 'món C', qty: 5 }], kb);
     expect(r.missingPrice).toBe(true);
   });
+  it('resolveOrder: KHÔNG gán nhầm giá SP khác tên (siết token overlap ≥60%)', async () => {
+    // search trả về SP tên hoàn toàn khác ('Nguồn XYZ') cho query 'F30 ấm' → phải BỎ, không lấy giá.
+    const wrongKb = async () => [{ content: 'Tên sản phẩm: Nguồn XYZ 300W\nGiá bán: 4.800đ' }];
+    const r = await resolveOrder([{ name: 'F30 ấm đầu đục', qty: 10 }], wrongKb);
+    expect(r.missingPrice).toBe(true); // tên không khớp → coi như chưa có giá, không dùng 4.800 của SP sai
+  });
   it('formatVnd', () => {
     expect(formatVnd(700000)).toBe('700.000đ');
   });
