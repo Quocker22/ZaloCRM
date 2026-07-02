@@ -47,9 +47,18 @@ function nameTokens(s: string): Set<string> {
   );
 }
 
+/** Model-code trong tên: token có số + ≥3 ký tự, không phải đơn vị đơn (12v/5a/1m). Vd P10, 2835, 12V400W. */
+function modelCodes(tokens: Set<string>): Set<string> {
+  return new Set(
+    [...tokens].filter((t) => t.length >= 3 && /\d/.test(t) && !/^\d+[mvaw]$/.test(t)),
+  );
+}
+
 /**
- * Với mỗi món khách chốt, tìm chunk KB có TÊN KHỚP ĐỦ query (≥60% token query xuất hiện
- * trong tên chunk) VÀ có giá. Siết matching để tránh gán nhầm giá SP khác (rủi ro tiền thật).
+ * Với mỗi món khách chốt, tìm chunk KB đúng SP + có giá. Khớp theo 2 cửa:
+ *  (a) MODEL-CODE: nếu query có mã (P10, 2835...) thì chunk phải chứa ÍT NHẤT 1 mã đó
+ *      (chống nhầm P10→P4, 5054→5730) — token thường ("indoor" vs "in") không cần trùng.
+ *  (b) Không có mã → yêu cầu ≥60% token tên query khớp (chống gán nhầm SP tên khác hẳn).
  * search do caller cung cấp (tái dùng hybrid search sẵn có).
  */
 export async function resolveOrder(order: OrderLine[], lookup: KbLookup): Promise<ResolvedOrder> {
@@ -59,16 +68,24 @@ export async function resolveOrder(order: OrderLine[], lookup: KbLookup): Promis
     let unitPrice: number | null = null;
     let name = line.name;
     const qTokens = nameTokens(line.name);
+    const qCodes = modelCodes(qTokens);
     try {
       const hits = await lookup(line.name);
       for (const h of hits) {
         const n = nameFromChunk(h.content);
         if (!n) continue;
-        // tên chunk phải chứa ĐỦ token query (≥60%) mới coi là đúng SP.
         const nTokens = nameTokens(n);
-        const overlap = [...qTokens].filter((t) => nTokens.has(t)).length;
-        const ratio = qTokens.size ? overlap / qTokens.size : 0;
-        if (ratio < 0.6) continue; // không đủ khớp tên → bỏ qua chunk này
+        let matched: boolean;
+        if (qCodes.size > 0) {
+          // có model-code → chunk phải chứa ≥1 code khớp (không bắt token thường).
+          const nCodes = modelCodes(nTokens);
+          matched = [...qCodes].some((c) => nCodes.has(c));
+        } else {
+          // không có code → dựa token overlap ≥60%.
+          const overlap = [...qTokens].filter((t) => nTokens.has(t)).length;
+          matched = qTokens.size ? overlap / qTokens.size >= 0.6 : false;
+        }
+        if (!matched) continue;
         const p = parsePriceFromChunk(h.content);
         if (unitPrice === null) name = n; // tên KB của SP khớp đầu tiên
         if (p !== null) {

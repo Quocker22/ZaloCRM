@@ -45,11 +45,21 @@ describe('order-checkout', () => {
     const r = await resolveOrder([{ name: 'led A', qty: 1 }, { name: 'món C', qty: 5 }], kb);
     expect(r.missingPrice).toBe(true);
   });
-  it('resolveOrder: KHÔNG gán nhầm giá SP khác tên (siết token overlap ≥60%)', async () => {
-    // search trả về SP tên hoàn toàn khác ('Nguồn XYZ') cho query 'F30 ấm' → phải BỎ, không lấy giá.
+  it('resolveOrder: KHÔNG gán nhầm giá SP khác tên (không code, token overlap thấp)', async () => {
     const wrongKb = async () => [{ content: 'Tên sản phẩm: Nguồn XYZ 300W\nGiá bán: 4.800đ' }];
-    const r = await resolveOrder([{ name: 'F30 ấm đầu đục', qty: 10 }], wrongKb);
-    expect(r.missingPrice).toBe(true); // tên không khớp → coi như chưa có giá, không dùng 4.800 của SP sai
+    const r = await resolveOrder([{ name: 'led thanh ấm mỏng', qty: 10 }], wrongKb);
+    expect(r.missingPrice).toBe(true);
+  });
+  it('resolveOrder: MODEL-CODE khớp → nhận giá dù token thường khác (P10 indoor → P10 Full in)', async () => {
+    const kbP10 = async () => [{ content: 'Tên sản phẩm: P10 Full in JH\nGiá bán: 100.000đ' }];
+    const r = await resolveOrder([{ name: 'P10 indoor', qty: 6 }], kbP10);
+    expect(r.missingPrice).toBe(false);
+    expect(r.items[0].unitPrice).toBe(100000);
+  });
+  it('resolveOrder: MODEL-CODE KHÁC → reject (P10 query không lấy giá P4)', async () => {
+    const kbP4 = async () => [{ content: 'Tên sản phẩm: Module P4 LLR Pro\nGiá bán: 500.000đ' }];
+    const r = await resolveOrder([{ name: 'P10 indoor', qty: 6 }], kbP4);
+    expect(r.missingPrice).toBe(true); // code P10 != P4 → không nhận giá 500k của P4
   });
   it('formatVnd', () => {
     expect(formatVnd(700000)).toBe('700.000đ');
