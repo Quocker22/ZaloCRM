@@ -49,3 +49,4 @@ secrets/
 # Telegram
 public-key-telegram
 public-key-telegram-product.superpowers/
+backend/.env.local
