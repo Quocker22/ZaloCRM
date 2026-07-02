@@ -12,6 +12,8 @@ import { searchKnowledge, type IngestDeps } from './knowledge-service.js';
 import { onIncomingMessageHook } from './ai-auto-reply-hook.js';
 import { findImageForReply } from './product-image.js';
 import { buildSummaryPrompt, formatGroupSummary, groupName } from './handoff-group.js';
+import { resolveOrder, formatOrderLines, formatVnd, type KbLookup } from './order-checkout.js';
+import { getQrConfig, buildTransferNote, renderVietQrImage } from './qr-image.js';
 
 const kbDeps: IngestDeps = { prisma: prisma as unknown as IngestDeps['prisma'], embed: generateEmbedding };
 
@@ -57,6 +59,51 @@ export async function runAutoReplyForMessage(ctx: AutoReplyContext): Promise<voi
         if (!botMentioned) return; // không tag bot → im lặng, để sale xử lý
       }
     }
+
+    // Báo group sale kèm ĐƠN + tổng + hình thức thanh toán (tái dùng cơ chế group handoff).
+    const openHandoffGroupWithOrder = async (
+      customerName: string,
+      resolved: { items: unknown; total: number },
+      payMethod: string,
+      latestMsg: string,
+    ): Promise<void> => {
+      const saleUid = process.env.AI_HANDOFF_SALE_ZALO_UID?.trim();
+      if (!saleUid || !conv.zaloAccountId || !conv.contactId) return;
+      const contact = await prisma.contact.findUnique({
+        where: { id: conv.contactId },
+        select: { zaloUid: true },
+      });
+      if (!contact?.zaloUid) return;
+      const { formatOrderLines: fmt } = await import('./order-checkout.js');
+      const orderText =
+        `🛒 ĐƠN KHÁCH CHỐT: ${customerName || 'khách'}\n` +
+        `Hình thức: ${payMethod}\n` +
+        fmt(resolved as Parameters<typeof fmt>[0]) +
+        `\nTin gần nhất: ${latestMsg}\n— Bot tự động chuyển. Sale chuẩn bị hàng giúp ạ.`;
+      try {
+        const existing = await prisma.aiSuggestion.findFirst({
+          where: { orgId: ctx.orgId, conversationId: conv.id, type: 'handoff_group' },
+          orderBy: { createdAt: 'desc' },
+          select: { content: true },
+        });
+        if (existing?.content) {
+          await zaloOps.sendMessage(conv.zaloAccountId, existing.content, 1, { msg: orderText });
+          return;
+        }
+        const grp = await zaloOps.createGroup(conv.zaloAccountId, {
+          name: groupName(customerName),
+          members: [saleUid, contact.zaloUid],
+        });
+        const groupId = (grp as { groupId?: string })?.groupId;
+        if (!groupId) return;
+        await zaloOps.sendMessage(conv.zaloAccountId, groupId, 1, { msg: orderText });
+        await prisma.aiSuggestion.create({
+          data: { orgId: ctx.orgId, conversationId: conv.id, messageId: ctx.messageId, type: 'handoff_group', content: groupId, confidence: 1 },
+        });
+      } catch (err) {
+        logger.warn({ err }, '[ai/kb] báo group đơn hàng lỗi (bỏ qua)');
+      }
+    };
 
     const tags = conv.contactId
       ? ((await prisma.contact.findUnique({ where: { id: conv.contactId }, select: { tags: true } }))?.tags as
@@ -191,6 +238,67 @@ export async function runAutoReplyForMessage(ctx: AutoReplyContext): Promise<voi
           } catch (err) {
             logger.warn({ err }, '[ai/kb] tạo group handoff lỗi (bỏ qua)');
           }
+        },
+        handleCheckout: async ({ order, stage, reply, latestCustomerMsg }) => {
+          if (!conv.zaloAccountId || !conv.externalThreadId) return 'fallback';
+          const threadType: 0 | 1 = conv.threadType === 'group' ? 1 : 0;
+          const kbLookup: KbLookup = (q) => searchKnowledge(kbDeps, ctx.orgId, q, 4, embedCfg);
+          const contact = conv.contactId
+            ? await prisma.contact.findUnique({ where: { id: conv.contactId }, select: { fullName: true, crmName: true } })
+            : null;
+          const customerName = contact?.crmName || contact?.fullName || '';
+
+          // BƯỚC confirm: chỉ gửi reply đọc-lại-đơn + TỔNG do CODE tính (không LLM). Chờ khách duyệt.
+          if (stage === 'confirm') {
+            const resolved = await resolveOrder(order, kbLookup);
+            let text = reply;
+            if (!resolved.missingPrice) {
+              // gắn bảng đơn + tổng (code tính) vào cuối reply cho rõ ràng
+              text = `${reply}\n\n${formatOrderLines(resolved)}`;
+            }
+            try {
+              await zaloOps.sendMessage(conv.zaloAccountId, conv.externalThreadId, threadType, { msg: text });
+            } catch { /* gửi lỗi → coi như fallback */ return 'fallback'; }
+            await prisma.aiSuggestion.create({
+              data: { orgId: ctx.orgId, conversationId: conv.id, messageId: ctx.messageId, type: 'auto_reply_rag', content: text.slice(0, 2000), confidence: 1 },
+            }).catch(() => {});
+            return 'sent';
+          }
+
+          // BƯỚC thanh toán: tính lại đơn (nguồn sự thật). Thiếu giá → báo sale (fallback).
+          const resolved = await resolveOrder(order, kbLookup);
+          if (resolved.missingPrice || resolved.total <= 0) return 'fallback';
+
+          if (stage === 'pay_cash') {
+            // gửi reply xác nhận cho khách + báo group sale (đơn + tổng, tiền mặt).
+            try { await zaloOps.sendMessage(conv.zaloAccountId, conv.externalThreadId, threadType, { msg: reply }); } catch { /* non-fatal */ }
+            await openHandoffGroupWithOrder(customerName, resolved, 'Tiền mặt', latestCustomerMsg);
+            return 'sent';
+          }
+
+          // stage === 'pay_qr': cần cấu hình TK. Chưa có → fallback báo sale.
+          const qrCfg = getQrConfig();
+          if (!qrCfg) return 'fallback';
+          const hhmm = new Date().toISOString().slice(11, 16).replace(':', '');
+          const note = buildTransferNote(customerName, hhmm);
+          let imgPath: string | null = null;
+          try {
+            imgPath = await renderVietQrImage(qrCfg, resolved.total, note);
+          } catch (err) {
+            logger.warn({ err }, '[ai/kb] render VietQR lỗi → báo sale');
+            return 'fallback';
+          }
+          // gửi reply + ảnh QR + dòng hướng dẫn cho khách.
+          const bankLine = `Số tiền: ${formatVnd(resolved.total)} — Nội dung: ${note}` +
+            (qrCfg.accountName ? `\nChủ TK: ${qrCfg.accountName}` : '');
+          try {
+            await zaloOps.sendMessage(conv.zaloAccountId, conv.externalThreadId, threadType, { msg: `${reply}\n\n${bankLine}` });
+            await zaloOps.sendImage(conv.zaloAccountId, conv.externalThreadId, threadType, [imgPath]);
+          } catch (err) {
+            logger.warn({ err }, '[ai/kb] gửi QR lỗi');
+          }
+          await openHandoffGroupWithOrder(customerName, resolved, 'Chuyển khoản (đã gửi QR)', latestCustomerMsg);
+          return 'sent';
         },
       },
       {

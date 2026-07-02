@@ -5,6 +5,11 @@ export interface RagReply {
   confidence: number;
   needsHuman: boolean;
   reason: string;
+  // Flow chốt đơn (optional): bot trích SP+số lượng khi khách chốt.
+  order?: Array<{ name: string; qty: number }>;
+  // 'confirm' = đọc lại đơn chờ khách duyệt; 'pay_qr' = khách chốt + chuyển khoản;
+  // 'pay_cash' = khách chốt + tiền mặt. Không có = hội thoại thường.
+  checkoutStage?: 'confirm' | 'pay_qr' | 'pay_cash';
 }
 export type Action = 'send' | 'handoff';
 
@@ -55,10 +60,17 @@ export function buildRagSystemPrompt(
     '    không ghi.',
     '  • Nếu sản phẩm trong tài liệu ghi "Giá bán: chưa có trong dữ liệu" → nói cần nhân viên kiểm tra giá.',
     '',
-    'BƯỚC 3 — Ý ĐỊNH CHỐT ĐƠN: nếu khách nói số lượng/mua/chốt ("lấy 5 cuộn", "mua 10m", "đặt hàng") →',
-    '  KHÔNG hỏi lại nhu cầu. Xác nhận sản phẩm + số lượng, rồi xin khu vực giao hoặc chuyển sale.',
-    '  reply mẫu: "Dạ em ghi nhận anh/chị lấy 5 cuộn. Em chuyển sale xác nhận tồn, giá tốt và phí giao cho mình ạ."',
-    '  ĐƠN LỚN (vd "1 triệu bóng", "lấy sỉ", số lượng rất lớn) → chốt lead + chuyển sale, needs_human=true.',
+    'BƯỚC 3 — CHỐT ĐƠN (flow thanh toán): khi khách nói MUA + SẢN PHẨM + SỐ LƯỢNG rõ ("lấy 5 cuộn X, 2 cái Y"):',
+    '  → Điền field "order": [{"name":"<tên/mã SP>","qty":<số>}] cho TỪNG món (dùng tên khách nói hoặc mã KB).',
+    '  → Đặt "checkout_stage":"confirm". reply: đọc lại đơn (liệt kê SP+số lượng) rồi HỎI khách xác nhận và',
+    '    hỏi hình thức: "Dạ em ghi nhận đơn: 5 cuộn X, 2 cái Y. Mình xác nhận đơn này và thanh toán chuyển',
+    '    khoản hay tiền mặt ạ?" — TUYỆT ĐỐI KHÔNG tự tính/ghi tổng tiền trong reply (hệ thống tự tính).',
+    '  → Khi khách XÁC NHẬN đúng + chọn CHUYỂN KHOẢN ("đúng rồi, chuyển khoản", "ok CK") → giữ nguyên "order",',
+    '    đặt "checkout_stage":"pay_qr". reply ngắn: "Dạ em gửi mã QR thanh toán cho mình ạ." (hệ thống gắn QR).',
+    '  → Khách xác nhận + TIỀN MẶT → "checkout_stage":"pay_cash". reply: "Dạ em ghi nhận đơn, thanh toán tiền',
+    '    mặt. Em chuyển sale chuẩn bị hàng cho mình nhé ạ."',
+    '  Nếu khách CHƯA cho đủ số lượng/sản phẩm rõ → KHÔNG điền order, hỏi thêm như thường.',
+    '  ĐƠN LỚN/SỈ (vd "1 triệu bóng", "lấy sỉ") → KHÔNG dùng flow QR, chốt lead + chuyển sale, needs_human=true.',
     '',
     'BƯỚC 4 — CÂU CHUNG (bán chạy/phổ biến/"có dòng nào"): dùng dữ liệu NHÓM NGÀNH + thống kê trong tài liệu.',
     '  KHÔNG nói "bán chạy nhất" (không có số liệu doanh số). Nói "bên em nhiều mẫu/phổ biến nhất là nhóm...".',
@@ -153,11 +165,13 @@ export function buildRagSystemPrompt(
     '',
     '=== ĐỊNH DẠNG TRẢ LỜI ===',
     'CHỈ trả về một object JSON, không kèm văn bản nào khác:',
-    '{"reply": string, "confidence": number (0..1), "needs_human": boolean, "reason": string}',
+    '{"reply": string, "confidence": number (0..1), "needs_human": boolean, "reason": string,',
+    ' "order"?: [{"name": string, "qty": number}], "checkout_stage"?: "confirm"|"pay_qr"|"pay_cash"}',
     '- reply: câu nhắn gửi khách (đã áp dụng luật trên, KHÔNG lặp lịch sử).',
     '- needs_human=true khi: ĐƠN LỚN cần chốt, hỏi giá/chiết khấu mà tài liệu không có, KHIẾU NẠI, khách XIN GẶP NGƯỜI.',
     '- needs_human=false cho: tư vấn thường, từ chối câu lạc đề, hỏi nhu cầu.',
     '- confidence: mức chắc câu trả lời đúng+đủ dựa trên tài liệu (thấp nếu phải đoán).',
+    '- order + checkout_stage: CHỈ điền khi đang ở flow chốt đơn (BƯỚC 3). Bình thường bỏ trống.',
   ].join('\n');
 }
 
@@ -198,12 +212,24 @@ export function parseRagReply(raw: string): RagReply {
   if (i >= 0 && j > i) s = s.slice(i, j + 1);
   try {
     const o = JSON.parse(s) as Record<string, unknown>;
-    return {
+    const rep: RagReply = {
       reply: typeof o.reply === 'string' ? o.reply : '',
       confidence: typeof o.confidence === 'number' ? o.confidence : 0,
       needsHuman: o.needs_human === true,
       reason: typeof o.reason === 'string' ? o.reason : '',
     };
+    // Flow chốt đơn (optional). Chỉ nhận khi hợp lệ.
+    if (Array.isArray(o.order)) {
+      const order = o.order
+        .filter((x): x is { name: string; qty: number } =>
+          !!x && typeof (x as { name?: unknown }).name === 'string')
+        .map((x) => ({ name: String(x.name), qty: Number((x as { qty?: unknown }).qty) || 1 }));
+      if (order.length) rep.order = order;
+    }
+    if (o.checkout_stage === 'confirm' || o.checkout_stage === 'pay_qr' || o.checkout_stage === 'pay_cash') {
+      rep.checkoutStage = o.checkout_stage;
+    }
+    return rep;
   } catch {
     return { reply: '', confidence: 0, needsHuman: true, reason: 'parse-failed' };
   }

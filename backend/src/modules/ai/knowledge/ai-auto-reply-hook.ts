@@ -34,6 +34,18 @@ export interface HookDeps {
    * Nuốt mọi lỗi (không chặn luồng handoff). replyToCustomer = câu bot vừa nói với khách.
    */
   openHandoffGroup?(conversationId: string, latestCustomerMsg: string, decision: string): Promise<void>;
+  /**
+   * Xử lý flow chốt đơn khi bot trả checkoutStage. Trả 'sent' (đã gửi khách + xử lý xong)
+   * hoặc 'fallback' (thiếu giá/thiếu config → caller báo sale như handoff thường).
+   * Nuốt lỗi nội bộ; chỉ quyết định luồng. Optional — không có thì bỏ qua flow chốt đơn.
+   */
+  handleCheckout?(input: {
+    conversationId: string;
+    order: Array<{ name: string; qty: number }>;
+    stage: 'confirm' | 'pay_qr' | 'pay_cash';
+    reply: string;
+    latestCustomerMsg: string;
+  }): Promise<'sent' | 'fallback'>;
 }
 
 export interface HookInput {
@@ -193,6 +205,22 @@ export async function onIncomingMessageHook(
     rep = parseRagReply(raw);
   } catch {
     return handoff({ content: '', confidence: 0 }, 'skipped');
+  }
+
+  // 4.5. FLOW CHỐT ĐƠN: nếu bot trích được order + checkout_stage → xử lý riêng (tính tổng
+  // bằng code, gen QR...). Read-back đơn (stage=confirm) có tổng do CODE tính nên KHÔNG qua
+  // guard chống-bịa-số. 'fallback' (thiếu giá/thiếu config) → rơi xuống handoff thường.
+  if (rep.checkoutStage && rep.order && rep.order.length && deps.handleCheckout) {
+    const r = await deps.handleCheckout({
+      conversationId: conv.id,
+      order: rep.order,
+      stage: rep.checkoutStage,
+      reply: rep.reply,
+      latestCustomerMsg: message.content,
+    });
+    if (r === 'sent') return 'sent';
+    // fallback → chuyển sale (đơn có món thiếu giá / chưa cấu hình TK)
+    return handoff({ content: rep.reply, confidence: rep.confidence }, 'handoff', rep.confidence >= cfg.threshold);
   }
 
   // 5. Decide (code, not LLM). numberSources = allowlist chống bot tự tính số (combo total,
