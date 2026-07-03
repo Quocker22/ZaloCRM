@@ -398,10 +398,23 @@ async function bootstrap() {
     // native app mà friend_event listener không bắt được (xem friend-sync-cron.ts)
     const { startFriendSyncCron } = await import('./modules/zalo/friend-sync-cron.js');
     startFriendSyncCron(io);
+    // Warm catalog báo giá NGAY khi boot (nền) → lúc chủ shop mở màn chiến dịch đã có sẵn,
+    // bấm "đính kèm bảng báo giá" hiện ảnh tức thì thay vì chờ ~40s ghép.
+    if (config.nodeEnv !== 'test') {
+      (async () => {
+        try {
+          const { warmAllCatalogs } = await import('./modules/campaign/catalog-image.js');
+          await warmAllCatalogs();
+        } catch (e) { logger.warn('[catalog] warm-on-boot lỗi (bỏ qua): %s', (e as Error).message); }
+      })();
+    }
     // Group info refresh periodic (mỗi 6h) — làm tươi avatar/tên/sĩ số nhóm chống
     // URL Zalo CDN hết hạn (nhóm im lặng lâu không có message để cập nhật thụ động).
     const { startGroupInfoSyncCron } = await import('./modules/zalo/group-info-sync-cron.js');
     startGroupInfoSyncCron();
+    // Community "Chiến dịch gửi hàng loạt" — tự động gửi 1 đợt/ngày cho schedule đã bật.
+    const { startBulkCampaignCron } = await import('./modules/campaign/bulk-campaign-cron.js');
+    startBulkCampaignCron();
     // Tệp khách hàng (🟢 Community): enrichment worker + event handlers
     if (config.nodeEnv !== 'test') {
       const { startListEnrichmentWorker } = await import('./modules/lists/list-enrichment-service.js');

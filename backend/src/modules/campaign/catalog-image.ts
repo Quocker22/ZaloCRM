@@ -259,3 +259,32 @@ export async function getCampaignCatalog(
   const paths = await getCampaignCatalogs(orgId, shopName, lookup, now);
   return paths[0] ?? null;
 }
+
+/**
+ * Warm cache catalog cho MỌI org có KB sản phẩm — gọi lúc backend boot (nền). Sau khi warm,
+ * lúc chủ shop mở màn chiến dịch + bấm "đính kèm bảng báo giá" → ảnh hiện tức thì (không chờ ghép).
+ */
+export async function warmAllCatalogs(): Promise<void> {
+  const { prisma } = await import('../../shared/database/prisma-client.js');
+  const { generateEmbedding } = await import('../ai/knowledge/embedding.js');
+  const { searchKnowledge } = await import('../ai/knowledge/knowledge-service.js');
+  const { logger } = await import('../../shared/utils/logger.js');
+  // các org có ít nhất 1 chunk sản phẩm
+  const rows = await prisma.knowledgeChunk.findMany({
+    where: { content: { contains: 'Tên sản phẩm:' } },
+    select: { orgId: true },
+    distinct: ['orgId'],
+  });
+  for (const { orgId } of rows) {
+    try {
+      const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { name: true } });
+      const shopName = process.env.AI_SHOP_NAME || org?.name || 'Shop';
+      const deps = { prisma, embed: generateEmbedding } as Parameters<typeof searchKnowledge>[0];
+      const lookup = (q: string) => searchKnowledge(deps, orgId, q, 6, { provider: 'local', model: 'bge-m3', baseUrl: 'http://localhost:11434/v1' });
+      const paths = await getCampaignCatalogs(orgId, shopName, lookup);
+      logger.info('[catalog] warm org=%s → %d ảnh sẵn sàng', orgId.slice(0, 8), paths.length);
+    } catch (e) {
+      logger.warn('[catalog] warm org=%s lỗi: %s', orgId.slice(0, 8), (e as Error).message);
+    }
+  }
+}

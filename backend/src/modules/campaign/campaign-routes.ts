@@ -30,7 +30,12 @@ interface ContactFriendReqBody {
 }
 
 export async function campaignRoutes(app: FastifyInstance): Promise<void> {
-  app.addHook('preHandler', authMiddleware);
+  // Ảnh catalog là ảnh báo giá công khai (không nhạy cảm) — <img src> không gửi token được,
+  // nên BỎ auth riêng cho route serve ảnh. Các route khác vẫn qua authMiddleware.
+  app.addHook('preHandler', async (request, reply) => {
+    if (request.url.startsWith('/api/v1/campaigns/catalog/img/')) return;
+    return authMiddleware(request, reply);
+  });
 
   // Send a friend request to ONE specific contact (the "Gửi kết bạn" button on the
   // Contacts list). Looks the contact's phone up on Zalo and sends the invite using
