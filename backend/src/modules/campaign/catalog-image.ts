@@ -75,36 +75,55 @@ export async function pickCatalogProducts(n: number, lookup: KbLookup): Promise<
 
   // Trần mỗi nhóm co giãn theo n (~6 nhóm): n=9 → 2/nhóm; n=30 → 6/nhóm. Vẫn đa dạng, không đơn điệu.
   const maxPerGroup = Math.max(2, Math.ceil(n / 5));
+
+  // BƯỚC 1: chọn ứng viên (dedup nhóm/ảnh/tên) — chưa tra giá. Lấy dư (3×n) để bù SP không có giá.
+  const candidates: Array<{ kbName: string; dispName: string; entry: MatchEntry; group: string }> = [];
+  const seenNames = new Set<string>();
+  const seenFiles = new Set<string>();
+  const perGroupC: Record<string, number> = {};
+  for (const [kbName, entry] of entries) {
+    if (candidates.length >= n * 3) break;
+    const group = groupOf(kbName);
+    if ((perGroupC[group] ?? 0) >= maxPerGroup * 2) continue;
+    if (seenFiles.has(entry.file)) continue;
+    const dispName = entry.web || kbName;
+    if (seenNames.has(dispName.toLowerCase())) continue;
+    candidates.push({ kbName, dispName, entry, group });
+    perGroupC[group] = (perGroupC[group] ?? 0) + 1;
+    seenFiles.add(entry.file);
+    seenNames.add(dispName.toLowerCase());
+  }
+
+  // BƯỚC 2: tra giá SONG SONG (thay vì tuần tự — nhanh hơn nhiều, tránh treo ~100s).
+  const priced = await Promise.all(
+    candidates.map(async (c) => {
+      try {
+        const hits = await lookup(c.kbName);
+        for (const h of hits) {
+          const chunkName = (h.content.match(/Tên sản phẩm:\s*(.+)/) ?? [])[1]?.trim() ?? '';
+          if (!nameCloseEnough(c.kbName, chunkName)) continue;
+          const p = parsePriceFromChunk(h.content);
+          if (p !== null) return { ...c, price: p };
+        }
+      } catch { /* bỏ qua SP lỗi */ }
+      return { ...c, price: null as number | null };
+    }),
+  );
+
+  // BƯỚC 3: lọc ra ≤ n SP hợp lệ (giữ thứ tự score, trần nhóm, chống giá phi lý/trùng).
   const picked: CatalogItem[] = [];
   const perGroup: Record<string, number> = {};
-  const seenPrices = new Set<number>(); // né trùng giá (dấu hiệu matcher tra nhầm cùng 1 SP)
-  const seenNames = new Set<string>();
-  const seenFiles = new Set<string>(); // né trùng ẢNH (nhiều kbName map cùng 1 web/ảnh)
-  for (const [kbName, entry] of entries) {
+  const seenPrices = new Set<number>();
+  for (const c of priced) {
     if (picked.length >= n) break;
-    const group = groupOf(kbName);
-    if ((perGroup[group] ?? 0) >= maxPerGroup) continue; // trần mỗi nhóm (co giãn theo n)
-    if (seenFiles.has(entry.file)) continue; // ảnh đã dùng (SP trùng) → bỏ
-    const dispName = entry.web || kbName;
-    if (seenNames.has(dispName.toLowerCase())) continue; // trùng tên → bỏ
-    // Giá + tên phải từ CÙNG 1 chunk (tránh lấy tên SP này nhưng giá SP khác cạnh đó).
-    // Tìm chunk có tên khớp SÁT tên query (≥50% token) VÀ có giá.
-    const hits = await lookup(kbName);
-    let price: number | null = null;
-    for (const h of hits) {
-      const chunkName = (h.content.match(/Tên sản phẩm:\s*(.+)/) ?? [])[1]?.trim() ?? '';
-      if (!nameCloseEnough(kbName, chunkName)) continue; // chunk này không phải SP đang xét
-      const p = parsePriceFromChunk(h.content);
-      if (p !== null) { price = p; break; } // tên khớp + có giá trong CÙNG chunk
-    }
-    if (!price || price <= 0) continue; // SP này chưa có giá thật → bỏ (thà thiếu còn hơn sai)
-    if (price < priceFloor(group)) continue; // giá phi lý theo nhóm (KB bẩn) → bỏ, tránh báo giá sai
-    if (seenPrices.has(price)) continue; // giá trùng SP đã lấy → nhiều khả năng matcher nhầm → bỏ
-    picked.push({ name: dispName, price, imagePath: join(IMG_DIR, entry.file) });
-    perGroup[group] = (perGroup[group] ?? 0) + 1;
+    const price = c.price;
+    if (!price || price <= 0) continue; // chưa có giá thật → bỏ
+    if (price < priceFloor(c.group)) continue; // giá phi lý theo nhóm → bỏ
+    if (seenPrices.has(price)) continue; // giá trùng → nhiều khả năng matcher nhầm → bỏ
+    if ((perGroup[c.group] ?? 0) >= maxPerGroup) continue; // trần mỗi nhóm
+    picked.push({ name: c.dispName, price, imagePath: join(IMG_DIR, c.entry.file) });
+    perGroup[c.group] = (perGroup[c.group] ?? 0) + 1;
     seenPrices.add(price);
-    seenNames.add(dispName.toLowerCase());
-    seenFiles.add(entry.file);
   }
   return picked;
 }
@@ -194,8 +213,8 @@ interface CacheEntry {
 const cache = new Map<string, CacheEntry>();
 const TTL_MS = 10 * 60 * 1000;
 
-const TARGET_PRODUCTS = 24; // tổng SP muốn có trong bộ catalog
-const PER_IMAGE = 12; // mỗi ảnh tối đa 12 SP (grid 3×4) → 24 SP = 2 ảnh
+const TARGET_PRODUCTS = 36; // tổng SP muốn có trong bộ catalog
+const PER_IMAGE = 12; // mỗi ảnh tối đa 12 SP (grid 3×4) → 36 SP = 3 ảnh, gửi 1 batch
 
 /**
  * Trả DANH SÁCH path ảnh catalog cho org (ghép ~TARGET_PRODUCTS SP, tách thành nhiều ảnh
