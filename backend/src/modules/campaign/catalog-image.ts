@@ -64,8 +64,8 @@ function loadMatchMap(): Record<string, MatchEntry> {
 }
 
 /**
- * Chọn ≤ n SP có ẢNH (từ _kb_match.json) VÀ tra được GIÁ (KB search). Đa dạng nhóm: mỗi nhóm ≤ 2.
- * Duyệt theo score ảnh giảm dần để lấy ảnh khớp tốt trước.
+ * Chọn ≤ n SP có ẢNH (từ _kb_match.json) VÀ tra được GIÁ (KB search). Đa dạng nhóm:
+ * mỗi nhóm ≤ maxPerGroup (mặc định co giãn theo n để lấy đủ nhiều SP). Duyệt theo score ảnh.
  */
 export async function pickCatalogProducts(n: number, lookup: KbLookup): Promise<CatalogItem[]> {
   const map = loadMatchMap();
@@ -73,6 +73,8 @@ export async function pickCatalogProducts(n: number, lookup: KbLookup): Promise<
     .filter(([, v]) => v.file && existsSync(join(IMG_DIR, v.file)))
     .sort((a, b) => (b[1].score ?? 0) - (a[1].score ?? 0));
 
+  // Trần mỗi nhóm co giãn theo n (~6 nhóm): n=9 → 2/nhóm; n=30 → 6/nhóm. Vẫn đa dạng, không đơn điệu.
+  const maxPerGroup = Math.max(2, Math.ceil(n / 5));
   const picked: CatalogItem[] = [];
   const perGroup: Record<string, number> = {};
   const seenPrices = new Set<number>(); // né trùng giá (dấu hiệu matcher tra nhầm cùng 1 SP)
@@ -81,7 +83,7 @@ export async function pickCatalogProducts(n: number, lookup: KbLookup): Promise<
   for (const [kbName, entry] of entries) {
     if (picked.length >= n) break;
     const group = groupOf(kbName);
-    if ((perGroup[group] ?? 0) >= 2) continue; // mỗi nhóm tối đa 2 SP
+    if ((perGroup[group] ?? 0) >= maxPerGroup) continue; // trần mỗi nhóm (co giãn theo n)
     if (seenFiles.has(entry.file)) continue; // ảnh đã dùng (SP trùng) → bỏ
     const dispName = entry.web || kbName;
     if (seenNames.has(dispName.toLowerCase())) continue; // trùng tên → bỏ
@@ -186,30 +188,55 @@ export async function renderCatalogImage(items: CatalogItem[], title: string, ou
 
 // ── Cache theo org (RAM + TTL) ─────────────────────────────────────────────
 interface CacheEntry {
-  path: string;
+  paths: string[];
   at: number;
 }
 const cache = new Map<string, CacheEntry>();
 const TTL_MS = 10 * 60 * 1000;
 
+const TARGET_PRODUCTS = 24; // tổng SP muốn có trong bộ catalog
+const PER_IMAGE = 12; // mỗi ảnh tối đa 12 SP (grid 3×4) → 24 SP = 2 ảnh
+
 /**
- * Trả path ảnh catalog cho org (ghép 1 lần, cache 10 phút). null nếu < 3 SP có giá+ảnh.
+ * Trả DANH SÁCH path ảnh catalog cho org (ghép ~TARGET_PRODUCTS SP, tách thành nhiều ảnh
+ * ≤ PER_IMAGE/ảnh, cache 10 phút). [] nếu < 3 SP có giá+ảnh.
  * `now` truyền vào để test tất định (mặc định Date.now).
  */
+export async function getCampaignCatalogs(
+  orgId: string,
+  shopName: string,
+  lookup: KbLookup,
+  now: number = Date.now(),
+): Promise<string[]> {
+  const hit = cache.get(orgId);
+  if (hit && now - hit.at < TTL_MS && hit.paths.every((p) => existsSync(p))) return hit.paths;
+
+  const items = await pickCatalogProducts(TARGET_PRODUCTS, lookup);
+  if (items.length < 3) return []; // không đủ SP để làm catalog
+
+  const totalPages = Math.ceil(items.length / PER_IMAGE);
+  const paths: string[] = [];
+  for (let page = 0; page < totalPages; page++) {
+    const slice = items.slice(page * PER_IMAGE, (page + 1) * PER_IMAGE);
+    const title =
+      totalPages > 1
+        ? `BẢNG GIÁ THAM KHẢO — ${shopName} (${page + 1}/${totalPages})`
+        : `BẢNG GIÁ THAM KHẢO — ${shopName}`;
+    const outPath = join(tmpdir(), `catalog-${orgId}-${now}-${page}.png`);
+    await renderCatalogImage(slice, title, outPath);
+    paths.push(outPath);
+  }
+  cache.set(orgId, { paths, at: now });
+  return paths;
+}
+
+/** Tương thích ngược: trả 1 ảnh (ảnh đầu). Dùng nơi chỉ cần 1. */
 export async function getCampaignCatalog(
   orgId: string,
   shopName: string,
   lookup: KbLookup,
   now: number = Date.now(),
 ): Promise<string | null> {
-  const hit = cache.get(orgId);
-  if (hit && now - hit.at < TTL_MS && existsSync(hit.path)) return hit.path;
-
-  const items = await pickCatalogProducts(9, lookup);
-  if (items.length < 3) return null; // không đủ SP để làm catalog
-
-  const outPath = join(tmpdir(), `catalog-${orgId}-${now}.png`);
-  await renderCatalogImage(items, `BẢNG GIÁ THAM KHẢO — ${shopName}`, outPath);
-  cache.set(orgId, { path: outPath, at: now });
-  return outPath;
+  const paths = await getCampaignCatalogs(orgId, shopName, lookup, now);
+  return paths[0] ?? null;
 }
