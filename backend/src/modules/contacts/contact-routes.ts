@@ -34,6 +34,59 @@ type QueryParams = Record<string, string>;
 export async function contactRoutes(app: FastifyInstance): Promise<void> {
   app.addHook('preHandler', authMiddleware);
 
+  // ── GET /api/v1/contacts/tags — distinct tags present in this org's contacts ──
+  // Powers the "Lọc theo ngành/tag" dropdown. Returns the actual JSON-array tag values
+  // (e.g. gmaps "spa","nhà hàng"), most-frequent first — NOT the formal CrmTag table.
+  app.get('/api/v1/contacts/tags', { preHandler: requireGrant('contact', 'access') }, async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const user = request.user!;
+      const rows = await prisma.$queryRaw<{ tag: string; n: bigint }[]>`
+        SELECT jsonb_array_elements_text(tags) AS tag, COUNT(*) AS n
+          FROM contacts
+         WHERE org_id = ${user.orgId} AND merged_into IS NULL AND tags::text <> '[]'
+         GROUP BY tag
+         ORDER BY n DESC, tag ASC`;
+      return { tags: rows.map(r => ({ name: r.tag, count: Number(r.n) })) };
+    } catch (err) {
+      logger.error('[contacts] list tags error:', err);
+      return reply.status(500).send({ error: 'Failed to list tags' });
+    }
+  });
+
+  // ── GET /api/v1/contacts/export-rows — phone+name of contacts matching a filter ──
+  // Powers "Tạo tệp từ bộ lọc": từ nhóm KH đang lọc (vd ngành spa) → trả về {phone,name}
+  // để FE tạo Tệp khách hàng (chạy chiến dịch). Chỉ trả KH có SĐT. Cap 5000 để an toàn.
+  app.get('/api/v1/contacts/export-rows', { preHandler: requireGrant('contact', 'access') }, async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const user = request.user!;
+      const { tag = '', source = '', search = '', hasZalo = '' } = request.query as Record<string, string>;
+      const where: any = { orgId: user.orgId, mergedInto: null };
+      const cScope = await getContactScope(user.id, user.orgId, user.role);
+      if (!cScope.isOrgAdmin && cScope.accessibleContactIds !== null) where.id = { in: cScope.accessibleContactIds };
+      if (tag) where.tags = { array_contains: tag };
+      if (source) where.source = source;
+      if (hasZalo === 'true') where.hasZalo = true;
+      // Chỉ KH có số điện thoại (chiến dịch Zalo cần SĐT).
+      where.OR = [{ phoneNormalized: { not: null } }, { phone: { not: null } }];
+      if (search) {
+        const s = search.trim();
+        where.AND = [{ OR: [{ fullName: { contains: s, mode: 'insensitive' } }, { crmName: { contains: s, mode: 'insensitive' } }, { phone: { contains: s } }, { phoneNormalized: { contains: s } }] }];
+      }
+      const rows = await prisma.contact.findMany({
+        where,
+        select: { phone: true, phoneNormalized: true, fullName: true, crmName: true },
+        take: 5000,
+      });
+      const out = rows
+        .map(r => ({ phone: (r.phoneNormalized || r.phone || '').trim(), name: (r.crmName || r.fullName || '').trim() || null }))
+        .filter(r => r.phone);
+      return { rows: out, total: out.length };
+    } catch (err) {
+      logger.error('[contacts] export-rows error:', err);
+      return reply.status(500).send({ error: 'Failed to export rows' });
+    }
+  });
+
   // ── GET /api/v1/contacts — list with filters and pagination ───────────────
   app.get('/api/v1/contacts', { preHandler: requireGrant('contact', 'access') }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
@@ -57,6 +110,7 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         sort = '',            // 'score' = lead score cao lên đầu; mặc định = lastActivity desc
         sequenceAttachMin = '', // #4: lọc KH đã gắn ≥ N sequence (đếm CareSession, auto+manual)
         friendInviteMin = '',   // #3: lọc KH đã được gửi kết bạn ≥ N lần
+        tag = '',               // lọc theo 1 tag/ngành (vd "spa") — Contact.tags là JSON array
       } = request.query as QueryParams;
 
       const where: any = { orgId: user.orgId, mergedInto: null };
@@ -68,6 +122,9 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       }
       // Model B: mỗi Contact tự nó là "KH Cha"; con = Friend rows. KHÔNG filter parentContactId.
       if (source) where.source = source;
+      // Lọc theo tag/ngành (vd "spa") — gmaps scraper gắn ngành vào Contact.tags.
+      // array_contains là pattern Prisma chuẩn cho JSON array (xem chat-routes/crm-tag-routes).
+      if (tag) where.tags = { array_contains: tag };
       if (status) where.status = status;
       if (statusId) where.statusId = statusId;
       if (assignedUserId) where.assignedUserId = assignedUserId;
@@ -1435,6 +1492,68 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
     } catch (err) {
       logger.error('[contacts] Delete error:', err);
       return reply.status(500).send({ error: 'Failed to delete contact' });
+    }
+  });
+
+  // ── POST /api/v1/contacts/bulk-action ─────────────────────────────────────
+  // Hành động hàng loạt trên nhiều contact: gỡ 1 CRM tag (untag) hoặc xóa (delete).
+  // Dùng để dọn khách sai chiến dịch (vd bỏ tag 'led' khỏi loạt shop hoa/spa).
+  // RBAC: untag → contact.update; delete → contact.delete. Luôn org-scoped.
+  app.post('/api/v1/contacts/bulk-action', {
+    preHandler: async (request, reply) => {
+      const body = request.body as { action?: string } | undefined;
+      const rbacAction: 'delete' | 'edit' = body?.action === 'delete' ? 'delete' : 'edit';
+      const { requireGrant } = await import('../rbac/rbac-middleware.js');
+      return requireGrant('contact', rbacAction)(request, reply);
+    },
+    config: { contentClass: 'mixed', rbacResource: 'contact', rbacAction: 'edit' },
+  }, async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const user = request.user!;
+      const body = request.body as { action?: string; contactIds?: string[]; tagName?: string };
+      const action = body.action;
+      const contactIds = Array.isArray(body.contactIds) ? body.contactIds.filter((x) => typeof x === 'string') : [];
+
+      if (action !== 'untag' && action !== 'delete') {
+        return reply.status(400).send({ error: "action phải là 'untag' hoặc 'delete'" });
+      }
+      if (contactIds.length === 0) return reply.status(400).send({ error: 'contactIds rỗng' });
+      if (contactIds.length > 500) return reply.status(400).send({ error: 'Tối đa 500 khách/lần' });
+
+      // Chỉ thao tác trên contact THUỘC org (chặn cross-org).
+      const owned = await prisma.contact.findMany({
+        where: { id: { in: contactIds }, orgId: user.orgId },
+        select: { id: true },
+      });
+      const ownedIds = owned.map((c) => c.id);
+      if (ownedIds.length === 0) return reply.status(404).send({ error: 'Không có contact hợp lệ' });
+
+      if (action === 'delete') {
+        const res = await prisma.contact.deleteMany({ where: { id: { in: ownedIds }, orgId: user.orgId } });
+        return { success: true, action, affected: res.count };
+      }
+
+      // action === 'untag' — gỡ 1 tag NGÀNH (scraper gmaps) khỏi mảng JSON Contact.tags.
+      // (Tag ngành như "led"/"spa" nằm trong contacts.tags, KHÔNG phải CRM tag ở bảng tags.)
+      const tagName = (body.tagName ?? '').trim();
+      if (!tagName) return reply.status(400).send({ error: 'tagName bắt buộc cho untag' });
+
+      const rows = await prisma.contact.findMany({
+        where: { id: { in: ownedIds }, orgId: user.orgId },
+        select: { id: true, tags: true },
+      });
+      let affected = 0;
+      for (const row of rows) {
+        const cur = Array.isArray(row.tags) ? (row.tags as unknown[]).filter((t): t is string => typeof t === 'string') : [];
+        const next = cur.filter((t) => t.toLowerCase() !== tagName.toLowerCase());
+        if (next.length === cur.length) continue; // không chứa tag → bỏ qua
+        await prisma.contact.update({ where: { id: row.id }, data: { tags: next } });
+        affected++;
+      }
+      return { success: true, action, tagName, affected };
+    } catch (err) {
+      logger.error('[contacts] bulk-action error:', err);
+      return reply.status(500).send({ error: 'Bulk action failed' });
     }
   });
 
