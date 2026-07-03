@@ -14,6 +14,7 @@ import { findImageForReply } from './product-image.js';
 import { buildSummaryPrompt, formatGroupSummary, groupName } from './handoff-group.js';
 import { resolveOrder, formatOrderLines, formatVnd, type KbLookup } from './order-checkout.js';
 import { getQrConfig, buildTransferNote, renderVietQrImage } from './qr-image.js';
+import { humanPace } from './human-pace.js';
 
 const kbDeps: IngestDeps = { prisma: prisma as unknown as IngestDeps['prisma'], embed: generateEmbedding };
 
@@ -138,12 +139,14 @@ export async function runAutoReplyForMessage(ctx: AutoReplyContext): Promise<voi
         generate: (system, prompt) =>
           generateText(cfg.provider, llmApiKey, cfg.model, system, prompt, 800, llmBaseUrl),
         sendReply: async (accountId, threadId, threadType, text) => {
+          await humanPace(text.length); // nhịp gõ người trước khi gửi (chống Zalo flag spam)
           await zaloOps.sendMessage(accountId, threadId, threadType, { msg: text });
         },
         sendProductImage: async (accountId, threadId, threadType, replyText) => {
           const imgPath = findImageForReply(replyText);
           if (!imgPath) return false;
           try {
+            await humanPace(60); // giãn trước khi gửi ảnh (ảnh dồn dập dễ bị Zalo flag)
             await zaloOps.sendImage(accountId, threadId, threadType, [imgPath]);
             return true;
           } catch (err) {
