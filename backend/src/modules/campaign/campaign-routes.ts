@@ -236,8 +236,8 @@ export async function campaignRoutes(app: FastifyInstance): Promise<void> {
     async (request: FastifyRequest, reply: FastifyReply) => {
       const user = request.user!;
       const { listId } = request.params as { listId: string };
-      const { zaloAccountId, message, batchSize, attachPriceList } = (request.body ?? {}) as {
-        zaloAccountId?: string; message?: string; batchSize?: number; attachPriceList?: boolean;
+      const { zaloAccountId, message, batchSize, attachPriceList, includeSent } = (request.body ?? {}) as {
+        zaloAccountId?: string; message?: string; batchSize?: number; attachPriceList?: boolean; includeSent?: boolean;
       };
       if (!zaloAccountId) return reply.status(400).send({ error: 'zaloAccountId is required' });
       if (!message?.trim()) return reply.status(400).send({ error: 'message is required' });
@@ -248,6 +248,7 @@ export async function campaignRoutes(app: FastifyInstance): Promise<void> {
           orgId: user.orgId, listId, zaloAccountId, message,
           batchSize: Math.min(Math.max(Number(batchSize) || 30, 1), 100),
           attachPriceList: attachPriceList === true,
+          includeSent: includeSent === true,
         });
         return result;
       } catch (err: any) {
