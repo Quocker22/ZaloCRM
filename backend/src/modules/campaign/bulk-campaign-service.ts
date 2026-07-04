@@ -277,8 +277,8 @@ export async function runMessageBatch(args: {
   let catalogPaths: string[] = [];
   if (args.attachPriceList) {
     try {
-      const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { name: true } });
-      const shopName = process.env.AI_SHOP_NAME || org?.name || 'Shop';
+      const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { name: true, aiBizName: true } });
+      const shopName = org?.aiBizName || org?.name || 'Shop';
       const deps: IngestDeps = { prisma: prisma as unknown as IngestDeps['prisma'], embed: generateEmbedding };
       const embedCfg = { provider: 'local', model: 'bge-m3', baseUrl: 'http://localhost:11434/v1' };
       const lookup = (q: string) => searchKnowledge(deps, orgId, q, 6, embedCfg);

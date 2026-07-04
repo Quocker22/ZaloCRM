@@ -622,7 +622,7 @@ export async function handleIncomingMessage(
     if (!msg.isSelf) {
       const org = await prisma.organization.findUnique({
         where: { id: account.orgId },
-        select: { id: true, name: true },
+        select: { id: true, name: true, aiBizName: true, aiIndustry: true, aiPromptExtra: true },
       });
       const contact = contactId
         ? await prisma.contact.findUnique({
@@ -657,7 +657,9 @@ export async function handleIncomingMessage(
       if (message.contentType === 'text' && message.content) {
         void runAutoReplyForMessage({
           orgId: account.orgId,
-          bizName: org?.name ?? '',
+          bizName: org?.aiBizName || org?.name || '',
+          aiIndustry: org?.aiIndustry ?? 'ban_hang',
+          aiPromptExtra: org?.aiPromptExtra ?? null,
           conversationId: conversation.id,
           messageId: message.id,
           messageContent: message.content,

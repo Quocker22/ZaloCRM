@@ -21,6 +21,8 @@ const kbDeps: IngestDeps = { prisma: prisma as unknown as IngestDeps['prisma'], 
 export interface AutoReplyContext {
   orgId: string;
   bizName: string;
+  aiIndustry?: string;
+  aiPromptExtra?: string | null;
   conversationId: string;
   messageId: string;
   messageContent: string;
@@ -213,7 +215,7 @@ export async function runAutoReplyForMessage(ctx: AutoReplyContext): Promise<voi
           } catch {
             summary = `Khách ${customerName || ''} cần sale hỗ trợ (${decision}). Tin gần nhất: ${latestCustomerMsg}`;
           }
-          const text = formatGroupSummary(customerName, summary);
+          const text = formatGroupSummary(customerName, summary, ctx.bizName);
           try {
             if (existing?.content) {
               // đã có group → gửi tóm tắt cập nhật vào group cũ (content lưu groupId)
@@ -318,6 +320,8 @@ export async function runAutoReplyForMessage(ctx: AutoReplyContext): Promise<voi
         message: { id: ctx.messageId, content: ctx.messageContent, isSelf: false },
         cfg: {
           bizName: ctx.bizName,
+          aiIndustry: ctx.aiIndustry,
+          aiPromptExtra: ctx.aiPromptExtra,
           autoReplyEnabled: cfg.autoReplyEnabled,
           threshold: cfg.autoReplyConfidenceThreshold,
           topK: 6,

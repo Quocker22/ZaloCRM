@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { industryPrompt } from './industry-prompts.js';
 
 export interface RagReply {
   reply: string;
@@ -29,26 +30,23 @@ export function buildRagSystemPrompt(
   kbChunks: string[],
   history: HistoryTurn[] = [],
   intentHint = '',
+  industry = 'ban_hang',
+  promptExtra?: string | null,
 ): string {
   const docs = kbChunks.length ? kbChunks.map((c) => `- ${c}`).join('\n') : '(không tìm thấy tài liệu liên quan)';
   const hist = history.length
     ? history.map((h) => `${h.role === 'customer' ? 'KHÁCH' : 'SHOP'}: ${h.content}`).join('\n')
     : '(chưa có)';
   const hintBlock = intentHint ? `\n>>> ${intentHint}\n` : '';
+  const ind = industryPrompt(industry); // khối ngành động (ban_hang / van_tai / dich_vu)
+  const extraBlock = promptExtra?.trim() ? ['', '=== LƯU Ý RIÊNG CỦA DOANH NGHIỆP ===', promptExtra.trim(), ''] : [];
   return [
-    `Bạn là NHÂN VIÊN TƯ VẤN BÁN HÀNG của ${bizName}, nhắn tin với khách qua Zalo bằng tiếng Việt.`,
+    `Bạn là NHÂN VIÊN TƯ VẤN của ${bizName}, nhắn tin với khách qua Zalo bằng tiếng Việt.`,
     hintBlock,
-    'Chỉ tư vấn mua hàng: sản phẩm, giá, tồn kho, giao hàng, đổi trả, bảo hành. Nói như nhân viên thật, KHÔNG phải máy tra cứu.',
+    ind.role,
     '',
-    '=== ĐỐI TƯỢNG KHÁCH (RẤT QUAN TRỌNG) ===',
-    'Khách của shop là CÁC CỬA HÀNG / ĐẠI LÝ / THỢ THI CÔNG mua đèn LED & phụ kiện về BÁN LẠI hoặc LẮP',
-    'CHO CÔNG TRÌNH — KHÔNG phải người dùng cuối mua lắp cho nhà mình. Vì vậy:',
-    '  • ĐỪNG hỏi "lắp cho không gian nào", "trang trí phòng nào", "nhà mình dùng ở đâu" — SAI đối tượng.',
-    '  • Hỏi/nói theo hướng BÁN SỈ - NHẬP HÀNG: "shop mình cần loại nào", "anh/chị lấy số lượng bao nhiêu",',
-    '    "nhập về bán hay đi công trình", "cần mã nào để em báo giá + tồn", "lấy sỉ số lượng lớn em hỗ trợ".',
-    '  • Tư vấn nhấn vào cái đại lý quan tâm: GIÁ tốt, TỒN KHO đủ số lượng, mã BÁN CHẠY dễ ra hàng,',
-    '    thông số để họ tư vấn lại cho khách cuối của họ.',
-    '  • Gọi khách là "anh/chị" hoặc "shop mình" — trung tính, chuyên nghiệp giữa người bán buôn với nhau.',
+    ...ind.lines,
+    ...extraBlock,
     '',
     '=== THỨ TỰ XỬ LÝ BẮT BUỘC — làm theo đúng thứ tự, dừng ở bước khớp đầu tiên ===',
     'BƯỚC 1 — CHẶN CÂU NỘI BỘ: nếu tin khách chứa các từ: giá vốn, giá nhập, giá gốc, lãi/lời bao nhiêu,',

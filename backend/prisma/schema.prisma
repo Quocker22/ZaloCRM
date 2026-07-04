@@ -31,6 +31,14 @@ model Organization {
   fbPullEnabled              Boolean @default(false) @map("fb_pull_enabled")
   fbSystemUserId             String? @map("fb_system_user_id") // audit: SU id, debug khi revoke
 
+  // ── AI multi-tenant config 2026-07-04 — mỗi org tùy biến bot theo ngành/tên riêng ──
+  // aiBizName: tên bot xưng (vd "Vận Tải Minh Thức"); null → fallback tên org.
+  // aiIndustry: 'ban_hang' | 'van_tai' | 'dich_vu' — chọn KHỐI RULE NGÀNH trong prompt.
+  // aiPromptExtra: rule riêng của DN (text), chèn cuối prompt.
+  aiBizName     String? @map("ai_biz_name")
+  aiIndustry    String  @default("ban_hang") @map("ai_industry")
+  aiPromptExtra String? @map("ai_prompt_extra") @db.Text
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 

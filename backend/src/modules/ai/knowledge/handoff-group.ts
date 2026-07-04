@@ -33,15 +33,15 @@ export function buildSummaryPrompt(
   return { system, prompt };
 }
 
-/** Ghép tin tóm tắt gửi vào group (có tiêu đề + nội dung tóm tắt). */
-export function formatGroupSummary(customerName: string, summary: string): string {
+/** Ghép tin tóm tắt gửi vào group (có tiêu đề + nội dung tóm tắt). bizName bỏ hardcode LEDNELIA. */
+export function formatGroupSummary(customerName: string, summary: string, bizName = 'Bot'): string {
   const name = customerName || 'khách';
   return [
     `🔔 KHÁCH CẦN SALE HỖ TRỢ: ${name}`,
     '',
     summary.trim(),
     '',
-    '— Bot LEDNELIA tự động chuyển. Anh/chị sale tiếp nhận giúp ạ.',
+    `— Bot ${bizName} tự động chuyển. Anh/chị sale tiếp nhận giúp ạ.`,
   ].join('\n');
 }
 

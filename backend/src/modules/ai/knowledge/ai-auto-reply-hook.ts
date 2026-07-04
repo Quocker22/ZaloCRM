@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { buildRagSystemPrompt, parseRagReply, decideAction, replyHasUnsupportedNumber, type HistoryTurn } from './rag-reply.js';
-import { classifyIntent, intentHint, INTERNAL_REPLY, COMPLAINT_REPLY } from './intent.js';
+import { classifyIntent, intentHint, INTERNAL_REPLY, complaintReply } from './intent.js';
 
 export interface HookDeps {
   search(orgId: string, query: string, topK: number): Promise<Array<{ content: string }>>;
@@ -62,6 +62,8 @@ export interface HookInput {
   message: { id: string; content: string; isSelf: boolean };
   cfg: {
     bizName: string;
+    aiIndustry?: string;            // ngành (ban_hang/van_tai/dich_vu) → chọn khối prompt
+    aiPromptExtra?: string | null;  // rule riêng của DN
     autoReplyEnabled: boolean;
     threshold: number;
     topK: number;
@@ -171,9 +173,9 @@ export async function onIncomingMessageHook(
     }
     if (cfg.autoReplyEnabled && conv.zaloAccountId && conv.externalThreadId) {
       const threadType: 0 | 1 = conv.threadType === 'group' ? 1 : 0;
-      try { await deps.sendReply(conv.zaloAccountId, conv.externalThreadId, threadType, COMPLAINT_REPLY); } catch { /* gửi lỗi → vẫn đã tag */ }
+      try { await deps.sendReply(conv.zaloAccountId, conv.externalThreadId, threadType, complaintReply(cfg.bizName)); } catch { /* gửi lỗi → vẫn đã tag */ }
     }
-    await deps.recordSuggestion({ messageId: message.id, conversationId: conv.id, content: COMPLAINT_REPLY, confidence: 1, decision: 'complaint' });
+    await deps.recordSuggestion({ messageId: message.id, conversationId: conv.id, content: complaintReply(cfg.bizName), confidence: 1, decision: 'complaint' });
     if (deps.openHandoffGroup) {
       try { await deps.openHandoffGroup(conv.id, message.content, 'complaint'); } catch { /* non-fatal */ }
     }
@@ -200,7 +202,7 @@ export async function onIncomingMessageHook(
   // 4. Generate (với intent hint)
   let rep;
   try {
-    const system = buildRagSystemPrompt(cfg.bizName, chunks, history, hint);
+    const system = buildRagSystemPrompt(cfg.bizName, chunks, history, hint, cfg.aiIndustry, cfg.aiPromptExtra);
     const raw = await deps.generate(system, message.content);
     rep = parseRagReply(raw);
   } catch {

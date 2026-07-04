@@ -132,9 +132,15 @@ export const INTERNAL_REPLY =
 
 // Khiếu nại — rủi ro cao, xử lý cố định ở code + handoff sale ngay (codex khuyến nghị).
 // Không để LLM tự ứng biến trên tình huống nhạy cảm.
-export const COMPLAINT_REPLY =
-  'Dạ LEDNELIA xin lỗi anh/chị vì sự cố này ạ. Em sẽ chuyển ngay cho nhân viên hỗ trợ kiểm tra giúp mình. ' +
-  'Anh/chị cho em xin SĐT/mã đơn, sản phẩm đã mua và ảnh/video tình trạng sản phẩm để bên em xử lý nhanh nhất nhé.';
+// Câu xin lỗi khiếu nại — nhận bizName (bỏ hardcode LEDNELIA), trung tính ngành.
+export function complaintReply(bizName = 'bên em'): string {
+  return (
+    `Dạ ${bizName} xin lỗi anh/chị vì sự cố này ạ. Em sẽ chuyển ngay cho nhân viên hỗ trợ kiểm tra giúp mình. ` +
+    'Anh/chị cho em xin SĐT/mã đơn và thông tin chi tiết sự việc để bên em xử lý nhanh nhất nhé.'
+  );
+}
+// Giữ hằng số cũ cho nơi chưa truyền bizName (fallback).
+export const COMPLAINT_REPLY = complaintReply();
 
 /**
  * Hint chèn vào đầu prompt để ép LLM trả lời đúng kiểu cho intent đã phát hiện.
