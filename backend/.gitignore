@@ -1,2 +1,4 @@
 product-images/
 .env.local
+product-specs/_specs.jsonl
+coverage/

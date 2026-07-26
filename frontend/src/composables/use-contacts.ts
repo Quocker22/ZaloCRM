@@ -287,6 +287,7 @@ export interface ContactFilters {
   sequenceAttachMin?: number | null; // #4: lọc KH gắn ≥ N sequence
   friendInviteMin?: number | null;   // #3: lọc KH đã gửi kết bạn ≥ N lần
   sort?: 'score' | '' | null;        // 'score' = điểm cao lên đầu; rỗng = tương tác mới nhất
+  tag?: string;                      // lọc theo 1 tag/ngành (vd "spa") — từ gmaps scraper
 }
 
 export const SOURCE_OPTIONS = [
@@ -330,6 +331,7 @@ export function useContacts() {
     sequenceAttachMin: null,
     friendInviteMin: null,
     sort: null,
+    tag: '',
   });
 
   const pagination = reactive({ page: 1, limit: 20 });
@@ -357,6 +359,7 @@ export function useContacts() {
           sequenceAttachMin: filters.sequenceAttachMin ?? undefined,
           friendInviteMin: filters.friendInviteMin ?? undefined,
           sort: filters.sort || undefined,
+          tag: filters.tag || undefined,
         },
       });
       contacts.value = res.data.contacts ?? res.data;
@@ -421,6 +424,27 @@ export function useContacts() {
     }
   }
 
+  // Hành động hàng loạt: gỡ 1 tag ('untag') hoặc xóa ('delete') nhiều khách cùng lúc.
+  // Dùng để dọn khách sai chiến dịch (vd bỏ tag 'led' khỏi loạt shop hoa/spa).
+  async function bulkAction(
+    action: 'untag' | 'delete',
+    contactIds: string[],
+    tagName?: string,
+  ): Promise<{ ok: boolean; affected: number }> {
+    if (contactIds.length === 0) return { ok: false, affected: 0 };
+    deleting.value = true;
+    try {
+      const res = await api.post('/contacts/bulk-action', { action, contactIds, tagName });
+      await fetchContacts();
+      return { ok: true, affected: (res?.data?.affected as number) ?? 0 };
+    } catch (err) {
+      console.error('Bulk action failed:', err);
+      return { ok: false, affected: 0 };
+    } finally {
+      deleting.value = false;
+    }
+  }
+
   function resetFilters() {
     filters.search = '';
     filters.source = '';
@@ -433,7 +457,7 @@ export function useContacts() {
     contacts, total, loading, saving, deleting,
     filters, pagination,
     fetchContacts, fetchContact,
-    createContact, updateContact, deleteContact,
+    createContact, updateContact, deleteContact, bulkAction,
     resetFilters,
   };
 }

@@ -223,6 +223,10 @@ const routes: RouteRecordRaw[] = [
           // Tệp khách hàng (Customer Lists) — open-core, dùng được ở Community.
           { path: 'lists', name: 'CE.Lists', component: () => import('@/views/marketing/ListsView.vue'), meta: { requiresAuth: true } },
           { path: 'lists/:id', name: 'CE.ListDetail', component: () => import('@/views/marketing/ListDetailView.vue'), meta: { requiresAuth: true } },
+          // Danh sách chiến dịch (xem lại tiến trình).
+          { path: 'campaigns', name: 'CE.Campaigns', component: () => import('@/views/marketing/CampaignsListView.vue'), meta: { requiresAuth: true } },
+          // Chiến dịch gửi hàng loạt (Community) — tạo từ 1 Tệp khách hàng (Màn 1 tạo + Màn 2 theo dõi cùng view).
+          { path: 'campaigns/tao-moi', name: 'CE.BulkCampaign', component: () => import('@/views/marketing/BulkCampaignView.vue'), meta: { requiresAuth: true } },
         ],
       } as RouteRecordRaw]
     : []),

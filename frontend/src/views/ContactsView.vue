@@ -15,6 +15,11 @@
           <button class="btn btn-primary" @click="openCreate">
             <svg class="lc" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg> Thêm Khách Hàng
           </button>
+          <!-- Cầu nối Khách hàng → Chiến dịch: tạo Tệp KH từ nhóm đang lọc (vd ngành spa). -->
+          <button v-if="filters.tag" class="btn btn-campaign" :disabled="creatingList" @click="createListFromFilter" title="Đổ nhóm khách đang lọc sang Tệp khách hàng để chạy chiến dịch gửi tin">
+            <svg class="lc" viewBox="0 0 24 24"><path d="M3 11l19-9-9 19-2-8-8-2z"/></svg>
+            {{ creatingList ? 'Đang tạo…' : `Tạo tệp từ ${total} khách này` }}
+          </button>
           <div class="seg-cluster">
           <button class="seg-btn" :class="{ on: showAdvanced }" @click="showAdvanced = !showAdvanced">
             <svg class="lc" viewBox="0 0 24 24"><path d="M3 6h18M7 12h10M11 18h2"/></svg> Lọc nâng cao
@@ -134,6 +139,13 @@
         </select>
       </div>
       <div class="adv-group">
+        <label>Ngành / Tag</label>
+        <select v-model="filters.tag" @change="fetchContacts" title="Lọc theo ngành (vd spa, nhà hàng) — tag do scraper Google Maps gắn">
+          <option value="">Tất cả ngành</option>
+          <option v-for="t in availableTags" :key="t" :value="t">{{ t }}</option>
+        </select>
+      </div>
+      <div class="adv-group">
         <label>Trạng thái kết bạn (per-nick)</label>
         <select v-model="filters.relationshipKindAny" @change="fetchContacts">
           <option value="">Tất cả</option>
@@ -195,12 +207,27 @@
     </div>
 
     <!-- ════════ Master/child table + Detail pane (Phase Dual View 2026-05-28) ════════ -->
+    <!-- Thanh hành động hàng loạt — hiện khi có khách được chọn -->
+    <div v-if="selectedIds.size > 0" class="bulk-bar">
+      <span class="bulk-count">Đã chọn {{ selectedIds.size }} khách</span>
+      <button class="bulk-btn bulk-primary" :disabled="bulkBusy || creatingList" @click="createListFromSelected">
+        📣 Tạo tệp từ {{ selectedIds.size }} khách đã chọn
+      </button>
+      <button class="bulk-btn" :disabled="bulkBusy" @click="bulkUntag">
+        Bỏ tag<span v-if="filters.tag"> "{{ filters.tag }}"</span>
+      </button>
+      <button class="bulk-btn bulk-danger" :disabled="bulkBusy" @click="bulkDelete">Xóa hẳn</button>
+      <button class="bulk-btn bulk-ghost" :disabled="bulkBusy" @click="clearSelection">Bỏ chọn</button>
+      <span v-if="bulkBusy" class="bulk-busy">Đang xử lý…</span>
+    </div>
+
     <div class="dual-pane" :class="{ 'detail-open': viewMode === 'm2' && selectedContact }">
     <div class="scroll-wrap" :class="{ 'mode-shrunk': viewMode === 'm2' && selectedContact }">
       <table class="smax-table" :class="{ 'mode-shrunk': viewMode === 'm2' && selectedContact }">
         <!-- colgroup: pin width cứng cho mọi cột → hàng con (row-child) có colspan
              vẫn gióng chính xác theo cột cha. (2026-06-04) -->
         <colgroup>
+          <col style="width:30px">   <!-- 0 checkbox chọn hàng loạt -->
           <col style="width:26px">   <!-- 1 caret -->
           <col style="width:188px">  <!-- 2 Tên (gộp avatar+tên, KHÔNG colspan) -->
           <col style="width:100px">  <!-- 3 SĐT -->
@@ -226,6 +253,9 @@
         </colgroup>
         <thead>
           <tr>
+            <th class="w-cb" title="Chọn tất cả khách trên trang này">
+              <input type="checkbox" :checked="allOnPageSelected" @change="toggleSelectAllPage" />
+            </th>
             <th></th>
             <th>Tên CRM / Zalo (KH)</th>
             <th>SĐT</th>
@@ -262,6 +292,10 @@
               :data-contact-id="contact.id"
               @click="onRowClick($event, contact.id)"
             >
+              <!-- col0: checkbox chọn hàng loạt -->
+              <td class="cl-cb-cell" @click.stop>
+                <input type="checkbox" :checked="selectedIds.has(contact.id)" @change="toggleSelect(contact.id)" />
+              </td>
               <!-- col1: caret -->
               <td class="cl-caret-cell">
                 <button class="cl-caret" @click.stop="toggleExpand(contact.id)">
@@ -478,6 +512,8 @@
                   v-for="(row, idx) in childRows(contact)" :key="row.id"
                   class="fr-row" :class="[frKbClass(row.relationshipKind), { 'is-last': idx === childRows(contact).length - 1 }]"
                 >
+                  <!-- col0: checkbox-slot trống (giữ thẳng cột với checkbox cha) -->
+                  <td class="cl-cb-cell"></td>
                   <!-- col1: caret-slot trống (giữ thẳng cột với caret cha) -->
                   <td class="cl-caret-cell"></td>
                   <!-- col2 Tên: avatar + nick + 🏆 + chấm chat + alias (cùng pattern .cl-name như cha
@@ -697,7 +733,116 @@ const { isMobile } = useMobile();
 const router = useRouter();
 const route = useRoute();
 
-const { contacts, total, loading, filters, pagination, fetchContacts } = useContacts();
+const { contacts, total, loading, filters, pagination, fetchContacts, bulkAction } = useContacts();
+
+// ── Chọn hàng loạt + hành động (bỏ tag / xóa) ──────────────────────────────
+const selectedIds = ref<Set<string>>(new Set());
+const bulkBusy = ref(false);
+const allOnPageSelected = computed(
+  () => contacts.value.length > 0 && contacts.value.every((c) => selectedIds.value.has(c.id)),
+);
+function toggleSelect(id: string) {
+  const s = new Set(selectedIds.value);
+  s.has(id) ? s.delete(id) : s.add(id);
+  selectedIds.value = s;
+}
+function toggleSelectAllPage() {
+  const s = new Set(selectedIds.value);
+  if (allOnPageSelected.value) contacts.value.forEach((c) => s.delete(c.id));
+  else contacts.value.forEach((c) => s.add(c.id));
+  selectedIds.value = s;
+}
+function clearSelection() {
+  selectedIds.value = new Set();
+}
+async function bulkUntag() {
+  const tag = (filters.tag || '').trim();
+  const ids = [...selectedIds.value];
+  if (!tag) {
+    alert('Hãy lọc theo 1 tag (ô "Ngành / Tag") trước — nút này gỡ đúng tag đang lọc khỏi khách đã chọn.');
+    return;
+  }
+  if (!confirm(`Bỏ tag "${tag}" khỏi ${ids.length} khách đã chọn? (Khách vẫn còn trong CRM, chỉ rời danh sách tag này.)`)) return;
+  bulkBusy.value = true;
+  const res = await bulkAction('untag', ids, tag);
+  bulkBusy.value = false;
+  if (res.ok) { alert(`Đã bỏ tag "${tag}" khỏi ${res.affected} khách.`); clearSelection(); }
+  else alert('Có lỗi khi bỏ tag. Thử lại nhé.');
+}
+async function bulkDelete() {
+  const ids = [...selectedIds.value];
+  if (!confirm(`XÓA HẲN ${ids.length} khách khỏi hệ thống? Thao tác này KHÔNG hoàn tác được.`)) return;
+  bulkBusy.value = true;
+  const res = await bulkAction('delete', ids);
+  bulkBusy.value = false;
+  if (res.ok) { alert(`Đã xóa ${res.affected} khách.`); clearSelection(); }
+  else alert('Có lỗi khi xóa. Thử lại nhé.');
+}
+
+// Danh sách ngành/tag có thật trong KH (cho dropdown "Lọc theo ngành/tag").
+const availableTags = ref<string[]>([]);
+async function fetchAvailableTags() {
+  try {
+    const { data } = await api.get<{ tags: { name: string; count: number }[] }>('/contacts/tags');
+    availableTags.value = (data?.tags || []).map(t => t.name);
+  } catch { availableTags.value = []; }
+}
+
+// "Tạo tệp từ bộ lọc": đổ nhóm KH đang lọc (vd ngành spa) sang Tệp khách hàng để chạy
+// chiến dịch. Lấy phone+name từ /contacts/export-rows rồi tạo CustomerList (path rows).
+const creatingList = ref(false);
+async function createListFromFilter() {
+  if (creatingList.value) return;
+  creatingList.value = true;
+  try {
+    const { data: ex } = await api.get<{ rows: { phone: string; name: string | null }[]; total: number }>(
+      '/contacts/export-rows',
+      { params: { tag: filters.tag || undefined, source: filters.source || undefined, search: filters.search || undefined, hasZalo: filters.hasZalo || undefined } },
+    );
+    const rows = ex?.rows || [];
+    if (!rows.length) { toast.warning('Nhóm này chưa có khách nào có số điện thoại để tạo tệp.'); return; }
+    const listName = `${filters.tag || 'Khách'} · ${rows.length} SĐT`;
+    const { data: list } = await api.post<{ id: string; name: string }>('/customer-lists', {
+      name: listName, iconEmoji: '📣', sourceType: 'csv', rows,
+    });
+    toast.success(`Đã tạo tệp "${list.name}" với ${rows.length} số. Mở để chạy chiến dịch.`);
+    if (list?.id) router.push(`/marketing/lists/${list.id}`);
+  } catch (e: any) {
+    toast.error('Tạo tệp lỗi: ' + (e?.response?.data?.error || e?.message || 'không rõ'));
+  } finally {
+    creatingList.value = false;
+  }
+}
+
+// "Tạo tệp từ khách ĐÃ CHỌN": chỉ đổ những khách anh tick (không phải cả bộ lọc).
+// selectedIds có thể trải qua NHIỀU TRANG, nhưng contacts.value chỉ giữ trang hiện tại
+// → phải lấy phone+name từ SERVER theo đúng các id đã chọn (export-rows?ids=...), KHÔNG
+// lọc từ trang FE đang xem (sẽ mất khách các trang khác — âm thầm thiếu số).
+async function createListFromSelected() {
+  if (creatingList.value) return;
+  const ids = [...selectedIds.value];
+  if (!ids.length) { toast.warning('Chưa chọn khách nào.'); return; }
+  creatingList.value = true;
+  try {
+    const { data: ex } = await api.get<{ rows: { phone: string; name: string | null }[]; total: number }>(
+      '/contacts/export-rows',
+      { params: { ids: ids.join(',') } },
+    );
+    const rows = ex?.rows || [];
+    if (!rows.length) { toast.warning('Khách đã chọn chưa có số điện thoại để tạo tệp.'); return; }
+    const listName = `Tệp chọn · ${rows.length} SĐT`;
+    const { data: list } = await api.post<{ id: string; name: string }>('/customer-lists', {
+      name: listName, iconEmoji: '📣', sourceType: 'csv', rows,
+    });
+    toast.success(`Đã tạo tệp "${list.name}" với ${rows.length} số. Mở để chạy chiến dịch.`);
+    clearSelection();
+    if (list?.id) router.push(`/marketing/lists/${list.id}`);
+  } catch (e: any) {
+    toast.error('Tạo tệp lỗi: ' + (e?.response?.data?.error || e?.message || 'không rõ'));
+  } finally {
+    creatingList.value = false;
+  }
+}
 
 // Toggle sắp theo điểm: lần 1 = điểm cao lên đầu (sort=score), lần 2 = về mặc định
 // (tương tác mới nhất). Reset trang về 1 để không lệch phân trang.
@@ -741,7 +886,8 @@ function toggleColumn(key: OptColKey) {
 const totalColumnsCount = computed(() =>
   // 2026-06-04: gộp avatar+tên thành 1 cột (caret riêng) → 15 cột cố định.
   // 2026-06-17: cột UID giờ thuộc child-toggle (per-nick) → cộng riêng.
-  15 + Object.values(visibleCols.value).filter(Boolean).length + (visibleChildCols.value.zaloUid ? 1 : 0),
+  // +1: cột checkbox chọn hàng loạt (2026-07-03).
+  16 + Object.values(visibleCols.value).filter(Boolean).length + (visibleChildCols.value.zaloUid ? 1 : 0),
 );
 
 // Child (KH Con) optional cols — riêng vì bản chất per-Friend chứ không aggregate.
@@ -1560,6 +1706,7 @@ onMounted(() => {
   loadMasterStatuses();
   loadUsers();
   fetchZaloAccounts(); // để nút "Kết bạn" biết nick Zalo nào đang kết nối
+  fetchAvailableTags(); // danh sách ngành/tag cho bộ lọc
 });
 
 // M55.2 2026-05-30 — Handle /contacts?focus={id} từ AddCustomerQuickDialog
@@ -2806,6 +2953,9 @@ watch(
   padding: 0 16px; border-radius: var(--r-sm, 8px); background: var(--brand); border: 1px solid var(--brand);
   color: #fff; font-weight: 700; font-size: 13px; box-shadow: 0 1px 2px rgba(16,24,40,.06); cursor: pointer; }
 .header-actions .btn-primary:hover { background: var(--brand-600); border-color: var(--brand-600); }
+.btn-campaign { display: inline-flex; align-items: center; gap: 7px; height: 38px; padding: 0 14px; border-radius: 9px; border: 1px solid #16a34a; background: #16a34a; color: #fff; font-weight: 600; font-size: 14px; cursor: pointer; white-space: nowrap; }
+.btn-campaign:hover:not(:disabled) { background: #15803d; border-color: #15803d; }
+.btn-campaign:disabled { opacity: .6; cursor: wait; }
 .seg-cluster { display: inline-flex; align-items: stretch; border: 1px solid var(--line);
   border-radius: var(--r-sm, 8px); overflow: hidden; background: var(--surface); }
 .seg-btn { display: inline-flex; align-items: center; gap: 7px; height: 38px; padding: 0 13px;
@@ -2838,4 +2988,27 @@ watch(
 /* KPI stats — colored dot instead of emoji */
 .sdot { width: 8px; height: 8px; border-radius: 50%; flex: none; display: inline-block; }
 .stat-box .sdot { margin-right: 1px; }
+
+/* ── Chọn hàng loạt + thanh hành động (2026-07-03) ── */
+.w-cb { text-align: center; }
+.cl-cb-cell { text-align: center; vertical-align: middle; }
+.cl-cb-cell input[type="checkbox"] { cursor: pointer; }
+.bulk-bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 14px; margin: 6px 0; border-radius: 10px;
+  background: #eef2ff; border: 1px solid #c7d2fe;
+}
+.bulk-count { font-weight: 600; color: #3730a3; font-size: 13px; }
+.bulk-btn {
+  padding: 6px 12px; border-radius: 8px; border: 1px solid #c7d2fe;
+  background: #fff; color: #3730a3; font-size: 13px; cursor: pointer;
+}
+.bulk-btn:hover:not(:disabled) { background: #e0e7ff; }
+.bulk-btn:disabled { opacity: .5; cursor: default; }
+.bulk-primary { background: #4f46e5; color: #fff; border-color: #4f46e5; font-weight: 600; }
+.bulk-primary:hover:not(:disabled) { background: #4338ca; }
+.bulk-danger { color: #b91c1c; border-color: #fecaca; }
+.bulk-danger:hover:not(:disabled) { background: #fee2e2; }
+.bulk-ghost { color: #6b7280; border-color: #e5e7eb; }
+.bulk-busy { font-size: 12px; color: #6b7280; }
 </style>

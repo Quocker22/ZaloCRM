@@ -873,10 +873,9 @@ async function onDelete() {
  */
 function onCreateMucTieu() {
   if (!listId.value) return;
-  router.push({
-    path: '/marketing/triggers/tao-moi',
-    query: { listId: listId.value },
-  });
+  // 2026-06-27: Community "Chiến dịch gửi hàng loạt" — gửi kết bạn theo đợt từ tệp này.
+  // (Route EE cũ /marketing/triggers/tao-moi bị 404; thay bằng trang Community thật.)
+  router.push({ path: '/marketing/campaigns/tao-moi', query: { listId: listId.value } });
 }
 
 // ───────── Inline edit: title ─────────

@@ -59,19 +59,26 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/v1/contacts/export-rows', { preHandler: requireGrant('contact', 'access') }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const user = request.user!;
-      const { tag = '', source = '', search = '', hasZalo = '' } = request.query as Record<string, string>;
+      const { tag = '', source = '', search = '', hasZalo = '', ids = '' } = request.query as Record<string, string>;
       const where: any = { orgId: user.orgId, mergedInto: null };
       const cScope = await getContactScope(user.id, user.orgId, user.role);
       if (!cScope.isOrgAdmin && cScope.accessibleContactIds !== null) where.id = { in: cScope.accessibleContactIds };
       if (tag) where.tags = { array_contains: tag };
       if (source) where.source = source;
       if (hasZalo === 'true') where.hasZalo = true;
+      // "Tạo tệp từ khách ĐÃ CHỌN": FE gửi ids (CSV) của các KH đã tick — có thể trải qua NHIỀU
+      // TRANG. Lọc theo id ở server (không dựa trang FE đang xem, nếu không sẽ mất khách các trang
+      // khác). AND với scope quyền ở trên (KHÔNG đè where.id) để không lộ KH ngoài quyền.
+      const idList = ids.split(',').map(s => s.trim()).filter(Boolean);
+      const andClauses: any[] = [];
+      if (idList.length) andClauses.push({ id: { in: idList } });
       // Chỉ KH có số điện thoại (chiến dịch Zalo cần SĐT).
       where.OR = [{ phoneNormalized: { not: null } }, { phone: { not: null } }];
       if (search) {
         const s = search.trim();
-        where.AND = [{ OR: [{ fullName: { contains: s, mode: 'insensitive' } }, { crmName: { contains: s, mode: 'insensitive' } }, { phone: { contains: s } }, { phoneNormalized: { contains: s } }] }];
+        andClauses.push({ OR: [{ fullName: { contains: s, mode: 'insensitive' } }, { crmName: { contains: s, mode: 'insensitive' } }, { phone: { contains: s } }, { phoneNormalized: { contains: s } }] });
       }
+      if (andClauses.length) where.AND = andClauses;
       const rows = await prisma.contact.findMany({
         where,
         select: { phone: true, phoneNormalized: true, fullName: true, crmName: true },

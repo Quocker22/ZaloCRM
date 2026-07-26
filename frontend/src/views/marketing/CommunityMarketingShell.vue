@@ -41,6 +41,7 @@ const route = useRoute();
 const navItems = [
   { to: '/marketing/group-scan', label: 'Quét nhóm', icon: 'mdi-account-group-outline' },
   { to: '/marketing/lists', label: 'Tệp khách hàng', icon: 'mdi-format-list-bulleted' },
+  { to: '/marketing/campaigns', label: 'Chiến dịch', icon: 'mdi-rocket-launch-outline' },
 ];
 
 function isActive(to: string): boolean {
@@ -49,7 +50,10 @@ function isActive(to: string): boolean {
 </script>
 
 <style scoped>
-.ce-marketing-shell { display: flex; height: 100%; min-height: 0; }
+/* Cao bằng viewport trừ topnav → .ce-mkt-content thành khung cuộn thật (trước đây
+   height:100% co lại = chiều cao nội dung nên overflow:auto vô tác dụng → trang dài
+   không cuộn được). Fix cho mọi trang Marketing. */
+.ce-marketing-shell { display: flex; height: calc(100vh - var(--smax-topnav-h, 52px)); min-height: 0; }
 .ce-mkt-sidebar {
   flex: 0 0 220px; border-right: 1px solid var(--border, #e5e4e7);
   background: #fbfbfc; display: flex; flex-direction: column; padding: 12px 8px;

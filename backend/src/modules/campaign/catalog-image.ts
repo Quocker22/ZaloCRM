@@ -211,7 +211,8 @@ interface CacheEntry {
   at: number;
 }
 const cache = new Map<string, CacheEntry>();
-const TTL_MS = 10 * 60 * 1000;
+const TTL_MS = 6 * 60 * 60 * 1000; // 6h — SP/giá ít đổi, catalog không cần tươi từng phút.
+                                   // Warm lúc boot + TTL dài → route prepare luôn trả cache tức thì.
 
 const TARGET_PRODUCTS = 36; // tổng SP muốn có trong bộ catalog
 const PER_IMAGE = 12; // mỗi ảnh tối đa 12 SP (grid 3×4) → 36 SP = 3 ảnh, gửi 1 batch

@@ -82,6 +82,17 @@
           <span class="lbl-on">Đang kết nối</span>
           <span class="lbl-hover"><v-icon size="15">mdi-link-off</v-icon> Ngắt kết nối</span>
         </button>
+        <!-- 2026-06-27: thoát "bẫy phiên chết ngầm". Nick báo connected nhưng SDK có thể
+             đã hết hạn (gửi tin/kết bạn lỗi) → nút trên ẩn mất đường quét QR. Link phụ này
+             LUÔN hiện khi online để sale tự quét lại QR mà không phải ngắt kết nối trước. -->
+        <button
+          v-if="a.canManage && isOnline(a)"
+          class="ngc-relink"
+          title="Nếu gửi tin / kết bạn bị lỗi dù đang 'Đã kết nối' → quét lại QR để làm mới phiên"
+          @click.stop="$emit('reconnect', a)"
+        >
+          <v-icon size="13">mdi-qrcode-scan</v-icon> Quét lại QR
+        </button>
         <button
           v-else-if="a.canManage"
           class="ngc-statebtn off"
@@ -317,6 +328,14 @@ function initials(name?: string | null): string {
 .ngc-statebtn.off:hover:not(:disabled) { background: var(--brand-700, #1786be); color: #fff; }
 .ngc-statebtn:disabled { opacity: .55; cursor: not-allowed; }
 .ngc-statebtn.readonly { cursor: default; }
+/* 2026-06-27: link phụ "Quét lại QR" — nhỏ, mờ, dưới nút trạng thái; lối thoát bẫy phiên chết ngầm. */
+.ngc-relink {
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px; width: 100%;
+  margin-top: 5px; border: none; background: transparent; color: #94a3b0;
+  font-size: 11px; font-weight: 500; cursor: pointer; padding: 2px;
+  transition: color .15s;
+}
+.ngc-relink:hover { color: var(--brand-700, #1786be); text-decoration: underline; }
 .ngc-statebtn.readonly.off { background: #f3f4f6; color: #6b7280; }
 .ngc-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
 .ngc-spin { animation: ngc-spin .8s linear infinite; }
