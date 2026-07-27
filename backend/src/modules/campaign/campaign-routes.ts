@@ -236,8 +236,8 @@ export async function campaignRoutes(app: FastifyInstance): Promise<void> {
     async (request: FastifyRequest, reply: FastifyReply) => {
       const user = request.user!;
       const { listId } = request.params as { listId: string };
-      const { zaloAccountId, message, batchSize, attachPriceList, includeSent } = (request.body ?? {}) as {
-        zaloAccountId?: string; message?: string; batchSize?: number; attachPriceList?: boolean; includeSent?: boolean;
+      const { zaloAccountId, message, batchSize, attachPriceList, attachImages, includeSent } = (request.body ?? {}) as {
+        zaloAccountId?: string; message?: string; batchSize?: number; attachPriceList?: boolean; attachImages?: string[]; includeSent?: boolean;
       };
       if (!zaloAccountId) return reply.status(400).send({ error: 'zaloAccountId is required' });
       if (!message?.trim()) return reply.status(400).send({ error: 'message is required' });
@@ -248,6 +248,7 @@ export async function campaignRoutes(app: FastifyInstance): Promise<void> {
           orgId: user.orgId, listId, zaloAccountId, message,
           batchSize: Math.min(Math.max(Number(batchSize) || 30, 1), 100),
           attachPriceList: attachPriceList === true,
+          attachImages: Array.isArray(attachImages) ? attachImages.slice(0, 10).map(String) : [],
           includeSent: includeSent === true,
         });
         return result;
@@ -297,6 +298,60 @@ export async function campaignRoutes(app: FastifyInstance): Promise<void> {
       const full = join(tmpdir(), file);
       if (!existsSync(full)) return reply.status(404).send({ error: 'not found' });
       reply.header('Content-Type', 'image/png');
+      return reply.send(readFileSync(full));
+    },
+  );
+
+  // ─── ẢNH ĐÍNH KÈM THỦ CÔNG: chủ shop tự tải ảnh của mình để gửi kèm mỗi tin ───
+  // (khác catalog tự động — dùng khi muốn gửi ảnh riêng: poster khuyến mãi, ảnh SP cụ thể…).
+  // Lưu vào volume product-images/attach/<orgId>/ (bền qua redeploy, cùng máy → gửi được lúc chạy).
+  const { attachUploadDir, isSafeAttachName } = await import('./campaign-attach.js');
+
+  app.post(
+    '/api/v1/campaigns/attach/upload',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = request.user!;
+      const { mkdirSync, writeFileSync } = await import('node:fs');
+      const { join, extname } = await import('node:path');
+      const { randomUUID } = await import('node:crypto');
+      const dir = attachUploadDir(user.orgId);
+      const saved: string[] = [];
+      try {
+        for await (const part of request.parts()) {
+          if (part.type !== 'file' || part.fieldname !== 'images') continue;
+          if (!['image/jpeg', 'image/png', 'image/webp'].includes(part.mimetype)) {
+            return reply.status(415).send({ error: `Ảnh phải là JPG/PNG/WEBP (nhận: ${part.mimetype})` });
+          }
+          const buf = await part.toBuffer();
+          if (buf.length > 5 * 1024 * 1024) return reply.status(413).send({ error: 'Mỗi ảnh tối đa 5MB' });
+          const ext = ({ 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp' } as const)[part.mimetype as 'image/jpeg'];
+          const name = `${randomUUID()}${ext}`;
+          mkdirSync(dir, { recursive: true });
+          writeFileSync(join(dir, name), buf);
+          saved.push(name);
+        }
+      } catch (err) {
+        return reply.status(400).send({ error: `Tải ảnh lỗi: ${(err as Error)?.message}` });
+      }
+      if (saved.length === 0) return reply.status(400).send({ error: 'Không có ảnh nào (field "images")' });
+      const urls = saved.map((n) => `/api/v1/campaigns/attach/img/${n}`);
+      return { count: saved.length, files: saved, images: urls };
+    },
+  );
+
+  // GET serve 1 ảnh đính kèm thủ công (chỉ file trong thư mục attach của org → chống path traversal).
+  app.get(
+    '/api/v1/campaigns/attach/img/:file',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = request.user!;
+      const { file } = request.params as { file: string };
+      if (!isSafeAttachName(file)) return reply.status(400).send({ error: 'bad file' });
+      const { join } = await import('node:path');
+      const { existsSync, readFileSync } = await import('node:fs');
+      const full = join(attachUploadDir(user.orgId), file);
+      if (!existsSync(full)) return reply.status(404).send({ error: 'not found' });
+      const ct = file.endsWith('.png') ? 'image/png' : file.endsWith('.webp') ? 'image/webp' : 'image/jpeg';
+      reply.header('Content-Type', ct);
       return reply.send(readFileSync(full));
     },
   );

@@ -84,6 +84,24 @@
             </template>
             <div v-else class="cat-err">⚠️ Chưa ghép được bảng giá (thiếu sản phẩm có giá + ảnh).</div>
           </div>
+
+          <!-- Ảnh đính kèm THỦ CÔNG (tự tải ảnh của mình — gửi kèm mỗi tin, ngoài catalog tự động) -->
+          <div v-if="isMsg" class="attach-manual">
+            <div class="am-head">
+              <span>📎 Ảnh của bạn (tùy chọn)</span>
+              <button type="button" class="am-add" :disabled="attachUploading || attachFiles.length >= 10" @click="pickAttach">
+                {{ attachUploading ? 'Đang tải…' : '+ Thêm ảnh' }}
+              </button>
+              <input ref="attachInput" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden @change="onAttachPicked" />
+            </div>
+            <div v-if="attachPreviews.length" class="am-thumbs">
+              <div v-for="(u,i) in attachPreviews" :key="i" class="am-thumb-wrap">
+                <img :src="u" class="am-thumb" @click="previewImg = u" />
+                <button type="button" class="am-del" title="Xóa" @click="removeAttach(i)">×</button>
+              </div>
+            </div>
+            <div v-else class="am-hint">Tải poster / ảnh sản phẩm của bạn để gửi kèm (tối đa 10 ảnh, ≤5MB/ảnh).</div>
+          </div>
         </div>
 
         <!-- Tốc độ -->
@@ -247,6 +265,32 @@ async function onToggleCatalog() {
   } catch { catalogImages.value = []; }
   finally { catalogLoading.value = false; }
 }
+
+// ── Ảnh đính kèm THỦ CÔNG (chủ shop tự tải, gửi kèm mỗi tin — ngoài/thay catalog tự động) ──
+const attachFiles = ref<string[]>([]);        // tên file đã lưu trên server (gửi lên khi chạy)
+const attachPreviews = ref<string[]>([]);     // URL xem trước (song song attachFiles)
+const attachUploading = ref(false);
+const attachInput = ref<HTMLInputElement | null>(null);
+function pickAttach() { attachInput.value?.click(); }
+async function onAttachPicked(e: Event) {
+  const input = e.target as HTMLInputElement;
+  const files = Array.from(input.files || []);
+  if (!files.length) return;
+  if (attachFiles.value.length + files.length > 10) { toast.warning('Tối đa 10 ảnh đính kèm.'); input.value = ''; return; }
+  attachUploading.value = true;
+  try {
+    const fd = new FormData();
+    for (const f of files) fd.append('images', f);
+    const { data } = await api.post<{ files: string[]; images: string[] }>('/campaigns/attach/upload', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    attachFiles.value.push(...(data?.files || []));
+    attachPreviews.value.push(...(data?.images || []));
+  } catch (err: any) {
+    toast.error('Tải ảnh lỗi: ' + (err?.response?.data?.error || err?.message));
+  } finally { attachUploading.value = false; input.value = ''; }
+}
+function removeAttach(i: number) { attachFiles.value.splice(i, 1); attachPreviews.value.splice(i, 1); }
 const speed = ref<'slow' | 'fast'>('slow');
 const sending = ref(false);
 const lastBatch = ref<Array<{ name: string | null; state: string }>>([]);
@@ -389,7 +433,7 @@ async function runBatch() {
   try {
     const { data } = await api.post<{ requested: number; sent: number; results: Array<{ name: string | null; state: string }>; stoppedReason?: string }>(
       `/campaigns/bulk/${listId.value}/${endpoint}`,
-      { zaloAccountId: connectedNick.value.id, message: message.value, batchSize: perDay.value, attachPriceList: attachPriceList.value, includeSent: resendMode.value },
+      { zaloAccountId: connectedNick.value.id, message: message.value, batchSize: perDay.value, attachPriceList: attachPriceList.value, attachImages: attachFiles.value, includeSent: resendMode.value },
     );
     lastBatch.value = data.results || [];
     if (data.stoppedReason === 'daily_cap_reached') toast.warning(`Đã đạt giới hạn ${verb} hôm nay. Gửi tiếp vào ngày mai.`);
@@ -527,6 +571,16 @@ onMounted(async () => {
 .cat-err { font-size: 13px; color: #B45309; }
 .cat-thumbs { display: flex; gap: 8px; flex-wrap: wrap; }
 .cat-thumb { width: 90px; height: 120px; object-fit: cover; border: 1px solid #CBD5E1; border-radius: 8px; cursor: zoom-in; }
+.attach-manual { margin-top: 10px; padding: 12px; background: #F8FAFC; border: 1px solid #E5E7EB; border-radius: 10px; }
+.am-head { display: flex; align-items: center; gap: 10px; font-size: 13px; color: #334155; font-weight: 600; }
+.am-add { margin-left: auto; padding: 6px 12px; border-radius: 8px; border: 1px solid #C7D2FE; background: #EEF2FF; color: #3730A3; font-size: 13px; font-weight: 600; cursor: pointer; }
+.am-add:disabled { opacity: .55; cursor: default; }
+.am-hint { font-size: 12px; color: #64748B; margin-top: 8px; }
+.am-thumbs { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.am-thumb-wrap { position: relative; }
+.am-thumb { width: 90px; height: 90px; object-fit: cover; border: 1px solid #CBD5E1; border-radius: 8px; cursor: zoom-in; }
+.am-del { position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; border-radius: 50%; border: none; background: #EF4444; color: #fff; font-size: 15px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.am-del:hover { background: #DC2626; }
 .cat-modal { position: fixed; inset: 0; background: rgba(0,0,0,.8); display: flex; align-items: center; justify-content: center; z-index: 9999; cursor: zoom-out; }
 .cat-modal-img { max-width: 90vw; max-height: 90vh; border-radius: 8px; }
 .resend-btn { display: block; margin-top: 12px; padding: 8px 14px; border-radius: 8px; border: 1px solid #C7D2FE; background: #EEF2FF; color: #3730A3; font-size: 13px; font-weight: 600; cursor: pointer; }

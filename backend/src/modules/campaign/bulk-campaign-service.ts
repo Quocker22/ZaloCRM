@@ -258,7 +258,7 @@ function isStrangerBlock(msg: string): boolean {
 
 export async function runMessageBatch(args: {
   orgId: string; listId: string; zaloAccountId: string; message: string; batchSize: number;
-  attachPriceList?: boolean; includeSent?: boolean;
+  attachPriceList?: boolean; attachImages?: string[]; includeSent?: boolean;
 }): Promise<RunBatchResult> {
   const { orgId, listId, zaloAccountId, message } = args;
   const stats = await getMessageStats(orgId, listId, zaloAccountId);
@@ -274,7 +274,21 @@ export async function runMessageBatch(args: {
   // Nếu bật "đính kèm bảng báo giá": ghép bộ ảnh catalog (~24 SP, tách nhiều ảnh) dùng chung cả
   // batch (cache 10p). [] nếu < 3 SP có giá+ảnh hoặc lỗi ghép → gửi text bình thường, không chặn.
   // Tên shop lấy từ env AI_SHOP_NAME (vd 'LEDNELIA') nếu có, không thì tên org.
+  // Ảnh gửi kèm mỗi tin = ẢNH THỦ CÔNG (chủ shop tự tải, gửi TRƯỚC) + CATALOG tự động (nếu bật).
+  // Cả hai đều là path local trên cùng máy worker → zca-js sendImage gửi 1 lần cả mảng.
   let catalogPaths: string[] = [];
+  if (args.attachImages && args.attachImages.length > 0) {
+    try {
+      const { resolveAttachPaths } = await import('./campaign-attach.js');
+      const manual = await resolveAttachPaths(orgId, args.attachImages);
+      catalogPaths.push(...manual);
+      if (manual.length < args.attachImages.length) {
+        logger.warn('[bulk-campaign] %d/%d ảnh đính kèm thủ công không tồn tại (bỏ qua)', args.attachImages.length - manual.length, args.attachImages.length);
+      }
+    } catch (err) {
+      logger.error('[bulk-campaign] resolve ảnh đính kèm thủ công lỗi:', err);
+    }
+  }
   if (args.attachPriceList) {
     try {
       const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { name: true, aiBizName: true } });
@@ -282,8 +296,9 @@ export async function runMessageBatch(args: {
       const deps: IngestDeps = { prisma: prisma as unknown as IngestDeps['prisma'], embed: generateEmbedding };
       const embedCfg = { provider: 'local', model: 'bge-m3', baseUrl: 'http://localhost:11434/v1' };
       const lookup = (q: string) => searchKnowledge(deps, orgId, q, 6, embedCfg);
-      catalogPaths = await getCampaignCatalogs(orgId, shopName, lookup);
-      if (catalogPaths.length === 0) logger.warn('[bulk-campaign] attachPriceList bật nhưng không đủ SP có giá+ảnh → gửi text');
+      const auto = await getCampaignCatalogs(orgId, shopName, lookup);
+      catalogPaths.push(...auto);
+      if (auto.length === 0) logger.warn('[bulk-campaign] attachPriceList bật nhưng không đủ SP có giá+ảnh → gửi text');
     } catch (err) {
       logger.error('[bulk-campaign] ghép catalog lỗi, gửi text:', err);
     }
