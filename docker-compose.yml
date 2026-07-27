@@ -39,6 +39,9 @@ services:
         condition: service_healthy
     volumes:
       - file_storage:/var/lib/zalo-crm/files
+      # Ảnh sản phẩm (bảng báo giá catalog) — bền qua redeploy. Ảnh gitignored nên
+      # không vào image; nạp thủ công vào volume này (xem DEPLOY-HUONG-DAN phần ảnh).
+      - product_images:/app/product-images
     tmpfs:
       - /tmp
     security_opt:
@@ -218,3 +221,4 @@ volumes:
   redis_data:
   minio_data:
   clamav_data:
+  product_images:  # ảnh SP cho bảng báo giá catalog (nạp thủ công vào volume)
