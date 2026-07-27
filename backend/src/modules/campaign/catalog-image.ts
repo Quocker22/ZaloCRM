@@ -250,11 +250,31 @@ export async function getCampaignCatalogs(
   const hit = cache.get(orgId);
   if (hit && now - hit.at < TTL_MS && hit.paths.every((p) => existsSync(p))) return hit.paths;
 
-  // Giá NẰM SẴN trong text chunk KB ("Giá bán: X") → đọc THẲNG từ DB bằng 1 query,
-  // KHÔNG cần vector search/embedding (Ollama). Build lookup đọc từ map này.
+  // Giá NẰM SẴN trong text chunk KB ("Giá bán: X") → đọc THẲNG từ DB (1 query),
+  // KHÔNG cần vector search/embedding (Ollama). Build INDEX tên-SP→chunk (O(1) tra),
+  // tránh duyệt toàn bộ 212 chunk cho MỖI ứng viên (cũ = ~21k regex → treo).
   const { prisma } = await import('../../shared/database/prisma-client.js');
   const rows = await prisma.knowledgeChunk.findMany({ where: { orgId }, select: { content: true } });
-  const dbLookup: KbLookup = async () => rows.map((r) => ({ content: r.content }));
+  // Pre-tính token của TÊN mỗi chunk (1 lần) để tra nhanh. Tên trong _kb_match.json
+  // khác tên chunk (fuzzy) nên KHÔNG exact-match được → lọc theo token CHUNG (mã model/số).
+  const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const chunkToks = rows.map((r) => {
+    const nm = (r.content.match(/Tên sản phẩm:\s*(.+)/) ?? [])[1]?.trim() ?? '';
+    const toks = new Set(norm(nm).split(/[^a-z0-9]+/).filter((t) => t.length >= 2));
+    return { content: r.content, toks };
+  });
+  const dbLookup: KbLookup = async (q: string) => {
+    const qToks = norm(q).split(/[^a-z0-9]+/).filter((t) => t.length >= 2);
+    if (!qToks.length) return [];
+    // chunk có ≥1 token trùng tên query → ứng viên (nameCloseEnough trong pick lọc tiếp).
+    // ưu tiên chunk trùng NHIỀU token (khớp tên tốt hơn).
+    return chunkToks
+      .map((c) => ({ c, overlap: qToks.filter((t) => c.toks.has(t)).length }))
+      .filter((x) => x.overlap > 0)
+      .sort((a, b) => b.overlap - a.overlap)
+      .slice(0, 6)
+      .map((x) => ({ content: x.c.content }));
+  };
 
   const items = await pickCatalogProducts(TARGET_PRODUCTS, dbLookup);
   if (items.length < 3) return []; // không đủ SP để làm catalog
