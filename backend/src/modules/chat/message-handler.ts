@@ -205,6 +205,24 @@ function guessMimeType(url: string, contentType: string): string {
   return 'application/octet-stream';
 }
 
+// Lấy TEXT của tin được khách quote-reply (Zalo "trả lời tin nhắn"). Zca-js quote:
+// { content: string (text) | object (media), msgType, uidFrom }. Chỉ lấy text để nạp
+// ngữ cảnh cho bot — khi khách quote SP rồi nói "lấy cái này", bot biết "cái này" là gì.
+function extractQuotedText(quote: unknown): string {
+  if (!quote || typeof quote !== 'object') return '';
+  const q = quote as Record<string, unknown>;
+  // zca-js TQuote (tin NHẬN): field 'msg' = text tin được quote. Ưu tiên msg, rồi content.
+  if (typeof q.msg === 'string' && q.msg.trim()) return q.msg.trim();
+  if (typeof q.content === 'string' && q.content.trim()) return q.content.trim();
+  // media quote: content là object; thử lấy title/description
+  if (q.content && typeof q.content === 'object') {
+    const c = q.content as Record<string, unknown>;
+    const t = (typeof c.title === 'string' && c.title) || (typeof c.description === 'string' && c.description) || '';
+    return typeof t === 'string' ? t.trim() : '';
+  }
+  return '';
+}
+
 async function mirrorInboundMediaContent(msg: IncomingMessage): Promise<string> {
   if (!MIRROR_CONTENT_TYPES.has(msg.contentType) || !msg.content) return msg.content || '';
 
@@ -655,6 +673,13 @@ export async function handleIncomingMessage(
       // RAG auto-reply 2026-06-28 (luồng B) — fire-and-forget, chỉ chạy khi AiConfig.autoReplyEnabled.
       // Quyết định gửi/handoff ở ai-auto-reply-hook (đã test); wiring nuốt mọi lỗi, không block inbound.
       if (message.contentType === 'text' && message.content) {
+        // Nếu khách QUOTE-REPLY (trả lời tin nhắn cũ) → nạp nội dung tin được quote vào
+        // ngữ cảnh: "[Trả lời: <tin cũ>] <tin mới>". Giúp bot hiểu "cái này/loại đó" là gì
+        // khi khách quote SP rồi chốt. Không quote → giữ nguyên tin.
+        const quotedText = extractQuotedText(message.quote);
+        const contentForBot = quotedText
+          ? `[Khách trả lời tin: "${quotedText.slice(0, 200)}"] ${message.content}`
+          : message.content;
         void runAutoReplyForMessage({
           orgId: account.orgId,
           bizName: org?.aiBizName || org?.name || '',
@@ -662,7 +687,7 @@ export async function handleIncomingMessage(
           aiPromptExtra: org?.aiPromptExtra ?? null,
           conversationId: conversation.id,
           messageId: message.id,
-          messageContent: message.content,
+          messageContent: contentForBot,
         });
       }
 
