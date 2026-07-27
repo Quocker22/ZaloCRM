@@ -487,7 +487,7 @@
                 <div class="cl-action">
                   <button class="cl-btn cl-btn-profile" @click.stop="openProfile(contact)" title="Xem & sửa hồ sơ khách hàng">👤 Hồ sơ</button>
                   <button
-                    v-if="contact.phone || contact.phoneNormalized"
+                    v-if="contact.phone"
                     class="cl-btn cl-btn-friend"
                     :disabled="friendSending === contact.id"
                     @click.stop="sendFriendRequest(contact)"
@@ -936,7 +936,7 @@ async function sendFriendRequest(contact: Contact) {
     return;
   }
   const name = contact.crmName || contact.fullName || 'khách này';
-  if (!confirm(`Gửi lời mời kết bạn Zalo cho "${name}" bằng nick "${nick.displayName || nick.name || 'Zalo'}"?\n\nThao tác này sẽ gửi THẬT một lời mời kết bạn trên Zalo.`)) {
+  if (!confirm(`Gửi lời mời kết bạn Zalo cho "${name}" bằng nick "${nick.displayName || 'Zalo'}"?\n\nThao tác này sẽ gửi THẬT một lời mời kết bạn trên Zalo.`)) {
     return;
   }
   friendSending.value = contact.id;

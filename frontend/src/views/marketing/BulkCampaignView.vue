@@ -123,7 +123,7 @@
             </div>
             <div class="divider"></div>
             <div class="reminder">🛡️ Hệ thống tự giới hạn {{ perDay }} {{ trackVerb }} mỗi ngày để giữ nick Zalo an toàn.</div>
-            <button class="start-btn" :disabled="!canStart" @click="startCampaign">🚀 Bắt đầu chiến dịch</button>
+            <button class="start-btn" :disabled="!canStart" @click="startCampaign()">🚀 Bắt đầu chiến dịch</button>
           </template>
         </div>
       </div>
