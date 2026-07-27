@@ -234,11 +234,13 @@ export async function onIncomingMessageHook(
     numberSources,
   });
   if (action === 'handoff') {
-    // Nếu handoff CHỈ vì needs_human (vd chốt đơn sỉ, đơn lớn) mà câu trả lời KHÔNG bịa số
-    // và đủ tự tin → vẫn GỬI câu cho khách ("em chuyển sale báo giá sỉ nhé") để khách không
-    // bị im lặng. Nếu handoff vì guard chặn số bịa hoặc confidence thấp → KHÔNG gửi (an toàn).
+    // GỬI câu cho khách MIỄN LÀ không bịa số — KỂ CẢ confidence thấp. Câu kiểu "để em chuyển
+    // sale báo giá chính xác nhé" luôn an toàn + lịch sự; im lặng với khách còn tệ hơn nhiều.
+    // (Trước đây chặn thêm confidence>=threshold → nhiều ca handoff bot IM với khách, chỉ báo
+    // sale. Bug: khách hỏi "báo giá module p10", conf 0.5 < 0.7 → khách không nhận được gì.)
+    // CHỈ giữ im khi reply RỖNG (generate lỗi) hoặc reply BỊA SỐ (guard chống số sai).
     const fabricated = replyHasUnsupportedNumber(rep.reply, numberSources);
-    const deliver = !fabricated && rep.confidence >= cfg.threshold;
+    const deliver = !fabricated && rep.reply.trim().length > 0;
     return handoff({ content: rep.reply, confidence: rep.confidence }, 'handoff', deliver);
   }
   return send(rep.reply, rep.confidence);
