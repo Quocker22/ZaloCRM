@@ -244,13 +244,19 @@ const PER_IMAGE = 12; // mỗi ảnh tối đa 12 SP (grid 3×4) → 36 SP = 3 �
 export async function getCampaignCatalogs(
   orgId: string,
   shopName: string,
-  lookup: KbLookup,
+  _lookup: KbLookup, // giữ tham số cho tương thích; KHÔNG dùng nữa (xem dbLookup bên dưới)
   now: number = Date.now(),
 ): Promise<string[]> {
   const hit = cache.get(orgId);
   if (hit && now - hit.at < TTL_MS && hit.paths.every((p) => existsSync(p))) return hit.paths;
 
-  const items = await pickCatalogProducts(TARGET_PRODUCTS, lookup);
+  // Giá NẰM SẴN trong text chunk KB ("Giá bán: X") → đọc THẲNG từ DB bằng 1 query,
+  // KHÔNG cần vector search/embedding (Ollama). Build lookup đọc từ map này.
+  const { prisma } = await import('../../shared/database/prisma-client.js');
+  const rows = await prisma.knowledgeChunk.findMany({ where: { orgId }, select: { content: true } });
+  const dbLookup: KbLookup = async () => rows.map((r) => ({ content: r.content }));
+
+  const items = await pickCatalogProducts(TARGET_PRODUCTS, dbLookup);
   if (items.length < 3) return []; // không đủ SP để làm catalog
 
   const totalPages = Math.ceil(items.length / PER_IMAGE);
