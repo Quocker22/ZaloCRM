@@ -286,18 +286,27 @@ export async function campaignRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  // GET serve 1 ảnh catalog theo tên file (chỉ file catalog-*.png trong tmpdir — chống path traversal).
+  // GET serve 1 ảnh catalog theo tên file (chống path traversal — chỉ tên hợp lệ, 2 vị trí đã biết).
+  // Ảnh catalog TỰ ĐỘNG: catalog-*.png trong tmpdir. Ảnh BẢNG GIÁ CỐ ĐỊNH: file trong fixed-catalog/.
   app.get(
     '/api/v1/campaigns/catalog/img/:file',
     async (request: FastifyRequest, reply: FastifyReply) => {
       const { file } = request.params as { file: string };
-      if (!/^catalog-[\w.-]+\.png$/.test(file)) return reply.status(400).send({ error: 'bad file' });
+      // chỉ cho tên "an toàn" (không có / hay ..) + đuôi ảnh
+      if (!/^[\w.-]+\.(png|jpe?g|webp)$/i.test(file) || file.includes('..')) return reply.status(400).send({ error: 'bad file' });
       const { join } = await import('node:path');
       const { tmpdir } = await import('node:os');
       const { existsSync, readFileSync } = await import('node:fs');
-      const full = join(tmpdir(), file);
+      const { fixedCatalogDir } = await import('./catalog-image.js');
+      // ưu tiên ảnh cố định (bảng giá tự chuẩn bị), rồi tới ảnh ghép tự động trong tmpdir.
+      let full = join(fixedCatalogDir(), file);
+      if (!existsSync(full)) {
+        if (!/^catalog-[\w.-]+\.png$/.test(file)) return reply.status(404).send({ error: 'not found' });
+        full = join(tmpdir(), file);
+      }
       if (!existsSync(full)) return reply.status(404).send({ error: 'not found' });
-      reply.header('Content-Type', 'image/png');
+      const ct = /\.png$/i.test(file) ? 'image/png' : /\.webp$/i.test(file) ? 'image/webp' : 'image/jpeg';
+      reply.header('Content-Type', ct);
       return reply.send(readFileSync(full));
     },
   );

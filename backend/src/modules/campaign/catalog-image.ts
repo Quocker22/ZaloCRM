@@ -4,13 +4,35 @@
 // Chống Zalo flag: 1 ảnh/khách thay vì nhiều ảnh rời.
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import sharp from 'sharp';
 import { parsePriceFromChunk, formatVnd, type KbLookup } from '../ai/knowledge/order-checkout.js';
 
 const IMG_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../../product-images');
 const MATCH_FILE = join(IMG_DIR, '_kb_match.json');
+
+// ── BẢNG GIÁ CỐ ĐỊNH (override) ────────────────────────────────────────────
+// Nếu thư mục product-images/fixed-catalog/ có ảnh → dùng THẲNG các ảnh đó làm bảng
+// báo giá (KHÔNG ghép từ KB). Chủ shop tự chuẩn bị bảng giá đẹp (bao-gia-a4-pN.png) rồi
+// bỏ vào thư mục này; tick "đính kèm bảng báo giá" là gửi đúng bộ ảnh đó. Đơn giản, không
+// phụ thuộc KB/embedding/sharp — ảnh sao gửi vậy.
+const FIXED_DIR = join(IMG_DIR, 'fixed-catalog');
+
+/** Thư mục chứa ảnh bảng giá cố định (route serve dùng để phục vụ ảnh preview). */
+export function fixedCatalogDir(): string { return FIXED_DIR; }
+
+/** Danh sách path ảnh bảng giá cố định (sắp theo tên → p1,p2,… đúng thứ tự). [] nếu không có. */
+export function fixedCatalogPaths(): string[] {
+  try {
+    return readdirSync(FIXED_DIR)
+      .filter((f) => /\.(png|jpe?g|webp)$/i.test(f))
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+      .map((f) => join(FIXED_DIR, f));
+  } catch {
+    return [];
+  }
+}
 
 export interface CatalogItem {
   name: string;
@@ -247,6 +269,10 @@ export async function getCampaignCatalogs(
   _lookup: KbLookup, // giữ tham số cho tương thích; KHÔNG dùng nữa (xem dbLookup bên dưới)
   now: number = Date.now(),
 ): Promise<string[]> {
+  // OVERRIDE: có bảng giá cố định (product-images/fixed-catalog/) → dùng thẳng, bỏ qua ghép KB.
+  const fixed = fixedCatalogPaths();
+  if (fixed.length > 0) return fixed;
+
   const hit = cache.get(orgId);
   if (hit && now - hit.at < TTL_MS && hit.paths.every((p) => existsSync(p))) return hit.paths;
 
