@@ -137,57 +137,62 @@ function priceFloor(group: string): number {
   }
 }
 
-// ── Ghép ảnh grid ─────────────────────────────────────────────────────────
-const CELL = 240; // ảnh SP vuông
-const CAPTION_H = 60; // dải text dưới ảnh
-const PAD = 12;
+// ── Ghép ảnh grid — khổ A4 DỌC (1240×1754 @150dpi) ─────────────────────────
+// Canvas cố định khổ A4 (tỷ lệ 1:1.414) để in/gửi vừa 1 tờ giấy. 2 cột cho A4 dọc.
+const A4_W = 1240; // A4 rộng @150dpi
+const A4_H = 1754; // A4 cao @150dpi
+const HEADER_H = 90;
 const COLS = 3;
-const HEADER_H = 56;
+const PAD = 24;
+const CAPTION_H = 70; // dải text dưới ảnh
+// CELL tính từ chiều rộng A4: (A4_W - PAD*(COLS+1)) / COLS
+const CELL = Math.floor((A4_W - PAD * (COLS + 1)) / COLS); // ≈ 568
 
 function escapeXml(s: string): string {
   return s.replace(/[<>&'"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' }[c] as string));
 }
 
-/** SVG overlay: tên (rút gọn) + giá đậm, đặt dưới ảnh. */
+/** SVG overlay: tên (rút gọn theo bề rộng ô) + giá đậm, căn giữa, không tràn mép. */
 function captionSvg(name: string, price: number): Buffer {
-  const short = name.length > 30 ? name.slice(0, 29) + '…' : name;
+  const maxChars = Math.floor((CELL - 20) / 9); // font 18px ≈ 9px/ký tự, chừa lề 20px
+  const short = name.length > maxChars ? name.slice(0, maxChars - 1) + '…' : name;
   const svg = `<svg width="${CELL}" height="${CAPTION_H}" xmlns="http://www.w3.org/2000/svg">
     <rect width="100%" height="100%" fill="#ffffff"/>
-    <text x="${CELL / 2}" y="22" font-family="Arial, sans-serif" font-size="13" fill="#111827" text-anchor="middle">${escapeXml(short)}</text>
-    <text x="${CELL / 2}" y="46" font-family="Arial, sans-serif" font-size="17" font-weight="bold" fill="#b91c1c" text-anchor="middle">${escapeXml(formatVnd(price))}</text>
+    <text x="${CELL / 2}" y="28" font-family="Arial, sans-serif" font-size="18" fill="#111827" text-anchor="middle">${escapeXml(short)}</text>
+    <text x="${CELL / 2}" y="58" font-family="Arial, sans-serif" font-size="26" font-weight="bold" fill="#b91c1c" text-anchor="middle">${escapeXml(formatVnd(price))}</text>
   </svg>`;
   return Buffer.from(svg);
 }
 
-function headerSvg(width: number, title: string): Buffer {
+function headerSvg(width: number, title: string, pageInfo: string): Buffer {
   const svg = `<svg width="${width}" height="${HEADER_H}" xmlns="http://www.w3.org/2000/svg">
     <rect width="100%" height="100%" fill="#1e3a8a"/>
-    <text x="${width / 2}" y="36" font-family="Arial, sans-serif" font-size="22" font-weight="bold" fill="#ffffff" text-anchor="middle">${escapeXml(title)}</text>
+    <text x="${width / 2}" y="48" font-family="Arial, sans-serif" font-size="36" font-weight="bold" fill="#ffffff" text-anchor="middle">${escapeXml(title)}</text>
+    <text x="${width / 2}" y="76" font-family="Arial, sans-serif" font-size="18" fill="#cbd5e1" text-anchor="middle">${escapeXml(pageInfo)}</text>
   </svg>`;
   return Buffer.from(svg);
 }
 
+// Số SP mỗi trang A4: 2 cột × số hàng vừa chiều cao A4.
+const CELL_H = CELL + CAPTION_H + PAD; // chiều cao 1 ô (ảnh vuông + caption + pad)
+const ROWS_PER_PAGE = Math.floor((A4_H - HEADER_H - PAD) / CELL_H); // ≈ 2 hàng
+const PER_PAGE = COLS * ROWS_PER_PAGE; // SP mỗi trang A4
+
 /**
- * Ghép các item thành 1 ảnh catalog grid (COLS cột) → ghi PNG ra outPath. Trả outPath.
- * Mỗi ô = ảnh SP (cover, bo góc bằng nền) + caption (tên+giá) phía dưới.
+ * Ghép 1 TRANG A4 (canvas cố định A4_W×A4_H) từ ≤ PER_PAGE item → ghi PNG ra outPath.
+ * Mỗi ô = ảnh SP vuông (cover) + caption (tên+giá) dưới. Vừa 1 tờ A4 dọc.
  */
-export async function renderCatalogImage(items: CatalogItem[], title: string, outPath: string): Promise<string> {
+export async function renderCatalogImage(items: CatalogItem[], title: string, outPath: string, pageInfo = ''): Promise<string> {
   const cellW = CELL + PAD;
-  const cellH = CELL + CAPTION_H + PAD;
-  const rows = Math.ceil(items.length / COLS);
-  const canvasW = COLS * cellW + PAD;
-  const canvasH = HEADER_H + rows * cellH + PAD;
-
   const composites: sharp.OverlayOptions[] = [];
-  composites.push({ input: headerSvg(canvasW, title), top: 0, left: 0 });
+  composites.push({ input: headerSvg(A4_W, title, pageInfo), top: 0, left: 0 });
 
-  for (let i = 0; i < items.length; i++) {
+  for (let i = 0; i < items.length && i < PER_PAGE; i++) {
     const it = items[i];
     const col = i % COLS;
     const row = Math.floor(i / COLS);
     const x = PAD + col * cellW;
-    const y = HEADER_H + PAD + row * cellH;
-    // ảnh SP resize vuông (cover), lỗi ảnh → ô xám nhạt
+    const y = HEADER_H + PAD + row * CELL_H;
     let imgBuf: Buffer;
     try {
       imgBuf = await sharp(it.imagePath).resize(CELL, CELL, { fit: 'cover' }).png().toBuffer();
@@ -198,11 +203,25 @@ export async function renderCatalogImage(items: CatalogItem[], title: string, ou
     composites.push({ input: captionSvg(it.name, it.price), top: y + CELL, left: x });
   }
 
-  await sharp({ create: { width: canvasW, height: canvasH, channels: 3, background: '#f3f4f6' } })
+  // Canvas cố định A4 dọc (dù trang cuối ít SP vẫn đủ khổ A4 để in vừa 1 tờ).
+  await sharp({ create: { width: A4_W, height: A4_H, channels: 3, background: '#f3f4f6' } })
     .composite(composites)
     .png()
     .toFile(outPath);
   return outPath;
+}
+
+/** Ghép NHIỀU trang A4 từ danh sách SP: mỗi PER_PAGE SP → 1 file A4. Trả mảng đường dẫn. */
+export async function renderCatalogPages(items: CatalogItem[], title: string, outPrefix: string): Promise<string[]> {
+  const totalPages = Math.ceil(items.length / PER_PAGE);
+  const paths: string[] = [];
+  for (let p = 0; p < totalPages; p++) {
+    const slice = items.slice(p * PER_PAGE, (p + 1) * PER_PAGE);
+    const out = `${outPrefix}-p${p + 1}.png`;
+    await renderCatalogImage(slice, title, out, `Trang ${p + 1}/${totalPages}`);
+    paths.push(out);
+  }
+  return paths;
 }
 
 // ── Cache theo org (RAM + TTL) ─────────────────────────────────────────────
