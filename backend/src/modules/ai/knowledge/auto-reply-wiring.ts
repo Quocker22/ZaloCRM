@@ -116,10 +116,15 @@ export async function runAutoReplyForMessage(ctx: AutoReplyContext): Promise<voi
 
     const llmApiKey = await getProviderApiKey(ctx.orgId, cfg.provider);
     const llmBaseUrl = await getProviderBaseUrl(ctx.orgId, cfg.provider);
+    // Embedding provider có thể KHÁC LLM (vd LLM=9router 'openai', embed=Gemini vì 9router
+    // không có /embeddings). Gemini bắt buộc apiKey → resolve theo embedProvider, KHÔNG
+    // dùng key LLM. Provider 'local'/Ollama không cần key (resolve trả rỗng, vô hại).
+    const embedApiKey = await getProviderApiKey(ctx.orgId, cfg.embedProvider).catch(() => '');
     const embedCfg = {
       provider: cfg.embedProvider,
       model: cfg.embedModel,
       baseUrl: cfg.embedBaseUrl,
+      apiKey: embedApiKey,
     };
 
     await onIncomingMessageHook(
