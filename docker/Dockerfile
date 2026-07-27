@@ -27,7 +27,11 @@ FROM node:20-alpine
 # Trước đây alpine không có → Node process fallback UTC → log + new Date() lệch 7h vs giờ VN.
 # vips = thư viện nền runtime cho sharp (nén ảnh + watermark Media). THIẾU vips → sharp
 # crash lúc require → upload ảnh 500. Phải có cả ở image production, không chỉ builder.
-RUN apk add --no-cache tini ffmpeg tzdata vips && \
+# ttf-dejavu + fontconfig = FONT cho librsvg (sharp render SVG <text>). THIẾU font → librsvg
+# TREO VÔ HẠN khi ghép bảng báo giá catalog (tên+giá SP là SVG text) → route catalog 502/hang.
+# Ảnh không-text composite bình thường, nhưng SVG có <text> mà không có fontconfig cache → deadlock.
+RUN apk add --no-cache tini ffmpeg tzdata vips ttf-dejavu fontconfig && \
+    fc-cache -f && \
     cp /usr/share/zoneinfo/Asia/Ho_Chi_Minh /etc/localtime && \
     echo "Asia/Ho_Chi_Minh" > /etc/timezone
 ENV TZ=Asia/Ho_Chi_Minh
