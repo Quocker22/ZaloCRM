@@ -681,6 +681,17 @@ export function attachZaloListener(ctx: ListenerContext): void {
       const content =
         typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent || '');
       const contentType = detectContentType(message.data?.msgType, rawContent);
+      // DEBUG TẠM (research sticker 2026-07-27): log full cấu trúc sticker để map id→ý nghĩa.
+      // Xóa sau khi có mapping. Chỉ log sticker, không log tin thường (tránh spam/lộ nội dung).
+      if (contentType === 'sticker' || message.data?.msgType === 'chat.sticker') {
+        try {
+          logger.info('[DEBUG:sticker] cấu trúc sticker khách gửi', {
+            msgType: message.data?.msgType,
+            rawContent: typeof rawContent === 'object' ? JSON.stringify(rawContent) : rawContent,
+            propertyExt: (message.data as any)?.propertyExt,
+          });
+        } catch { /* ignore */ }
+      }
       const album = extractAlbumInfo(contentType, rawContent);
 
       const result = await handleIncomingMessage({
