@@ -2,6 +2,7 @@
 import { chunkText } from './chunk.js';
 import { generateEmbedding } from './embedding.js';
 import { rankChunks, type Hit } from './rank.js';
+import { logger } from '../../../shared/utils/logger.js';
 
 export interface EmbedConfig {
   provider: string;
@@ -83,15 +84,26 @@ export async function searchKnowledge(
   topK: number,
   cfg: EmbedConfig,
 ): Promise<Hit[]> {
-  const [queryVec] = await deps.embed({ ...cfg, texts: [query] });
   const rows = await deps.prisma.knowledgeChunk.findMany({
     where: { orgId },
     select: { id: true, content: true, embedding: true, embedDim: true },
   });
-  const vectorHits = rankChunks(queryVec, rows, topK);
+
+  // Vector search — nhưng nếu embedding provider CHẾT/không cấu hình (vd không có Ollama,
+  // provider không hỗ trợ /embeddings) thì đừng để cả KB search sập: rơi về LEXICAL-only.
+  // Trước đây embed() throw → searchKnowledge throw → hook mất ngữ cảnh → bot im lặng.
+  let vectorHits: Hit[] = [];
+  try {
+    const [queryVec] = await deps.embed({ ...cfg, texts: [query] });
+    vectorHits = rankChunks(queryVec, rows, topK);
+  } catch (err) {
+    logger.warn('[kb] embedding lỗi, dùng lexical-only: %s', (err as Error).message);
+    vectorHits = [];
+  }
 
   // HYBRID: bù chunk khớp TỪ KHÓA đặc trưng mà vector search bỏ sót (vd khách hỏi
   // "led matrix" nhưng embedding không kéo "Card điều khiển ST Matrix" lên top-K).
+  // Khi embedding chết (vectorHits rỗng) → đây thành nguồn kết quả DUY NHẤT.
   const terms = lexicalTerms(query);
   if (terms.length === 0) return vectorHits;
   const seen = new Set(vectorHits.map((h) => h.chunkId));
@@ -101,7 +113,7 @@ export async function searchKnowledge(
     const lc = r.content.toLowerCase();
     if (terms.some((t) => lc.includes(t))) {
       lexHits.push({ chunkId: r.id, content: r.content, score: 0 });
-      if (lexHits.length >= topK) break;
+      if (lexHits.length >= topK + 3) break;
     }
   }
   if (lexHits.length === 0) return vectorHits;
