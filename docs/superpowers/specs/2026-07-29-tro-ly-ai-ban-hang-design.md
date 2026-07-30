@@ -105,7 +105,34 @@ Tầng 1 là hàng rào thật; tầng 2 là lưới an toàn phòng khi tầng 
 
 ### 5.1 Giữ nguyên 5 tool cũ
 
-`tra_san_pham`, `tra_ton_kho`, `tra_khach_hang`, `tao_don_nhap`, `chuyen_sale`. Chỉ sửa `tao_don_nhap` theo §6.
+`tra_san_pham`, `tra_ton_kho`, `tra_khach_hang`, `tao_don_nhap`, `chuyen_sale`. Sửa `tao_don_nhap` theo §6 và §5.1.1.
+
+#### 5.1.1 Bám đúng lối tạo đơn thật — và chiết khấu
+
+**Lối tạo đơn thật của cửa hàng là FORM `sale.order`** (menu "Đặt hàng", action 515), **không phải** wizard `incokit.quick.sale`. Menu có cả hai lối nhưng khách chỉ dùng form.
+
+Điều này đã gây một lần làm sai: yêu cầu "thêm chiết khấu ở tạo đơn" được làm vào wizard `quick_sale` (`61c628f`), phải làm lại trên form `sale.order` (`0d2b59d`). Bot nhầm chỗ thì không sai một commit — sai hàng loạt đơn.
+
+`tao-don-nhap.ts` gọi `create()` trực tiếp trên `sale.order` nên **đúng model**, nhưng nó **chưa biết 2 field chiết khấu mới** (`0d2b59d`):
+
+| Field | Cấp | Ý nghĩa |
+|---|---|---|
+| `incokit_discount_value` + `incokit_discount_type` | dòng | CK theo % hoặc số tiền |
+| `incokit_order_discount_value` + `incokit_order_discount_type` | đơn | CK tổng đơn, phân bổ xuống `discount%` từng dòng |
+
+Cột `discount` gốc của Odoo bị **ẩn có chủ đích** trên form (đồng bộ ngầm qua onchange). Bot **không được ghi thẳng `discount`** — phải ghi `incokit_discount_*` và để onchange/compute của module tự phân bổ. Ghi thẳng `discount` là tạo đường ghi thứ hai, đúng thứ nguyên tắc §1 cấm.
+
+**Giai đoạn 1: bot KHÔNG đặt chiết khấu.** Đơn nháp không CK, sale thêm CK khi xác nhận. Lý do: CK là đòn bẩy giá — cùng loại rủi ro với đặt giá, mà `tao-don-nhap.ts:131-135` đã cố ý không cho bot đặt giá. Nếu sau này cần, thêm tool riêng có ngưỡng CK tối đa và luôn qua xác nhận 2 bước.
+
+Tool phải **nêu rõ trong câu trả lời** rằng đơn nháp chưa có chiết khấu, để sale không tưởng là đã áp.
+
+#### 5.1.2 Chống trôi theo core
+
+Core đang được nâng cấp liên tục (`61c628f`, `0d2b59d` xuất hiện sau khi spec này khởi thảo). Ràng buộc:
+
+- **Không hard-code danh sách field** cho các model hay đổi. Dùng `fields_get()` để phát hiện field khả dụng, giao nhau với allowlist.
+- `FORBIDDEN_FIELDS` vẫn hard-code — danh sách **cấm** phải tĩnh, không được co giãn theo schema.
+- Có **một test khẳng định** tool không ghi `discount` trực tiếp, để lần refactor sau không lặng lẽ mở lại đường đó.
 
 ### 5.2 Sáu tool mới
 
@@ -296,6 +323,8 @@ Tin không tag bot vẫn đi luồng cũ. Không sửa `ai-auto-reply-hook.ts`.
 | Tool báo cáo trả rỗng khi thiếu `date_from` | func | `custom` thiếu ngày trả rỗng im lặng |
 | `truy_van_sql` từ chối `UPDATE/DELETE/DROP` | func | Xác nhận quyền DB, không chỉ prompt |
 | Giá vốn không lọt ra LLM | func | Đã có, giữ |
+| Tool **không** ghi `discount` trực tiếp | func | §5.1.1 — chống mở lại đường ghi thứ hai |
+| Đơn bot tạo có `incokit_discount_value = 0` | func | Khẳng định bot không tự đặt CK |
 
 **Nguyên tắc kế thừa từ `tests/common.py`: assert theo NGUỒN CHÂN LÝ.** Tồn kho = `SUM(stock_quant)` internal, không dùng `qty_available`. Công nợ = `SUM(incokit_kiotviet_debt.value)`.
 
@@ -335,6 +364,8 @@ Bước 1 trước bước 2 là **có chủ đích**: nối dây trước khi v
 | Tài khoản bot bị cấp quá quyền | Trung bình | `group_staff`; lọc field lớp 2 |
 | Zalo cá nhân bị khóa do gửi nhiều | Trung bình | `humanPace` sẵn có; gộp cảnh báo 1 tin/ngày |
 | Chi phí token vượt dự kiến | Thấp | Luồng RAG hiện **không** kiểm `maxDaily` — cần thêm đếm cho luồng agent |
+| **Core đang nâng cấp → tool trôi theo schema** | Trung bình | §5.1.2: `fields_get()` thay vì hard-code field; test khẳng định ranh giới CK |
+| Bot soạn đơn thiếu chiết khấu → sale sửa tay | Thấp | §5.1.1: nêu rõ "đơn nháp chưa có CK" trong câu trả lời |
 
 Dòng cuối là phát hiện trong lúc rà soát: `AiConfig.maxDaily` (mặc định 500) **không được luồng auto-reply kiểm tra** — `runAutoReplyForMessage` gọi thẳng `generateText()`, bỏ qua quota gate. Luồng agent mới phải tự đếm, không thừa hưởng chốt nào.
 
