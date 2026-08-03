@@ -5,7 +5,8 @@
 // agent mới hay của luồng RAG cũ — bật nhầm là khách thật hứng lỗi thật. Bật
 // phải là hành động có chủ đích, không phải hiệu ứng phụ của một lần deploy.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { batLuongNhanVien, batLuongKhach, duCauHinh } from '../../../src/modules/ai/agent/noi-zalo.js';
+import { batLuongNhanVien, batLuongKhach, duCauHinh, seqTuMessageId } from '../../../src/modules/ai/agent/noi-zalo.js';
+import { sinhKhoaDon, tachKhoaDon } from '../../../src/modules/ai/odoo/idempotency.js';
 
 const DU = {
   ODOO_URL: 'http://localhost:8069', ODOO_DB: 'nelia_prod',
@@ -66,5 +67,40 @@ describe('duCauHinh — thiếu Odoo thì nhường luồng cũ', () => {
 
   it('môi trường trống → false', () => {
     expect(duCauHinh({})).toBe(false);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('seqTuMessageId — khoá chống trùng đơn', () => {
+  // Khoá đơn là `zalo:{conversationId}:{seq}` và nguyên tắc của nó là "retry
+  // phải sinh RA CÙNG một khoá". Trước đây `seq` là SỐ ĐẾM log tool — nhân viên
+  // gõ lại cùng lệnh (tưởng chưa nhận) là số đếm đã tăng → khoá khác → HAI ĐƠN.
+  it('cùng messageId → CÙNG seq, kể cả gọi lại nhiều lần', () => {
+    const id = 'clx8f3k2h0001abcd';
+    expect(seqTuMessageId(id)).toBe(seqTuMessageId(id));
+    expect(seqTuMessageId(id)).toBe(seqTuMessageId(id));
+  });
+
+  it('messageId khác → seq khác (lệnh thứ hai THẬT vẫn tạo được đơn thứ hai)', () => {
+    expect(seqTuMessageId('clx8f3k2h0001abcd')).not.toBe(seqTuMessageId('clx8f3k2h0002abcd'));
+  });
+
+  it('luôn là số nguyên KHÔNG âm — sinhKhoaDon ép seq âm về 0, mất tính duy nhất', () => {
+    for (const id of ['a', 'z'.repeat(50), 'clx8f3k2h0001abcd', '123', '@#$%']) {
+      const n = seqTuMessageId(id);
+      expect(Number.isInteger(n)).toBe(true);
+      expect(n).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('khoá sinh ra tách ngược được và vừa giới hạn client_order_ref', () => {
+    const khoa = sinhKhoaDon('conv-abc', seqTuMessageId('clx8f3k2h0001abcd'));
+
+    expect(tachKhoaDon(khoa)?.conversationId).toBe('conv-abc');
+    expect(khoa.length).toBeLessThan(255);
+  });
+
+  it('chuỗi rỗng không ném (tin lỗi vẫn phải có khoá)', () => {
+    expect(() => seqTuMessageId('')).not.toThrow();
   });
 });

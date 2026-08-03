@@ -173,13 +173,27 @@ async function guiTin(dich: DichGui, text: string): Promise<void> {
 }
 
 /**
- * Đếm số lệnh đã xử lý của hội thoại — thành phần khoá chống tạo đơn trùng.
+ * `seq` cho khoá chống trùng đơn — dẫn xuất từ messageId, KHÔNG phải số đếm.
  *
- * Lấy từ DB chứ KHÔNG đếm trong bộ nhớ: container khởi động lại là biến đếm
- * reset, và cùng một lệnh gửi lại sẽ tạo đơn MỚI thay vì đụng khoá trùng.
+ * Khoá đơn là `zalo:{conversationId}:{seq}`, và nguyên tắc của nó (idempotency.ts)
+ * là "retry phải sinh RA CÙNG một khoá". Số đếm vi phạm điều đó: nhân viên gõ lại
+ * cùng một lệnh vì tưởng chưa nhận, hoặc Zalo gửi trùng tin, thì số đếm đã tăng
+ * (mỗi tool đều ghi log) → khoá khác → HAI ĐƠN cho một ý định.
+ *
+ * Dẫn xuất từ messageId thì cùng tin luôn cho cùng số, kể cả sau khi container
+ * khởi động lại. Tin khác nhau vẫn cho số khác nhau nên lệnh thứ hai thật sự
+ * vẫn tạo được đơn thứ hai.
+ *
+ * FNV-1a 32-bit: đủ tản cho phạm vi một hội thoại (đụng độ cần ~65k tin trong
+ * CÙNG một hội thoại), và cho số nguyên dương ổn định giữa các lần chạy.
  */
-async function laySeq(orgId: string, conversationId: string): Promise<number> {
-  return prisma.toolCallLog.count({ where: { orgId, conversationId } });
+export function seqTuMessageId(messageId: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < messageId.length; i++) {
+    h ^= messageId.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
 }
 
 async function layLichSu(
@@ -251,7 +265,7 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
       {
         bizName: ctx.bizName,
         conversationId: ctx.conversationId,
-        seq: await laySeq(ctx.orgId, ctx.conversationId),
+        seq: seqTuMessageId(ctx.messageId),
         message: { content: ctx.content, isSelf: true },
         history: lichSu.map((m) => ({
           vai: m.senderType === 'self' ? ('nhanvien' as const) : ('bot' as const),
