@@ -12,6 +12,7 @@ import { randomUUID } from 'node:crypto';
 import { emitWebhook } from '../api/webhook-service.js';
 import { runAutomationRules } from '../../shared/ee-registry/automation.js';
 import { runAutoReplyForMessage } from '../ai/knowledge/auto-reply-wiring.js';
+import { xuLyTinNhanVien, xuLyTinKhach } from '../ai/agent/noi-zalo.js';
 import { automationEventBus } from '../../shared/ee-registry/event-bus.js';
 import { applyContactAggregateFromMessage, applyContactInteraction, applyFriendAggregate } from '../contacts/contact-aggregate.js';
 import { followMergedInto } from '../contacts/resolve-contact.js';
@@ -637,6 +638,33 @@ export async function handleIncomingMessage(
       sentAt: message.sentAt,
     });
 
+    // LUỒNG NHÂN VIÊN (agent tool-calling, 2026-08-03) — nhân viên gõ "@bot ..."
+    // trong chính hội thoại với khách thì bot tra Odoo và trả lời tại chỗ.
+    //
+    // Nằm NGOÀI khối `!msg.isSelf` bên dưới vì tin nhân viên có isSelf=true.
+    // Fire-and-forget: agent chạy 3-8s, chờ nó là chặn cả pipeline inbound.
+    // Mặc định TẮT (cần AI_AGENT_NHANVIEN=1) — xem ai/agent/noi-zalo.ts.
+    if (msg.isSelf && message.contentType === 'text' && message.content) {
+      const noiDung = message.content;
+      void (async () => {
+        try {
+          const org = await prisma.organization.findUnique({
+            where: { id: account.orgId },
+            select: { name: true, aiBizName: true },
+          });
+          await xuLyTinNhanVien({
+            orgId: account.orgId,
+            bizName: org?.aiBizName || org?.name || '',
+            conversationId: conversation.id,
+            messageId: message.id,
+            content: noiDung,
+          });
+        } catch (err) {
+          logger.warn({ err }, '[agent] luồng nhân viên lỗi (bỏ qua)');
+        }
+      })();
+    }
+
     if (!msg.isSelf) {
       const org = await prisma.organization.findUnique({
         where: { id: account.orgId },
@@ -680,15 +708,35 @@ export async function handleIncomingMessage(
         const contentForBot = quotedText
           ? `[Khách trả lời tin: "${quotedText.slice(0, 200)}"] ${message.content}`
           : message.content;
-        void runAutoReplyForMessage({
-          orgId: account.orgId,
-          bizName: org?.aiBizName || org?.name || '',
-          aiIndustry: org?.aiIndustry ?? 'ban_hang',
-          aiPromptExtra: org?.aiPromptExtra ?? null,
-          conversationId: conversation.id,
-          messageId: message.id,
-          messageContent: contentForBot,
-        });
+        // Agent tool-calling đi TRƯỚC, luồng RAG cũ đỡ lấy.
+        //
+        // `xuLyTinKhach` trả true = đã trả lời khách → KHÔNG chạy RAG nữa, nếu
+        // không khách nhận hai câu trả lời khác nhau cho cùng một tin. Trả false
+        // (tắt công tắc, thiếu cấu hình, hoặc agent lỗi) → RAG chạy như cũ.
+        // Mặc định TẮT (cần AI_AGENT_KHACH=1).
+        void (async () => {
+          const agentDaTraLoi = await xuLyTinKhach({
+            orgId: account.orgId,
+            bizName: org?.aiBizName || org?.name || '',
+            conversationId: conversation.id,
+            messageId: message.id,
+            content: contentForBot,
+          }).catch((err) => {
+            logger.warn({ err }, '[agent] luồng khách lỗi, nhường luồng RAG');
+            return false;
+          });
+          if (agentDaTraLoi) return;
+
+          await runAutoReplyForMessage({
+            orgId: account.orgId,
+            bizName: org?.aiBizName || org?.name || '',
+            aiIndustry: org?.aiIndustry ?? 'ban_hang',
+            aiPromptExtra: org?.aiPromptExtra ?? null,
+            conversationId: conversation.id,
+            messageId: message.id,
+            messageContent: contentForBot,
+          });
+        })();
       }
 
       // Wave 3 Event Log — customer_reply (KH trả lời, Mục tiêu dừng chuỗi).
