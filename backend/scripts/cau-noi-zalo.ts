@@ -3,8 +3,8 @@
 //
 // VÌ SAO CHẠY LOCAL THAY VÌ TRÊN SERVER (đo thật 2026-08-03):
 //   Server prod KHÔNG gọi được Odoo local — ping 100% mất gói, dù chiều ngược
-//   lại thông (149ms qua DERP). Tailscale ACL chặn một chiều vì hai máy khác
-//   chủ (`vietquoc.dev` vs `xuanhungptit`).
+//   lại thông (149ms qua DERP). Hai máy nằm ở hai tailnet khác chủ
+//   (`vietquoc.dev` vs `xuanhungptit`) nên chỉ thấy nhau qua node chia sẻ.
 //   Chạy bot ở đây thì Odoo nằm ngay cạnh, và chiều local→server vẫn gọi được.
 //
 // LUỒNG (KÉO, không phải webhook):
@@ -23,7 +23,7 @@
 // server, không bị ảnh hưởng. Bot mới chỉ phản hồi tin có tag @bot.
 //
 // CHẠY:
-//   PROD_URL=http://100.107.48.28:3000 PROD_API_KEY=... \
+//   PROD_URL=http://100.107.48.28:3080 PROD_API_KEY=... \
 //   ODOO_URL=http://localhost:8069 ODOO_DB=nelia_prod \
 //   ODOO_USERNAME=bot_zalo ODOO_PASSWORD=<mật khẩu bot_zalo> \
 //   LLM_BASE=... LLM_KEY=... LLM_MODEL=... \
@@ -41,7 +41,10 @@ import { searchKnowledge } from '../src/modules/ai/knowledge/knowledge-service.j
 import { generateEmbedding } from '../src/modules/ai/knowledge/embedding.js';
 import type { ToolAwareGenerate } from '../src/modules/ai/agent/types.js';
 
-const PROD_URL = process.env.PROD_URL ?? 'http://100.107.48.28:3000';
+// Cổng 3080, KHÔNG phải 3000: 3000 là giao diện Dokploy trên cùng máy và cũng
+// trả 401 nên rất dễ tưởng nhầm là CRM. Phân biệt bằng nội dung lỗi —
+// CRM trả {"error":"API key required"}, Dokploy trả {"message":"Unauthorized"}.
+const PROD_URL = process.env.PROD_URL ?? 'http://100.107.48.28:3080';
 const PROD_API_KEY = process.env.PROD_API_KEY ?? '';
 const BIZ = process.env.BIZ_NAME ?? 'LEDNELIA - shop đèn LED & phụ kiện điện';
 /** Nhịp kéo. 3s: nhân viên chờ được, mà một ngày cũng chỉ ~28k request. */
@@ -137,7 +140,7 @@ async function batTriThuc(): Promise<string> {
  */
 const demLuot = new Map<string, number>();
 
-/** Chống xử lý lại cùng một tin khi webhook gửi trùng. */
+/** Chống xử lý lại cùng một tin khi hai vòng kéo chồng lấn. */
 const daXuLy = new Set<string>();
 
 /**
