@@ -24,6 +24,33 @@
 /** Các cách gọi bot. Đây là cổng CHI PHÍ, không phải cổng ngữ nghĩa. */
 const CACH_GOI_BOT = ['@bot', '@ai', '/bot', 'bot ơi', 'bot oi'];
 
+/**
+ * Tag phải đứng ở RANH GIỚI TỪ, không lọt giữa chữ.
+ *
+ * Bug thật (đo 2026-08-03, trước khi bật trên Zalo thật): dùng `includes()`
+ * trần thì nhân viên gửi khách địa chỉ `mail@ai.com` là bot chen vào trả lời —
+ * `@ai` nằm lọt giữa `mail@ai.com`. Khách thấy hết.
+ *
+ * Trước tag: đầu tin hoặc khoảng trắng. Sau tag: khoảng trắng hoặc hết tin —
+ * chặn cả `@aivn`, `@bots`, `mail@ai.com`.
+ */
+function timTag(khongDau: string): { tag: string; viTri: number } | null {
+  for (const tag of CACH_GOI_BOT) {
+    const t = boDau(tag);
+    let tu = 0;
+    for (;;) {
+      const i = khongDau.indexOf(t, tu);
+      if (i < 0) break;
+      const truoc = i === 0 || /\s/.test(khongDau[i - 1]);
+      const sauIdx = i + t.length;
+      const sau = sauIdx >= khongDau.length || /\s/.test(khongDau[sauIdx]);
+      if (truoc && sau) return { tag, viTri: i };
+      tu = i + 1;
+    }
+  }
+  return null;
+}
+
 export interface LenhNhanVien {
   /** Nội dung đã bỏ tag — gửi thẳng cho LLM, không diễn giải thêm. */
   noiDung: string;
@@ -59,12 +86,14 @@ export function nhanDienLenhNhanVien(input: {
 
   // Cổng 2 — CHI PHÍ. Không tag → không gọi LLM.
   const khongDau = boDau(goc);
-  const cachGoi = CACH_GOI_BOT.find((tag) => khongDau.includes(boDau(tag)));
-  if (!cachGoi) return null;
+  const khop = timTag(khongDau);
+  if (!khop) return null;
+  const cachGoi = khop.tag;
 
   // Bỏ tag khỏi nội dung — model không cần thấy "@bot".
-  const viTri = khongDau.indexOf(boDau(cachGoi));
-  const noiDung = (goc.slice(0, viTri) + goc.slice(viTri + cachGoi.length)).trim();
+  // `boDau` giữ nguyên độ dài chuỗi nên vị trí trên bản không dấu dùng được
+  // thẳng cho bản gốc.
+  const noiDung = (goc.slice(0, khop.viTri) + goc.slice(khop.viTri + cachGoi.length)).trim();
 
   // Chỉ có tag, không có nội dung ("@bot") → không có gì để làm.
   if (!noiDung) return null;

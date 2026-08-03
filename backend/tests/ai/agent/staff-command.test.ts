@@ -193,3 +193,34 @@ describe('buildStaffSystemPrompt', () => {
     expect(buildStaffSystemPrompt(BIZ_THAT).length).toBeLessThan(1900);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('Tag phải ở RANH GIỚI TỪ — không lọt giữa chữ', () => {
+  // Bug thật, bắt được 2026-08-03 NGAY TRƯỚC khi bật trên Zalo thật: dùng
+  // `includes()` trần thì nhân viên gửi khách địa chỉ `mail@ai.com` là bot chen
+  // vào trả lời, khách thấy hết.
+  it.each([
+    'shop mail@ai.com nhé',
+    'gửi qua email@aivn.vn giúp em',
+    'anh @aivn ơi',
+    '@bots test',
+    'robot ơi',
+  ])('KHÔNG kích hoạt: "%s"', (c) => {
+    expect(nhanDienLenhNhanVien({ content: c, isSelf: true })).toBeNull();
+  });
+
+  it.each([
+    ['@bot giá led 3 bóng', 'giá led 3 bóng'],
+    ['@BOT giá led', 'giá led'],
+    ['/bot công nợ chị Yến', 'công nợ chị Yến'],
+    ['bot ơi giá led', 'giá led'],
+    ['hàng về rồi bot ơi', 'hàng về rồi'],
+  ])('VẪN kích hoạt: "%s"', (c, mong) => {
+    expect(nhanDienLenhNhanVien({ content: c, isSelf: true })?.noiDung).toBe(mong);
+  });
+
+  it('tag giữa câu vẫn nhận, miễn có khoảng trắng hai bên', () => {
+    expect(nhanDienLenhNhanVien({ content: 'anh @bot xem giúp', isSelf: true })?.noiDung)
+      .toBe('anh  xem giúp');
+  });
+});
