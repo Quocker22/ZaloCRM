@@ -167,8 +167,15 @@ async function ghiAnhTam(duLieu: Buffer, tenFile: string): Promise<string> {
   return duongDan;
 }
 
-async function guiTin(dich: DichGui, text: string): Promise<void> {
-  await humanPace(text.length); // nhịp gõ người — Zalo gắn cờ spam nếu trả lời tức thì
+/**
+ * @param giaNguoi giãn theo nhịp gõ người trước khi gửi.
+ *
+ * BẬT cho khách: trả lời tức thì thì lộ là bot, và Zalo gắn cờ spam.
+ * TẮT cho nhân viên: họ BIẾT đang nói với bot, bắt chờ thêm tới 9s mỗi lệnh
+ * chỉ làm chậm việc — nhịp người ở đây không lừa được ai.
+ */
+async function guiTin(dich: DichGui, text: string, giaNguoi: boolean): Promise<void> {
+  if (giaNguoi) await humanPace(text.length);
   await zaloOps.sendMessage(dich.accountId, dich.threadId, dich.threadType, { msg: text });
 }
 
@@ -277,12 +284,11 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
     if (r.trangThai === 'khong_phai_lenh') return false;
 
     if (r.trangThai === 'xong') {
-      await guiTin(dich, r.traLoi);
+      await guiTin(dich, r.traLoi, false);
       // Hoá đơn: gửi ảnh nếu dựng được, kèm link để nhân viên bấm vào xử lý.
       if (r.hoaDon) {
         if (r.hoaDon.anh) {
           try {
-            await humanPace(60);
             const duongDan = await ghiAnhTam(r.hoaDon.anh.duLieu, r.hoaDon.anh.tenFile);
             await zaloOps.sendImage(dich.accountId, dich.threadId, dich.threadType, [duongDan]);
           } catch (err) {
@@ -290,11 +296,11 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
           }
         }
         // Link gửi DÙ có ảnh: ảnh để xem, link để nhân viên bấm vào xử lý đơn.
-        await guiTin(dich, `Hoá đơn ${r.hoaDon.maDon}: ${r.hoaDon.link}`);
+        await guiTin(dich, `Hoá đơn ${r.hoaDon.maDon}: ${r.hoaDon.link}`, false);
       }
     } else {
       // Dở dang: báo nhân viên tự xử, KHÔNG im lặng để họ còn biết mà làm.
-      await guiTin(dich, `Bot chưa xử lý xong (${r.lyDo}). Anh/chị xử lý giúp nhé.`);
+      await guiTin(dich, `Bot chưa xử lý xong (${r.lyDo}). Anh/chị xử lý giúp nhé.`, false);
     }
 
     logger.info(
@@ -368,7 +374,7 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
       return true;
     }
 
-    await guiTin(dich, r.traLoi);
+    await guiTin(dich, r.traLoi, true);
 
     // Ảnh sản phẩm: agent trả sẵn đường dẫn; fallback dò lại từ nội dung trả lời
     // để luồng agent không thua luồng cũ về khoản gửi ảnh.
