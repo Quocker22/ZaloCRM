@@ -19,7 +19,11 @@ const prismaMock = {
   },
   friend: { deleteMany: vi.fn() },
 };
-vi.mock('../src/shared/database/prisma-client.js', () => ({ prisma: prismaMock }));
+vi.mock('../src/shared/database/prisma-client.js', () => ({
+  // tenantTransaction thêm vào code sau khi test này viết (RLS Giai đoạn 0).
+  // Chuyển tiếp sang $transaction để test nào đã mockImplementation vẫn kiểm soát tx.
+  tenantTransaction: (fn: (tx: unknown) => unknown) =>
+    (prismaMock as any).$transaction ? (prismaMock as any).$transaction(fn) : fn(prismaMock), prisma: prismaMock }));
 vi.mock('@prisma/client', () => ({ Prisma: { JsonNull: 'JSON_NULL', DbNull: 'DB_NULL' } }));
 vi.mock('../src/shared/tenant/tenant-context.js', () => ({
   runSystemQuery: (fn: () => Promise<unknown>) => fn(),

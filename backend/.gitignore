@@ -2,3 +2,4 @@ product-images/
 .env.local
 product-specs/_specs.jsonl
 coverage/
+tests/kich-ban/ket-qua-gan-nhat.txt

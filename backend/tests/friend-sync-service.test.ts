@@ -12,6 +12,16 @@ const prismaMock = {
   contact: {
     findFirst: vi.fn(),
     create: vi.fn(),
+    // contact.findUnique thêm vào processFriend sau khi test này viết (đọc lại
+    // Contact để ghi demographic null-only). Thiếu nó → processFriend ném lỗi,
+    // bị try/catch trong vòng lặp nuốt → applyFriendTransition không bao giờ chạy.
+    //
+    // Trả id THEO where.id (không cứng 'c1') — downstream dùng chính id này làm
+    // contactId, cứng giá trị là làm sai assertion về Contact được reuse/tạo mới.
+    findUnique: vi.fn(async ({ where }: { where: { id: string } }) => ({
+      id: where.id, fullName: 'KH', gender: null, birthDate: null,
+      phone: null, genderLocked: false, avatarUrl: null,
+    })),
   },
   friend: {
     findMany: vi.fn(),
@@ -22,8 +32,26 @@ const prismaMock = {
 const applyFriendTransitionMock = vi.fn().mockResolvedValue(undefined);
 const logActivityMock = vi.fn().mockResolvedValue(undefined);
 
-vi.mock('../src/shared/database/prisma-client.js', () => ({ prisma: prismaMock }));
+vi.mock('../src/shared/database/prisma-client.js', () => ({
+  // tenantTransaction thêm vào code sau khi test này viết (RLS Giai đoạn 0).
+  // Chuyển tiếp sang $transaction để test nào đã mockImplementation vẫn kiểm soát tx.
+  tenantTransaction: (fn: (tx: unknown) => unknown) =>
+    (prismaMock as any).$transaction ? (prismaMock as any).$transaction(fn) : fn(prismaMock), prisma: prismaMock }));
 vi.mock('../src/shared/zalo-operations.js', () => ({ zaloOps: zaloOpsMock }));
+// resolve-contact thêm vào processFriend sau khi test này viết (canonical Contact
+// resolver). Chưa mock → gọi Prisma thật → ném lỗi → bị try/catch trong vòng lặp
+// nuốt → applyFriendTransition không bao giờ chạy.
+//
+// Mock dựa trên prismaMock.contact.findFirst mà test đã dựng: có row → reuse
+// (created=false), không có → tạo stub (created=true). Giữ nguyên ý nghĩa test.
+vi.mock('../src/modules/contacts/resolve-contact.js', () => ({
+  resolveOrCreateContact: vi.fn(async ({ orgId }: { orgId: string }) => {
+    const found = await prismaMock.contact.findFirst();
+    if (found) return { id: found.id, orgId, created: false, matchedVia: 'friend' as const };
+    const made = await prismaMock.contact.create();
+    return { id: made?.id ?? 'c-stub', orgId, created: true, matchedVia: 'stub' as const };
+  }),
+}));
 vi.mock('../src/shared/utils/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
@@ -88,9 +116,11 @@ describe('syncFriendsForAccount — SDK fetch errors', () => {
     zaloOpsMock.getSentFriendRequests.mockRejectedValue(new Error('rate_limited'));
     prismaMock.friend.findMany.mockResolvedValue([]);
     const r = await syncFriendsForAccount('za-err', 'org-1', { trigger: 'cron' });
-    // .catch(() => []) absorbs reject → liveCount 0 but no service-level error
+    // B4 fix (đổi CỐ Ý): trước đây `.catch(() => [])` nuốt lỗi SDK → liveCount=0
+    // không phân biệt được "Zalo rate-limit" với "khách có 0 bạn" thật, sale không
+    // biết sync fail. Giờ lỗi bubble lên → errors++ và logActivity.
     expect(r.liveCount).toBe(0);
-    expect(r.errors).toBe(0);
+    expect(r.errors).toBe(1);
   });
 });
 
@@ -183,16 +213,16 @@ describe('syncFriendsForAccount — contact resolution', () => {
       id: 'f-new', contactId: 'c-new', zaloAccountId: 'za-y',
     });
     const r = await syncFriendsForAccount('za-y', 'org-1', { trigger: 'cron' });
+    // Chỉ assert HỢP ĐỒNG của service này: có Contact mới → createdContacts++.
+    //
+    // Assertion cũ kiểm tra chi tiết `contact.create({ data: { zaloUid, fullName,
+    // avatarUrl, hasZalo }, select })` — nhưng việc tạo stub ĐÃ CHUYỂN sang
+    // contacts/resolve-contact.ts (canonical resolver). Test ở đây kiểm tra chi
+    // tiết của module khác là sai phạm vi; nó thuộc test của resolve-contact.
     expect(r.createdContacts).toBe(1);
-    expect(prismaMock.contact.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        zaloUid: 'uid-3',
-        fullName: 'KH Mới Tạo',
-        avatarUrl: 'avatar.png',
-        hasZalo: true,
-      }),
-      select: { id: true },
-    });
+    expect(applyFriendTransitionMock).toHaveBeenCalledWith(
+      expect.objectContaining({ contactId: 'c-new' }),
+    );
   });
 });
 

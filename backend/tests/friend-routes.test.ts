@@ -11,9 +11,23 @@ const zaloOpsMock = mockZaloOps();
 
 vi.mock('../src/shared/database/prisma-client.js', () => ({
   prisma: {
-    zaloAccount: { findFirst: vi.fn() },
+    // findUnique + friend/phoneSearchEvent thêm vào sau khi test này viết:
+    // route gọi friend-event-handler và các endpoint alias/list mới. Thiếu model
+    // → route trả HTTP 500 "Cannot read properties of undefined".
+    zaloAccount: { findFirst: vi.fn(), findUnique: vi.fn() },
     zaloAccountAccess: { findFirst: vi.fn() },
+    friend: {
+      findUnique: vi.fn(),
+      findFirst: vi.fn(),
+      findMany: vi.fn().mockResolvedValue([]),
+      count: vi.fn().mockResolvedValue(0),
+      groupBy: vi.fn().mockResolvedValue([]),
+    },
+    phoneSearchEvent: { create: vi.fn() },
+    // user thêm sau: route ghi activity log cần đọc user (owner của nick).
+    user: { findUnique: vi.fn().mockResolvedValue({ id: 'u1', orgId: 'org-1' }) },
   },
+  tenantTransaction: (fn: (tx: unknown) => unknown) => fn({}),
 }));
 vi.mock('../src/shared/zalo-operations.js', () => ({
   zaloOps: zaloOpsMock,
@@ -26,6 +40,12 @@ vi.mock('../src/shared/zalo-operations.js', () => ({
 }));
 vi.mock('../src/shared/utils/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+}));
+// requireGrant (RBAC preHandler) thêm vào các route friend sau khi test này viết.
+// Chưa mock → middleware gọi Prisma thật → route trả HTTP 500. Test này kiểm tra
+// hành vi route, không kiểm tra RBAC (đã có test riêng) → cho pass thẳng.
+vi.mock('../src/modules/rbac/rbac-middleware.js', () => ({
+  requireGrant: () => async () => {},
 }));
 vi.mock('../src/modules/auth/auth-middleware.js', () => ({
   authMiddleware: async (req: any) => { req.user = mockUser(); },
@@ -96,7 +116,8 @@ describe('Friend Queries', () => {
     const res = await buildApp().inject({ method: 'GET', url: `${BASE}/aliases` });
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toMatchObject({ data: [{ alias: 'Bob' }] });
-    expect(zaloOpsMock.getAliasList).toHaveBeenCalledWith('za-1');
+    // API đổi: route giờ hỗ trợ phân trang ?count=N&page=P (mặc định 100/1).
+    expect(zaloOpsMock.getAliasList).toHaveBeenCalledWith('za-1', 100, 1);
   });
 });
 

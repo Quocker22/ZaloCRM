@@ -79,6 +79,7 @@ import { notificationRoutes } from './modules/notifications/notification-routes.
 import { searchRoutes } from './modules/search/search-routes.js';
 import { startZaloHealthCheck } from './modules/zalo/zalo-health-check.js';
 import { publicApiRoutes } from './modules/api/public-api-routes.js';
+import { goiYRoutes } from './modules/ai/goi-y-routes.js';
 import { webhookSettingsRoutes } from './modules/api/webhook-settings-routes.js';
 import { startContactIntelligence } from './modules/contacts/contact-intelligence.js';
 import { analyticsRoutes } from './modules/analytics/analytics-routes.js';
@@ -319,6 +320,8 @@ async function bootstrap() {
   // Lead Pool + Facebook Lead Ads routes → registered by extension bundle.
   await app.register(searchRoutes);
   await app.register(publicApiRoutes);
+  // Gợi ý @khách / #sản-phẩm cho ô chat.
+  await app.register(goiYRoutes);
   await app.register(webhookSettingsRoutes);
   await app.register(analyticsRoutes);
   await app.register(savedReportRoutes);

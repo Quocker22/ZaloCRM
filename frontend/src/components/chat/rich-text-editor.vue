@@ -177,6 +177,31 @@
         </button>
       </div>
     </Teleport>
+
+    <!-- #sản-phẩm popup — nguồn Odoo, khác @mention (nguồn Zalo). -->
+    <Teleport to="body">
+      <div
+        v-if="spOpen && spItems.length"
+        class="mention-popup sp-popup"
+        :style="{ left: spPos.left + 'px', top: spPos.top + 'px' }"
+      >
+        <button
+          v-for="(p, i) in spItems"
+          :key="p.id"
+          type="button"
+          class="mention-item sp-item"
+          :class="{ active: i === spIndex }"
+          @mousedown.prevent="chonSanPham(p)"
+          @mouseenter="spIndex = i"
+        >
+          <span class="sp-ten">{{ p.ten }}</span>
+          <span class="sp-phu">
+            <span v-if="p.ma" class="sp-ma">{{ p.ma }}</span>
+            <span class="sp-gia" :class="{ 'sp-gia-thieu': p.gia <= 10 }">{{ nhanGia(p.gia) }}</span>
+          </span>
+        </button>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -188,6 +213,7 @@ import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import Mention from '@tiptap/extension-mention';
 import type { SuggestionProps, SuggestionKeyDownProps } from '@tiptap/suggestion';
+import { useGoiYCrm, nhanGia, type GoiYSanPham } from '../../composables/use-goi-y-crm';
 import { api } from '@/api/index';
 import { useToast } from '@/composables/use-toast';
 import { useGroups } from '@/composables/use-groups';
@@ -353,6 +379,38 @@ function chooseMention() {
   if (item) selectMention(item);
 }
 
+// ── #sản-phẩm: gợi ý từ Odoo ─────────────────────────────────────────────
+// Tách state riêng khỏi @mention: hai nguồn dữ liệu khác nhau (Zalo vs Odoo)
+// và có thể mở đồng thời khi nhân viên gõ "@An ... #led".
+const { traSanPham } = useGoiYCrm();
+const spOpen = ref(false);
+const spItems = ref<GoiYSanPham[]>([]);
+const spIndex = ref(0);
+const spPos = ref({ left: 0, top: 0 });
+let spCommand: ((item: { id: string; label: string }) => void) | null = null;
+
+function chonSanPham(item: GoiYSanPham) {
+  // Chèn TÊN sản phẩm, không chèn id: bot tra lại bằng tên và nhân viên đọc
+  // được. Id nội bộ hiện trong khung chat là nhiễu.
+  spCommand?.({ id: String(item.id), label: item.ten });
+}
+
+function diChuyenSp(delta: number) {
+  const n = spItems.value.length;
+  if (!n) return;
+  spIndex.value = (spIndex.value + delta + n) % n;
+}
+
+function chotSanPham() {
+  const item = spItems.value[spIndex.value];
+  if (item) chonSanPham(item);
+}
+
+function datViTriSp(rect: DOMRect | null | undefined) {
+  if (!rect) return;
+  spPos.value = { left: rect.left, top: rect.top };
+}
+
 // Đặt vị trí popup theo clientRect con trỏ (popup nằm TRÊN caret, canh trái).
 function positionMention(rect: DOMRect | null | undefined) {
   if (!rect) return;
@@ -433,11 +491,58 @@ const editor = useEditor({
         },
       },
     }),
+    // #sản-phẩm — instance Mention THỨ HAI. Tiptap Mention chỉ nhận một `char`
+    // mỗi extension, nên phải extend với tên khác (name trùng sẽ ghi đè nhau).
+    Mention.extend({ name: 'sanPham' }).configure({
+      HTMLAttributes: { class: 'mention mention-sp' },
+      renderHTML({ options, node }) {
+        // Chèn tên trần, KHÔNG kèm '#': nội dung gửi đi phải là tên sản phẩm
+        // thật để bot tra được, không phải cú pháp của UI.
+        return ['span', mergeAttributes(options.HTMLAttributes), `${node.attrs.label ?? node.attrs.id}`];
+      },
+      suggestion: {
+        char: '#',
+        items: ({ query }: { query: string }) => traSanPham(query),
+        render() {
+          return {
+            onStart: (sp: SuggestionProps<GoiYSanPham>) => {
+              spCommand = sp.command as unknown as (i: { id: string; label: string }) => void;
+              spItems.value = sp.items;
+              spIndex.value = 0;
+              datViTriSp(sp.clientRect?.());
+              spOpen.value = spItems.value.length > 0;
+            },
+            onUpdate: (sp: SuggestionProps<GoiYSanPham>) => {
+              spCommand = sp.command as unknown as (i: { id: string; label: string }) => void;
+              spItems.value = sp.items;
+              spIndex.value = 0;
+              datViTriSp(sp.clientRect?.());
+              spOpen.value = spItems.value.length > 0;
+            },
+            onKeyDown: (kp: SuggestionKeyDownProps) => {
+              if (!spOpen.value) return false;
+              const k = kp.event.key;
+              if (k === 'ArrowUp') { diChuyenSp(-1); return true; }
+              if (k === 'ArrowDown') { diChuyenSp(1); return true; }
+              if (k === 'Enter') { chotSanPham(); return true; }
+              if (k === 'Escape') { spOpen.value = false; return true; }
+              return false;
+            },
+            onExit: () => {
+              spOpen.value = false;
+              spItems.value = [];
+              spCommand = null;
+            },
+          };
+        },
+      },
+    }),
   ],
   editorProps: {
     handleKeyDown(_view, event) {
-      // @mention popup đang mở → để suggestion plugin tự xử ↑↓/Enter/Esc, KHÔNG gửi/xuống dòng.
-      if (mentionOpen.value && ['ArrowUp', 'ArrowDown', 'Enter', 'Escape'].includes(event.key)) {
+      // Popup @mention HOẶC #sản-phẩm đang mở → để suggestion plugin tự xử
+      // ↑↓/Enter/Esc, KHÔNG gửi tin/xuống dòng.
+      if ((mentionOpen.value || spOpen.value) && ['ArrowUp', 'ArrowDown', 'Enter', 'Escape'].includes(event.key)) {
         return false;
       }
       // Popup mẫu đang mở → nhường ↑↓/Enter/Esc cho popup điều hướng (chèn/đóng).
@@ -1029,5 +1134,40 @@ onBeforeUnmount(() => { editor.value?.destroy(); });
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* #sản-phẩm — hai dòng: tên + (mã · giá). Rộng hơn @mention vì tên SP dài. */
+.sp-popup {
+  min-width: 320px;
+  max-width: 440px;
+}
+.sp-popup .sp-item {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+.sp-popup .sp-ten {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.sp-popup .sp-phu {
+  display: flex;
+  gap: 8px;
+  font-size: 11.5px;
+  color: #6b7280;
+}
+.sp-popup .sp-ma {
+  font-family: ui-monospace, Menlo, monospace;
+}
+.sp-popup .sp-gia {
+  font-weight: 600;
+  color: #1b7f4f;
+}
+/* SP chưa có giá / giá tạm 1đ — đánh dấu để nhân viên không báo nhầm giá. */
+.sp-popup .sp-gia-thieu {
+  color: #b45309;
+  font-weight: 500;
 }
 </style>

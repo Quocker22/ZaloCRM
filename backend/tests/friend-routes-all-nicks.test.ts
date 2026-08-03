@@ -17,7 +17,42 @@ const prismaMock = {
   friend: { findMany: vi.fn(), count: vi.fn(), groupBy: vi.fn() },
 };
 
-vi.mock('../src/shared/database/prisma-client.js', () => ({ prisma: prismaMock }));
+vi.mock('../src/shared/database/prisma-client.js', () => ({
+  // tenantTransaction thêm vào code sau khi test này viết (RLS Giai đoạn 0).
+  // Chuyển tiếp sang $transaction để test nào đã mockImplementation vẫn kiểm soát tx.
+  tenantTransaction: (fn: (tx: unknown) => unknown) =>
+    (prismaMock as any).$transaction ? (prismaMock as any).$transaction(fn) : fn(prismaMock), prisma: prismaMock }));
+// requireGrant (RBAC preHandler) thêm vào route sau khi test này viết. Chưa mock
+// → gọi Prisma thật → HTTP 500. Test kiểm tra route, không kiểm RBAC.
+// privacy/redact thêm vào route sau khi test này viết (audit C7/H11 — redact PII
+// của Friend thuộc nick non-owner). Chưa mock → gọi Prisma thật → route ném lỗi
+// trước khi trả response, nên body thiếu accessibleNicks. Test này kiểm tra query
+// + phân trang, không kiểm privacy (đã có test riêng) → pass-through.
+vi.mock('../src/modules/privacy/redact.js', () => ({
+  buildPrivacyContext: async () => ({ viewerUserId: 'u1', orgId: 'org-1', privacyUnlocked: true }),
+  redactFriend: (f: unknown) => f,
+}));
+// getZaloScope thêm vào route sau khi test này viết (Zalo Account Mutation Gate
+// 2026-05-27) — thay cho việc route tự query access + owned. Chưa mock →
+// accessibleIds rỗng → route early-return { friends: [], total: 0 } và KHÔNG có
+// accessibleNicks, nên assertion về query/phân trang đều trượt.
+//
+// Mock DỰA TRÊN chính prismaMock mà test đã dựng (access ∪ owned), giữ nguyên ý
+// nghĩa "union of access + owned" mà test đang kiểm.
+vi.mock('../src/modules/zalo/zalo-scope.js', () => ({
+  getZaloScope: async () => {
+    const access = await prismaMock.zaloAccountAccess.findMany();
+    const owned = await prismaMock.zaloAccount.findMany();
+    const ids = [...new Set([
+      ...(access ?? []).map((a: any) => a.zaloAccountId),
+      ...(owned ?? []).map((o: any) => o.id),
+    ])];
+    return { accessibleIds: ids, displayableIds: ids, canManageOrgWide: true };
+  },
+}));
+vi.mock('../src/modules/rbac/rbac-middleware.js', () => ({
+  requireGrant: () => async () => {},
+}));
 vi.mock('../src/shared/utils/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));

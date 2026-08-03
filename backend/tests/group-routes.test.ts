@@ -54,10 +54,18 @@ beforeEach(() => { vi.clearAllMocks(); });
 // ── GET all groups ─────────────────────────────────────────────────────────────
 describe('GET /api/v1/zalo-accounts/:accountId/groups', () => {
   it('happy path — returns groups list', async () => {
-    zaloOpsMock.getAllGroups.mockResolvedValueOnce([{ groupId: 'g1' }]);
+    // Shape đổi: zca-js getAllGroups() trả OBJECT { gridVerMap, gridInfoMap },
+    // KHÔNG phải array. Route đọc id từ gridVerMap rồi map sang { id, name,
+    // totalMember }. Mock array kiểu cũ → ids rỗng → groups: [].
+    zaloOpsMock.getAllGroups.mockResolvedValueOnce({
+      gridVerMap: { g1: 1 },
+      gridInfoMap: { g1: { name: 'Nhóm 1', totalMember: 5 } },
+    });
     const res = await buildApp().inject({ method: 'GET', url: BASE });
     expect(res.statusCode).toBe(200);
-    expect(JSON.parse(res.body)).toMatchObject({ groups: [{ groupId: 'g1' }] });
+    expect(JSON.parse(res.body)).toMatchObject({
+      groups: [{ id: 'g1', name: 'Nhóm 1', totalMember: 5 }],
+    });
     expect(zaloOpsMock.getAllGroups).toHaveBeenCalledWith('za-1');
   });
 });

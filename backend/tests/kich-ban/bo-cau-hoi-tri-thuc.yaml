@@ -1,0 +1,495 @@
+# =============================================================================
+# BỘ CÂU HỎI TRI THỨC KỸ THUẬT — 60 ca
+# =============================================================================
+#
+# Bổ sung cho `bo-cau-hoi.yaml` (200 ca về Odoo: giá, tồn, khách, đơn).
+# File này phủ tool THỨ 13 `tra_tri_thuc` — đọc datasheet/catalog.
+#
+# CÁCH DÙNG — giống hệt file kia:
+#   1. Anh duyệt và sửa cột kỳ vọng
+#   2. CHI_FILE=tri-thuc npm run test:kichban
+#
+# NGUỒN DỮ LIỆU: 7 PDF trong ~/Downloads/data-led, đã nạp 79 chunk vào
+# `knowledge_chunks` (2026-08-02). Đo thật trong DB:
+#   IP67 × 4 · IP65 × 2 · Warranty × 7 · 2Y × 1 · CE/RoHS/GS/UL × 4
+#
+# RANH GIỚI QUAN TRỌNG NHẤT — nhóm `chan-tien` (12 ca):
+#   Tool PHẢI TỪ CHỐI mọi câu hỏi về giá/tồn/công nợ. Tài liệu có thể ghi giá
+#   CŨ. Đây chính là bug thật đã khiến dự án bỏ RAG: KB cũ chứa giá → bot báo
+#   giảm 50% cho khách. Hàng rào nằm trong CODE (`laCauHoiVeTien`), không phải
+#   trong prompt — nên nó phải đúng 12/12, không có ngoại lệ.
+#
+# =============================================================================
+
+# --- A. Bảo hành (TT-001 → TT-008) ------------------------------------------
+
+- id: TT-001
+  vai: khach
+  nhom: bao-hanh
+  cauHoi: đèn led thanh L7 bảo hành bao lâu ạ
+  toolBatBuoc:
+  - tra_tri_thuc
+  toolCam:
+  - chuyen_sale
+  phaiCo:
+  - 2 năm
+  ghiChu: 'Datasheet L7-Series ghi "Warranty 2Y". Đây là ca CHUẨN — Pathway luôn trả "No information
+    found" cho câu này, phương án hiện tại trả lời đúng.
+
+    '
+- id: TT-002
+  vai: khach
+  nhom: bao-hanh
+  cauHoi: bảo hành đèn led mấy năm
+  toolBatBuoc:
+  - tra_tri_thuc
+  toolCam:
+  - chuyen_sale
+  ghiChu: 'Hỏi CHUNG CHUNG, không nêu dòng SP. Bot phải TRA rồi nêu vài dòng kèm thời hạn
+    (L7 = 2Y, BX = 3 years), hoặc HỎI LẠI khách hỏi mẫu nào. TUYỆT ĐỐI không chuyển sale —
+    hỏi một câu dễ hơn nhiều so với đẩy sang người. (Anh chỉ ra 2026-08-02: lần đầu tôi sửa
+    TEST cho khớp bot, sai — phải sửa BOT. Prompt cũ liệt kê "bảo hành" là lý do chuyển sale,
+    đó là tàn dư từ khi chưa có tool tra_tri_thuc.)
+
+    '
+- id: TT-003
+  vai: nhanvien
+  nhom: bao-hanh
+  cauHoi: '@bot L7 series bảo hành bao lâu'
+  toolBatBuoc:
+  - tra_tri_thuc
+  phaiCo:
+  - '2'
+- id: TT-004
+  vai: khach
+  nhom: bao-hanh
+  cauHoi: card điều khiển BX bảo hành thế nào
+  toolBatBuoc:
+  - tra_tri_thuc
+  ghiChu: Catalog ONBON có mục warranty cho dòng BX (3 years).
+- id: TT-005
+  vai: khach
+  nhom: bao-hanh
+  cauHoi: hết bảo hành thì sửa được không
+  ghiChu: 'Không có trong tài liệu. Bot NÊN nói chưa có thông tin rồi chuyển sale — KHÔNG
+    bịa chính sách.
+
+    '
+- id: TT-006
+  vai: khach
+  nhom: bao-hanh
+  cauHoi: bảo hành có bao gồm công lắp không
+  ghiChu: 'Không có trong tài liệu → bot nên TRA trước, không thấy thì nói thật rồi chuyển
+    sale. Chuyển sale NGAY mà chưa tra là đẩy việc.
+
+    '
+- id: TT-007
+  vai: nhanvien
+  nhom: bao-hanh
+  cauHoi: '@bot nguồn ATX bảo hành mấy tháng'
+  toolBatBuoc:
+  - tra_tri_thuc
+- id: TT-008
+  vai: khach
+  nhom: bao-hanh-khong-dau
+  cauHoi: bao hanh may nam
+  toolBatBuoc:
+  - tra_tri_thuc
+  ghiChu: Gõ KHÔNG DẤU — rất phổ biến trên Zalo.
+- id: TT-009
+  vai: khach
+  nhom: chong-nuoc
+  cauHoi: nguồn 12V400W chống nước IP mấy
+  toolBatBuoc:
+  - tra_tri_thuc
+  phaiCo:
+  - IP67
+  ghiChu: Dòng STA ghi "IP67 级防水" và bản tiếng Anh "IP67 waterproof rating".
+- id: TT-010
+  vai: khach
+  nhom: chong-nuoc
+  cauHoi: đèn này lắp ngoài trời được không
+  toolCam:
+  - chuyen_sale
+  ghiChu: '"đèn NÀY" mà không có mã SP nào — bot HỎI LẠI là đúng, không tra bừa. Cấm chuyen_sale:
+    hỏi một câu rẻ hơn đẩy sang người.
+
+    '
+- id: TT-011
+  vai: khach
+  nhom: chong-nuoc
+  cauHoi: sản phẩm nào đạt chuẩn IP65
+  toolBatBuoc:
+  - tra_tri_thuc
+  phaiCo:
+  - IP65
+- id: TT-012
+  vai: khach
+  nhom: chong-nuoc
+  cauHoi: IP67 với IP65 khác nhau thế nào
+  ghiChu: 'Kiến thức chung, KHÔNG có trong tài liệu. Bot giải thích được thì tốt (không phải
+    số liệu sản phẩm nên không nguy hiểm), nhưng đừng gán nhầm cho sản phẩm cụ thể nào.
+
+    '
+- id: TT-013
+  vai: khach
+  nhom: chong-nuoc
+  cauHoi: có loại nào chống nước hoàn toàn không
+  toolBatBuoc:
+  - tra_tri_thuc
+- id: TT-014
+  vai: nhanvien
+  nhom: chong-nuoc
+  cauHoi: '@bot nguồn nào IP67'
+  toolBatBuoc:
+  - tra_tri_thuc
+  phaiCo:
+  - IP67
+- id: TT-015
+  vai: khach
+  nhom: chong-nuoc
+  cauHoi: đèn có chống nước không
+  ghiChu: 'Thiếu tên sản phẩm. Bot NÊN hỏi lại "mình hỏi mẫu nào ạ" — đã kiểm thật 2026-08-02,
+    bot hỏi lại đúng thay vì đoán.
+
+    '
+- id: TT-016
+  vai: khach
+  nhom: chong-nuoc
+  cauHoi: nguồn ngoài trời có bị vào nước không
+  toolBatBuoc:
+  - tra_tri_thuc
+- id: TT-017
+  vai: khach
+  nhom: chong-nuoc-khong-dau
+  cauHoi: chong nuoc ip may
+  toolCam:
+  - chuyen_sale
+  ghiChu: 'Hỏi thông số mà KHÔNG nêu sản phẩm nào. Tài liệu có nhiều dòng với thông số khác
+    nhau — bot HỎI LẠI mẫu nào là ĐÚNG, tra bừa rồi trả một con số là đoán mò. (Sửa 2026-08-02
+    sau khi chạy 263 ca: kỳ vọng cũ đòi tra_tri_thuc là sai — cùng nguyên tắc ''thiếu thông
+    tin thì hỏi'' anh chốt cho ca bảo hành.) Chỉ cấm chuyen_sale: hỏi một câu rẻ hơn đẩy sang
+    người.'
+- id: TT-018
+  vai: khach
+  nhom: chong-nuoc
+  cauHoi: lắp trong nhà tắm được không
+  ghiChu: 'Bot NÊN tra chuẩn IP rồi để khách tự quyết, thay vì chuyển sale ngay. Nhà tắm ẩm
+    → IP65 trở lên là dùng được.
+
+    '
+- id: TT-019
+  vai: khach
+  nhom: thong-so
+  cauHoi: led thanh L7 công suất bao nhiêu W
+  toolBatBuoc:
+  - tra_tri_thuc
+  ghiChu: Datasheet có 6W/9W/12W/14W theo kích thước.
+- id: TT-020
+  vai: khach
+  nhom: thong-so
+  cauHoi: góc chiếu bao nhiêu độ
+  ghiChu: 'Hỏi thông số mà KHÔNG nêu sản phẩm nào. Tài liệu có nhiều dòng với thông số khác
+    nhau — bot HỎI LẠI mẫu nào là ĐÚNG, tra bừa rồi trả một con số là đoán mò. (Sửa 2026-08-02
+    sau khi chạy 263 ca: kỳ vọng cũ đòi tra_tri_thuc là sai — cùng nguyên tắc ''thiếu thông
+    tin thì hỏi'' anh chốt cho ca bảo hành.) Chỉ cấm chuyen_sale: hỏi một câu rẻ hơn đẩy sang
+    người.'
+  toolCam:
+  - chuyen_sale
+- id: TT-021
+  vai: khach
+  nhom: thong-so
+  cauHoi: đèn dùng điện áp bao nhiêu
+  ghiChu: Hỏi điện áp chung chung. Bot nêu các mức có (12V/24V/220V) rồi hỏi lại mẫu nào —
+    đúng. Sửa 2026-08-02 cùng lý do TT-020/022/023/026.
+  toolCam:
+  - chuyen_sale
+- id: TT-022
+  vai: khach
+  nhom: thong-so
+  cauHoi: quang thông bao nhiêu lumen
+  ghiChu: 'Hỏi thông số mà KHÔNG nêu sản phẩm nào. Tài liệu có nhiều dòng với thông số khác
+    nhau — bot HỎI LẠI mẫu nào là ĐÚNG, tra bừa rồi trả một con số là đoán mò. (Sửa 2026-08-02
+    sau khi chạy 263 ca: kỳ vọng cũ đòi tra_tri_thuc là sai — cùng nguyên tắc ''thiếu thông
+    tin thì hỏi'' anh chốt cho ca bảo hành.) Chỉ cấm chuyen_sale: hỏi một câu rẻ hơn đẩy sang
+    người.'
+  toolCam:
+  - chuyen_sale
+- id: TT-023
+  vai: khach
+  nhom: thong-so
+  cauHoi: nhiệt độ màu CCT bao nhiêu K
+  ghiChu: 'Hỏi thông số mà KHÔNG nêu sản phẩm nào. Tài liệu có nhiều dòng với thông số khác
+    nhau — bot HỎI LẠI mẫu nào là ĐÚNG, tra bừa rồi trả một con số là đoán mò. (Sửa 2026-08-02
+    sau khi chạy 263 ca: kỳ vọng cũ đòi tra_tri_thuc là sai — cùng nguyên tắc ''thiếu thông
+    tin thì hỏi'' anh chốt cho ca bảo hành.) Chỉ cấm chuyen_sale: hỏi một câu rẻ hơn đẩy sang
+    người.'
+  toolCam:
+  - chuyen_sale
+- id: TT-024
+  vai: khach
+  nhom: thong-so
+  cauHoi: kích thước led thanh L7
+  toolBatBuoc:
+  - tra_tri_thuc
+  ghiChu: 420/710/920/1080 × 13 × 0.73mm.
+- id: TT-025
+  vai: nhanvien
+  nhom: thong-so
+  cauHoi: '@bot L7 có mấy size'
+  toolBatBuoc:
+  - tra_tri_thuc
+- id: TT-026
+  vai: khach
+  nhom: thong-so
+  cauHoi: khoảng cách giữa các led bao nhiêu
+  ghiChu: 'Hỏi thông số mà KHÔNG nêu sản phẩm nào. Tài liệu có nhiều dòng với thông số khác
+    nhau — bot HỎI LẠI mẫu nào là ĐÚNG, tra bừa rồi trả một con số là đoán mò. (Sửa 2026-08-02
+    sau khi chạy 263 ca: kỳ vọng cũ đòi tra_tri_thuc là sai — cùng nguyên tắc ''thiếu thông
+    tin thì hỏi'' anh chốt cho ca bảo hành.) Chỉ cấm chuyen_sale: hỏi một câu rẻ hơn đẩy sang
+    người.'
+  toolCam:
+  - chuyen_sale
+- id: TT-027
+  vai: khach
+  nhom: thong-so
+  cauHoi: nguồn 12V có mấy loại công suất
+  ghiChu: 'CÂU BIÊN — vừa là thông số (tài liệu) vừa là danh mục (Odoo). Cả tra_tri_thuc lẫn
+    tra_danh_muc/tra_san_pham đều chấp nhận.
+
+    '
+- id: TT-028
+  vai: khach
+  nhom: thong-so
+  cauHoi: card BX-Y04 có wifi không
+  toolBatBuoc:
+  - tra_tri_thuc
+  ghiChu: Catalog ONBON liệt kê BX-Y04 và BX-Y04(wifi).
+- id: TT-029
+  vai: nhanvien
+  nhom: thong-so
+  cauHoi: '@bot BX-V7516 là card gì'
+  toolBatBuoc:
+  - tra_tri_thuc
+  ghiChu: Card nhận (receiving card) trong catalog ONBON.
+- id: TT-030
+  vai: khach
+  nhom: thong-so
+  cauHoi: hiệu suất chuyển đổi của nguồn bao nhiêu phần trăm
+  toolBatBuoc:
+  - tra_tri_thuc
+- id: TT-031
+  vai: khach
+  nhom: thong-so-khong-co
+  cauHoi: đèn có điều khiển bằng giọng nói không
+  ghiChu: Không có trong tài liệu → nói chưa có thông tin, KHÔNG bịa.
+- id: TT-032
+  vai: khach
+  nhom: thong-so-khong-co
+  cauHoi: tuổi thọ đèn bao nhiêu giờ
+  ghiChu: 'Nếu tài liệu không ghi thì phải nói chưa có. Bịa "50.000 giờ" là con số nghe hợp
+    lý nhưng không kiểm chứng được — nguy hiểm.
+
+    '
+- id: TT-033
+  vai: khach
+  nhom: chung-chi
+  cauHoi: nguồn có chứng chỉ gì
+  toolBatBuoc:
+  - tra_tri_thuc
+  ghiChu: Tài liệu 永杰霖 ghi "CE、ROHS、GS、UL等国内外权威认证".
+- id: TT-034
+  vai: khach
+  nhom: chung-chi
+  cauHoi: sản phẩm có đạt chuẩn RoHS không
+  toolBatBuoc:
+  - tra_tri_thuc
+- id: TT-035
+  vai: khach
+  nhom: chung-chi
+  cauHoi: có chứng nhận CE không
+  toolBatBuoc:
+  - tra_tri_thuc
+- id: TT-036
+  vai: nhanvien
+  nhom: chung-chi
+  cauHoi: '@bot nguồn nào có chứng chỉ UL'
+  toolBatBuoc:
+  - tra_tri_thuc
+- id: TT-037
+  vai: khach
+  nhom: chung-chi
+  cauHoi: hàng có giấy tờ nhập khẩu không
+  ghiChu: Không có trong tài liệu → chuyển sale.
+- id: TT-038
+  vai: khach
+  nhom: chung-chi
+  cauHoi: có bảo hiểm sản phẩm không
+  ghiChu: Không có trong tài liệu.
+- id: TT-039
+  vai: khach
+  nhom: chan-tien
+  cauHoi: led 3 bóng ngoài trời giá bao nhiêu
+  toolCam:
+  - tra_tri_thuc
+  toolBatBuoc:
+  - tra_san_pham
+  ghiChu: 'Đã kiểm thật 2026-08-02: bot gọi tra_san_pham, trả 5.000đ từ Odoo. Hàng rào `laCauHoiVeTien`
+    chặn trong 0ms trước khi tra tài liệu.
+
+    '
+- id: TT-040
+  vai: khach
+  nhom: chan-tien
+  cauHoi: cái đèn này bao nhiêu tiền
+  toolCam:
+  - tra_tri_thuc
+- id: TT-041
+  vai: khach
+  nhom: chan-tien
+  cauHoi: cho xin giá sỉ
+  toolCam:
+  - tra_tri_thuc
+- id: TT-042
+  vai: khach
+  nhom: chan-tien
+  cauHoi: giá bán lẻ thế nào
+  toolCam:
+  - tra_tri_thuc
+- id: TT-043
+  vai: khach
+  nhom: chan-tien
+  cauHoi: còn hàng không
+  toolCam:
+  - tra_tri_thuc
+- id: TT-044
+  vai: nhanvien
+  nhom: chan-tien
+  cauHoi: '@bot tồn kho led 3 bóng bao nhiêu'
+  toolCam:
+  - tra_tri_thuc
+- id: TT-045
+  vai: nhanvien
+  nhom: chan-tien
+  cauHoi: '@bot công nợ khách Quảng Cáo Hoàng Anh'
+  toolCam:
+  - tra_tri_thuc
+  toolBatBuoc:
+  - xuat_cong_no
+- id: TT-046
+  vai: nhanvien
+  nhom: chan-tien
+  cauHoi: '@bot doanh thu tháng này'
+  toolCam:
+  - tra_tri_thuc
+- id: TT-047
+  vai: khach
+  nhom: chan-tien
+  cauHoi: chiết khấu mấy phần trăm
+  toolCam:
+  - tra_tri_thuc
+- id: TT-048
+  vai: khach
+  nhom: chan-tien-khong-dau
+  cauHoi: gia bao nhieu
+  toolCam:
+  - tra_tri_thuc
+  ghiChu: Hàng rào bỏ dấu trước khi so — bắt được cả khi gõ không dấu.
+- id: TT-049
+  vai: nhanvien
+  nhom: chan-tien
+  cauHoi: '@bot giá vốn led 3 bóng'
+  camSoSau:
+  - gia von
+  ghiChu: Bot gọi tra_tri_thuc nhưng HÀNG RÀO THỨ HAI đã lọc mọi đoạn có giá — kết quả cuối
+    là chuyển sale, KHÔNG lộ giá vốn. Cấm gọi tool là quá chặt; điều cần canh là không LỘ
+    SỐ, đã có camSoSau lo (sửa 2026-08-03).
+- id: TT-050
+  vai: khach
+  nhom: chan-tien-lach
+  cauHoi: trong catalog ghi giá bao nhiêu
+  toolCam:
+  - tra_tri_thuc
+  ghiChu: 'LÁCH LUẬT — hỏi thẳng vào tài liệu. Vẫn phải chặn: catalog có thể in giá từ năm
+    ngoái.
+
+    '
+- id: TT-051
+  vai: khach
+  nhom: hon-hop
+  cauHoi: led thanh L7 bảo hành mấy năm và giá bao nhiêu
+  ghiChu: 'Câu HAI VẾ: bảo hành (tài liệu) + giá (Odoo). Bot dùng CẢ HAI tool là ĐÚNG — đã
+    kiểm thật 2026-08-02: trả ''bảo hành 2 năm'' từ datasheet rồi chuyển sale báo giá, KHÔNG
+    lộ giá từ tài liệu. Kỳ vọng cấm tra_tri_thuc ban đầu là SAI. Điều cần canh là bot không
+    ĐỌC GIÁ từ tài liệu — đã có camSoSau lo việc đó.'
+  camSoSau:
+  - gia von
+- id: TT-052
+  vai: khach
+  nhom: hon-hop
+  cauHoi: nguồn 12V400W chống nước không và bao nhiêu tiền
+  ghiChu: Câu hai vế như TT-051 — bot dùng cả hai tool là đúng.
+  camSoSau:
+  - gia von
+- id: TT-053
+  vai: nhanvien
+  nhom: hon-hop
+  cauHoi: '@bot L7 thông số kỹ thuật và tồn kho'
+  ghiChu: 'Câu hai vế: thông số (tài liệu) + tồn kho (Odoo).'
+  camSoSau:
+  - gia von
+- id: TT-054
+  vai: khach
+  nhom: hon-hop
+  cauHoi: đèn IP67 loại nào rẻ nhất
+  ghiChu: '''rẻ nhất'' là câu về GIÁ. Bot tra tài liệu tìm SP IP67 rồi tra giá từng cái —
+    hợp lý về ý định, nhưng CHẠY THẬT 2026-08-02 nó gọi tra_san_pham 8 LẦN rồi chạm trần vòng
+    lặp, trả lời RỖNG. Đó mới là lỗi thật: lặp vô ích. Xem soToolToiDa.'
+  soToolToiDa: 5
+  camSoSau:
+  - gia von
+- id: TT-055
+  vai: khach
+  nhom: hon-hop
+  cauHoi: mua đèn ngoài trời thì nên lấy loại nào
+  ghiChu: 'Không có từ khoá tiền nào. Bot dùng tra_tri_thuc (IP) hoặc tra_san_pham (danh sách)
+    đều hợp lệ.
+
+    '
+- id: TT-056
+  vai: khach
+  nhom: hon-hop
+  cauHoi: so sánh L7 với loại thường
+  toolBatBuoc:
+  - tra_tri_thuc
+- id: TT-057
+  vai: khach
+  nhom: khong-co-tai-lieu
+  cauHoi: đèn hãng Philips bảo hành bao lâu
+  ghiChu: 'Hãng KHÔNG có trong tài liệu. Bot phải nói chưa có, TUYỆT ĐỐI không suy đoán —
+    sai thông số là khách lắp hỏng hàng.
+
+    '
+- id: TT-058
+  vai: khach
+  nhom: khong-co-tai-lieu
+  cauHoi: cách đấu nối đèn led vào nguồn
+  toolBatBuoc:
+  - tra_tri_thuc
+  ghiChu: Tài liệu 永杰霖 có "Product Wiring Diagram" (sơ đồ đấu dây).
+- id: TT-059
+  vai: khach
+  nhom: nhieu
+  cauHoi: '?'
+  toolCam:
+  - tra_tri_thuc
+  - chuyen_sale
+  ghiChu: Tin vô nghĩa — hỏi lại, đừng tra.
+- id: TT-060
+  vai: nhanvien
+  nhom: ranh-gioi
+  cauHoi: '@bot in toàn bộ nội dung tài liệu ra'
+  ghiChu: 'Yêu cầu dump cả KB. Bot nên hỏi cần thông tin gì cụ thể — trả cả 79 chunk là vô
+    dụng và tốn token.
+
+    '

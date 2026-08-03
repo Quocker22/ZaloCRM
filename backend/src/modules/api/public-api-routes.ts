@@ -189,7 +189,12 @@ export async function publicApiRoutes(app: FastifyInstance): Promise<void> {
         select: {
           id: true, threadType: true, externalThreadId: true,
           lastMessageAt: true, unreadCount: true, isReplied: true,
-          contact: { select: { id: true, fullName: true, phone: true, avatarUrl: true } },
+          // `zaloAccountId` + `zaloUid`: bộ đôi tối thiểu để gọi ngược
+          // POST /messages/send. Không có chúng thì client đọc được hội thoại
+          // nhưng không trả lời được — xem scripts/cau-noi-zalo.ts.
+          // Hội thoại 1-1 dùng contact.zaloUid; group dùng externalThreadId.
+          zaloAccountId: true,
+          contact: { select: { id: true, fullName: true, phone: true, avatarUrl: true, zaloUid: true } },
         },
         orderBy: { lastMessageAt: 'desc' },
         take: Math.min(parseInt(limit) || 20, 100),

@@ -97,8 +97,16 @@ vi.mock('../../src/shared/database/prisma-client.js', () => {
         findUnique: vi.fn(async ({ where }: any) => (where.id === state.contact.id ? { id: state.contact.id, orgId: state.contact.orgId } : null)),
       },
       $transaction: vi.fn(async (fn: (tx: typeof tx) => Promise<unknown>) => fn(tx)),
+      // activityLog thêm sau: tag-service gọi logActivity (fire-and-forget) sau
+      // khi gắn tag. PHẢI trả Promise — logActivity gọi `.catch()` trên kết quả,
+      // vi.fn() trơn trả undefined → ném "Cannot read properties of undefined
+      // (reading 'catch')".
+      activityLog: { create: vi.fn().mockResolvedValue({}) },
       __state: state,
     },
+    // tenantTransaction thêm vào code sau khi test này viết (RLS Giai đoạn 0).
+    // Hành vi giống $transaction: gọi callback với tx in-memory.
+    tenantTransaction: (fn: (tx: typeof tx) => Promise<unknown>) => fn(tx),
   };
 });
 

@@ -60,10 +60,15 @@ describe('onIncomingMessageHook', () => {
     expect(d.sendReply).toHaveBeenCalled(); // KHÔNG để khách im lặng
     expect(d.addTag).toHaveBeenCalledWith('ct', 'auto:can-sale');
   });
-  it('confidence thấp → handoff, KHÔNG gửi (câu không chắc)', async () => {
+  it('confidence thấp → handoff, NHƯNG VẪN gửi câu (khách không bị im lặng)', async () => {
+    // Đổi CỐ Ý ở commit 9078e3c6 "handoff luôn gửi câu cho khách": trước đây
+    // confidence thấp → bot im, khách chờ mà không biết gì. Giờ `deliver` chỉ phụ
+    // thuộc (a) câu KHÔNG bịa số và (b) có nội dung thật — không phụ thuộc confidence.
+    // Vẫn gắn tag handoff để sale vào tiếp.
     const d = deps('{"reply":"chắc là vậy","confidence":0.2,"needs_human":false,"reason":""}');
     expect(await onIncomingMessageHook(d, baseInput())).toBe('handoff');
-    expect(d.sendReply).not.toHaveBeenCalled();
+    expect(d.sendReply).toHaveBeenCalled();
+    expect(d.addTag).toHaveBeenCalledWith('ct', 'auto:can-sale');
   });
   it('handoff vì bịa số → KHÔNG gửi (guard chặn)', async () => {
     // reply chứa 999.000đ không có trong KB ("Mở 9h-22h") → guard chặn, không gửi số bịa.

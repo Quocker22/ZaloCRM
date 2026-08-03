@@ -1,0 +1,429 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Tool: tra sản phẩm theo tên/mã trong Odoo.
+//
+// Vì sao tool này tồn tại: giá đang được parse bằng regex `Giá bán: ([\d.]+)đ`
+// từ text chunk trong KB. KB là ảnh chụp tại một thời điểm — giá đổi thì KB sai,
+// và bot báo sai giá cho khách. Có ca thật: một agent bán hàng báo giảm 50% lấy
+// từ tài liệu giá cũ trong knowledge base. Giá phải đọc từ Odoo, luôn luôn.
+
+import type { OdooClient } from '../client.js';
+import type { ToolDefinition } from '../../agent/types.js';
+
+/**
+ * Field ĐƯỢC PHÉP đọc. Danh sách trắng, không phải danh sách đen.
+ *
+ * `standard_price` (giá vốn) KHÔNG có ở đây và không bao giờ được thêm vào.
+ * Odoo đã chặn ở tầng field cho group_staff, nhưng đây là hàng rào thứ hai:
+ * nếu ai đó lỡ cấp group_manager cho user bot, code vẫn không lộ giá vốn.
+ */
+const ALLOWED_FIELDS = ['id', 'name', 'default_code', 'list_price', 'uom_id'] as const;
+
+/** Field cấm tuyệt đối — lọc lần cuối trước khi trả cho LLM. */
+const FORBIDDEN_FIELDS = ['standard_price', 'cost', 'purchase_price', 'margin'];
+
+export interface SanPham {
+  id: number;
+  ten: string;
+  ma: string | null;
+  gia: number;
+  donVi: string | null;
+}
+
+/**
+ * Bỏ dấu tiếng Việt + hạ chữ thường, để so khớp tên gần đúng.
+ * Odoo core name_search KHÔNG hiểu tiếng Việt không dấu — khách gõ "den led"
+ * sẽ không khớp "Đèn LED". Chuẩn hoá phía client là cách rẻ nhất để vá.
+ */
+export function boDau(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/đ/g, 'd')
+    .trim();
+}
+
+/**
+ * Tách mã model trong tên SP: token có chữ số, dài ≥3, không phải đơn vị đơn lẻ.
+ * Vd "P10", "2835", "12V400W" là mã; "12v", "5a" thì không.
+ *
+ * Dùng để tránh nhầm SP: P10 và P4 tên gần giống nhau, nhưng khác hàng, khác giá.
+ * Cùng logic với order-checkout.ts đang dùng.
+ */
+export function macModel(s: string): string[] {
+  return boDau(s)
+    .replace(/[^a-z0-9]+/g, ' ')
+    .split(' ')
+    .filter((t) => t.length >= 3 && /\d/.test(t) && !/^\d+[mvaw]$/.test(t));
+}
+
+/** Xoá mọi field cấm khỏi bản ghi Odoo trả về. Hàng rào cuối cùng. */
+function locFieldCam(row: Record<string, unknown>): Record<string, unknown> {
+  const clean = { ...row };
+  for (const f of FORBIDDEN_FIELDS) delete clean[f];
+  return clean;
+}
+
+/** Odoo trả many2one dạng [id, "tên"]. Lấy phần tên. */
+function tenM2O(v: unknown): string | null {
+  return Array.isArray(v) && v.length >= 2 ? String(v[1]) : null;
+}
+
+export interface TraSanPhamDeps {
+  odoo: Pick<OdooClient, 'searchRead'>;
+}
+
+/**
+ * Tìm SP theo tên hoặc mã.
+ *
+ * Chiến lược 2 bước:
+ *  1. Hỏi Odoo bằng ilike trên name + default_code (Odoo lo phần này tốt).
+ *  2. Nếu query có mã model (P10, 2835…), LỌC LẠI phía client để chỉ giữ SP
+ *     chứa đúng mã đó — chống nhầm P10 → P4.
+ */
+/**
+ * Số kết quả mặc định. Hạ từ 5 → 3 vì kết quả tool nằm lại trong lịch sử và bị
+ * tính tiền lại ở MỌI vòng sau. Đo thực tế: 20 kết quả ≈ 500 token, lặp 8 vòng
+ * là 4.000 token chỉ cho một lần tra.
+ */
+const MAC_DINH = 3;
+const TOI_DA = 10;
+
+/**
+ * Giá ≤ ngưỡng này coi là GIÁ ẢO (placeholder khi nhập liệu), không phải giá bán.
+ *
+ * Đo thực tế trên DB: 63/313 SP "có giá" thực ra để đúng **1đ**. Không có mặt hàng
+ * LED nào bán 1 đồng. Coi đó là giá thật thì bot báo sai cho khách.
+ *
+ * Ngưỡng 10đ: đủ thấp để không loại oan hàng rẻ thật (SP rẻ nhất có giá hợp lệ
+ * trong DB là 1.000đ), đủ cao để bắt hết placeholder 1đ/2đ/5đ.
+ */
+export const NGUONG_GIA_AO = 10;
+
+/**
+ * Từ đệm — bỏ khi tách từ khoá vì chúng không phân biệt được sản phẩm.
+ *
+ * Gồm 2 nhóm:
+ *  - Đơn vị / từ nối: "màu", "cái", "cuộn", "và"…
+ *  - Từ CHỦNG LOẠI quá chung: "đèn", "led", "bóng".
+ *    Lý do (bug thật): nhân viên gõ "đèn led ngoài trời" nhưng SP tên
+ *    "Led 3 Bóng Ngoài Trời 6615…" KHÔNG có chữ "đèn" → đòi đủ 4 từ là ra 0 kết
+ *    quả, dù catalog có 47 SP ngoài trời. Bỏ từ chủng loại thì "ngoài trời" khớp.
+ */
+const TU_DEM = new Set([
+  // đơn vị / từ nối
+  'mau', 'loai', 'cai', 'cay', 'chiec', 'va', 'cua', 'con', 'bo',
+  // chủng loại quá chung — gần như SP nào cũng có hoặc không có tuỳ cách gọi
+  'den', 'led', 'bong', 'cuon', 'day',
+]);
+
+/**
+ * Dựng domain tìm kiếm: tách query thành TỪNG TỪ KHOÁ, mỗi từ là một điều kiện AND.
+ *
+ * VÌ SAO KHÔNG khớp nguyên chuỗi (bug thật 2026-07-29):
+ *   Odoo `ilike` so khớp chuỗi con LIỀN MẠCH. Query "COB 24v xanh ngọc" KHÔNG khớp
+ *   SP tên "Led dây COB 24v MÀU xanh ngọc" — chỉ vì thiếu chữ "màu" ở giữa.
+ *   Nhân viên gõ tên gần đúng là chuyện bình thường, không phải lỗi của họ.
+ *
+ * Tách từ → mỗi từ ilike riêng → SP phải chứa TẤT CẢ các từ (thứ tự tuỳ ý).
+ * Vẫn chặt: "COB xanh" không khớp SP "COB đỏ".
+ *
+ * Trả về domain dạng prefix-notation của Odoo.
+ */
+/**
+ * Token là CON SỐ ĐẾM trong tên hàng — luôn giữ, dù chỉ 1 ký tự.
+ *
+ * VÌ SAO (bug thật 2026-07-30): "led hắt cụm 3 bóng" bị bỏ chữ "3" (do lọc
+ * `length >= 2`) rồi bỏ luôn "led"/"cum"/"bong" (do TU_DEM) → còn "hat" một mình
+ * → khớp bừa. Kết quả trả về có "Led **4** bóng" khi khách hỏi **3** bóng, nên
+ * bot không dám báo giá và chuyển sale, dù DB có hàng 3 bóng giá 5.000đ.
+ *
+ * Trong catalog LED, số đếm là thông tin PHÂN BIỆT mặt hàng (3 bóng ≠ 4 bóng,
+ * khác giá), không phải từ đệm.
+ */
+function laSoDem(t: string): boolean {
+  return /^\d+$/.test(t);
+}
+
+export function domainTimKiem(ten: string): unknown[] {
+  // Giữ token số dù 1 ký tự ("3", "4") — xem laSoDem().
+  const moiTu = ten.trim().split(/\s+/).filter((t) => t.length >= 2 || laSoDem(t));
+  // TU_DEM không được phép loại số đếm.
+  const tu = moiTu.filter((t) => laSoDem(t) || !TU_DEM.has(boDau(t)));
+
+  // Query TOÀN từ đệm ("đèn led", "bóng") → không bỏ được từ nào, dùng lại tất cả.
+  // Kết quả sẽ rộng, nhưng có kết quả vẫn hơn trả rỗng.
+  const dung = tu.length > 0 ? tu : moiTu;
+
+  // Query quá ngắn (1 ký tự) → khớp nguyên chuỗi cho an toàn.
+  if (dung.length === 0) {
+    return ['|', ['name', 'ilike', ten], ['default_code', 'ilike', ten]];
+  }
+
+  // Một từ: name ilike X OR default_code ilike X
+  if (dung.length === 1) {
+    return ['|', ['name', 'ilike', dung[0]], ['default_code', 'ilike', dung[0]]];
+  }
+
+  // Nhiều từ: (name chứa TẤT CẢ các từ) OR (default_code chứa nguyên chuỗi).
+  // default_code là mã, không tách từ — nhân viên gõ mã thì gõ đủ.
+  const theoTen = [
+    ...Array(dung.length - 1).fill('&'),
+    ...dung.map((t) => ['name', 'ilike', t]),
+  ];
+  return ['|', ...theoTen, ['default_code', 'ilike', ten]];
+}
+
+export async function traSanPham(
+  deps: TraSanPhamDeps,
+  input: { ten: string; gioi_han?: number },
+): Promise<SanPham[]> {
+  const ten = input.ten?.trim();
+  if (!ten) return [];
+  const limit = Math.min(Math.max(1, input.gioi_han ?? MAC_DINH), TOI_DA);
+
+  // Domain gốc: SP đang bán + KHÔNG lưu trữ.
+  //
+  // LỌC HÀNG ĐÃ LƯU TRỮ — phải kiểm CẢ HAI cấp. Odoo lưu trữ ở cấp template
+  // (product_template.active=false) nhưng variant (product_product.active) vẫn
+  // có thể = true. Chỉ lọc một cấp là SP đã archive vẫn lọt ra.
+  const domainGoc: unknown[] = [
+    ['sale_ok', '=', true],
+    ['active', '=', true],
+    ['product_tmpl_id.active', '=', true],
+  ];
+
+  const domainTim = domainTimKiem(ten);
+
+  // ƯU TIÊN GIÁ PHẢI Ở TẦNG DB, không phải tầng JS (bug thật 2026-07-30).
+  //
+  // Trước đây: lấy `limit*4` dòng rồi mới sắp SP-có-giá lên đầu. Sai — Odoo trả
+  // 12 dòng ĐẦU theo id, và vì 74% catalog trống giá thì 12 dòng đó thường trống
+  // hết. Bot kết luận "cả 12 SP đều chưa có giá" trong khi catalog có 250 SP CÓ
+  // giá khớp từ khoá. Ca thật: khách hỏi "led" → 12 SP ziczac trống giá →
+  // chuyển sale, dù có hàng trăm SP led có giá.
+  //
+  // Cách sửa: hỏi Odoo HAI LẦN — lần 1 chỉ SP có giá thật, lần 2 bù thêm SP
+  // trống giá nếu còn chỗ. `order: 'list_price desc'` không thay được vòng này:
+  // ta cần BIẾT tổng số SP có giá để báo đúng, và cần SP trống giá vẫn xuất hiện
+  // khi không còn lựa chọn nào khác.
+  const domainCoGia = [...domainGoc, ['list_price', '>', NGUONG_GIA_AO], ...domainTim];
+  const coGiaRows = await deps.odoo.searchRead<Record<string, unknown>>(
+    'product.product',
+    domainCoGia,
+    [...ALLOWED_FIELDS],
+    // Lấy dư để còn lọc mã model phía dưới.
+    { limit: limit * 4 },
+  );
+
+  // Chỉ hỏi thêm SP trống giá khi SP có giá chưa lấp đủ `limit` — tiết kiệm 1
+  // round-trip cho ca phổ biến (tra đúng SP có giá).
+  const trongGiaRows = coGiaRows.length >= limit * 4
+    ? []
+    : await deps.odoo.searchRead<Record<string, unknown>>(
+        'product.product',
+        [...domainGoc, ['list_price', '<=', NGUONG_GIA_AO], ...domainTim],
+        [...ALLOWED_FIELDS],
+        { limit: limit * 4 - coGiaRows.length },
+      );
+
+  const rows = [...coGiaRows, ...trongGiaRows];
+
+  // DỰ PHÒNG: đòi đủ MỌI từ mà ra rỗng → nới sang "chứa BẤT KỲ từ nào".
+  // Ca thật: "đèn led" — không SP nào có CẢ hai chữ (SP tên "Led 3 Bóng…",
+  // không ai đặt tên "Đèn LED 3 Bóng"). Đòi đủ là trả rỗng dù có 353 SP chứa "led".
+  // Thà trả kết quả rộng kèm dấu CÒN NỮA còn hơn nói "không tìm thấy".
+  let rowsFinal = rows;
+  let daNoiRong = false;
+  if (rows.length === 0) {
+    // Giữ số đếm ở đây nữa — nới rộng mà mất chữ "3" thì SP "4 bóng" lọt vào.
+    const tu = ten.trim().split(/\s+/).filter((t) => t.length >= 2 || laSoDem(t));
+    if (tu.length >= 2) {
+      const bg = [
+        ...domainGoc,
+        ...Array(tu.length - 1).fill('|'),
+        ...tu.map((t) => ['name', 'ilike', t]),
+      ];
+      // Cũng ưu tiên-giá-tại-DB như trên: nới rộng mà vẫn trả toàn hàng trống giá
+      // thì việc nới rộng thành vô nghĩa.
+      const noiCoGia = await deps.odoo.searchRead<Record<string, unknown>>(
+        'product.product',
+        [['list_price', '>', NGUONG_GIA_AO], ...bg],
+        [...ALLOWED_FIELDS],
+        { limit: limit * 4 },
+      );
+      const noiTrongGia = noiCoGia.length >= limit * 4
+        ? []
+        : await deps.odoo.searchRead<Record<string, unknown>>(
+            'product.product',
+            [['list_price', '<=', NGUONG_GIA_AO], ...bg],
+            [...ALLOWED_FIELDS],
+            { limit: limit * 4 - noiCoGia.length },
+          );
+      rowsFinal = [...noiCoGia, ...noiTrongGia];
+      daNoiRong = true;
+    }
+  }
+
+  const sach = rowsFinal.map(locFieldCam);
+
+  // Lọc theo mã model nếu query có mã — chống trả nhầm SP khác dòng.
+  const maQuery = macModel(ten);
+  const loc = maQuery.length > 0
+    ? sach.filter((r) => {
+        const maSp = macModel(`${r.name ?? ''} ${r.default_code ?? ''}`);
+        return maQuery.some((m) => maSp.includes(m));
+      })
+    : sach;
+
+  // Có mã mà lọc ra rỗng → trả rỗng, KHÔNG rơi về danh sách chưa lọc.
+  // Thà nói "không tìm thấy" còn hơn báo giá sai sản phẩm.
+  const ketQua = maQuery.length > 0 && loc.length === 0 ? [] : loc;
+
+  // XẾP THEO ĐỘ KHỚP — chỉ khi đã nới sang OR (bug thật 2026-07-30).
+  //
+  // Nới rộng trả "chứa BẤT KỲ từ nào" và Odoo giữ thứ tự theo id, nên SP khớp
+  // đúng 1 từ có thể đứng trên SP khớp 4/5 từ. Ca thật: "led hắt cụm 3 bóng" —
+  // chữ "cụm" không có trong tên SP nào nên AND vỡ, nới rộng trả "P10 3 màu"
+  // (khớp mỗi "3") lên trước "Led hắt 3 bóng 7 màu" (khớp 4 từ).
+  //
+  // Chỉ áp cho nhánh nới rộng: nhánh AND thì mọi dòng đã khớp đủ từ, xếp lại
+  // chỉ làm mất thứ tự Odoo mà không thêm thông tin gì.
+  const xepKhop = (() => {
+    if (!daNoiRong) return ketQua;
+    const tuKhoa = ten.trim().split(/\s+/)
+      .filter((t) => t.length >= 2 || laSoDem(t))
+      .map(boDau);
+    const demKhop = (r: Record<string, unknown>) => {
+      const ten2 = boDau(`${r.name ?? ''} ${r.default_code ?? ''}`);
+      return tuKhoa.filter((t) => ten2.includes(t)).length;
+    };
+    // Sắp ổn định giảm dần theo số từ khớp (Array.sort của V8 là stable).
+    return [...ketQua].sort((a, b) => demKhop(b) - demKhop(a));
+  })();
+
+  // ƯU TIÊN SP CÓ GIÁ khi chọn ra `limit` kết quả để hiện.
+  //
+  // Vì sao: 74% catalog trống giá. Nếu cắt theo thứ tự Odoo trả về, rất dễ 3 SP
+  // đầu đều trống giá trong khi SP thứ 5 có giá — nhân viên hỏi giá mà bot đưa
+  // toàn hàng chưa có giá là vô dụng. Giữ nguyên thứ tự tương đối trong mỗi nhóm.
+  //
+  // NHÁNH NỚI RỘNG là ngoại lệ: ở đó ĐỘ KHỚP quan trọng hơn giá. SP đúng loại mà
+  // trống giá vẫn hữu ích (bot nói "có hàng, để em hỏi giá"), còn SP sai loại có
+  // giá thì báo ra là báo sai mặt hàng. Xếp-theo-khớp đã chạy ở trên, giữ nguyên.
+  const uuTien = daNoiRong
+    ? xepKhop
+    : [
+        ...xepKhop.filter((r) => Number(r.list_price ?? 0) > NGUONG_GIA_AO),
+        ...xepKhop.filter((r) => Number(r.list_price ?? 0) <= NGUONG_GIA_AO),
+      ];
+
+  const hienThi = uuTien.slice(0, limit).map((r) => ({
+    id: Number(r.id),
+    ten: String(r.name ?? ''),
+    ma: r.default_code ? String(r.default_code) : null,
+    gia: Number(r.list_price ?? 0),
+    donVi: tenM2O(r.uom_id),
+  }));
+
+  // Gắn tổng số khớp lên mảng để dinhDangSanPham báo được "còn nữa".
+  // KHÔNG cắt im lặng — model không biết bị cắt sẽ tự tin tóm tắt cái không có.
+  (hienThi as SanPhamList).tongKhop = xepKhop.length;
+  return hienThi;
+}
+
+/** Mảng kết quả có kèm tổng số khớp (để biết còn bị cắt hay không). */
+export type SanPhamList = SanPham[] & { tongKhop?: number };
+
+export const traSanPhamDefinition: ToolDefinition = {
+  name: 'tra_san_pham',
+  description:
+    'Tra cứu sản phẩm trong hệ thống theo tên hoặc mã. Trả về id, tên đầy đủ, mã, ' +
+    'giá bán và đơn vị tính. GỌI KHI: khách hỏi giá, hỏi có bán sản phẩm nào đó không, ' +
+    'hoặc trước khi lên đơn (cần id sản phẩm). Đây là nguồn giá DUY NHẤT đúng — ' +
+    'không được lấy giá từ tài liệu hay trí nhớ. ' +
+    // Model hay tra lần lượt từng SP → tốn thêm vòng lặp, chậm và tốn token.
+    'Cần tra NHIỀU sản phẩm thì gọi NHIỀU LẦN TRONG CÙNG MỘT LƯỢT (song song). ' +
+    'Không tìm thấy thì thử lại với TỪ KHOÁ NGẮN HƠN (bỏ bớt chữ), đừng lặp y hệt.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      ten: { type: 'string', description: 'Tên hoặc mã sản phẩm khách nói. Vd: "đèn P10", "2835"' },
+      gioi_han: { type: 'integer', description: 'Số kết quả tối đa (mặc định 3, tối đa 10)' },
+    },
+    required: ['ten'],
+  },
+};
+
+/**
+ * Định dạng kết quả cho LLM đọc. Ngắn gọn, không JSON lồng nhau.
+ *
+ * QUAN TRỌNG — chống "agent nói dối": khi kết quả bị cắt, PHẢI nói rõ còn bao nhiêu.
+ * Cắt im lặng là lỗi nguy hiểm nhất của tool: model không có tín hiệu nào nên coi
+ * phần nhận được là đầy đủ, rồi trả lời chắc nịch trên dữ liệu thiếu.
+ */
+export function dinhDangSanPham(list: SanPhamList, tuKhoa?: string): string {
+  if (list.length === 0) {
+    // Từ khoá TOÀN SỐ ngắn thường là model nhét id sản phẩm vào ô `ten` (bug
+    // thật 2026-07-30: bot đã có id=1056 từ lượt trước, vẫn gọi tra_san_pham
+    // {ten:"1056"} rồi bối rối khi không thấy gì). Nói thẳng để nó dừng vòng lặp
+    // vô nghĩa — id KHÔNG tra ngược được, và cũng không cần tra.
+    if (tuKhoa && /^\d{1,6}$/.test(tuKhoa.trim())) {
+      return (
+        `Không tìm thấy sản phẩm nào tên "${tuKhoa}". ` +
+        'LƯU Ý: nếu đây là **id sản phẩm** thì KHÔNG cần tra lại — id đã có rồi, ' +
+        'dùng thẳng cho tra_ton_kho / tao_don_nhap. Ô `ten` chỉ nhận TÊN hoặc MÃ, ' +
+        'không nhận id.'
+      );
+    }
+    return 'Không tìm thấy sản phẩm nào khớp. Hãy hỏi lại khách tên hoặc mã chính xác hơn.';
+  }
+
+  const dong = list
+    .map((s) => {
+      const ma = s.ma ? ` [${s.ma}]` : '';
+      const dv = s.donVi ? `/${s.donVi}` : '';
+      // Giá 0 KHÔNG phải giá thật — là dữ liệu chưa nhập. Báo "0đ" cho khách là
+      // hứa bán miễn phí. Nói rõ CHƯA CÓ GIÁ để model biết phải chuyển sale.
+      //
+      // Giá ≤ NGUONG_GIA_AO cũng vậy: DB có 63 SP giá đúng 1đ — placeholder khi
+      // nhập liệu, không phải giá bán. Không đánh dấu thì model tưởng bán 1đ thật.
+      let gia: string;
+      if (s.gia <= 0) gia = 'CHƯA CÓ GIÁ trong hệ thống';
+      else if (s.gia <= NGUONG_GIA_AO) gia = `${s.gia}đ — GIÁ TẠM, KHÔNG DÙNG ĐƯỢC`;
+      else gia = `${s.gia.toLocaleString('vi-VN')}đ${dv}`;
+      return `id=${s.id} | ${s.ten}${ma} | ${gia}`;
+    })
+    .join('\n');
+
+  // "Có giá" = giá THẬT, không tính placeholder 1đ.
+  const coGia = list.filter((s) => s.gia > NGUONG_GIA_AO);
+  const thieuGia = list.length - coGia.length;
+
+  // Khi CÓ ít nhất một SP có giá: hướng model dùng SP đó thay vì chuyển sale ngay.
+  // 74% catalog hiện chưa nhập giá — chuyển sale mỗi lần là bot vô dụng.
+  const canhBao = thieuGia === 0
+    ? ''
+    : coGia.length > 0
+      ? `\nLƯU Ý: ${thieuGia}/${list.length} sản phẩm chưa nhập giá (hiện "CHƯA CÓ GIÁ"). ` +
+        'Các SP CÓ giá vẫn dùng bình thường. Chỉ chuyển sale cho SP thiếu giá.'
+      // Tất cả thiếu giá: ĐỪNG bỏ cuộc ngay. 74% catalog trống giá, nên rất có thể
+      // có SP TƯƠNG TỰ đã nhập giá (vd "COB 24v xanh ngọc" trống nhưng
+      // "COB 24V trắng" có giá). Nhân viên cần lựa chọn, không cần lời từ chối.
+      // Giục nới rộng nhưng phải CHẶN SỐ LẦN (bug thật 2026-07-30): thiếu câu
+      // "chỉ MỘT lần", model tra lại 4 lần cùng ra 1 kết quả trống giá rồi mới
+      // chuyển sale — mất 10s và chạm trần vòng lặp, khách nhận im lặng.
+      : `\nLƯU Ý: cả ${list.length} sản phẩm tìm được đều chưa nhập giá — KHÔNG báo 0đ. ` +
+        'Hãy thử LẠI ĐÚNG MỘT LẦN với từ khoá rộng hơn (bỏ bớt chữ) để tìm sản phẩm ' +
+        'tương tự CÓ giá. Nếu lần đó vẫn không ra SP có giá phù hợp thì CHUYỂN SALE NGAY, ' +
+        'ĐỪNG tra thêm nữa — tra lặp chỉ làm khách chờ.';
+
+  const tong = list.tongKhop ?? list.length;
+  if (tong > list.length) {
+    return (
+      `Tìm thấy ${tong} sản phẩm, hiển thị ${list.length} đầu tiên:\n${dong}${canhBao}\n` +
+      'CÒN NỮA — nếu không thấy đúng SP khách cần, gọi lại với tên/mã cụ thể hơn để thu hẹp.'
+    );
+  }
+  return dong + canhBao;
+}

@@ -24,6 +24,13 @@ vi.mock('../src/shared/zalo-operations.js', () => ({
     }
   },
 }));
+// presence-service thêm vào route sau khi test này viết (cache 30s + privacy gate
+// show_online_status). Route KHÔNG còn gọi zaloOps.getLastOnline trực tiếp, và trả
+// format FLAT { lastOnline, showStatus, isOnline, fetchedAt } cho FE.
+const getPresenceMock = vi.fn();
+vi.mock('../src/modules/zalo/presence-service.js', () => ({
+  getPresence: getPresenceMock,
+}));
 vi.mock('../src/shared/utils/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
@@ -72,15 +79,16 @@ describe('GET /profile', () => {
 describe('GET /profile/last-online/:userId', () => {
   it('happy path — returns last online timestamp', async () => {
     const ts = 1700000000000;
-    zaloOpsMock.getLastOnline.mockResolvedValue({ lastOnline: ts });
+    getPresenceMock.mockResolvedValue({ lastOnline: ts, showStatus: true, fetchedAt: ts });
     const res = await buildApp().inject({ method: 'GET', url: `${BASE}/last-online/u1` });
     expect(res.statusCode).toBe(200);
-    expect(JSON.parse(res.body)).toMatchObject({ lastOnline: { lastOnline: ts } });
-    expect(zaloOpsMock.getLastOnline).toHaveBeenCalledWith('za-1', 'u1');
+    // Format FLAT (không lồng object) — FE đọc trực tiếp.
+    expect(JSON.parse(res.body)).toMatchObject({ lastOnline: ts, showStatus: true });
+    expect(getPresenceMock).toHaveBeenCalledWith('za-1', 'u1');
   });
 
   it('returns 500 when zaloOps throws', async () => {
-    zaloOpsMock.getLastOnline.mockRejectedValue(new Error('lookup failed'));
+    getPresenceMock.mockRejectedValue(new Error('lookup failed'));
     const res = await buildApp().inject({ method: 'GET', url: `${BASE}/last-online/u1` });
     expect(res.statusCode).toBe(500);
   });

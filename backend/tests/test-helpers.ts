@@ -100,6 +100,25 @@ export function mockPrisma() {
       create: vi.fn(),
       update: vi.fn(),
     },
+    // `user` thêm sau: activity-logger + route ghi log cần đọc user (owner nick).
+    // Thiếu model → route trả HTTP 500 "Cannot read properties of undefined".
+    user: {
+      findUnique: vi.fn().mockResolvedValue({ id: 'u1', orgId: 'org-1', fullName: 'Test User' }),
+      findFirst: vi.fn(),
+      findMany: vi.fn().mockResolvedValue([]),
+    },
+    // `friend` thêm sau: model Friend (identity per-nick) ra sau nhiều test cũ.
+    // duplicate-detector đọc friend.findMany để so tín hiệu globalId/username.
+    friend: {
+      findUnique: vi.fn(),
+      findFirst: vi.fn(),
+      findMany: vi.fn().mockResolvedValue([]),
+      count: vi.fn().mockResolvedValue(0),
+      groupBy: vi.fn().mockResolvedValue([]),
+      create: vi.fn(),
+      update: vi.fn(),
+      updateMany: vi.fn(),
+    },
   };
 }
 

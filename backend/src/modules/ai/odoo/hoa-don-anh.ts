@@ -1,0 +1,190 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Render hóa đơn Odoo thành ẢNH PNG để gửi qua Zalo.
+//
+// VÌ SAO KHÔNG DÙNG XML-RPC: `ir.actions.report._render_qweb_pdf` là method
+// PRIVATE (tên bắt đầu bằng `_`), Odoo chặn gọi từ xa —
+//   "Private methods cannot be called remotely"
+// Cùng rào cản đã gặp với `_build_low_stock_html`. Nhưng ở đây KHÔNG cần thêm
+// method Odoo: endpoint HTTP `/report/pdf/<report>/<id>` đã public sẵn, chỉ cần
+// một phiên đăng nhập web.
+//
+// VÌ SAO ẢNH CHỨ KHÔNG PDF: trên Zalo, PDF hiện ra ô file phải bấm tải mới xem
+// được — nhân viên và khách hay bỏ qua. Ảnh hiện thẳng trong khung chat.
+//
+// ⚠️ CẢNH BÁO BẢO MẬT — ĐỌC TRƯỚC KHI DÙNG Ở LUỒNG KHÁCH:
+// Report `report_saleorder_kiotviet` (bản đẹp của LEDNELIA) CÓ IN DƯ NỢ của
+// khách. Vì vậy tool bọc nó CHỈ được đăng ký ở registry NHÂN VIÊN. Xem
+// `bao-cao-hoa-don.ts`.
+
+import { pdf } from 'pdf-to-img';
+
+/** Report mặc định — bản đẹp của LEDNELIA (logo, tiếng Việt, có dư nợ). */
+export const REPORT_MAC_DINH = 'incokit_pos.report_saleorder_kiotviet';
+
+/**
+ * Độ phóng khi đổi PDF sang ảnh.
+ *
+ * 2 = chữ sắc nét trên điện thoại mà file vẫn ~180KB. Để 3 thì ~400KB, Zalo
+ * nén lại thành mờ nên không được lợi gì.
+ */
+const DO_PHONG = 2;
+
+/** Chỉ lấy trang đầu — hóa đơn 1 SP luôn gọn trong 1 trang. */
+const TRANG_TOI_DA = 1;
+
+export interface HoaDonAnhConfig {
+  /** Gốc URL Odoo, vd http://localhost:8069 */
+  url: string;
+  db: string;
+  username: string;
+  password: string;
+  /** Trần chờ tải PDF. Odoo render qweb khá chậm với đơn nhiều dòng. */
+  timeoutMs?: number;
+}
+
+export class HoaDonAnhError extends Error {
+  constructor(message: string, readonly nguyenNhan?: unknown) {
+    super(message);
+    this.name = 'HoaDonAnhError';
+  }
+}
+
+export interface AnhHoaDon {
+  /** Nội dung PNG. */
+  duLieu: Buffer;
+  /** Tên file gợi ý khi lưu ra đĩa. */
+  tenFile: string;
+}
+
+/**
+ * Phiên đăng nhập web Odoo.
+ *
+ * Tách khỏi `OdooClient` (XML-RPC) vì đây là cơ chế khác hẳn: cookie session
+ * thay vì uid+password mỗi lần gọi. Cookie được nhớ lại giữa các lần render —
+ * đăng nhập lại cho từng hóa đơn là phí một round-trip.
+ */
+export class HoaDonAnhClient {
+  private cookie: string | null = null;
+
+  constructor(private readonly cfg: HoaDonAnhConfig) {}
+
+  /** Đăng nhập web, nhớ cookie. Trả cookie để dùng lại. */
+  private async dangNhap(): Promise<string> {
+    if (this.cookie) return this.cookie;
+
+    const res = await fetch(`${this.cfg.url}/web/session/authenticate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        params: { db: this.cfg.db, login: this.cfg.username, password: this.cfg.password },
+      }),
+      signal: AbortSignal.timeout(this.cfg.timeoutMs ?? 30_000),
+    });
+
+    const body = (await res.json()) as { result?: { uid?: number }; error?: unknown };
+    if (!body?.result?.uid) {
+      throw new HoaDonAnhError('Đăng nhập Odoo thất bại — kiểm tra ODOO_USERNAME/PASSWORD');
+    }
+
+    // Odoo trả nhiều Set-Cookie; chỉ cần session_id.
+    const raw = res.headers.getSetCookie?.() ?? [];
+    const sid = raw.map((c) => c.split(';')[0]).find((c) => c.startsWith('session_id='));
+    if (!sid) throw new HoaDonAnhError('Odoo không trả session_id');
+
+    this.cookie = sid;
+    return sid;
+  }
+
+  /** Xoá cookie đã nhớ — dùng khi phiên hết hạn. */
+  resetPhien(): void {
+    this.cookie = null;
+  }
+
+  /** Tải PDF hóa đơn. */
+  async taiPdf(donId: number, report = REPORT_MAC_DINH): Promise<Buffer> {
+    const goi = async (cookie: string) =>
+      fetch(`${this.cfg.url}/report/pdf/${report}/${donId}`, {
+        headers: { cookie },
+        // Render qweb→PDF chậm hơn hẳn một truy vấn thường.
+        signal: AbortSignal.timeout(this.cfg.timeoutMs ?? 90_000),
+      });
+
+    let res = await goi(await this.dangNhap());
+
+    // Phiên hết hạn → Odoo chuyển hướng về trang đăng nhập (trả HTML, không
+    // phải lỗi HTTP). Thử lại MỘT lần với phiên mới.
+    const laHtml = (res.headers.get('content-type') ?? '').includes('text/html');
+    if (res.status === 401 || res.status === 403 || laHtml) {
+      this.resetPhien();
+      res = await goi(await this.dangNhap());
+    }
+
+    if (!res.ok) {
+      throw new HoaDonAnhError(`Odoo trả ${res.status} khi render hóa đơn đơn ${donId}`);
+    }
+
+    const buf = Buffer.from(await res.arrayBuffer());
+    // Kiểm magic: Odoo có thể trả trang lỗi HTML với status 200.
+    if (!buf.subarray(0, 5).equals(Buffer.from('%PDF-'))) {
+      throw new HoaDonAnhError(
+        `Odoo không trả PDF cho đơn ${donId} (có thể đơn không tồn tại hoặc thiếu quyền)`,
+      );
+    }
+    return buf;
+  }
+
+  /** Tải hóa đơn và đổi sang ảnh PNG. */
+  async render(donId: number, maDon?: string, report = REPORT_MAC_DINH): Promise<AnhHoaDon> {
+    const pdfBuf = await this.taiPdf(donId, report);
+
+    let doc;
+    try {
+      doc = await pdf(pdfBuf, { scale: DO_PHONG });
+    } catch (err) {
+      throw new HoaDonAnhError('Không đổi được PDF sang ảnh', err);
+    }
+
+    let i = 0;
+    for await (const trang of doc) {
+      if (++i > TRANG_TOI_DA) break;
+      return {
+        duLieu: Buffer.from(trang),
+        // Tên có mã đơn để nhân viên lưu về còn nhận ra.
+        tenFile: `hoa-don-${maDon ?? donId}.png`,
+      };
+    }
+    throw new HoaDonAnhError(`PDF đơn ${donId} không có trang nào`);
+  }
+}
+
+/**
+ * action id của menu Đơn bán trong Odoo — thành phần của link `/web#...`.
+ *
+ * Anh cung cấp 2026-07-31 từ link thật đang dùng:
+ *   /web#id=26704&cids=1&menu_id=371&action=515&model=sale.order&view_type=form
+ *
+ * Cho phép ghi đè qua env vì id action/menu khác nhau giữa các bản cài Odoo —
+ * đem sang máy khác mà không đổi thì link mở nhầm menu.
+ */
+const ACTION_DON_BAN = Number(process.env.ODOO_ACTION_SALE_ORDER ?? 515);
+const MENU_DON_BAN = Number(process.env.ODOO_MENU_SALE_ORDER ?? 371);
+
+/**
+ * Link backend Odoo để nhân viên bấm vào xử lý đơn.
+ *
+ * Dùng dạng `/web#id=...&action=...&model=sale.order&view_type=form` thay vì
+ * `/odoo/sale/<id>`: đây là link anh đang dùng thật trong app, mở đúng form chi
+ * tiết kèm ngữ cảnh menu (breadcrumb, nút Xác nhận). Dạng `/odoo/sale/<id>` tuy
+ * ngắn nhưng mất phần menu nên thao tác tiếp bị cụt.
+ *
+ * Cần đăng nhập Odoo nên chỉ nhân viên mở được; KHÔNG dùng link portal
+ * `/my/orders/...` vì ai có link cũng xem được.
+ */
+export function linkXuLyDon(odooUrl: string, donId: number): string {
+  const goc = odooUrl.replace(/\/+$/, '');
+  return (
+    `${goc}/web#id=${donId}&cids=1&menu_id=${MENU_DON_BAN}` +
+    `&action=${ACTION_DON_BAN}&model=sale.order&view_type=form`
+  );
+}

@@ -50,3 +50,6 @@ secrets/
 public-key-telegram
 public-key-telegram-product.superpowers/
 backend/.env.local
+
+# Thử nghiệm Pathway RAG — chứa .env (API key) và tài liệu 72MB
+pathway-thu/

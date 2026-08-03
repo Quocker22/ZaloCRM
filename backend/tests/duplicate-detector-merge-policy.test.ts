@@ -22,13 +22,21 @@ const prismaMock = {
   contact: { findMany: vi.fn() },
   duplicateGroup: { findFirst: vi.fn(), create: vi.fn() },
   parentCandidate: { findFirst: vi.fn(), create: vi.fn() },
+  // `friend` thêm sau: detector đọc Friend để so tín hiệu globalId/username
+  // giữa 2 contact (model Friend ra sau khi test này viết). Thiếu → ném
+  // "Cannot read properties of undefined (reading 'findMany')".
+  friend: { findMany: vi.fn().mockResolvedValue([]) },
 };
 
 // withTenant chỉ chạy callback (bỏ tenant context trong test)
 vi.mock('../src/shared/tenant/tenant-context.js', () => ({
   withTenant: (_orgId: string, fn: () => Promise<unknown>) => fn(),
 }));
-vi.mock('../src/shared/database/prisma-client.js', () => ({ prisma: prismaMock }));
+vi.mock('../src/shared/database/prisma-client.js', () => ({
+  // tenantTransaction thêm vào code sau khi test này viết (RLS Giai đoạn 0).
+  // Chuyển tiếp sang $transaction để test nào đã mockImplementation vẫn kiểm soát tx.
+  tenantTransaction: (fn: (tx: unknown) => unknown) =>
+    (prismaMock as any).$transaction ? (prismaMock as any).$transaction(fn) : fn(prismaMock), prisma: prismaMock }));
 vi.mock('../src/shared/utils/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));

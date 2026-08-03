@@ -13,7 +13,11 @@ const prismaMock = {
   department: { findUnique: vi.fn() },
 };
 
-vi.mock('../src/shared/database/prisma-client.js', () => ({ prisma: prismaMock }));
+vi.mock('../src/shared/database/prisma-client.js', () => ({
+  // tenantTransaction thêm vào code sau khi test này viết (RLS Giai đoạn 0).
+  // Chuyển tiếp sang $transaction để test nào đã mockImplementation vẫn kiểm soát tx.
+  tenantTransaction: (fn: (tx: unknown) => unknown) =>
+    (prismaMock as any).$transaction ? (prismaMock as any).$transaction(fn) : fn(prismaMock), prisma: prismaMock }));
 
 const { getManagerOfUser } = await import('../src/modules/rbac/department-service.ts');
 

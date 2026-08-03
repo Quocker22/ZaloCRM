@@ -21,7 +21,11 @@ const prismaMock = {
   $transaction: vi.fn(),
 };
 
-vi.mock('../src/shared/database/prisma-client.js', () => ({ prisma: prismaMock }));
+vi.mock('../src/shared/database/prisma-client.js', () => ({
+  // tenantTransaction thêm vào code sau khi test này viết (RLS Giai đoạn 0).
+  // Chuyển tiếp sang $transaction để test nào đã mockImplementation vẫn kiểm soát tx.
+  tenantTransaction: (fn: (tx: unknown) => unknown) =>
+    (prismaMock as any).$transaction ? (prismaMock as any).$transaction(fn) : fn(prismaMock), prisma: prismaMock }));
 vi.mock('../src/shared/utils/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
@@ -34,6 +38,11 @@ vi.mock('../src/modules/activity/activity-logger.js', () => ({
 }));
 vi.mock('../src/modules/zalo/zalo-pool.js', () => ({
   zaloPool: { getIO: vi.fn(() => ioMock) },
+}));
+// contact-scope thêm vào contact-aggregate sau khi test này viết (Contact Scope
+// Hybrid 2026-05-27). Nó gọi Prisma thật → ném lỗi → chặn luôn phần emit phía sau.
+vi.mock('../src/modules/contacts/contact-scope.js', () => ({
+  ensureContactCollaborator: vi.fn(),
 }));
 
 const { applyFriendAggregate } = await import('../src/modules/contacts/contact-aggregate.ts');
@@ -75,6 +84,9 @@ describe('applyFriendAggregate — emit friend:updated', () => {
           update: vi.fn(),
         },
         contact: {
+          // contact.findUnique thêm vào code sau (B8 backfill Contact.fullName từ
+          // stub "Unknown"). Thiếu nó → tx ném lỗi, bị try/catch nuốt, emit không chạy.
+          findUnique: vi.fn().mockResolvedValue({ fullName: 'KH An', avatarUrl: null }),
           update: vi.fn(),
         },
       };
@@ -119,7 +131,12 @@ describe('applyFriendAggregate — emit friend:updated', () => {
           }),
           update: vi.fn().mockResolvedValue({}),
         },
-        contact: { update: vi.fn() },
+        contact: {
+          // contact.findUnique thêm vào code sau (B8 backfill Contact.fullName từ
+          // stub "Unknown"). Thiếu nó → tx ném lỗi, bị try/catch nuốt, emit không chạy.
+          findUnique: vi.fn().mockResolvedValue({ fullName: 'KH An', avatarUrl: null }),
+          update: vi.fn(),
+        },
       };
       await cb(tx);
     });
@@ -155,7 +172,12 @@ describe('applyFriendAggregate — emit friend:updated', () => {
           }),
           update: vi.fn().mockResolvedValue({}),
         },
-        contact: { update: vi.fn() },
+        contact: {
+          // contact.findUnique thêm vào code sau (B8 backfill Contact.fullName từ
+          // stub "Unknown"). Thiếu nó → tx ném lỗi, bị try/catch nuốt, emit không chạy.
+          findUnique: vi.fn().mockResolvedValue({ fullName: 'KH An', avatarUrl: null }),
+          update: vi.fn(),
+        },
       };
       await cb(tx);
     });

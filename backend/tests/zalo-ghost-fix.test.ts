@@ -21,6 +21,10 @@ const prismaMock = {
   friend: { deleteMany: vi.fn() },
 };
 vi.mock('../src/shared/database/prisma-client.js', () => ({
+  // tenantTransaction thêm vào code sau khi test này viết (RLS Giai đoạn 0).
+  // Chuyển tiếp sang $transaction để test nào đã mockImplementation vẫn kiểm soát tx.
+  tenantTransaction: (fn: (tx: unknown) => unknown) =>
+    (prismaMock as any).$transaction ? (prismaMock as any).$transaction(fn) : fn(prismaMock),
   prisma: prismaMock,
   // Prisma enum dùng trong code (Prisma.JsonNull)
 }));
@@ -84,8 +88,14 @@ describe('Fix 2 — reconnect() guard thẻ ma (gom 1 chỗ cho 4 đường)', (
     // (zca-js load qua createRequire → KHÔNG mock được, login thật throw → bắt bằng catch.
     //  Test chốt phần GUARD: query đúng select + nick thật KHÔNG bị return sớm như thẻ ma.)
     await zaloPool.reconnect('real-1', CREDS).catch(() => {});
+    // Assert theo Ý ĐỊNH (guard đọc đủ zaloUid + archivedAt), KHÔNG khớp select
+    // nguyên khối — code thêm `disconnectReason` về sau và assertion cứng vỡ ngay,
+    // dù guard vẫn đúng. objectContaining ở tầng ngoài KHÔNG áp vào object lồng.
     expect(prismaMock.zaloAccount.findUnique).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 'real-1' }, select: { zaloUid: true, archivedAt: true } }),
+      expect.objectContaining({
+        where: { id: 'real-1' },
+        select: expect.objectContaining({ zaloUid: true, archivedAt: true }),
+      }),
     );
     // Bằng chứng "không return sớm": nick thật chiếm in-flight guard (reconnecting),
     // khác nhánh thẻ ma return TRƯỚC khi add. (Pool tự nhả guard ở finally sau khi login thật fail.)
