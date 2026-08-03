@@ -9,7 +9,10 @@
 //   AI_AGENT_NHANVIEN=1  → nhân viên gõ "@bot ..." thì agent trả lời
 //   AI_AGENT_KHACH=1     → khách nhắn thì agent trả lời THAY luồng RAG cũ
 //
-// Thiếu cấu hình Odoo/LLM thì cả hai đều im lặng và luồng cũ chạy tiếp.
+// LLM lấy từ AiConfig + AppSetting (per-org, đã mã hoá) — CÙNG nguồn luồng RAG
+// cũ đang dùng. Không bắt thêm biến LLM_* để hai luồng khỏi lệch model/key.
+// Chỉ Odoo cần biến môi trường (ODOO_URL/DB/USERNAME/PASSWORD); thiếu thì cả
+// hai luồng im lặng và luồng cũ chạy tiếp.
 import { mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -19,6 +22,8 @@ import { logger } from '../../../shared/utils/logger.js';
 import { odooClientFromEnv, type OdooClient } from '../odoo/client.js';
 import { HoaDonAnhClient } from '../odoo/hoa-don-anh.js';
 import { generateWithOpenaiCompatTools } from '../providers/openai-compat.js';
+import { getProviderApiKey } from '../ai-service.js';
+import { getProviderBaseUrl } from '../provider-registry.js';
 import { humanPace } from '../knowledge/human-pace.js';
 import { findImageForReply } from '../knowledge/product-image.js';
 import { searchKnowledge } from '../knowledge/knowledge-service.js';
@@ -48,12 +53,13 @@ export function batLuongKhach(): boolean {
   return process.env.AI_AGENT_KHACH === '1';
 }
 
-/** Có đủ Odoo + LLM để chạy agent không. Thiếu → luồng cũ chạy tiếp. */
+/**
+ * Có đủ Odoo để chạy agent không. Thiếu → luồng cũ chạy tiếp.
+ *
+ * KHÔNG kiểm LLM ở đây: key/model lấy từ DB per-org lúc chạy (xem `dungGenerate`).
+ */
 export function duCauHinh(env: NodeJS.ProcessEnv = process.env): boolean {
-  return Boolean(
-    env.ODOO_URL && env.ODOO_DB && env.ODOO_USERNAME && env.ODOO_PASSWORD &&
-    env.LLM_BASE && env.LLM_KEY && env.LLM_MODEL,
-  );
+  return Boolean(env.ODOO_URL && env.ODOO_DB && env.ODOO_USERNAME && env.ODOO_PASSWORD);
 }
 
 // Client dựng MỘT LẦN rồi dùng lại: OdooClient nhớ uid sau khi đăng nhập, tạo
@@ -75,14 +81,32 @@ function layAnhClient(): HoaDonAnhClient | undefined {
   return anhCache;
 }
 
-const generate: ToolAwareGenerate = (a) =>
-  generateWithOpenaiCompatTools({
-    url: `${process.env.LLM_BASE}/chat/completions`,
-    apiKey: process.env.LLM_KEY!,
-    model: process.env.LLM_MODEL!,
-    ...(process.env.LLM_TIMEOUT_MS ? { timeoutMs: Number(process.env.LLM_TIMEOUT_MS) } : {}),
-    ...a,
-  });
+/**
+ * Dựng hàm gọi LLM từ cấu hình per-org.
+ *
+ * Cùng nguồn luồng RAG cũ dùng, nên đổi model/key trên giao diện là cả hai
+ * luồng đổi theo — không có chuyện agent chạy model khác luồng cũ.
+ *
+ * Trả null khi chưa có key: caller im lặng, nhường luồng cũ (nó tự báo lỗi
+ * theo cách của nó) thay vì ném giữa chừng.
+ */
+async function dungGenerate(orgId: string): Promise<ToolAwareGenerate | null> {
+  const cfg = await prisma.aiConfig.findUnique({ where: { orgId } });
+  if (!cfg) return null;
+  const apiKey = await getProviderApiKey(orgId, cfg.provider);
+  if (!apiKey) return null;
+  const baseUrl = await getProviderBaseUrl(orgId, cfg.provider);
+  if (!baseUrl) return null;
+
+  return (a) =>
+    generateWithOpenaiCompatTools({
+      url: `${baseUrl}/chat/completions`,
+      apiKey,
+      model: cfg.model,
+      ...(process.env.LLM_TIMEOUT_MS ? { timeoutMs: Number(process.env.LLM_TIMEOUT_MS) } : {}),
+      ...a,
+    });
+}
 
 /**
  * Tra tài liệu kỹ thuật. Chưa nạp tài liệu → trả undefined để tool KHÔNG đăng ký.
@@ -198,6 +222,12 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
     return false;
   }
 
+  const generate = await dungGenerate(ctx.orgId);
+  if (!generate) {
+    logger.warn({ orgId: ctx.orgId }, '[agent] chưa cấu hình LLM cho tổ chức — bỏ qua');
+    return false;
+  }
+
   const t0 = Date.now();
   const ghiDb = taoGhiLog({
     prisma: prismaLog, orgId: ctx.orgId, vai: 'nhanvien', conversationId: ctx.conversationId,
@@ -285,6 +315,9 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
     where: { orgId: ctx.orgId, messageId: ctx.messageId, type: 'auto_reply_agent' },
   });
   if (daXuLy > 0) return true;
+
+  const generate = await dungGenerate(ctx.orgId);
+  if (!generate) return false; // nhường luồng cũ, nó tự báo lỗi theo cách của nó
 
   const t0 = Date.now();
   const ghiDb = taoGhiLog({

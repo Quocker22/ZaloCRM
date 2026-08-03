@@ -10,7 +10,6 @@ import { batLuongNhanVien, batLuongKhach, duCauHinh } from '../../../src/modules
 const DU = {
   ODOO_URL: 'http://localhost:8069', ODOO_DB: 'nelia_prod',
   ODOO_USERNAME: 'bot_zalo', ODOO_PASSWORD: 'x',
-  LLM_BASE: 'http://x/v1', LLM_KEY: 'k', LLM_MODEL: 'm',
 } as NodeJS.ProcessEnv;
 
 let goc: NodeJS.ProcessEnv;
@@ -45,9 +44,14 @@ describe('Công tắc — mặc định TẮT', () => {
   });
 });
 
-describe('duCauHinh — thiếu cấu hình thì nhường luồng cũ', () => {
-  it('đủ 7 biến → true', () => {
+describe('duCauHinh — thiếu Odoo thì nhường luồng cũ', () => {
+  it('đủ 4 biến Odoo → true', () => {
     expect(duCauHinh(DU)).toBe(true);
+  });
+
+  it('KHÔNG đòi LLM_* — key/model lấy từ DB per-org, cùng nguồn luồng RAG cũ', () => {
+    // Đòi thêm LLM_* thì agent có thể chạy model KHÁC luồng cũ mà không ai biết.
+    expect(duCauHinh({ ...DU, LLM_BASE: undefined, LLM_KEY: undefined })).toBe(true);
   });
 
   it.each(Object.keys(DU))('thiếu %s → false', (k) => {
