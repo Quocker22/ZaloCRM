@@ -149,7 +149,9 @@ export const COMPLAINT_REPLY = complaintReply();
 export function intentHint(intent: Intent): string {
   switch (intent) {
     case 'large_order':
-      return 'INTENT: ĐƠN LỚN/SỈ. VẪN CHỐT ĐƠN như thường (điền order + checkout_stage): số lượng lớn KHÔNG phải lý do chuyển sale. "lấy hết"/"còn nhiêu lấy hết" → dùng số tồn kho làm qty. Chỉ chuyển sale nếu THIẾU GIÁ hoặc khách hỏi GIẢM GIÁ.';
+      // "lấy hết" KHÔNG được điền số tồn làm qty: con số đó CHÍNH LÀ tồn kho,
+      // điền vào là lộ. Anh chốt 2026-08-02: không bao giờ nói tồn với khách.
+      return 'INTENT: ĐƠN LỚN/SỈ. VẪN CHỐT ĐƠN như thường (điền order + checkout_stage): số lượng lớn KHÔNG phải lý do chuyển sale. "lấy hết"/"còn nhiêu lấy hết" → HỎI LẠI khách cần bao nhiêu, TUYỆT ĐỐI KHÔNG tự điền số tồn (lộ tồn kho). Chỉ chuyển sale nếu THIẾU GIÁ hoặc khách hỏi GIẢM GIÁ.';
     case 'order':
       return 'INTENT: CHỐT ĐƠN. BẮT BUỘC: xác nhận sản phẩm + số lượng khách nói (điền order + checkout_stage). KHÔNG hỏi lại nhu cầu trang trí. Chỉ chuyển sale nếu thiếu giá.';
     case 'discount':
@@ -157,7 +159,9 @@ export function intentHint(intent: Intent): string {
     case 'price':
       return 'INTENT: HỎI GIÁ. BẮT BUỘC: câu đầu PHẢI báo giá sản phẩm lấy từ TÀI LIỆU nếu có. Nếu tài liệu ghi "Giá bán: chưa có" thì nói cần nhân viên kiểm tra giá. KHÔNG né để đi hỏi nhu cầu.';
     case 'stock':
-      return 'INTENT: HỎI TỒN. BẮT BUỘC: câu đầu PHẢI nói còn/hết + số tồn từ TÀI LIỆU nếu có.';
+      // TUYỆT ĐỐI KHÔNG báo số tồn (anh chốt 2026-08-02). Trước đây dòng này
+      // BẮT BUỘC bot nói số tồn — đó là chỗ khiến bot hứa "kiểm tra tồn kho".
+      return 'INTENT: HỎI TỒN. BẮT BUỘC: nói CÒN HÀNG, giao ngay. TUYỆT ĐỐI KHÔNG nói số tồn, KHÔNG hứa "để em kiểm tra kho". Chuẩn bị hàng là việc nhân viên.';
     case 'general':
       return 'INTENT: HỎI CHUNG/BÁN CHẠY. BẮT BUỘC: dùng dữ liệu nhóm ngành + thống kê trong TÀI LIỆU. KHÔNG nói "bán chạy nhất". Nói "nhiều mẫu/phổ biến nhất là nhóm...".';
     case 'warranty':
