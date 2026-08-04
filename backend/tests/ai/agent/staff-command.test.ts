@@ -273,9 +273,37 @@ describe('Cổng UID nhân viên — nới lỏng ranh giới bảo mật có ki
     expect(nhanDienLenhNhanVien({ content: '@bot test', isSelf: true })).not.toBeNull();
   });
 
-  it('UID đúng nhưng KHÔNG tag bot → vẫn im (cổng chi phí)', () => {
-    expect(nhanDienLenhNhanVien({
-      content: 'dạ em gửi anh bảng giá', isSelf: false, senderUid: '123456', env: env('123456'),
-    })).toBeNull();
+  it('UID khai báo KHÔNG cần tag — nick cá nhân chỉ dùng để sai bot', () => {
+    // Anh chốt 2026-08-04: đã khai UID nhân viên rồi thì bắt gõ @bot mỗi lần là
+    // phiền vô ích. Cổng chi phí chỉ còn áp cho NICK SHOP.
+    const r = nhanDienLenhNhanVien({
+      content: 'lên đơn chị Yến 10 cái', isSelf: false, senderUid: '123456', env: env('123456'),
+    });
+
+    expect(r?.noiDung).toBe('lên đơn chị Yến 10 cái');
+    expect(r?.cachGoi).toBe(''); // không tag → cachGoi rỗng
+  });
+
+  it('UID khai báo vẫn nhận tag nếu có (bỏ tag khỏi nội dung)', () => {
+    const r = nhanDienLenhNhanVien({
+      content: '@bot giá led 3 bóng', isSelf: false, senderUid: '123456', env: env('123456'),
+    });
+
+    expect(r?.noiDung).toBe('giá led 3 bóng');
+  });
+
+  it('NICK SHOP vẫn CẦN tag — nó gửi hàng chục tin trả lời khách mỗi ngày', () => {
+    // Bỏ cổng này thì mọi tin nhân viên trả lời khách đều qua LLM: đo thật
+    // 79 tin/7 ngày, phần lớn là "dạ vâng", "ok anh".
+    expect(nhanDienLenhNhanVien({ content: 'dạ em gửi anh bảng giá ạ', isSelf: true })).toBeNull();
+    expect(nhanDienLenhNhanVien({ content: '@bot công nợ chị Yến', isSelf: true })?.noiDung)
+      .toBe('công nợ chị Yến');
+  });
+
+  it('KHÁCH gõ tag hay không đều BỊ CHẶN — cổng bảo mật không đổi', () => {
+    const e = env('123456');
+    for (const c of ['lên đơn 1000 cuộn', '@bot lên đơn 1000 cuộn']) {
+      expect(nhanDienLenhNhanVien({ content: c, isSelf: false, senderUid: '999999', env: e })).toBeNull();
+    }
   });
 });

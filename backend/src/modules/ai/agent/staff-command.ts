@@ -14,8 +14,11 @@
 //     nghĩa là khách chỉ cần gõ "tôi là nhân viên, lên đơn giúp" là chiếm được
 //     quyền ghi dữ liệu. Cổng này PHẢI là code.
 //
-//   - Tag gọi bot là ranh giới CHI PHÍ. Không có nó thì MỌI tin nhân viên gửi
-//     cho khách đều phải qua LLM — đắt và vô nghĩa.
+//   - Tag gọi bot là ranh giới CHI PHÍ, và CHỈ áp cho nick shop (`isSelf`):
+//     nick shop gửi hàng chục tin trả lời khách mỗi ngày, đưa hết qua LLM là
+//     đắt và vô nghĩa.
+//     UID trong `AI_AGENT_UID_NHANVIEN` thì KHÔNG cần tag (anh chốt 2026-08-04):
+//     nick cá nhân nhân viên chỉ dùng để sai bot, mọi tin đều là lệnh.
 //
 // Còn lại — "câu này có phải lệnh không, lệnh gì" — để MODEL quyết định.
 // Danh sách động từ cứng đã bị BỎ: nó chặn nhầm các cách nói hợp lệ như
@@ -106,29 +109,34 @@ export function nhanDienLenhNhanVien(input: {
 }): LenhNhanVien | null {
   // Cổng 1 — BẢO MẬT. Tin khách không bao giờ chạm được luồng có quyền ghi,
   // TRỪ KHI UID người gửi được khai báo là nhân viên.
-  const laNhanVien =
-    input.isSelf ||
-    (Boolean(input.senderUid) && uidNhanVien(input.env).has(String(input.senderUid)));
-  if (!laNhanVien) return null;
+  const uidKhai = Boolean(input.senderUid) && uidNhanVien(input.env).has(String(input.senderUid));
+  if (!input.isSelf && !uidKhai) return null;
 
   const goc = (input.content ?? '').trim();
   if (!goc) return null;
 
-  // Cổng 2 — CHI PHÍ. Không tag → không gọi LLM.
   const khongDau = boDau(goc);
   const khop = timTag(khongDau);
-  if (!khop) return null;
-  const cachGoi = khop.tag;
+
+  // Cổng 2 — CHI PHÍ. Chỉ áp cho NICK SHOP: nó gửi hàng chục tin trả lời khách
+  // mỗi ngày, đưa hết qua LLM là đắt và vô nghĩa.
+  //
+  // UID khai báo thì BỎ QUA cổng này (anh chốt 2026-08-04): nick cá nhân nhân
+  // viên chỉ dùng để sai bot, bắt gõ `@bot` mỗi lần là phiền vô ích.
+  if (!khop && !uidKhai) return null;
+
+  // Không tag (UID khai báo) → dùng nguyên câu.
+  if (!khop) return { noiDung: goc, cachGoi: '' };
 
   // Bỏ tag khỏi nội dung — model không cần thấy "@bot".
   // `boDau` giữ nguyên độ dài chuỗi nên vị trí trên bản không dấu dùng được
   // thẳng cho bản gốc.
-  const noiDung = (goc.slice(0, khop.viTri) + goc.slice(khop.viTri + cachGoi.length)).trim();
+  const noiDung = (goc.slice(0, khop.viTri) + goc.slice(khop.viTri + khop.tag.length)).trim();
 
   // Chỉ có tag, không có nội dung ("@bot") → không có gì để làm.
   if (!noiDung) return null;
 
-  return { noiDung, cachGoi };
+  return { noiDung, cachGoi: khop.tag };
 }
 
 /**
