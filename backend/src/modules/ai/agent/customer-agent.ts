@@ -363,10 +363,29 @@ export async function chayTuVanKhach(
     };
   }
 
+  // CÂU TRẢ LỜI RỖNG → coi như CHƯA XONG, đừng trả 'xong' với chuỗi rỗng.
+  //
+  // Bug thật 2026-08-05: model kết thúc với stopReason='end_turn' nhưng text
+  // rỗng (hay gặp ở vòng cuối sau khi gọi tool). Caller tưởng thành công rồi
+  // gọi sendMessage → Zalo ném 'Missing message content' → agent báo lỗi →
+  // NHƯỜNG cho luồng RAG cũ, và khách nhận câu trả lời của luồng cũ.
+  //
+  // Đó là lý do khách thấy bot lặp lại y hệt câu trước và nói "để em kiểm tra
+  // tồn kho" — câu đó do luồng RAG sinh, không phải agent.
+  const traLoi = kq.text.trim();
+  if (!traLoi) {
+    return {
+      trangThai: 'chua_hoan_tat',
+      lyDo: 'Model trả câu rỗng sau khi gọi tool.',
+      log,
+      usage: kq.usage,
+    };
+  }
+
   // Tìm ảnh theo NỘI DUNG câu trả lời, không theo câu hỏi: chỉ gửi khi bot đã
   // chốt được ĐÚNG một sản phẩm. `findImageForReply` tự bỏ qua khi không chắc
   // (đòi khớp >=60% token tên + đúng mã model) — thà không gửi còn hơn gửi nhầm.
-  const anhSanPham = findImageForReply(kq.text) ?? undefined;
+  const anhSanPham = findImageForReply(traLoi) ?? undefined;
 
-  return { trangThai: 'xong', traLoi: kq.text, log, usage: kq.usage, anhSanPham, don: donVuaTao };
+  return { trangThai: 'xong', traLoi, log, usage: kq.usage, anhSanPham, don: donVuaTao };
 }

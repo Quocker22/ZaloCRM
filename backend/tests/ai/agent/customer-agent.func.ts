@@ -371,3 +371,57 @@ describe('Khách chốt đủ → LÊN ĐƠN, không chuyển sale', () => {
     expect(p()).toContain('TÊN ZALO');
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('Câu trả lời RỖNG → chưa hoàn tất, KHÔNG trả "xong"', () => {
+  // Bug thật 2026-08-05: model kết thúc với stopReason='end_turn' nhưng text
+  // rỗng. Agent trả 'xong' với chuỗi rỗng → caller gọi sendMessage → Zalo ném
+  // 'Missing message content' → agent báo lỗi → NHƯỜNG luồng RAG cũ.
+  //
+  // Khách nhận câu của luồng RAG (lặp y hệt câu trước, nói "để em kiểm tra tồn
+  // kho") thay vì câu agent vừa tra Odoo.
+  const odooGia = () => ({ searchRead: vi.fn(async () => []), execute: vi.fn() }) as unknown as OdooClient;
+
+  it.each(['', '   ', '\n\n'])('text = %j → chua_hoan_tat', async (text) => {
+    const generate = vi.fn(async () => ({
+      text, toolCalls: [], stopReason: 'end_turn' as const,
+      raw: [], usage: { inputTokens: 1, outputTokens: 0 },
+    }));
+
+    const kq = await chayTuVanKhach(
+      { odoo: odooGia(), generate, ghiNhanChuyenSale: async () => {} },
+      { bizName: 'X', message: 'led dây còn không' },
+    );
+
+    expect(kq.trangThai).toBe('chua_hoan_tat');
+  });
+
+  it('text có nội dung → vẫn xong bình thường', async () => {
+    const generate = vi.fn(async () => ({
+      text: 'Dạ bên em còn hàng ạ.', toolCalls: [], stopReason: 'end_turn' as const,
+      raw: [], usage: { inputTokens: 1, outputTokens: 5 },
+    }));
+
+    const kq = await chayTuVanKhach(
+      { odoo: odooGia(), generate, ghiNhanChuyenSale: async () => {} },
+      { bizName: 'X', message: 'led dây còn không' },
+    );
+
+    expect(kq.trangThai).toBe('xong');
+    if (kq.trangThai === 'xong') expect(kq.traLoi).toBe('Dạ bên em còn hàng ạ.');
+  });
+
+  it('text thừa khoảng trắng → cắt sạch trước khi gửi', async () => {
+    const generate = vi.fn(async () => ({
+      text: '  Dạ còn hàng ạ.  \n', toolCalls: [], stopReason: 'end_turn' as const,
+      raw: [], usage: { inputTokens: 1, outputTokens: 5 },
+    }));
+
+    const kq = await chayTuVanKhach(
+      { odoo: odooGia(), generate, ghiNhanChuyenSale: async () => {} },
+      { bizName: 'X', message: 'x' },
+    );
+
+    if (kq.trangThai === 'xong') expect(kq.traLoi).toBe('Dạ còn hàng ạ.');
+  });
+});

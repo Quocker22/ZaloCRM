@@ -457,6 +457,8 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
   if (!generate) return false; // nhường luồng cũ, nó tự báo lỗi theo cách của nó
 
   const t0 = Date.now();
+  // Đếm tool đã chạy — quyết định có nhường luồng RAG cũ khi lỗi hay không.
+  let soToolDaChay = 0;
   const ghiDb = taoGhiLog({
     prisma: prismaLog, orgId: ctx.orgId, vai: 'khach', conversationId: ctx.conversationId,
     onError: (err) => logger.warn({ err }, '[agent] ghi log tool lỗi'),
@@ -471,7 +473,7 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
         ghiNhanChuyenSale: async (yc) => {
           logger.info({ lyDo: yc.lyDo, conversationId: ctx.conversationId }, '[agent] khách cần sale');
         },
-        ghiLog: ghiDb,
+        ghiLog: (l) => { soToolDaChay++; ghiDb(l); },
         timDoanTriThuc: await timTriThuc(ctx.orgId),
         choKhachChotDon: batKhachTuChotDon()
           ? {
@@ -538,8 +540,23 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
     );
     return true;
   } catch (err) {
-    // Lỗi → trả false để luồng RAG cũ đỡ lấy. Khách vẫn được trả lời.
-    logger.error({ err, conversationId: ctx.conversationId }, '[agent] lỗi luồng khách, nhường luồng cũ');
-    return false;
+    // Lỗi SAU KHI đã gọi tool → IM LẶNG, KHÔNG nhường luồng RAG cũ.
+    //
+    // Bug thật 2026-08-05: agent tra Odoo xong, model trả câu rỗng, sendMessage
+    // ném 'Missing message content' → nhường luồng cũ → khách nhận câu của
+    // luồng RAG, vốn không biết gì về những gì agent vừa tra. Kết quả: bot lặp
+    // lại y hệt câu trước và nói "để em kiểm tra tồn kho" (điều đã bị cấm).
+    //
+    // Nhường chỉ đúng khi lỗi xảy ra TRƯỚC khi chạm dữ liệu — lúc đó luồng cũ
+    // còn xử lý được từ đầu. Sau đó thì im lặng để nhân viên vào, tốt hơn là
+    // để hai hệ thống nói hai chuyện khác nhau.
+    const daChayTool = soToolDaChay > 0;
+    logger.error(
+      { err, conversationId: ctx.conversationId, daChayTool },
+      daChayTool
+        ? '[agent] lỗi SAU khi gọi tool — im lặng, KHÔNG nhường luồng cũ'
+        : '[agent] lỗi trước khi gọi tool, nhường luồng cũ',
+    );
+    return daChayTool;
   }
 }
