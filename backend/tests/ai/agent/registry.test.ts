@@ -170,3 +170,45 @@ describe('ToolRegistry.executor', () => {
     expect(res.toolCallId).toBe('toolu_abc123');
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('Tên tool CÓ TIỀN TỐ — model hay thêm namespace', () => {
+  // Bug thật 2026-08-05: khách hỏi "có những loại nào", bot đáp "em không tra
+  // được danh mục sản phẩm". Log tool cho thấy Gemini gọi
+  // `default_api.tra_danh_muc` thay vì `tra_danh_muc` — registry không nhận,
+  // trả lỗi, model bỏ cuộc.
+  const dungRegistry = () =>
+    new ToolRegistry().register({
+      definition: {
+        name: 'tra_danh_muc',
+        description: 'x',
+        inputSchema: { type: 'object', properties: {} },
+      },
+      run: async () => 'KẾT QUẢ DANH MỤC',
+    });
+
+  it.each([
+    'tra_danh_muc',
+    'default_api.tra_danh_muc',
+    'functions.tra_danh_muc',
+    'namespace.con.tra_danh_muc',
+  ])('gọi "%s" → chạy đúng tool', async (ten) => {
+    const kq = await dungRegistry().executor()({ id: '1', name: ten, input: {} });
+
+    expect(kq.isError).toBeFalsy();
+    expect(kq.content).toBe('KẾT QUẢ DANH MỤC');
+  });
+
+  it('tên SAI HẲN vẫn báo lỗi (không nuốt nhầm)', async () => {
+    const kq = await dungRegistry().executor()({ id: '1', name: 'default_api.tool_khong_co', input: {} });
+
+    expect(kq.isError).toBe(true);
+    expect(kq.content).toContain('Không có tool tên');
+  });
+
+  it('tên rỗng sau khi cắt tiền tố → báo lỗi, không ném', async () => {
+    const kq = await dungRegistry().executor()({ id: '1', name: 'abc.', input: {} });
+
+    expect(kq.isError).toBe(true);
+  });
+});

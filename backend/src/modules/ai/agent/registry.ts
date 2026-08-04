@@ -117,7 +117,13 @@ export class ToolRegistry {
    */
   executor(): (call: ToolCall) => Promise<ToolResult> {
     return async (call: ToolCall): Promise<ToolResult> => {
-      const tool = this.tools.get(call.name);
+      // Model hay thêm tiền tố vào tên tool: Gemini gọi
+      // `default_api.tra_danh_muc` thay vì `tra_danh_muc` (bug thật 2026-08-05
+      // — khách hỏi "có những loại nào", bot đáp "em không tra được danh mục").
+      //
+      // Bỏ tiền tố rồi tra lại: tên tool của ta không bao giờ chứa dấu chấm,
+      // nên cắt ở dấu chấm cuối là an toàn.
+      const tool = this.tools.get(call.name) ?? this.tools.get(call.name.split('.').pop() ?? '');
       if (!tool) {
         const known = [...this.tools.keys()].sort().join(', ');
         return {
