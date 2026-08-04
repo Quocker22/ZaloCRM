@@ -115,6 +115,20 @@ function layAnhClient(): HoaDonAnhClient | undefined {
 }
 
 /**
+ * Ghép đường dẫn chat/completions theo provider.
+ *
+ * PHẢI khớp `ai-service.ts` — bug thật 2026-08-04: tôi ghép
+ * `${baseUrl}/chat/completions` (thiếu `/v1`) nên 9Router trả 404 và MỌI lượt
+ * agent khách đều rơi về luồng RAG cũ. Log chỉ hiện "lỗi luồng khách" nên nhìn
+ * bên ngoài tưởng agent chưa bật.
+ */
+export function duongDanChat(provider: string, baseUrl: string): string {
+  const goc = baseUrl.replace(/\/+$/, '');
+  if (provider === 'qwen') return `${goc}/compatible-mode/v1/chat/completions`;
+  return `${goc}/v1/chat/completions`;
+}
+
+/**
  * Dựng hàm gọi LLM từ cấu hình per-org.
  *
  * Cùng nguồn luồng RAG cũ dùng, nên đổi model/key trên giao diện là cả hai
@@ -133,7 +147,7 @@ async function dungGenerate(orgId: string): Promise<ToolAwareGenerate | null> {
 
   return (a) =>
     generateWithOpenaiCompatTools({
-      url: `${baseUrl}/chat/completions`,
+      url: duongDanChat(cfg.provider, baseUrl),
       apiKey,
       model: cfg.model,
       ...(process.env.LLM_TIMEOUT_MS ? { timeoutMs: Number(process.env.LLM_TIMEOUT_MS) } : {}),

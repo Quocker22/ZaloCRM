@@ -5,7 +5,7 @@
 // agent mới hay của luồng RAG cũ — bật nhầm là khách thật hứng lỗi thật. Bật
 // phải là hành động có chủ đích, không phải hiệu ứng phụ của một lần deploy.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { batLuongNhanVien, batLuongKhach, duCauHinh, seqTuMessageId, batKhachTuChotDon } from '../../../src/modules/ai/agent/noi-zalo.js';
+import { batLuongNhanVien, batLuongKhach, duCauHinh, seqTuMessageId, batKhachTuChotDon, duongDanChat } from '../../../src/modules/ai/agent/noi-zalo.js';
 import { sinhKhoaDon, tachKhoaDon } from '../../../src/modules/ai/odoo/idempotency.js';
 
 const DU = {
@@ -129,5 +129,30 @@ describe('Công tắc khách TỰ CHỐT ĐƠN — mặc định TẮT', () => {
 
     expect(batLuongKhach()).toBe(true);
     expect(batKhachTuChotDon()).toBe(false);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('Đường dẫn LLM phải khớp ai-service (luồng RAG cũ)', () => {
+  // Bug thật 2026-08-04: ghép `${baseUrl}/chat/completions` (thiếu `/v1`) nên
+  // 9Router trả HTML 404 và MỌI lượt agent khách rơi về luồng RAG cũ. Log chỉ
+  // hiện "lỗi luồng khách" nên nhìn bên ngoài tưởng agent chưa bật.
+  //
+  // Đo thật trên 9Router:
+  //   /chat/completions    → HTML 404 (đường dẫn không tồn tại)
+  //   /v1/chat/completions → JSON "No active credentials" (đúng đường dẫn)
+  it('openai → /v1/chat/completions', () => {
+    expect(duongDanChat('openai', 'https://ai.byhung.com'))
+      .toBe('https://ai.byhung.com/v1/chat/completions');
+  });
+
+  it('qwen → /compatible-mode/v1/... (khác các provider khác)', () => {
+    expect(duongDanChat('qwen', 'https://x.com'))
+      .toBe('https://x.com/compatible-mode/v1/chat/completions');
+  });
+
+  it('bỏ dấu / thừa cuối baseUrl — không sinh //v1', () => {
+    expect(duongDanChat('openai', 'https://x.com/')).toBe('https://x.com/v1/chat/completions');
+    expect(duongDanChat('openai', 'https://x.com///')).toBe('https://x.com/v1/chat/completions');
   });
 });
