@@ -332,3 +332,42 @@ describe('Khách TỰ CHỐT ĐƠN — hàng rào phải ở CODE', () => {
     expect(buildCustomerSystemPrompt('X', false)).toContain('Bot không tự lên đơn');
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('Prompt không được TỰ dùng markdown', () => {
+  // Bug thật 2026-08-05: bot gửi khách "địa chỉ **Gò Vấp**" — Zalo hiện ra dấu
+  // sao. Prompt CẤM markdown nhưng chính nó chứa 26 dấu ** (kể cả dòng cấm:
+  // "**Zalo KHÔNG render markdown.**"). Model bắt chước những gì nó THẤY, không
+  // chỉ những gì nó ĐỌC.
+  it.each([true, false])('không có dấu ** nào (tuChotDon=%s)', (chot) => {
+    const p = buildCustomerSystemPrompt('LEDNELIA', chot);
+
+    expect(p.match(/\*\*/g)).toBeNull();
+  });
+
+  it('vẫn có luật cấm markdown, nằm ở đầu prompt', () => {
+    const p = buildCustomerSystemPrompt('LEDNELIA');
+
+    expect(p).toContain('KHÔNG render markdown');
+    expect(p.indexOf('KHÔNG render markdown')).toBeLessThan(300);
+  });
+});
+
+describe('Khách chốt đủ → LÊN ĐƠN, không chuyển sale', () => {
+  // Bug thật 2026-08-05: khách chốt 100 cuộn, đưa SĐT + địa chỉ + tên, mà bot
+  // vẫn "chuyển sang cho anh chị sale". Nguyên nhân: bot gọi `tra_khach_hang`
+  // (tool KHÔNG có trong registry khách), thất bại, rồi bỏ cuộc.
+  const p = () => buildCustomerSystemPrompt('LEDNELIA', true);
+
+  it('cấm rõ chuyen_sale khi đã chốt đủ', () => {
+    expect(p()).toContain('CẤM `chuyen_sale` khi khách đã chốt đủ');
+  });
+
+  it('nói rõ KHÔNG có tool tra khách — đừng đi tìm', () => {
+    expect(p()).toContain('KHÔNG có tool tra khách');
+  });
+
+  it('dạy dùng tên Zalo sẵn có thay vì hỏi lại', () => {
+    expect(p()).toContain('TÊN ZALO');
+  });
+});

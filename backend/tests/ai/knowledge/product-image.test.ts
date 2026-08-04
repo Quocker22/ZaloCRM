@@ -18,3 +18,39 @@ describe('findImageForReply (gửi ảnh SP chủ động)', () => {
     if (r !== null) expect(r).toMatch(/\.(jpg|jpeg|png|webp)$/i);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('KHÔNG gửi ảnh khi câu trả lời là LIỆT KÊ DANH MỤC', () => {
+  // Bug thật 2026-08-05: khách hỏi "nhà có led gì nhỉ", bot liệt kê 7 nhóm hàng
+  // rồi gửi kèm ảnh "Module 3 LED 220V" — chẳng liên quan. Câu liệt kê chứa
+  // nhiều từ chung ("led","dây","bóng") nên trùng ≥60% với tên một SP ngắn.
+  it('câu có ≥3 gạch đầu dòng → KHÔNG gửi ảnh', () => {
+    const liet = [
+      'Dạ shop em bán nhiều dòng LED:',
+      '- LED dải dây, LED ziczac',
+      '- LED trang trí neon 8x16',
+      '- LED đúc, LED tròn, bóng cắm F30',
+      '- Card điều khiển, nguồn LED',
+    ].join('\n');
+
+    expect(findImageForReply(liet)).toBeNull();
+  });
+
+  it('danh sách đánh SỐ cũng bị chặn', () => {
+    const liet = [
+      'Dạ dây ziczac bên em có nhiều loại:',
+      '1. Led ziczac full cuộn 5m 60led/m',
+      '2. Led dây ziczac 42b/m trắng 12000k',
+      '3. Led ziczac 120led/m Lixin đỏ',
+    ].join('\n');
+
+    expect(findImageForReply(liet)).toBeNull();
+  });
+
+  it('câu nhắc ĐÚNG MỘT sản phẩm thì VẪN gửi', () => {
+    // Chặn liệt kê không được làm mất tính năng gửi ảnh khi khách hỏi cụ thể.
+    const mot = 'Dạ sản phẩm Led dây ZicZac 60b/m Lixin màu trắng 11000k (291024) giá 330.000đ ạ.';
+
+    expect(findImageForReply(mot)).not.toBeNull();
+  });
+});

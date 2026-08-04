@@ -59,21 +59,39 @@ function codeTokens(tokens: string[]): Set<string> {
 export function findImageForReply(replyText: string): string | null {
   const map = loadMap();
   if (map.length === 0) return null;
+
+  // CÂU LIỆT KÊ DANH MỤC → KHÔNG gửi ảnh.
+  //
+  // Bug thật 2026-08-05: khách hỏi "nhà có led gì nhỉ", bot liệt kê 7 nhóm hàng
+  // rồi gửi kèm ảnh "Module 3 LED 220V" — chẳng liên quan gì. Câu liệt kê chứa
+  // nhiều từ chung ("led", "dây", "bóng") nên trùng ≥60% với tên một SP ngắn.
+  //
+  // Dấu hiệu: nhiều dòng gạch đầu dòng, hoặc nhắc nhiều nhóm hàng cùng lúc.
+  const soGachDau = (replyText.match(/^\s*[-•*\d]+[.)]?\s+/gm) ?? []).length;
+  if (soGachDau >= 3) return null;
+
   const rTokens = new Set(normTokens(replyText));
   if (rTokens.size === 0) return null;
 
   let best: { file: string; score: number } | null = null;
+  let soKhop = 0;
   for (const p of map) {
     if (p.tokens.length === 0) continue;
+    // Tên SP quá ngắn (1-2 token) thì 60% chỉ cần trùng 1-2 từ chung — quá dễ
+    // khớp nhầm. Đòi tên đủ đặc trưng mới cho gửi ảnh.
+    if (p.tokens.length < 3) continue;
     const codes = codeTokens(p.tokens);
     // Nếu SP có model-code, reply PHẢI chứa ít nhất 1 code đó (chống nhầm biến thể).
     if (codes.size > 0 && ![...codes].some((c) => rTokens.has(c))) continue;
     const inter = p.tokens.filter((t) => rTokens.has(t)).length;
     const score = inter / p.tokens.length; // bao nhiêu % token TÊN SP xuất hiện trong reply
-    if (score >= 0.6 && (!best || score > best.score)) {
-      best = { file: p.file, score };
+    if (score >= 0.6) {
+      soKhop++;
+      if (!best || score > best.score) best = { file: p.file, score };
     }
   }
+  // NHIỀU SP cùng khớp → không biết khách hỏi cái nào. Thà im còn hơn đoán.
+  if (soKhop > 3) return null;
   if (!best) return null;
   const path = join(IMG_DIR, best.file);
   return existsSync(path) ? path : null;

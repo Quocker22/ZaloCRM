@@ -180,6 +180,10 @@ interface DichGui {
   threadType: 0 | 1;
   /** UID Zalo của khách trong hội thoại — khoá chống trùng khi tạo khách Odoo. */
   zaloUid: string | null;
+  /** Tên khách đã biết từ Zalo/CRM — để bot khỏi hỏi lại thứ đã có. */
+  tenKhach: string | null;
+  /** SĐT đã biết. */
+  sdtKhach: string | null;
 }
 
 /** Tra đích gửi từ conversationId. Không đủ dữ liệu → null, caller bỏ qua. */
@@ -188,7 +192,7 @@ async function timDich(conversationId: string): Promise<DichGui | null> {
     where: { id: conversationId },
     select: {
       zaloAccountId: true, threadType: true, externalThreadId: true,
-      contact: { select: { zaloUid: true } },
+      contact: { select: { zaloUid: true, fullName: true, crmName: true, phone: true } },
     },
   });
   if (!c?.zaloAccountId) return null;
@@ -200,6 +204,9 @@ async function timDich(conversationId: string): Promise<DichGui | null> {
     threadId,
     threadType: c.threadType === 'group' ? 1 : 0,
     zaloUid: c.contact?.zaloUid ?? null,
+    // Ưu tiên tên nhân viên đặt trong CRM (crmName) hơn tên Zalo tự khai.
+    tenKhach: c.contact?.crmName || c.contact?.fullName || null,
+    sdtKhach: c.contact?.phone || null,
   };
 }
 
@@ -477,7 +484,12 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
       },
       {
         bizName: ctx.bizName,
-        message: ctx.content,
+        // Đính tên/SĐT đã biết vào tin — bot hỏi lại thứ Zalo đã cho là phiền
+        // khách và làm chậm chốt đơn (bug thật 2026-08-05: khách đã đưa SĐT +
+        // địa chỉ mà bot vẫn hỏi tên, rồi hỏi xong lại chuyển sale).
+        message: dich.tenKhach || dich.sdtKhach
+          ? `[Khách: ${[dich.tenKhach, dich.sdtKhach].filter(Boolean).join(' · ')}] ${ctx.content}`
+          : ctx.content,
         history: lichSu.map((m) => ({
           vai: m.senderType === 'self' ? ('shop' as const) : ('khach' as const),
           noiDung: m.content,
