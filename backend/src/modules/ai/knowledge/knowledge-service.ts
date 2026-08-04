@@ -70,11 +70,45 @@ const LEXICAL_STOP = new Set([
  * vector search bỏ sót khớp tên/mã sản phẩm hiếm (vd "matrix", "P10", "ziczac").
  * Lấy token ≥3 ký tự, không phải stopword.
  */
+/**
+ * Thuật ngữ VIỆT → từ tương ứng trong tài liệu (Anh/Trung).
+ *
+ * Bug thật 2026-08-04: tài liệu LEDNELIA là catalog tiếng Anh/Trung, khách hỏi
+ * tiếng Việt. Hỏi "bảo hành đèn led mấy năm" thì lexical tách ra "bảo","hành"
+ * — không chunk nào chứa, nên đoạn ghi "3 years warranty" không bao giờ được
+ * kéo lên. Vector cũng trượt vì embedding đa ngữ vẫn ưu tiên chunk cùng ngôn
+ * ngữ với câu hỏi.
+ *
+ * CHỈ thêm thuật ngữ KỸ THUẬT hay hỏi. Không dịch tràn lan — mỗi từ thêm vào
+ * là một cách match sai.
+ */
+const DONG_NGHIA: Record<string, string[]> = {
+  'bảo': ['warranty', '保修'],
+  'hành': ['warranty', '保修'],
+  'chống': ['proof', 'resistant', 'ip6', 'ip5'],
+  'nước': ['waterproof', 'ip6', 'ip5'],
+  'công': ['power', 'watt'],
+  'suất': ['power', 'watt'],
+  'điện': ['voltage', 'power', 'dc', 'ac'],
+  'áp': ['voltage', 'dc', 'ac'],
+  'nhiệt': ['temperature', 'kelvin'],
+  'độ': ['temperature', 'angle', 'degree'],
+  'góc': ['angle', 'beam'],
+  'sáng': ['lumen', 'brightness', 'luminous'],
+  'tuổi': ['lifespan', 'lifetime'],
+  'thọ': ['lifespan', 'lifetime'],
+  'kích': ['size', 'dimension'],
+  'thước': ['size', 'dimension'],
+};
+
 function lexicalTerms(query: string): string[] {
-  return query
+  const tu = query
     .toLowerCase()
     .split(/[^a-zà-ỹ0-9]+/i)
     .filter((w) => w.length >= 3 && !LEXICAL_STOP.has(w));
+  // Bổ sung từ tương ứng — giữ cả từ gốc phòng khi tài liệu cũng có tiếng Việt.
+  const them = tu.flatMap((w) => DONG_NGHIA[w] ?? []);
+  return [...new Set([...tu, ...them])];
 }
 
 export async function searchKnowledge(
@@ -117,6 +151,23 @@ export async function searchKnowledge(
     }
   }
   if (lexHits.length === 0) return vectorHits;
-  // Giữ chunk vector tốt nhất + chèn vài chunk lexical (tổng tối đa topK + 3, đủ ngữ cảnh).
-  return [...vectorHits, ...lexHits].slice(0, topK + 3);
+
+  // TRỘN XEN KẼ, không nối đuôi.
+  //
+  // Bug thật 2026-08-04: nối đuôi (`[...vector, ...lex]`) khiến chunk khớp CHỮ
+  // luôn nằm cuối. Caller thường cắt top-N nên chúng bị loại sạch — hỏi
+  // "warranty" mà 3 chunk chứa đúng chữ "warranty" đều rớt, bot nhận 3 chunk
+  // giới thiệu công ty rồi tự bịa số năm bảo hành.
+  //
+  // Xen kẽ 2 vector : 1 lexical — vector vẫn dẫn (nó hiểu ngữ nghĩa), nhưng
+  // khớp chữ chắc chắn có mặt trong top-3.
+  const tron: Hit[] = [];
+  let iv = 0;
+  let il = 0;
+  while (iv < vectorHits.length || il < lexHits.length) {
+    if (iv < vectorHits.length) tron.push(vectorHits[iv++]);
+    if (iv < vectorHits.length) tron.push(vectorHits[iv++]);
+    if (il < lexHits.length) tron.push(lexHits[il++]);
+  }
+  return tron.slice(0, topK + 3);
 }
