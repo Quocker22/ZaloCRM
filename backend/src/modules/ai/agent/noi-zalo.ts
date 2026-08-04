@@ -25,6 +25,7 @@ import { generateWithOpenaiCompatTools } from '../providers/openai-compat.js';
 import { getProviderApiKey } from '../ai-service.js';
 import { getProviderBaseUrl } from '../provider-registry.js';
 import { humanPace } from '../knowledge/human-pace.js';
+import { getQrConfig, buildTransferNote, renderVietQrImage } from '../knowledge/qr-image.js';
 import { findImageForReply } from '../knowledge/product-image.js';
 import { searchKnowledge } from '../knowledge/knowledge-service.js';
 import { generateEmbedding } from '../knowledge/embedding.js';
@@ -44,6 +45,22 @@ const prismaLog = prisma as unknown as PrismaGhiLog;
 
 /** Số tin lịch sử nạp vào ngữ cảnh — đủ để hiểu "cái đó", không phình prompt. */
 const SO_TIN_LICH_SU = 10;
+
+/**
+ * Trần tiền một đơn KHÁCH tự chốt. Vượt → bot chuyển sale thay vì tạo đơn.
+ *
+ * Vì sao cần: khách điều khiển được câu chữ nên cũng điều khiển được số lượng
+ * bot điền. Đo thật 2026-08-04: khách gõ "lấy tôi 1000 cuộn" và bot tính ra
+ * 500.000.000đ — không ai duyệt. Hàng rào phải ở CODE, prompt lèo lái được.
+ *
+ * Mặc định 20 triệu: đủ cho đơn buôn thường ngày, chặn đơn bất thường.
+ */
+const TRAN_TIEN_KHACH = Number(process.env.AI_AGENT_TRAN_TIEN_KHACH ?? 20_000_000);
+
+/** Cho khách tự chốt đơn (mặc định TẮT — khách chốt là ghi thẳng vào Odoo). */
+export function batKhachTuChotDon(): boolean {
+  return process.env.AI_AGENT_KHACH_TU_CHOT === '1';
+}
 
 /**
  * Tin này có phải LỆNH NHÂN VIÊN không — dùng để luồng khách biết mà tránh.
@@ -193,6 +210,57 @@ async function ghiAnhTam(duLieu: Buffer, tenFile: string): Promise<string> {
  * TẮT cho nhân viên: họ BIẾT đang nói với bot, bắt chờ thêm tới 9s mỗi lệnh
  * chỉ làm chậm việc — nhịp người ở đây không lừa được ai.
  */
+/**
+ * Gửi ảnh hoá đơn + QR chuyển khoản sau khi khách chốt đơn.
+ *
+ * THỨ TỰ CÓ Ý: hoá đơn trước (khách xem lại đúng chưa), QR sau (chuyển tiền).
+ * Đảo lại thì khách chuyển tiền trước khi kịp xem mình mua gì.
+ *
+ * Mọi bước đều KHÔNG chặn nhau: hoá đơn render lỗi thì vẫn gửi QR, QR lỗi thì
+ * vẫn còn hoá đơn. Đơn đã nằm trong Odoo rồi — im lặng hoàn toàn mới là tệ nhất.
+ */
+async function guiHoaDonVaQr(
+  dich: DichGui,
+  don: { donId: number; maDon: string; tongTien: number; tenKhach: string },
+): Promise<void> {
+  const anhClient = layAnhClient();
+  if (anhClient && process.env.ODOO_URL) {
+    try {
+      const anh = await anhClient.render(don.donId, don.maDon);
+      if (anh) {
+        await humanPace(60);
+        const duongDan = await ghiAnhTam(anh.duLieu, anh.tenFile);
+        await zaloOps.sendImage(dich.accountId, dich.threadId, dich.threadType, [duongDan]);
+      }
+    } catch (err) {
+      logger.warn({ err, donId: don.donId }, '[agent] gửi hoá đơn khách lỗi (vẫn gửi QR)');
+    }
+  }
+
+  // QR: thiếu cấu hình ngân hàng thì bỏ qua, KHÔNG báo lỗi cho khách — họ
+  // không làm gì được với thông tin đó.
+  const qrCfg = getQrConfig();
+  if (!qrCfg) {
+    logger.warn('[agent] chưa cấu hình AI_QR_BANK_BIN — bỏ qua QR');
+    return;
+  }
+  try {
+    const hhmm = new Date().toISOString().slice(11, 16).replace(':', '');
+    const note = buildTransferNote(don.tenKhach || 'khach', hhmm);
+    const qr = await renderVietQrImage(qrCfg, don.tongTien, note);
+    await humanPace(60);
+    await zaloOps.sendImage(dich.accountId, dich.threadId, dich.threadType, [qr]);
+    const dong = [
+      `Số tiền: ${don.tongTien.toLocaleString('vi-VN')}đ`,
+      `Nội dung: ${note}`,
+      ...(qrCfg.accountName ? [`Chủ TK: ${qrCfg.accountName}`] : []),
+    ].join('\n');
+    await guiTin(dich, dong, false); // đã giãn ở sendImage, khỏi giãn lần nữa
+  } catch (err) {
+    logger.warn({ err, donId: don.donId }, '[agent] gửi QR lỗi (bỏ qua)');
+  }
+}
+
 async function guiTin(dich: DichGui, text: string, giaNguoi: boolean): Promise<void> {
   if (giaNguoi) await humanPace(text.length);
   await zaloOps.sendMessage(dich.accountId, dich.threadId, dich.threadType, { msg: text });
@@ -384,6 +452,14 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
         },
         ghiLog: ghiDb,
         timDoanTriThuc: await timTriThuc(ctx.orgId),
+        choKhachChotDon: batKhachTuChotDon()
+          ? {
+              conversationId: ctx.conversationId,
+              seq: seqTuMessageId(ctx.messageId),
+              zaloUid: dich.zaloUid,
+              tranTien: TRAN_TIEN_KHACH,
+            }
+          : undefined,
       },
       {
         bizName: ctx.bizName,
@@ -415,6 +491,9 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
         logger.warn({ err }, '[agent] gửi ảnh sản phẩm lỗi (bỏ qua)');
       }
     }
+
+    // Khách vừa chốt đơn → gửi hoá đơn rồi QR chuyển khoản.
+    if (r.don) await guiHoaDonVaQr(dich, r.don);
 
     await prisma.aiSuggestion.create({
       data: {

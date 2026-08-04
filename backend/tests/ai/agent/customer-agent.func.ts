@@ -288,3 +288,47 @@ describe('chayTuVanKhach — luồng', () => {
     );
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('Khách TỰ CHỐT ĐƠN — hàng rào phải ở CODE', () => {
+  const odooGia = () => ({
+    searchRead: vi.fn(async () => []),
+    execute: vi.fn(async () => 1),
+  }) as unknown as OdooClient;
+
+  it('KHÔNG bật → registry KHÔNG có tool ghi (mặc định an toàn)', () => {
+    const r = buildCustomerRegistry({ odoo: odooGia(), ghiNhanChuyenSale: async () => {} });
+
+    expect(r.has('tao_don_nhap')).toBe(false);
+    expect(r.has('tao_khach_hang')).toBe(false);
+    // Không tool nào được đánh dấu GHI — đây là ranh giới, không phải tuỳ chọn.
+    expect(r.definitions().filter((d) => d.mutates).map((d) => d.name)).toEqual(['chuyen_sale']);
+  });
+
+  it('BẬT → có đúng hai tool ghi', () => {
+    const r = buildCustomerRegistry({
+      odoo: odooGia(), ghiNhanChuyenSale: async () => {},
+      choKhachChotDon: { conversationId: 'c', seq: 1, tranTien: 20_000_000 },
+    });
+
+    expect(r.has('tao_don_nhap')).toBe(true);
+    expect(r.has('tao_khach_hang')).toBe(true);
+  });
+
+  it('BẬT vẫn KHÔNG có tool nội bộ — công nợ/báo cáo/giá vốn', () => {
+    // Cho khách chốt đơn ≠ cho khách xem số liệu nội bộ.
+    const r = buildCustomerRegistry({
+      odoo: odooGia(), ghiNhanChuyenSale: async () => {},
+      choKhachChotDon: { conversationId: 'c', seq: 1, tranTien: 20_000_000 },
+    });
+
+    for (const t of ['xuat_cong_no', 'bao_cao_tong_quan', 'bao_cao_ban_hang', 'tra_khach_hang', 'tra_ton_kho']) {
+      expect(r.has(t), `khách KHÔNG được có ${t}`).toBe(false);
+    }
+  });
+
+  it('prompt BẬT → dạy tự lên đơn; TẮT → dạy chuyển sale', () => {
+    expect(buildCustomerSystemPrompt('X', true)).toContain('TỰ LÊN ĐƠN');
+    expect(buildCustomerSystemPrompt('X', false)).toContain('Bot không tự lên đơn');
+  });
+});

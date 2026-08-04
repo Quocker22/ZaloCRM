@@ -5,7 +5,7 @@
 // agent mới hay của luồng RAG cũ — bật nhầm là khách thật hứng lỗi thật. Bật
 // phải là hành động có chủ đích, không phải hiệu ứng phụ của một lần deploy.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { batLuongNhanVien, batLuongKhach, duCauHinh, seqTuMessageId } from '../../../src/modules/ai/agent/noi-zalo.js';
+import { batLuongNhanVien, batLuongKhach, duCauHinh, seqTuMessageId, batKhachTuChotDon } from '../../../src/modules/ai/agent/noi-zalo.js';
 import { sinhKhoaDon, tachKhoaDon } from '../../../src/modules/ai/odoo/idempotency.js';
 
 const DU = {
@@ -102,5 +102,32 @@ describe('seqTuMessageId — khoá chống trùng đơn', () => {
 
   it('chuỗi rỗng không ném (tin lỗi vẫn phải có khoá)', () => {
     expect(() => seqTuMessageId('')).not.toThrow();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('Công tắc khách TỰ CHỐT ĐƠN — mặc định TẮT', () => {
+  // Bật công tắc này = khách điều khiển được việc GHI vào Odoo qua câu chữ.
+  // Phải là hành động có chủ đích, tách RIÊNG khỏi AI_AGENT_KHACH (chỉ tư vấn).
+  it('KHÔNG đặt biến → TẮT', () => {
+    delete process.env.AI_AGENT_KHACH_TU_CHOT;
+    expect(batKhachTuChotDon()).toBe(false);
+  });
+
+  it('chỉ "1" mới bật', () => {
+    for (const v of ['true', 'yes', '0', '']) {
+      process.env.AI_AGENT_KHACH_TU_CHOT = v;
+      expect(batKhachTuChotDon(), `"${v}" không được bật`).toBe(false);
+    }
+    process.env.AI_AGENT_KHACH_TU_CHOT = '1';
+    expect(batKhachTuChotDon()).toBe(true);
+  });
+
+  it('ĐỘC LẬP với AI_AGENT_KHACH — bật tư vấn KHÔNG kéo theo quyền ghi', () => {
+    process.env.AI_AGENT_KHACH = '1';
+    delete process.env.AI_AGENT_KHACH_TU_CHOT;
+
+    expect(batLuongKhach()).toBe(true);
+    expect(batKhachTuChotDon()).toBe(false);
   });
 });

@@ -35,6 +35,16 @@ export interface TaoDonDeps {
   conversationId: string;
   /** Số thứ tự lần chốt trong hội thoại. Chốt đơn thứ 2 thì tăng lên. */
   seq: number;
+  /**
+   * Trần tiền cho MỘT đơn. Vượt → không tạo, chuyển sale.
+   *
+   * Chỉ đặt cho LUỒNG KHÁCH: khách điều khiển được nội dung câu chữ, nên cũng
+   * điều khiển được số lượng bot điền. Đo thật 2026-08-04: khách gõ "lấy tôi
+   * 1000 cuộn" và bot tính ra 500.000.000đ — không ai duyệt.
+   *
+   * Nhân viên KHÔNG có trần: họ chịu trách nhiệm cho đơn mình lên.
+   */
+  tranTien?: number;
 }
 
 /** Field đọc lại sau khi tạo, để xác nhận đơn đúng như mong đợi. */
@@ -127,6 +137,29 @@ export async function taoDonNhap(
         `Sản phẩm chưa có giá hợp lệ: ${ten}. ` +
         'KHÔNG tạo đơn với giá 0đ hay giá tạm. Dùng chuyen_sale để sale báo giá và lên đơn thủ công.',
     };
+  }
+
+  // ── TRẦN TIỀN (chỉ luồng khách) ────────────────────────────────────────
+  // Tính TRƯỚC khi tạo: `amount_total` chỉ có sau khi Odoo ghi xong, lúc đó
+  // chặn là muộn — đơn đã nằm trong hệ thống rồi.
+  //
+  // Odoo tự tính giá cuối (thuế, pricelist) nên con số này là ƯỚC LƯỢNG. Đủ để
+  // chặn đơn lớn bất thường, không dùng để báo cho khách.
+  if (deps.tranTien && deps.tranTien > 0) {
+    const giaTheoId = new Map(spInfo.map((s) => [Number(s.id), Number(s.list_price ?? 0)]));
+    const uocTong = dong.reduce(
+      (t, d) => t + (giaTheoId.get(Number(d.san_pham_id)) ?? 0) * Number(d.so_luong ?? 0),
+      0,
+    );
+    if (uocTong > deps.tranTien) {
+      return {
+        trangThai: 'loi',
+        lyDo:
+          `Đơn ước tính ${Math.round(uocTong).toLocaleString('vi-VN')}đ, vượt trần ` +
+          `${deps.tranTien.toLocaleString('vi-VN')}đ cho đơn tự động. ` +
+          'Dùng chuyen_sale để nhân viên xác nhận và lên đơn.',
+      };
+    }
   }
 
   // ── TẠO ĐƠN ────────────────────────────────────────────────────────────

@@ -329,3 +329,57 @@ describe('dinhDangTaoDon', () => {
     expect(dinhDangTaoDon({ trangThai: 'loi', lyDo: 'thiếu id' })).toContain('thiếu id');
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('TRẦN TIỀN — hàng rào cho luồng khách tự chốt', () => {
+  // Khách điều khiển được câu chữ nên cũng điều khiển được số lượng bot điền.
+  // Đo thật 2026-08-04: khách gõ "lấy tôi 1000 cuộn" → 500.000.000đ, không ai
+  // duyệt. Prompt không chặn được vì khách lèo lái được prompt.
+  // Dùng lại `fakeOdoo` của file — nó mô phỏng đủ cả bước đọc lại sau khi tạo.
+  const odooGia = (gia: number) =>
+    fakeOdoo({ sp: [{ id: 5, name: 'Led dây Ziczac', list_price: gia, active: true }] });
+
+  it('vượt trần → KHÔNG tạo đơn, bảo chuyển sale', async () => {
+    const odoo = odooGia(500_000);
+    const kq = await taoDonNhap(
+      { odoo, conversationId: 'c', seq: 1, tranTien: 20_000_000 },
+      { khach_hang_id: 42, dong: [{ san_pham_id: 5, so_luong: 1000 }] },  // 500 triệu
+    );
+
+    expect(kq.trangThai).toBe('loi');
+    if (kq.trangThai === 'loi') expect(kq.lyDo).toContain('chuyen_sale');
+    expect(odoo.execute).not.toHaveBeenCalled();
+  });
+
+  it('chặn TRƯỚC khi tạo — amount_total chỉ có sau khi ghi, lúc đó là muộn', async () => {
+    const odoo = odooGia(500_000);
+    await taoDonNhap(
+      { odoo, conversationId: 'c', seq: 1, tranTien: 1_000_000 },
+      { khach_hang_id: 42, dong: [{ san_pham_id: 5, so_luong: 100 }] },
+    );
+
+    // Không có lệnh create nào chạm Odoo.
+    expect(odoo.execute).not.toHaveBeenCalled();
+  });
+
+  it('dưới trần → tạo bình thường', async () => {
+    const odoo = odooGia(500_000);
+    const kq = await taoDonNhap(
+      { odoo, conversationId: 'c', seq: 1, tranTien: 20_000_000 },
+      { khach_hang_id: 42, dong: [{ san_pham_id: 5, so_luong: 10 }] },  // 5 triệu
+    );
+
+    expect(kq.trangThai).not.toBe('loi');
+  });
+
+  it('KHÔNG truyền trần (luồng nhân viên) → không giới hạn', async () => {
+    // Nhân viên chịu trách nhiệm cho đơn mình lên, không cần trần.
+    const odoo = odooGia(500_000);
+    const kq = await taoDonNhap(
+      { odoo, conversationId: 'c', seq: 1 },
+      { khach_hang_id: 42, dong: [{ san_pham_id: 5, so_luong: 10_000 }] },  // 5 tỷ
+    );
+
+    expect(kq.trangThai).not.toBe('loi');
+  });
+});

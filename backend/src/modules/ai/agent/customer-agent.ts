@@ -21,6 +21,12 @@ import type { ToolCallLog } from './staff-agent.js';
 
 import type { OdooClient } from '../odoo/client.js';
 import {
+  taoKhachHang, taoKhachHangDefinition, dinhDangTaoKhach,
+} from '../odoo/tools/tao-khach-hang.js';
+import {
+  taoDonNhap, taoDonNhapDefinition, dinhDangTaoDon,
+} from '../odoo/tools/tao-don-nhap.js';
+import {
   traSanPham, traSanPhamDefinition, dinhDangSanPham,
 } from '../odoo/tools/tra-san-pham.js';
 import {
@@ -38,6 +44,13 @@ import { findImageForReply } from '../knowledge/product-image.js';
 export interface CustomerAgentDeps {
   odoo: OdooClient;
   generate: ToolAwareGenerate;
+  /** Cho khách tự chốt đơn. Thiếu → bot chỉ tư vấn, chuyển sale khi khách muốn mua. */
+  choKhachChotDon?: {
+    conversationId: string;
+    seq: number;
+    zaloUid?: string | null;
+    tranTien: number;
+  };
   ghiNhanChuyenSale: (yc: YeuCauChuyenSale) => Promise<void>;
   ghiLog?: (log: ToolCallLog) => Promise<void> | void;
   /** Tra tài liệu kỹ thuật. Không truyền thì tool `tra_tri_thuc` không đăng ký. */
@@ -65,6 +78,8 @@ export type CustomerAgentResult =
        * dù kho có 250 ảnh / 232 SP (bug thật 2026-08-02).
        */
       anhSanPham?: string;
+      /** Đơn vừa tạo (chỉ khi bật cho khách tự chốt) — caller gửi QR. */
+      don?: { donId: number; maDon: string; tongTien: number; tenKhach: string };
     }
   | { trangThai: 'chua_hoan_tat'; lyDo: string; log: ToolCallLog[]; usage: TurnUsage };
 
@@ -82,6 +97,23 @@ export type CustomerAgentResult =
 export function buildCustomerRegistry(deps: {
   odoo: OdooClient;
   ghiNhanChuyenSale: (yc: YeuCauChuyenSale) => Promise<void>;
+  /**
+   * Cho khách TỰ chốt đơn. Thiếu → hai tool ghi KHÔNG đăng ký (mặc định cũ).
+   *
+   * MỞ RANH GIỚI BẢO MẬT: khách điều khiển được câu chữ nên cũng điều khiển
+   * được việc ghi vào Odoo. Hàng rào phải nằm trong CODE, không phải prompt —
+   * khách lèo lái được prompt.
+   */
+  choKhachChotDon?: {
+    conversationId: string;
+    seq: number;
+    /** UID Zalo khách — khoá chống trùng khi tạo khách mới. */
+    zaloUid?: string | null;
+    /** Trần tiền một đơn. Vượt → chuyển sale. */
+    tranTien: number;
+    /** Nhận đơn vừa tạo — caller dùng để gửi hoá đơn + QR. */
+    nhanDon?: (don: { donId: number; maDon: string; tongTien: number; tenKhach: string }) => void;
+  };
   /** Tra tài liệu kỹ thuật. Không truyền thì tool không đăng ký. */
   timDoanTriThuc?: (cauHoi: string, soDoan: number) => Promise<Array<{ content: string; score?: number }>>;
 }): ToolRegistry {
@@ -126,6 +158,50 @@ export function buildCustomerRegistry(deps: {
     });
   }
 
+  // Hai tool GHI — chỉ đăng ký khi được bật rõ ràng. Không bật thì registry
+  // giữ nguyên như cũ: khách không chạm được vào việc ghi Odoo.
+  const chot = deps.choKhachChotDon;
+  if (chot) {
+    // Tên khách gần nhất — dùng làm nội dung chuyển khoản trên QR. Bám theo
+    // tool tạo khách vì đó là nơi duy nhất biết tên thật.
+    let tenKhachGanNhat = '';
+    r.register({
+      definition: taoKhachHangDefinition,
+      run: async (input) => {
+        const kq = await taoKhachHang(
+          { odoo, zaloUid: chot.zaloUid },
+          input as Parameters<typeof taoKhachHang>[1],
+        );
+        if (kq.trangThai === 'ok') tenKhachGanNhat = kq.khach.ten;
+        return dinhDangTaoKhach(kq);
+      },
+    }).register({
+      definition: taoDonNhapDefinition,
+      run: async (input) => {
+        const kq = await taoDonNhap(
+          {
+            odoo,
+            conversationId: chot.conversationId,
+            seq: chot.seq,
+            // Trần tiền: hàng rào THẬT chống đơn lớn bất thường. Khách gõ
+            // "lấy 1000 cuộn" ra 500 triệu — không ai duyệt (đo 2026-08-04).
+            tranTien: chot.tranTien,
+          },
+          input as Parameters<typeof taoDonNhap>[1],
+        );
+        // CHỈ báo đơn MỚI: 'da_ton_tai' nghĩa là khoá chống trùng đã bắt, gửi
+        // QR lần nữa là khách tưởng phải chuyển hai lần.
+        if (kq.trangThai === 'da_tao') {
+          chot.nhanDon?.({
+            donId: kq.donId, maDon: kq.maDon, tongTien: kq.tongTien,
+            tenKhach: tenKhachGanNhat,
+          });
+        }
+        return dinhDangTaoDon(kq);
+      },
+    });
+  }
+
   return r;
 }
 
@@ -135,7 +211,7 @@ export function buildCustomerRegistry(deps: {
  * Bố cục giống staff prompt (Markdown header, gạch đầu dòng ngắn) nhưng nội dung
  * khác hẳn: giọng bán hàng, và các ranh giới bảo vệ thông tin nội bộ.
  */
-export function buildCustomerSystemPrompt(bizName: string): string {
+export function buildCustomerSystemPrompt(bizName: string, tuChotDon = false): string {
   return [
     `Bạn là nhân viên tư vấn của ${bizName}, đang chat với KHÁCH HÀNG qua Zalo.`,
     '',
@@ -156,7 +232,14 @@ export function buildCustomerSystemPrompt(bizName: string): string {
     '  tra 5-6 lần là hết lượt và khách nhận im lặng. Không ra thì HỎI LẠI khách.',
     '- **SP chưa có giá** → KHÔNG nói "0đ". Thử lại ĐÚNG MỘT LẦN rộng hơn, không',
     '  ra thì `chuyen_sale` NGAY — tra 5-6 lần là hết lượt, khách nhận im lặng.',
-    '- Khách muốn MUA → dùng `chuyen_sale` để sale chốt đơn. Bot không tự lên đơn.',
+    ...(tuChotDon
+      ? [
+          '- **Khách chốt mua → TỰ LÊN ĐƠN.** Đủ SP + số lượng thì `tao_khach_hang`',
+          '  (nếu khách chưa có) rồi `tao_don_nhap` NGAY, đừng hỏi lại cho chắc.',
+          '  Thiếu tên khách → hỏi một câu rồi lên đơn. Đơn vượt trần tiền hoặc lỗi',
+          '  → `chuyen_sale`, đừng nói lý do kỹ thuật cho khách.',
+        ]
+      : ['- Khách muốn MUA → dùng `chuyen_sale` để sale chốt đơn. Bot không tự lên đơn.']),
     '',
     '## Khách hỏi còn hàng / muốn mua số lượng lớn',
     '',
@@ -228,12 +311,17 @@ export async function chayTuVanKhach(
     odoo: deps.odoo,
     ghiNhanChuyenSale: deps.ghiNhanChuyenSale,
     timDoanTriThuc: deps.timDoanTriThuc,
+    choKhachChotDon: deps.choKhachChotDon && {
+      ...deps.choKhachChotDon,
+      nhanDon: (d) => { donVuaTao = d; },
+    },
   });
 
   const log: ToolCallLog[] = [];
+  let donVuaTao: { donId: number; maDon: string; tongTien: number; tenKhach: string } | undefined;
 
   const kq = await runAgent({
-    system: buildCustomerSystemPrompt(input.bizName),
+    system: buildCustomerSystemPrompt(input.bizName, Boolean(deps.choKhachChotDon)),
     userMessage: ghepLichSu(input.history, input.message),
     tools: registry.definitions(),
     execute: registry.executor(),
@@ -277,5 +365,5 @@ export async function chayTuVanKhach(
   // (đòi khớp >=60% token tên + đúng mã model) — thà không gửi còn hơn gửi nhầm.
   const anhSanPham = findImageForReply(kq.text) ?? undefined;
 
-  return { trangThai: 'xong', traLoi: kq.text, log, usage: kq.usage, anhSanPham };
+  return { trangThai: 'xong', traLoi: kq.text, log, usage: kq.usage, anhSanPham, don: donVuaTao };
 }
