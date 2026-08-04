@@ -41,6 +41,9 @@ import {
   traKhachHang, traKhachHangDefinition, dinhDangKhachHang,
 } from '../odoo/tools/tra-khach-hang.js';
 import {
+  taoKhachHang, taoKhachHangDefinition, dinhDangTaoKhach,
+} from '../odoo/tools/tao-khach-hang.js';
+import {
   taoDonNhap, taoDonNhapDefinition, dinhDangTaoDon,
 } from '../odoo/tools/tao-don-nhap.js';
 import {
@@ -86,6 +89,8 @@ export interface ToolCallLog {
 export interface StaffAgentDeps {
   odoo: OdooClient;
   generate: ToolAwareGenerate;
+  /** UID Zalo khách đang chat — khoá chống trùng khi tạo khách mới. */
+  zaloUid?: string | null;
   /** Ghi nhận chuyển sale (gắn tag, mở nhóm). */
   ghiNhanChuyenSale: (yc: YeuCauChuyenSale) => Promise<void>;
   /** Quan trắc: ghi log mỗi lần gọi tool. Lỗi ở đây bị nuốt. */
@@ -172,6 +177,8 @@ export function buildStaffRegistry(deps: {
   odoo: OdooClient;
   conversationId: string;
   seq: number;
+  /** UID Zalo khách đang chat — khoá chống trùng khi tạo khách mới. */
+  zaloUid?: string | null;
   ghiNhanChuyenSale: (yc: YeuCauChuyenSale) => Promise<void>;
   /** Render ảnh hóa đơn. Không có thì tool gui_hoa_don KHÔNG được đăng ký. */
   anhClient?: HoaDonAnhClient;
@@ -229,6 +236,16 @@ export function buildStaffRegistry(deps: {
       definition: traKhachHangDefinition,
       run: async (input) =>
         dinhDangKhachHang(await traKhachHang({ odoo }, input as { sdt: string })),
+    })
+    .register({
+      definition: taoKhachHangDefinition,
+      run: async (input) =>
+        dinhDangTaoKhach(
+          await taoKhachHang(
+            { odoo, zaloUid: deps.zaloUid },
+            input as Parameters<typeof taoKhachHang>[1],
+          ),
+        ),
     })
     .register({
       definition: taoDonNhapDefinition,
@@ -318,6 +335,7 @@ export async function chayLenhNhanVien(
   let hoaDon: KetQuaGuiHoaDon | undefined;
 
   const registry = buildStaffRegistry({
+    zaloUid: deps.zaloUid,
     odoo: deps.odoo,
     conversationId: input.conversationId,
     seq: input.seq,

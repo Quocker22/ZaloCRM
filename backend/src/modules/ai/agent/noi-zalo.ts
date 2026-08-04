@@ -45,6 +45,22 @@ const prismaLog = prisma as unknown as PrismaGhiLog;
 /** Số tin lịch sử nạp vào ngữ cảnh — đủ để hiểu "cái đó", không phình prompt. */
 const SO_TIN_LICH_SU = 10;
 
+/**
+ * Tin này có phải LỆNH NHÂN VIÊN không — dùng để luồng khách biết mà tránh.
+ *
+ * Cả hai luồng chạy nền (`void`) nên không chờ nhau được. Không có hàm này thì
+ * nhân viên gõ `@bot ...` từ nick cá nhân sẽ kích hoạt CẢ HAI: agent trả lời
+ * một câu, RAG trả lời một câu khác — khách thấy cả hai.
+ */
+export function laLenhNhanVien(input: {
+  content: string;
+  isSelf: boolean;
+  senderUid?: string | null;
+}): boolean {
+  if (!batLuongNhanVien() || !duCauHinh()) return false;
+  return nhanDienLenhNhanVien(input) !== null;
+}
+
 export function batLuongNhanVien(): boolean {
   return process.env.AI_AGENT_NHANVIEN === '1';
 }
@@ -131,6 +147,8 @@ interface DichGui {
   accountId: string;
   threadId: string;
   threadType: 0 | 1;
+  /** UID Zalo của khách trong hội thoại — khoá chống trùng khi tạo khách Odoo. */
+  zaloUid: string | null;
 }
 
 /** Tra đích gửi từ conversationId. Không đủ dữ liệu → null, caller bỏ qua. */
@@ -150,6 +168,7 @@ async function timDich(conversationId: string): Promise<DichGui | null> {
     accountId: c.zaloAccountId,
     threadId,
     threadType: c.threadType === 'group' ? 1 : 0,
+    zaloUid: c.contact?.zaloUid ?? null,
   };
 }
 
@@ -225,6 +244,10 @@ export interface NgữCanhTin {
   conversationId: string;
   messageId: string;
   content: string;
+  /** UID Zalo người gửi — để nhận nhân viên gõ từ nick cá nhân. */
+  senderUid?: string | null;
+  /** true khi tin do chính nick shop gửi. */
+  isSelf?: boolean;
 }
 
 /**
@@ -235,7 +258,11 @@ export interface NgữCanhTin {
 export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
   if (!batLuongNhanVien() || !duCauHinh()) return false;
   // CỔNG RẺ: không tag @bot thì không dựng registry, không gọi LLM.
-  if (!nhanDienLenhNhanVien({ content: ctx.content, isSelf: true })) return false;
+  if (!nhanDienLenhNhanVien({
+    content: ctx.content,
+    isSelf: ctx.isSelf ?? true,
+    senderUid: ctx.senderUid,
+  })) return false;
 
   const dich = await timDich(ctx.conversationId);
   if (!dich) {
@@ -261,6 +288,7 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
       {
         odoo: layOdoo(),
         generate,
+        zaloUid: dich.zaloUid,
         ghiNhanChuyenSale: async (yc) => {
           logger.info({ lyDo: yc.lyDo, conversationId: ctx.conversationId }, '[agent] chuyển sale');
         },
@@ -273,7 +301,7 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
         bizName: ctx.bizName,
         conversationId: ctx.conversationId,
         seq: seqTuMessageId(ctx.messageId),
-        message: { content: ctx.content, isSelf: true },
+        message: { content: ctx.content, isSelf: true },  // đã qua cổng ở trên
         history: lichSu.map((m) => ({
           vai: m.senderType === 'self' ? ('nhanvien' as const) : ('bot' as const),
           noiDung: m.content,

@@ -1,0 +1,157 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Tool GHI: tạo khách hàng mới trong Odoo từ thông tin Zalo.
+//
+// VÌ SAO CÓ TOOL NÀY (anh chốt 2026-08-04): bot phải tự lên đơn cho khách nhắn
+// Zalo, kể cả khách CHƯA có trong Odoo. Trước đây `tra_khach_hang` không thấy
+// thì báo nhân viên — khách mới là không lên đơn được.
+//
+// NHƯNG khách trùng là RÁC VĨNH VIỄN: đối chiếu công nợ sau này sẽ sai, và
+// không ai đi gộp thủ công 3000 khách. Nên tool này chống trùng ba lớp:
+//   1. Tra theo UID Zalo (`ref` = "zalo:<uid>") — khoá chắc chắn nhất, một
+//      người Zalo chỉ tạo được đúng một khách.
+//   2. Tra theo SĐT nếu có (dùng lại `bienTheSdt` vì DB lưu không chuẩn hoá).
+//   3. Tra theo TÊN CHÍNH XÁC (không phải "chứa") — trùng thì trả khách cũ.
+//
+// Tìm thấy ở bất kỳ lớp nào → TRẢ KHÁCH CŨ, không tạo mới. Gọi lại nhiều lần
+// với cùng UID là an toàn.
+import type { OdooClient } from '../client.js';
+import type { ToolDefinition } from '../../agent/types.js';
+import { bienTheSdt } from './tra-khach-hang.js';
+
+/** Tiền tố `ref` đánh dấu khách do bot tạo — nhân viên lọc ra để bổ sung sau. */
+export const TIEN_TO_REF = 'zalo:';
+
+export interface KhachMoi {
+  id: number;
+  ten: string;
+  ma: string | null;
+  daCo: boolean;
+}
+
+export type KetQuaTaoKhach =
+  | { trangThai: 'ok'; khach: KhachMoi }
+  | { trangThai: 'loi'; lyDo: string };
+
+export interface TaoKhachDeps {
+  odoo: Pick<OdooClient, 'searchRead' | 'execute'>;
+  /** UID Zalo của người đang chat — khoá chống trùng chắc nhất. */
+  zaloUid?: string | null;
+}
+
+const FIELDS = ['id', 'name', 'ref'];
+
+function chuanHoaTen(s: string): string {
+  return s.trim().replace(/\s+/g, ' ');
+}
+
+/**
+ * Tạo khách mới, hoặc trả khách đã có nếu tìm được.
+ *
+ * KHÔNG ném khi trùng — trả `daCo: true` để model biết mà dùng tiếp, thay vì
+ * coi là lỗi rồi chuyển sale.
+ */
+export async function taoKhachHang(
+  deps: TaoKhachDeps,
+  input: { ten: string; dien_thoai?: string; dia_chi?: string },
+): Promise<KetQuaTaoKhach> {
+  const ten = chuanHoaTen(input.ten ?? '');
+  if (!ten) return { trangThai: 'loi', lyDo: 'Thiếu tên khách. Hỏi khách tên để lưu đơn.' };
+  // Tên một ký tự gần như luôn là gõ nhầm, và tạo ra rác không tra lại được.
+  if (ten.length < 2) return { trangThai: 'loi', lyDo: 'Tên khách quá ngắn, hỏi lại cho rõ.' };
+
+  const ref = deps.zaloUid ? `${TIEN_TO_REF}${deps.zaloUid}` : null;
+
+  // ── Lớp 1: UID Zalo ───────────────────────────────────────────────────────
+  if (ref) {
+    const cu = await deps.odoo.searchRead<{ id: number; name: string; ref: string | null }>(
+      'res.partner', [['ref', '=', ref]], FIELDS, { limit: 1 },
+    );
+    if (cu[0]) {
+      return { trangThai: 'ok', khach: { id: cu[0].id, ten: cu[0].name, ma: cu[0].ref, daCo: true } };
+    }
+  }
+
+  // ── Lớp 2: số điện thoại ──────────────────────────────────────────────────
+  const sdt = (input.dien_thoai ?? '').trim();
+  if (sdt) {
+    const dang = bienTheSdt(sdt);
+    if (dang.length > 0) {
+      const cu = await deps.odoo.searchRead<{ id: number; name: string; ref: string | null }>(
+        'res.partner',
+        ['|', ['phone', 'in', dang], ['mobile', 'in', dang]],
+        FIELDS,
+        { limit: 1 },
+      );
+      if (cu[0]) {
+        return { trangThai: 'ok', khach: { id: cu[0].id, ten: cu[0].name, ma: cu[0].ref, daCo: true } };
+      }
+    }
+  }
+
+  // ── Lớp 3: tên CHÍNH XÁC ──────────────────────────────────────────────────
+  // Dùng '=' chứ KHÔNG phải 'ilike': đo thật 2026-08-02 khi thử gộp khách trùng,
+  // so khớp "chứa" bắt nhầm "Chị Lan" với "Chị Lan (cũ)" — hai người khác nhau.
+  const trungTen = await deps.odoo.searchRead<{ id: number; name: string; ref: string | null }>(
+    'res.partner', [['name', '=', ten], ['customer_rank', '>', 0]], FIELDS, { limit: 2 },
+  );
+  if (trungTen.length === 1) {
+    return { trangThai: 'ok', khach: { id: trungTen[0].id, ten: trungTen[0].name, ma: trungTen[0].ref, daCo: true } };
+  }
+  if (trungTen.length > 1) {
+    // Nhiều người cùng tên y hệt — tạo thêm chỉ tổ rối. Để nhân viên chọn.
+    return {
+      trangThai: 'loi',
+      lyDo: `Có ${trungTen.length} khách tên "${ten}" trong hệ thống. Dùng tra_khach_hang để chọn đúng người, đừng tạo mới.`,
+    };
+  }
+
+  // ── Tạo mới ───────────────────────────────────────────────────────────────
+  const data: Record<string, unknown> = {
+    name: ten,
+    customer_rank: 1,
+    // Không đặt company_type: mặc định 'person' — khách Zalo là cá nhân/shop nhỏ.
+  };
+  if (ref) data.ref = ref;
+  if (sdt) data.phone = sdt;
+  const diaChi = (input.dia_chi ?? '').trim();
+  if (diaChi) data.street = diaChi;
+
+  try {
+    const id = await deps.odoo.execute<number>('res.partner', 'create', [data], {});
+    if (!Number.isInteger(id) || id <= 0) {
+      return { trangThai: 'loi', lyDo: 'Odoo không trả id khách sau khi tạo.' };
+    }
+    return { trangThai: 'ok', khach: { id, ten, ma: ref, daCo: false } };
+  } catch (err) {
+    return {
+      trangThai: 'loi',
+      lyDo: `Không tạo được khách: ${err instanceof Error ? err.message.slice(0, 120) : 'lỗi Odoo'}`,
+    };
+  }
+}
+
+export function dinhDangTaoKhach(kq: KetQuaTaoKhach): string {
+  if (kq.trangThai === 'loi') return `KHÔNG TẠO ĐƯỢC: ${kq.lyDo}`;
+  const k = kq.khach;
+  return k.daCo
+    ? `Khách ĐÃ CÓ trong hệ thống: ${k.ten} (id ${k.id}${k.ma ? `, mã ${k.ma}` : ''}). Dùng id này để lên đơn, KHÔNG tạo thêm.`
+    : `Đã tạo khách mới: ${k.ten} (id ${k.id}${k.ma ? `, mã ${k.ma}` : ''}). Dùng id này để lên đơn.`;
+}
+
+export const taoKhachHangDefinition: ToolDefinition = {
+  name: 'tao_khach_hang',
+  description:
+    'GỌI KHI cần lên đơn cho khách CHƯA có trong hệ thống (tra_khach_hang không thấy). ' +
+    'Tự chống trùng: khách đã tồn tại thì trả về khách cũ, không tạo thêm. ' +
+    'Chỉ cần TÊN; số điện thoại và địa chỉ có thì tốt, không có vẫn tạo được.',
+  mutates: true,
+  inputSchema: {
+    type: 'object',
+    properties: {
+      ten: { type: 'string', description: 'Tên khách. Lấy tên Zalo nếu khách không tự xưng.' },
+      dien_thoai: { type: 'string', description: 'SĐT nếu khách có cho. Bỏ trống nếu chưa biết.' },
+      dia_chi: { type: 'string', description: 'Địa chỉ giao hàng nếu khách có nói.' },
+    },
+    required: ['ten'],
+  },
+};

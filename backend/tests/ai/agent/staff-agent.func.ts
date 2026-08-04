@@ -51,7 +51,7 @@ const input = (over: Record<string, unknown> = {}) => ({
 });
 
 describe('buildStaffRegistry', () => {
-  it('đăng ký đủ 11 tool', () => {
+  it('đăng ký đủ 12 tool', () => {
     const r = buildStaffRegistry({
       odoo: fakeOdoo(),
       conversationId: 'c',
@@ -66,6 +66,7 @@ describe('buildStaffRegistry', () => {
       'chuyen_sale',
       'sua_chiet_khau',
       'tao_don_nhap',
+      'tao_khach_hang',
       'tra_danh_muc',
       'tra_khach_hang',
       'tra_san_pham',
@@ -74,7 +75,7 @@ describe('buildStaffRegistry', () => {
     ]);
   });
 
-  it('chỉ tao_don_nhap và chuyen_sale được đánh dấu ghi', () => {
+  it('bốn tool GHI: chuyen_sale, sua_chiet_khau, tao_don_nhap, tao_khach_hang', () => {
     const r = buildStaffRegistry({
       odoo: fakeOdoo(),
       conversationId: 'c',
@@ -83,8 +84,9 @@ describe('buildStaffRegistry', () => {
     });
 
     const ghi = r.definitions().filter((d) => d.mutates).map((d) => d.name);
-    // sua_chiet_khau thêm 2026-08-01 — tool GHI thứ ba, sửa đơn đã tạo.
-    expect(ghi.sort()).toEqual(['chuyen_sale', 'sua_chiet_khau', 'tao_don_nhap']);
+    // sua_chiet_khau thêm 2026-08-01 (sửa đơn đã tạo); tao_khach_hang thêm
+    // 2026-08-04 để bot lên đơn được cho khách Zalo chưa có trong Odoo.
+    expect(ghi.sort()).toEqual(['chuyen_sale', 'sua_chiet_khau', 'tao_don_nhap', 'tao_khach_hang']);
   });
 });
 
@@ -124,11 +126,11 @@ describe('chayLenhNhanVien — chạy vòng lặp', () => {
     expect(msg).toContain('tra giá P10');
   });
 
-  it('gửi đủ 11 tool cho LLM', async () => {
+  it('gửi đủ 12 tool cho LLM', async () => {
     const generate = fakeLLM([turnXong('ok')]);
     await chayLenhNhanVien(deps({ generate }), input());
 
-    expect(generate.mock.calls[0][0].tools).toHaveLength(11);
+    expect(generate.mock.calls[0][0].tools).toHaveLength(12);
   });
 
   it('system prompt là prompt NHÂN VIÊN, không phải prompt khách', async () => {

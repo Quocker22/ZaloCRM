@@ -64,11 +64,34 @@ function boDau(s: string): string {
 }
 
 /**
+ * UID Zalo được coi là nhân viên dù tin đến từ nick khác.
+ *
+ * VÌ SAO CẦN (2026-08-04): nhân viên hay gõ lệnh từ nick Zalo CÁ NHÂN của mình
+ * nhắn tới nick shop — với hệ thống đó là `senderType='contact'`, tức tin KHÁCH,
+ * nên agent không chạy. Đo thật: cả 3 lệnh `@bot` đầu tiên đều bị bỏ qua vì lý
+ * do này.
+ *
+ * ĐÂY LÀ NỚI LỎNG RANH GIỚI BẢO MẬT. Mặc định TẮT (biến trống). Bật rồi thì bất
+ * kỳ ai chiếm được nick trong danh sách đều ghi được vào Odoo — chỉ liệt kê UID
+ * của nhân viên thật, đừng thêm UID khách.
+ */
+function uidNhanVien(env: NodeJS.ProcessEnv = process.env): Set<string> {
+  return new Set(
+    (env.AI_AGENT_UID_NHANVIEN ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
+}
+
+/**
  * Có phải lệnh nhân viên tag bot không?
  *
- * HAI cổng code (không phải ba như trước):
- *   1. `isSelf === true` — ranh giới BẢO MẬT. Không bao giờ để LLM quyết.
- *   2. Có tag gọi bot   — ranh giới CHI PHÍ. Không tag thì không tốn token.
+ * HAI cổng code:
+ *   1. Người gửi là nhân viên — ranh giới BẢO MẬT. Không bao giờ để LLM quyết.
+ *      Đạt khi `isSelf` (nick shop tự gõ) HOẶC `senderUid` nằm trong danh sách
+ *      `AI_AGENT_UID_NHANVIEN`.
+ *   2. Có tag gọi bot — ranh giới CHI PHÍ. Không tag thì không tốn token.
  *
  * Việc "lệnh này là gì, làm sao thực hiện" → MODEL tự quyết bằng tool.
  *
@@ -77,9 +100,16 @@ function boDau(s: string): string {
 export function nhanDienLenhNhanVien(input: {
   content: string;
   isSelf: boolean;
+  /** UID Zalo người gửi. Thiếu → chỉ `isSelf` mới qua cổng. */
+  senderUid?: string | null;
+  env?: NodeJS.ProcessEnv;
 }): LenhNhanVien | null {
-  // Cổng 1 — BẢO MẬT. Tin khách không bao giờ chạm được luồng có quyền ghi.
-  if (!input.isSelf) return null;
+  // Cổng 1 — BẢO MẬT. Tin khách không bao giờ chạm được luồng có quyền ghi,
+  // TRỪ KHI UID người gửi được khai báo là nhân viên.
+  const laNhanVien =
+    input.isSelf ||
+    (Boolean(input.senderUid) && uidNhanVien(input.env).has(String(input.senderUid)));
+  if (!laNhanVien) return null;
 
   const goc = (input.content ?? '').trim();
   if (!goc) return null;
@@ -148,7 +178,8 @@ export function buildStaffSystemPrompt(bizName: string): string {
     '',
     '## Ranh giới',
     '',
-    '- Không thấy khách → thử `ten`. Vẫn không → báo nhân viên, KHÔNG tự tạo.',
+    '- Không thấy khách → thử `ten`. Vẫn không → `tao_khach_hang` (chỉ cần tên,',
+    '  tự chống trùng) rồi lên đơn luôn. KHÔNG chuyển sale chỉ vì khách mới.',
     '- Nhiều khách trùng → LIỆT KÊ cho nhân viên chọn.',
     '- SP chưa có giá → KHÔNG báo 0đ. Thử tra rộng hơn tìm SP tương tự CÓ giá,',
     '  đưa lựa chọn cho nhân viên. Chỉ chuyển sale khi hết cách.',

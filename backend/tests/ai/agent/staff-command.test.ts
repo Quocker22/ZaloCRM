@@ -114,8 +114,13 @@ describe('buildStaffSystemPrompt', () => {
     expect(buildStaffSystemPrompt('X')).toContain('Chỉ chuyển sale khi HỎI RỒI');
   });
 
-  it('cấm tự tạo khách', () => {
-    expect(buildStaffSystemPrompt('X')).toContain('KHÔNG tự tạo');
+  it('khách MỚI → tạo rồi lên đơn, KHÔNG chuyển sale', () => {
+    // Anh đổi quyết định 2026-08-04: bot phải tự lên đơn cho khách Zalo chưa
+    // có trong Odoo. Trước đây prompt cấm tạo khách nên khách mới là bế tắc.
+    const p = buildStaffSystemPrompt('X');
+
+    expect(p).toContain('tao_khach_hang');
+    expect(p).toContain('KHÔNG chuyển sale chỉ vì khách mới');
   });
 
   it('nói rõ đơn vị khác nhau KHÔNG phải lý do chuyển sale', () => {
@@ -222,5 +227,55 @@ describe('Tag phải ở RANH GIỚI TỪ — không lọt giữa chữ', () => 
   it('tag giữa câu vẫn nhận, miễn có khoảng trắng hai bên', () => {
     expect(nhanDienLenhNhanVien({ content: 'anh @bot xem giúp', isSelf: true })?.noiDung)
       .toBe('anh  xem giúp');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('Cổng UID nhân viên — nới lỏng ranh giới bảo mật có kiểm soát', () => {
+  // Bug thật 2026-08-04: nhân viên gõ "@bot lên đơn cho khách đi" từ nick Zalo
+  // CÁ NHÂN nhắn tới nick shop. Tin đó là senderType='contact' (isSelf=false)
+  // nên agent KHÔNG chạy — cả 3 lệnh đầu tiên đều rơi vào im lặng.
+  const env = (uid: string) => ({ AI_AGENT_UID_NHANVIEN: uid }) as NodeJS.ProcessEnv;
+
+  it('tin KHÁCH + UID trong danh sách → QUA cổng', () => {
+    const r = nhanDienLenhNhanVien({
+      content: '@bot lên đơn cho khách đi', isSelf: false,
+      senderUid: '123456', env: env('123456'),
+    });
+
+    expect(r?.noiDung).toBe('lên đơn cho khách đi');
+  });
+
+  it('tin KHÁCH + UID KHÔNG trong danh sách → CHẶN', () => {
+    // Đây là ca quan trọng nhất: khách thật gõ "@bot lên đơn" không được
+    // chiếm quyền ghi Odoo.
+    expect(nhanDienLenhNhanVien({
+      content: '@bot lên đơn 1000 cuộn', isSelf: false,
+      senderUid: '999999', env: env('123456'),
+    })).toBeNull();
+  });
+
+  it('danh sách TRỐNG → mọi tin khách đều bị chặn (mặc định an toàn)', () => {
+    expect(nhanDienLenhNhanVien({
+      content: '@bot lên đơn', isSelf: false, senderUid: '123456', env: {} as NodeJS.ProcessEnv,
+    })).toBeNull();
+  });
+
+  it('nhiều UID phân tách bằng dấu phẩy, bỏ khoảng trắng thừa', () => {
+    const e = env(' 111 , 222,333 ');
+    for (const uid of ['111', '222', '333']) {
+      expect(nhanDienLenhNhanVien({ content: '@bot test', isSelf: false, senderUid: uid, env: e })).not.toBeNull();
+    }
+    expect(nhanDienLenhNhanVien({ content: '@bot test', isSelf: false, senderUid: '444', env: e })).toBeNull();
+  });
+
+  it('isSelf vẫn qua cổng dù KHÔNG có senderUid', () => {
+    expect(nhanDienLenhNhanVien({ content: '@bot test', isSelf: true })).not.toBeNull();
+  });
+
+  it('UID đúng nhưng KHÔNG tag bot → vẫn im (cổng chi phí)', () => {
+    expect(nhanDienLenhNhanVien({
+      content: 'dạ em gửi anh bảng giá', isSelf: false, senderUid: '123456', env: env('123456'),
+    })).toBeNull();
   });
 });

@@ -12,7 +12,7 @@ import { randomUUID } from 'node:crypto';
 import { emitWebhook } from '../api/webhook-service.js';
 import { runAutomationRules } from '../../shared/ee-registry/automation.js';
 import { runAutoReplyForMessage } from '../ai/knowledge/auto-reply-wiring.js';
-import { xuLyTinNhanVien, xuLyTinKhach } from '../ai/agent/noi-zalo.js';
+import { xuLyTinNhanVien, xuLyTinKhach, laLenhNhanVien } from '../ai/agent/noi-zalo.js';
 import { automationEventBus } from '../../shared/ee-registry/event-bus.js';
 import { applyContactAggregateFromMessage, applyContactInteraction, applyFriendAggregate } from '../contacts/contact-aggregate.js';
 import { followMergedInto } from '../contacts/resolve-contact.js';
@@ -644,7 +644,11 @@ export async function handleIncomingMessage(
     // Nằm NGOÀI khối `!msg.isSelf` bên dưới vì tin nhân viên có isSelf=true.
     // Fire-and-forget: agent chạy 3-8s, chờ nó là chặn cả pipeline inbound.
     // Mặc định TẮT (cần AI_AGENT_NHANVIEN=1) — xem ai/agent/noi-zalo.ts.
-    if (msg.isSelf && message.contentType === 'text' && message.content) {
+    // KHÔNG lọc `msg.isSelf` ở đây nữa: nhân viên hay gõ lệnh từ nick Zalo CÁ
+    // NHÂN nhắn tới nick shop — tin đó là `contact`, isSelf=false. Cổng bảo mật
+    // nằm trong `nhanDienLenhNhanVien` (isSelf HOẶC UID trong danh sách nhân
+    // viên), không phải ở đây.
+    if (message.contentType === 'text' && message.content) {
       const noiDung = message.content;
       void (async () => {
         try {
@@ -658,6 +662,8 @@ export async function handleIncomingMessage(
             conversationId: conversation.id,
             messageId: message.id,
             content: noiDung,
+            senderUid: msg.senderUid,
+            isSelf: msg.isSelf,
           });
         } catch (err) {
           logger.warn({ err }, '[agent] luồng nhân viên lỗi (bỏ qua)');
@@ -715,6 +721,12 @@ export async function handleIncomingMessage(
         // (tắt công tắc, thiếu cấu hình, hoặc agent lỗi) → RAG chạy như cũ.
         // Mặc định TẮT (cần AI_AGENT_KHACH=1).
         void (async () => {
+          // Lệnh nhân viên (@bot) đã do agent nhân viên xử lý ở nhánh trên —
+          // luồng khách phải TRÁNH, nếu không khách nhận hai câu trả lời.
+          if (laLenhNhanVien({
+            content: message.content ?? '', isSelf: msg.isSelf, senderUid: msg.senderUid,
+          })) return;
+
           const agentDaTraLoi = await xuLyTinKhach({
             orgId: account.orgId,
             bizName: org?.aiBizName || org?.name || '',
