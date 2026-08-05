@@ -3,6 +3,7 @@
  * Verify allowlist deny-by-default + audit bot.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describeCanDb } from '../helpers/can-db.js';
 import {
   assertAiCapability,
   auditAiAction,
@@ -25,7 +26,7 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-describe('ai-capabilities', () => {
+describeCanDb('ai-capabilities', () => {
   it('hành động trong allowlist -> pass', () => {
     expect(assertAiCapability('save_ai_message')).toEqual({ requireApproval: false });
     expect(() => assertAiCapability('generate_reply')).not.toThrow();

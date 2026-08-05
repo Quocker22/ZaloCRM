@@ -7,6 +7,7 @@
  * Yêu cầu DATABASE_URL trỏ DB test (xem plans/.../plan.md). Skip nếu không có DB.
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describeCanDb } from '../helpers/can-db.js';
 import { prisma } from '../../src/shared/database/prisma-client.js';
 import { config } from '../../src/config/index.js';
 import {
@@ -49,7 +50,7 @@ beforeEach(async () => {
   config.refreshGraceMs = 20000; // reset về default mỗi test
 });
 
-describe('refresh-token-service', () => {
+describeCanDb('refresh-token-service', () => {
   it('issue + rotate (happy): token mới cùng family, token cũ đánh dấu usedAt', async () => {
     const t1 = await issueRefreshToken(USER_ID);
     const t2 = await rotateRefreshToken(t1.token);

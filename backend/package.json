@@ -13,6 +13,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
     "test": "vitest run",
+    "test:db": "CO_DB_TEST=1 vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:func": "vitest run --config vitest.func.config.ts",

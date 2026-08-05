@@ -6,6 +6,7 @@
  * 7d token vẫn dùng được (4A).
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describeCanDb } from '../helpers/can-db.js';
 import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyJwt from '@fastify/jwt';
 import bcrypt from 'bcryptjs';
@@ -49,7 +50,7 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-describe('auth flow (Phase 2)', () => {
+describeCanDb('auth flow (Phase 2)', () => {
   it('login trả access (typ:access) + refresh', async () => {
     const app = await buildApp();
     const res = await app.inject({

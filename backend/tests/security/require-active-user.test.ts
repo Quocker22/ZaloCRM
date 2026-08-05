@@ -4,6 +4,7 @@
  * bị chặn 401; user active pass.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describeCanDb } from '../helpers/can-db.js';
 import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyJwt from '@fastify/jwt';
 import { authMiddleware, requireActiveUser } from '../../src/modules/auth/auth-middleware.js';
@@ -41,7 +42,7 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-describe('requireActiveUser (C1)', () => {
+describeCanDb('requireActiveUser (C1)', () => {
   it('user active + access token -> 200', async () => {
     const app = await buildApp();
     const res = await app.inject({ method: 'GET', url: '/sensitive', headers: { authorization: `Bearer ${sign(app, ACTIVE_ID)}` } });

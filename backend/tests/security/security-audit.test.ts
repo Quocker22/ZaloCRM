@@ -4,6 +4,7 @@
  * trong rotateRefreshToken sinh row refresh_reuse (category security).
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describeCanDb } from '../helpers/can-db.js';
 import { prisma } from '../../src/shared/database/prisma-client.js';
 import { config } from '../../src/config/index.js';
 import { auditSecurityCritical } from '../../src/modules/auth/security-audit.js';
@@ -36,7 +37,7 @@ beforeEach(async () => {
   await prisma.refreshToken.deleteMany({ where: { userId: USER_ID } });
 });
 
-describe('security-audit', () => {
+describeCanDb('security-audit', () => {
   it('auditSecurityCritical ghi durable row (category security, resolve orgId từ userId)', async () => {
     await auditSecurityCritical({ action: 'password_change', userId: USER_ID });
     const rows = await prisma.activityLog.findMany({ where: { userId: USER_ID, action: 'password_change' } });
