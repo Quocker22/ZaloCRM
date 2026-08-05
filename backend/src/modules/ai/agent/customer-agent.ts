@@ -211,6 +211,22 @@ export function buildCustomerRegistry(deps: {
  * Bố cục giống staff prompt (Markdown header, gạch đầu dòng ngắn) nhưng nội dung
  * khác hẳn: giọng bán hàng, và các ranh giới bảo vệ thông tin nội bộ.
  */
+/**
+ * Câu trả lời có KHOE đã lên đơn / gửi đơn không?
+ *
+ * Chỉ bắt lời khẳng định ĐÃ LÀM XONG. Không bắt câu hỏi ("anh muốn lên đơn
+ * chứ?") hay lời hứa ("em lên đơn ngay đây ạ") — hai loại đó vô hại.
+ */
+export function khoeDaLenDon(traLoi: string): boolean {
+  const t = traLoi.toLowerCase();
+  const daLam = [
+    'đã tạo đơn', 'đã lên đơn', 'đã gửi đơn', 'đã chốt đơn', 'đã đặt đơn',
+    'đơn đã được tạo', 'đơn của anh đã', 'đơn của chị đã', 'in đơn cho',
+    'đã lưu đơn', 'đã ghi nhận đơn',
+  ];
+  return daLam.some((c) => t.includes(c));
+}
+
 export function buildCustomerSystemPrompt(bizName: string, tuChotDon = false): string {
   return [
     `Bạn là nhân viên tư vấn của ${bizName}, đang chat với KHÁCH HÀNG qua Zalo.`,
@@ -377,6 +393,24 @@ export async function chayTuVanKhach(
     return {
       trangThai: 'chua_hoan_tat',
       lyDo: 'Model trả câu rỗng sau khi gọi tool.',
+      log,
+      usage: kq.usage,
+    };
+  }
+
+  // HÀNG RÀO CHỐNG BỊA: bot KHÔNG được nói "đã lên đơn" khi chưa gọi tool.
+  //
+  // Bug thật 2026-08-05, nặng nhất từ trước tới nay: khách chốt 100 cái Nguồn
+  // ATX 12V400W, bot đáp "In đơn cho anh", "em đã tạo đơn mới", "em đã gửi đơn
+  // mới cho anh rồi ạ" — BỐN LẦN. Kiểm Odoo: 0 đơn. Log tool: không hề gọi
+  // tao_khach_hang hay tao_don_nhap.
+  //
+  // Prompt đã dặn rõ nhưng model vẫn bịa. Hàng rào phải nằm ở CODE — khách tin
+  // là đơn đã lên rồi ngồi chờ hàng, không ai biết để xử lý.
+  if (!donVuaTao && khoeDaLenDon(traLoi)) {
+    return {
+      trangThai: 'chua_hoan_tat',
+      lyDo: 'Model nói đã lên đơn nhưng KHÔNG gọi tao_don_nhap — chặn để khỏi lừa khách.',
       log,
       usage: kq.usage,
     };

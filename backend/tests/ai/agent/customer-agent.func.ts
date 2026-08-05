@@ -5,6 +5,7 @@
 // tồn theo kho, công nợ — và KHÔNG được tự tạo đơn (sale phải chốt).
 import { describe, it, expect, vi } from 'vitest';
 import {
+  khoeDaLenDon,
   chayTuVanKhach,
   buildCustomerRegistry,
   buildCustomerSystemPrompt,
@@ -423,5 +424,53 @@ describe('Câu trả lời RỖNG → chưa hoàn tất, KHÔNG trả "xong"', (
     );
 
     if (kq.trangThai === 'xong') expect(kq.traLoi).toBe('Dạ còn hàng ạ.');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('CHỐNG BỊA: không được nói "đã lên đơn" khi chưa gọi tool', () => {
+  // Bug thật 2026-08-05, nặng nhất từ trước tới nay: khách chốt 100 cái Nguồn
+  // ATX 12V400W (19.500.000đ), bot đáp "In đơn cho anh", "em đã tạo đơn mới",
+  // "em đã gửi đơn mới cho anh rồi ạ" — BỐN LẦN.
+  //
+  // Kiểm Odoo: 0 đơn. Log tool: không hề gọi tao_khach_hang hay tao_don_nhap.
+  // Khách tin đơn đã lên rồi ngồi chờ hàng, không ai biết để xử lý.
+  it.each([
+    'Dạ anh Viết Quốc, em đã tạo đơn mới cho anh.',
+    'Dạ anh Viết Quốc, em đã gửi đơn mới cho anh rồi ạ.',
+    'In đơn cho anh Viết Quốc ạ.',
+    'Em đã lên đơn 100 cái cho anh nhé',
+    'Đơn của anh đã được ghi nhận ạ',
+  ])('BẮT lời khoe đã làm: %j', (c) => {
+    expect(khoeDaLenDon(c)).toBe(true);
+  });
+
+  it.each([
+    'Anh muốn em lên đơn luôn không ạ?',
+    'Em lên đơn ngay cho anh đây ạ',
+    'Dạ nguồn ATX 12V400W giá 195.000đ ạ',
+    'Anh cần thêm sản phẩm nào không ạ?',
+    'Để em lên đơn cho mình nhé',
+  ])('KHÔNG bắt câu hỏi / lời hứa: %j', (c) => {
+    // Hỏi và hứa đều vô hại — chặn chúng là làm bot câm.
+    expect(khoeDaLenDon(c)).toBe(false);
+  });
+
+  it('nói đã lên đơn mà KHÔNG gọi tool → chua_hoan_tat', async () => {
+    const odoo = { searchRead: vi.fn(async () => []), execute: vi.fn() } as unknown as OdooClient;
+    const generate = vi.fn(async () => ({
+      text: 'Dạ em đã tạo đơn mới cho anh rồi ạ.', toolCalls: [],
+      stopReason: 'end_turn' as const, raw: [], usage: { inputTokens: 1, outputTokens: 9 },
+    }));
+
+    const kq = await chayTuVanKhach(
+      {
+        odoo, generate, ghiNhanChuyenSale: async () => {},
+        choKhachChotDon: { conversationId: 'c', seq: 1, tranTien: 20_000_000 },
+      },
+      { bizName: 'X', message: 'lên đơn cho tôi đi' },
+    );
+
+    expect(kq.trangThai).toBe('chua_hoan_tat');
   });
 });
