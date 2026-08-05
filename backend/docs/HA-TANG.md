@@ -22,12 +22,21 @@ Máy 1 và 2 cùng LAN `192.168.18.x`, cách nhau 1.4ms, cùng IP công cộng
 
 ## `gnha-inco` — 100.107.48.28
 
-Máy khoẻ: 31GB RAM, 8 CPU. Đĩa 92% đã dùng (còn ~7.5GB) — theo dõi.
+Máy khoẻ: 31GB RAM, 8 CPU.
+
+**Đĩa** (dọn 05/08/2026: 94% → 85%, thu ~9GB từ image treo + build cache +
+journal): phần còn lại là dữ liệu SỐNG — Supabase của incokit chiếm 15GB ở
+`/etc/dokploy/compose/incokit-supabase-vtolmv`, KHÔNG được đụng. Muốn xuống
+nữa phải chuyển dự án khác đi hoặc mở rộng đĩa — việc của anh quyết.
+Lệnh dọn an toàn lặp lại được: `docker image prune -f && docker builder
+prune -f && journalctl --vacuum-size=100M` (KHÔNG dùng `system prune -a`
+bừa — máy này chạy production của NHIỀU dự án khác nhau).
 
 | Cổng | Là gì |
 |---|---|
 | **3080** | **Zalo CRM production** ← bot chạy ở đây |
 | 3000 | Dokploy (giao diện deploy) |
+| 3001 | Uptime Kuma (giám sát + báo Telegram, dựng 05/08/2026) |
 | 8069 | Odoo **THỬ** (`incokit_odoo_prod`) |
 | 5434 | Postgres của Odoo thử |
 
@@ -78,6 +87,42 @@ lednelia-cloudflared-6lxtwr-cloudflared-1
   `docker-compose.yml` — thư mục có BA file compose)
 - Cổng 8069 nghe cả LAN từ 2026-08-04 (commit `563bd2c`) để CRM gọi XML-RPC
 - Filestore: 207MB (đã chép sang bản thử 2026-08-04 — xem lỗi #3 bên dưới)
+
+---
+
+## Giám sát — Uptime Kuma (dựng 05/08/2026)
+
+Container `uptime-kuma` trên gnha-inco, cổng **3001**, volume `uptime-kuma-data`,
+có mount docker.sock để monitor được container. Restart always.
+
+**Việc còn lại cần ANH làm một lần (bot không tự tạo tài khoản được):**
+
+1. Mở `http://100.107.48.28:3001` (qua Tailscale) → tạo tài khoản admin.
+2. Telegram: chat với `@BotFather` → `/newbot` → lấy token. Nhắn bot đó một
+   tin bất kỳ rồi vào `https://api.telegram.org/bot<TOKEN>/getUpdates` lấy
+   `chat.id`.
+3. Trong Kuma: Settings → Notifications → Telegram → dán token + chat id →
+   Default enabled.
+4. Thêm monitor (mỗi cái interval 60s, retry 2):
+   - HTTP `http://localhost:3080/api/public/conversations` — CRM (mong 401!
+     dùng "Upside Down" = KHÔNG; chọn Accepted Status Codes có 401)
+   - HTTP `https://quyetanh.com/web/login` — Odoo PROD qua domain
+   - HTTP `http://localhost:8069/web/login` — Odoo THỬ
+   - Docker Container `zalo-crm-app` (chọn Docker Host = socket đã mount)
+   - Push monitor tên "disk-gnha-inco" — lấy URL push rồi cài cron dưới đây.
+5. Cron disk trên gnha-inco (thay `<URL_PUSH>` bằng URL của monitor push):
+
+```bash
+cat > /etc/cron.hourly/bao-disk <<'EOF'
+#!/bin/sh
+# Đầy quá 85% thì KHÔNG ping — Kuma không nhận tín hiệu sẽ báo Telegram.
+DUNG=$(df / --output=pcent | tail -1 | tr -dc '0-9')
+[ "$DUNG" -lt 85 ] && curl -fsS -m 10 "<URL_PUSH>?status=up&msg=disk-${DUNG}%" >/dev/null
+EOF
+chmod +x /etc/cron.hourly/bao-disk
+```
+
+Xong bước 5 thì: container rớt / web sập / disk >85% → Telegram kêu trong ≤2 phút.
 
 ---
 

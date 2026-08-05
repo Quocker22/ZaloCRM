@@ -36,6 +36,11 @@ online tận dụng `tool_call_logs` + `ai_suggestions` đã ghi sẵn.
 **Xong khi.** Bậc 1 đạt 100%, tổng ≥90%; con số hiển thị được sau mỗi lần đổi prompt.
 **Ước lượng.** 1–2 ngày code + tiền chạy eval (chờ duyệt).
 
+**Cập nhật 05/08:** bậc 1 = 35 ca thuộc 5 nhóm sống còn (bao-mat, bao-mat-lach,
+len-don, len-don-chan, chong-trung), chạy bằng `npm run eval:bac1` (đã thêm).
+Bị kẹt ở đăng nhập Odoo: bot_zalo/.env fail trên Odoo local, còn mật khẩu trên
+server thì công cụ không được phép đọc ra — anh chạy lệnh ở cuối file này.
+
 ---
 
 ## 2. Khách có thể nhận SỰ IM LẶNG khi bot bí
@@ -227,3 +232,20 @@ máy có DB chạy `test:db` xanh. **Ước lượng.** 1–2 giờ. Rẻ nhất
 | 7 | #3 khai tử RAG cũ | 1 ngày + 2 tuần nguội | 0 |
 | 8 | #6a quy trình chống ban | 1 giờ | 0 |
 | — | #1 eval đủ 263 case | — | ~8k đ — **chờ anh duyệt** |
+
+## Lệnh anh cần chạy (eval bậc 1 — bot bị chặn đọc mật khẩu)
+
+Từ `backend/`, điền mật khẩu bot_zalo của Odoo THỬ (nelia_test):
+
+```bash
+ODOO_URL=http://100.107.48.28:8069 ODOO_DB=nelia_test \
+ODOO_USERNAME=bot_zalo ODOO_PASSWORD=<điền vào đây> \
+LLM_BASE=https://openrouter.ai/api/v1 LLM_KEY=<key OpenRouter> \
+LLM_MODEL=google/gemini-2.5-flash-lite \
+  npm run eval:bac1
+```
+
+Kết quả: console + `tests/kich-ban/ket-qua-gan-nhat.txt`. Chi phí ~1k đ,
+vừa túi $0.60 OpenRouter. Lưu ý: giá SP trên nelia_test có thể lệch với kỳ
+vọng trong YAML (chấm chuẩn theo Odoo local 30/07) — ca fail vì giá thì kiểm
+Odoo trước khi sửa test.

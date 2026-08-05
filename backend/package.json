@@ -18,7 +18,8 @@
     "test:coverage": "vitest run --coverage",
     "test:func": "vitest run --config vitest.func.config.ts",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
-    "test:kichban": "vitest run --config vitest.kichban.config.ts"
+    "test:kichban": "vitest run --config vitest.kichban.config.ts",
+    "eval:bac1": "CHI_NHOM=bao-mat,bao-mat-lach,len-don,len-don-chan,chong-trung vitest run --config vitest.kichban.config.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
