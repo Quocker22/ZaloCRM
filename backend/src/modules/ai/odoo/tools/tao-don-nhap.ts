@@ -16,7 +16,7 @@
 
 import type { OdooClient } from '../client.js';
 import type { ToolDefinition } from '../../agent/types.js';
-import { sinhKhoaDon } from '../idempotency.js';
+import { sinhKhoaDon, IDEMPOTENCY_PREFIX } from '../idempotency.js';
 import { NGUONG_GIA_AO } from './tra-san-pham.js';
 
 export interface DongDon {
@@ -45,6 +45,21 @@ export interface TaoDonDeps {
    * Nhân viên KHÔNG có trần: họ chịu trách nhiệm cho đơn mình lên.
    */
   tranTien?: number;
+  /**
+   * Chặn tạo đơn thứ hai quá gần đơn trước trong CÙNG hội thoại (giây).
+   *
+   * Bug thật 2026-08-05 20:57: nhân viên lên đơn S13797 (1 cái, 78.000đ) rồi
+   * nhắn "10 cái mà" để SỬA số lượng. Bot hiểu thành lệnh mới, tạo hẳn đơn
+   * S13798 cho khách KHÁC (780.000đ). Khoá chống trùng không cứu được: hai
+   * tin khác nhau → hai `seq` khác nhau → hai khoá khác nhau.
+   *
+   * Người ta không lên hai đơn thật cách nhau 20 giây trong một hội thoại;
+   * nhưng người ta RẤT hay sửa đơn vừa lên. Nghi ngờ thì hỏi lại — tạo nhầm
+   * đơn tốn công dò và xoá, hỏi lại chỉ tốn một câu.
+   *
+   * 0 hoặc không đặt → tắt hàng rào (giữ nguyên hành vi cũ cho test).
+   */
+  chanDonLienKeGiay?: number;
 }
 
 /** Field đọc lại sau khi tạo, để xác nhận đơn đúng như mong đợi. */
@@ -107,6 +122,42 @@ export async function taoDonNhap(
       maDon: String(daCo[0].name ?? ''),
       khoa,
     };
+  }
+
+  // ── CHẶN ĐƠN LIỀN KỀ (nhân viên đang SỬA đơn, không phải lên đơn mới) ──
+  //
+  // Bug thật 05/08/2026: lên đơn S13797 (1 cái) xong, nhân viên nhắn "10 cái
+  // mà" để sửa. Bot tạo hẳn đơn S13798 cho khách khác. Khoá chống trùng không
+  // cứu được vì hai tin → hai seq → hai khoá.
+  //
+  // Chặn ở TOOL chứ không ở prompt: prompt lèo lái được, mà hậu quả ở đây là
+  // dữ liệu bẩn trong Odoo — thứ phải dò và xoá bằng tay.
+  const nguongGiay = Number(deps.chanDonLienKeGiay ?? 0);
+  if (nguongGiay > 0) {
+    const moc = new Date(Date.now() - nguongGiay * 1000)
+      .toISOString().slice(0, 19).replace('T', ' '); // Odoo dùng UTC 'YYYY-MM-DD HH:MM:SS'
+    // Mọi đơn của hội thoại này, bất kể seq: `zalo:<conversationId>:*`
+    const tienToHoiThoai = `${IDEMPOTENCY_PREFIX}:${String(deps.conversationId).trim()}:`;
+    const gan = await deps.odoo.searchRead<Record<string, unknown>>(
+      'sale.order',
+      [
+        ['client_order_ref', 'like', `${tienToHoiThoai}%`],
+        ['create_date', '>=', moc],
+      ],
+      ['id', 'name', 'amount_total', 'create_date'],
+      { limit: 1, order: 'create_date desc' },
+    );
+    if (gan.length > 0) {
+      return {
+        trangThai: 'loi',
+        lyDo:
+          `Vừa tạo đơn ${gan[0].name} (${Number(gan[0].amount_total ?? 0).toLocaleString('vi-VN')}đ) ` +
+          `trong hội thoại này cách đây chưa tới ${nguongGiay} giây. ` +
+          'Nếu nhân viên đang SỬA đơn đó (đổi số lượng, đổi hàng) thì KHÔNG tạo đơn mới — ' +
+          `hãy trả lời rằng đơn ${gan[0].name} cần sửa tay trên Odoo. ` +
+          'Chỉ khi nhân viên nói rõ đây là đơn KHÁC thì mới tạo, và phải hỏi lại trước.',
+      };
+    }
   }
 
   // ── CHẶN SP CHƯA CÓ GIÁ / KHÔNG TỒN TẠI ────────────────────────────────

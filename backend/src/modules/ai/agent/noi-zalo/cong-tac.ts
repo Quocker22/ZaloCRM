@@ -59,6 +59,21 @@ export function tranTienKhach(): number {
 export const SO_TIN_LICH_SU = 10;
 
 /**
+ * Chặn tạo đơn thứ hai trong CÙNG hội thoại nếu cách đơn trước dưới N giây.
+ *
+ * Bug thật 05/08/2026: nhân viên lên đơn S13797 (1 cái) rồi nhắn "10 cái mà"
+ * để SỬA. Bot tạo hẳn đơn S13798 cho khách khác, 780.000đ. Không ai biết cho
+ * tới khi dò Odoo — vì lượt đó còn dính lỗi text rỗng nên nhân viên chỉ thấy
+ * dòng báo lỗi.
+ *
+ * 90 giây: người ta không lên hai đơn THẬT cách nhau ngần ấy trong một hội
+ * thoại, nhưng RẤT hay sửa đơn vừa lên. Đặt 0 để tắt.
+ */
+export function chanDonLienKeGiay(): number {
+  return Number(process.env.AI_AGENT_CHAN_DON_LIEN_KE_GIAY ?? 90);
+}
+
+/**
  * Thread Zalo nhận báo "bot bí" — nhóm sale hoặc UID một nhân viên.
  *
  *   AI_AGENT_THREAD_BAO_SALE       threadId nhận báo (bắt buộc để bật tính năng)

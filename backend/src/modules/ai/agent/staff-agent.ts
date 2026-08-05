@@ -89,6 +89,11 @@ export interface ToolCallLog {
 export interface StaffAgentDeps {
   odoo: OdooClient;
   generate: ToolAwareGenerate;
+  /**
+   * Chặn tạo đơn thứ hai trong cùng hội thoại nếu cách đơn trước dưới N giây.
+   * Không truyền → tắt (giữ hành vi cũ cho test).
+   */
+  chanDonLienKeGiay?: number;
   /** UID Zalo khách đang chat — khoá chống trùng khi tạo khách mới. */
   zaloUid?: string | null;
   /** Ghi nhận chuyển sale (gắn tag, mở nhóm). */
@@ -149,7 +154,14 @@ export function ghepLichSuNhanVien(
     `[Hội thoại trước]\n${dong}\n\n[Tin mới]\n${noiDung}\n\n` +
     'Tin mới có thể là CÂU TRẢ LỜI cho câu bạn vừa hỏi. Nếu trên kia có việc ' +
     'đang làm dở (lên đơn, tra cứu), hãy LÀM TIẾP cho xong — dùng lại thông tin ' +
-    'đã có (tên khách, số lượng) thay vì hỏi lại.'
+    'đã có (tên khách, số lượng) thay vì hỏi lại.\n' +
+    // Bug thật 05/08/2026: bot vừa tạo đơn S13797 (1 cái), nhân viên nhắn
+    // "10 cái mà" để SỬA. Bot đọc câu nhắc trên, "làm tiếp", ghép tên khách
+    // trong lịch sử với số lượng mới → tạo hẳn đơn S13798 THỪA cho khách khác.
+    'NHƯNG: nếu bạn VỪA tạo xong một đơn ở lượt trước và tin mới là lời SỬA ' +
+    '("10 cái mà", "sai rồi", "là 5 cái", "nhầm khách") thì TUYỆT ĐỐI KHÔNG ' +
+    'gọi tao_don_nhap lần nữa — tạo đơn mới là làm bẩn dữ liệu, phải dò và xoá ' +
+    'bằng tay. Hãy nói rõ mã đơn vừa tạo cần sửa gì, để nhân viên sửa trên Odoo.'
   );
 }
 
@@ -177,6 +189,8 @@ export function buildStaffRegistry(deps: {
   odoo: OdooClient;
   conversationId: string;
   seq: number;
+  /** Chặn đơn thứ hai quá gần đơn trước trong cùng hội thoại (giây). */
+  chanDonLienKeGiay?: number;
   /** UID Zalo khách đang chat — khoá chống trùng khi tạo khách mới. */
   zaloUid?: string | null;
   ghiNhanChuyenSale: (yc: YeuCauChuyenSale) => Promise<void>;
@@ -252,7 +266,14 @@ export function buildStaffRegistry(deps: {
       run: async (input) =>
         dinhDangTaoDon(
           await taoDonNhap(
-            { odoo, conversationId: deps.conversationId, seq: deps.seq },
+            {
+              odoo,
+              conversationId: deps.conversationId,
+              seq: deps.seq,
+              // Nhân viên sửa đơn vừa lên ("10 cái mà") KHÔNG được thành đơn
+              // mới — bug thật 05/08, xem cong-tac.ts:chanDonLienKeGiay.
+              chanDonLienKeGiay: deps.chanDonLienKeGiay,
+            },
             input as Parameters<typeof taoDonNhap>[1],
           ),
         ),
@@ -339,6 +360,7 @@ export async function chayLenhNhanVien(
     odoo: deps.odoo,
     conversationId: input.conversationId,
     seq: input.seq,
+    chanDonLienKeGiay: deps.chanDonLienKeGiay,
     ghiNhanChuyenSale: deps.ghiNhanChuyenSale,
     anhClient: deps.anhClient,
     odooUrl: deps.odooUrl,
@@ -383,9 +405,35 @@ export async function chayLenhNhanVien(
     };
   }
 
+  // CÂU TRẢ LỜI RỖNG → coi như CHƯA XONG. Luồng khách đã có hàng rào này từ
+  // 05/08 sáng; luồng nhân viên thì CHƯA — và tối cùng ngày nó nổ:
+  //
+  //   nhân viên: "10 cái mà"
+  //   bot: gọi tra_san_pham → tao_don_nhap → gui_hoa_don (đều OK), rồi trả
+  //        text RỖNG → guiTin(dich, '') → ZaloApiError "Missing message content"
+  //
+  // Tệ hơn cả việc báo lỗi: nó CHE MẤT việc bot vừa tạo đơn S13798 thừa —
+  // nhân viên chỉ thấy dòng lỗi, không biết trong Odoo đã có thêm một đơn.
+  // Vì vậy `lyDo` phải NÊU RÕ tool nào đã chạy, nhất là tool GHI.
+  const traLoi = kq.text.trim();
+  if (!traLoi) {
+    const toolDaChay = log.map((l) => l.toolName);
+    const toolGhi = toolDaChay.filter((t) => t === 'tao_don_nhap' || t === 'tao_khach_hang');
+    return {
+      trangThai: 'chua_hoan_tat',
+      lyDo:
+        'Model trả câu rỗng sau khi gọi tool' +
+        (toolDaChay.length > 0 ? ` (đã chạy: ${toolDaChay.join(', ')})` : '') +
+        (toolGhi.length > 0 ? ' — CHÚ Ý: đã GHI vào Odoo, kiểm tra lại đơn!' : '') +
+        '.',
+      log,
+      usage: kq.usage,
+    };
+  }
+
   return {
     trangThai: 'xong',
-    traLoi: kq.text,
+    traLoi,
     soToolDaGoi: kq.toolCalls.length,
     log,
     usage: kq.usage,

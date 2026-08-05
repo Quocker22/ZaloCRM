@@ -50,6 +50,8 @@ export interface CustomerAgentDeps {
     seq: number;
     zaloUid?: string | null;
     tranTien: number;
+    /** Chặn đơn thứ hai quá gần đơn trước trong cùng hội thoại (giây). */
+    chanDonLienKeGiay?: number;
   };
   ghiNhanChuyenSale: (yc: YeuCauChuyenSale) => Promise<void>;
   ghiLog?: (log: ToolCallLog) => Promise<void> | void;
@@ -111,6 +113,8 @@ export function buildCustomerRegistry(deps: {
     zaloUid?: string | null;
     /** Trần tiền một đơn. Vượt → chuyển sale. */
     tranTien: number;
+    /** Chặn đơn thứ hai quá gần đơn trước trong cùng hội thoại (giây). */
+    chanDonLienKeGiay?: number;
     /** Nhận đơn vừa tạo — caller dùng để gửi hoá đơn + QR. */
     nhanDon?: (don: { donId: number; maDon: string; tongTien: number; tenKhach: string }) => void;
   };
@@ -186,6 +190,9 @@ export function buildCustomerRegistry(deps: {
             // Trần tiền: hàng rào THẬT chống đơn lớn bất thường. Khách gõ
             // "lấy 1000 cuộn" ra 500 triệu — không ai duyệt (đo 2026-08-04).
             tranTien: chot.tranTien,
+            // Khách nhắn thêm ngay sau khi chốt ("à 10 cái") là SỬA, không
+            // phải đơn mới — cùng bug đã nổ ở luồng nhân viên (05/08).
+            chanDonLienKeGiay: chot.chanDonLienKeGiay,
           },
           input as Parameters<typeof taoDonNhap>[1],
         );

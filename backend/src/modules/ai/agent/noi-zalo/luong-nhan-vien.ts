@@ -10,7 +10,7 @@ import { logger } from '../../../../shared/utils/logger.js';
 import { chayLenhNhanVien } from '../staff-agent.js';
 import { nhanDienLenhNhanVien } from '../staff-command.js';
 import { taoGhiLog, type PrismaGhiLog } from '../ghi-log-tool.js';
-import { batLuongNhanVien, duCauHinh } from './cong-tac.js';
+import { batLuongNhanVien, duCauHinh, chanDonLienKeGiay } from './cong-tac.js';
 import { dungGenerate } from './llm.js';
 import { layOdoo, layAnhClient, timTriThuc, layLichSu, seqTuMessageId } from './du-lieu.js';
 import { timDich, guiTin, guiAnh, ghiAnhTam } from './gui-zalo.js';
@@ -87,6 +87,7 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
       {
         odoo: layOdoo(),
         generate,
+        chanDonLienKeGiay: chanDonLienKeGiay(),
         zaloUid: dich.zaloUid,
         ghiNhanChuyenSale: async (yc) => {
           logger.info({ lyDo: yc.lyDo, conversationId: ctx.conversationId }, '[agent/nv] chuyển sale');

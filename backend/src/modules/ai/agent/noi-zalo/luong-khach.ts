@@ -12,7 +12,7 @@ import { logger } from '../../../../shared/utils/logger.js';
 import { findImageForReply } from '../../knowledge/product-image.js';
 import { chayTuVanKhach } from '../customer-agent.js';
 import { taoGhiLog, type PrismaGhiLog } from '../ghi-log-tool.js';
-import { batLuongKhach, batKhachTuChotDon, duCauHinh, tranTienKhach } from './cong-tac.js';
+import { batLuongKhach, batKhachTuChotDon, duCauHinh, tranTienKhach, chanDonLienKeGiay } from './cong-tac.js';
 import { dungGenerate } from './llm.js';
 import { layOdoo, timTriThuc, layLichSu, seqTuMessageId } from './du-lieu.js';
 import { timDich, guiTin, guiAnh, guiHoaDonVaQr } from './gui-zalo.js';
@@ -116,6 +116,7 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
               seq: seqTuMessageId(ctx.messageId),
               zaloUid: dich.zaloUid,
               tranTien: tranTienKhach(),
+              chanDonLienKeGiay: chanDonLienKeGiay(),
             }
           : undefined,
       },
