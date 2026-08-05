@@ -124,7 +124,12 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
       await guiTin(dich, `Bot chưa xử lý xong (${r.lyDo}). Anh/chị xử lý giúp nhé.`, false);
     }
 
-    moc.xong(t0, { trangThai: r.trangThai, conversationId: ctx.conversationId });
+    moc.xong(t0, {
+      trangThai: r.trangThai,
+      conversationId: ctx.conversationId,
+      tokenVao: r.usage.inputTokens,
+      tokenCache: r.usage.cacheReadTokens,
+    });
     return true;
   } catch (err) {
     logger.error({ err, conversationId: ctx.conversationId }, '[agent/nv] lỗi giữa chừng');

@@ -254,6 +254,11 @@ export async function generateWithOpenaiCompatTools(args: {
     [tokenParam]: args.maxTokens ?? 4096,
     // BẮT BUỘC: 9router mặc định trả SSE khi thiếu field này → .json() crash.
     stream: false,
+    // OpenRouter chỉ trả `prompt_tokens_details.cached_tokens` khi request khai
+    // `usage.include` — thiếu nó thì KHÔNG BAO GIỜ biết implicit cache của
+    // Gemini có ăn không (prefix ≥1024 token giống hệt → đọc giá 0,25×).
+    // Chỉ gửi cho OpenRouter: OpenAI thật từ chối tham số lạ (400).
+    ...(args.url.includes('openrouter') ? { usage: { include: true } } : {}),
   });
 
   let loiCuoi: unknown;

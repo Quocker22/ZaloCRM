@@ -176,7 +176,15 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
       },
     });
 
-    moc.xong(t0, { soTool: r.log.length, conversationId: ctx.conversationId });
+    // tokenCache/tokenVao: theo dõi implicit cache của Gemini qua OpenRouter —
+    // tokenCache = 0 kéo dài nghĩa là prefix bị vỡ (ai đó chèn thứ thay đổi
+    // theo lượt vào ĐẦU prompt), tiền LLM đội 4 lần mà không ai hay.
+    moc.xong(t0, {
+      soTool: r.log.length,
+      conversationId: ctx.conversationId,
+      tokenVao: r.usage.inputTokens,
+      tokenCache: r.usage.cacheReadTokens,
+    });
     return true;
   } catch (err) {
     // Lỗi SAU khi đã gọi tool → giữ chân + báo nhân viên, KHÔNG nhường luồng RAG cũ.
