@@ -17,6 +17,7 @@ import { dungGenerate } from './llm.js';
 import { layOdoo, timTriThuc, layLichSu, seqTuMessageId } from './du-lieu.js';
 import { timDich, guiTin, guiAnh, guiHoaDonVaQr } from './gui-zalo.js';
 import { baoNhanVien, CAU_GIU_CHAN } from './bao-nhan-vien.js';
+import { demVaKiemTra, CAU_XIN_PHEP } from './gioi-han.js';
 import { taoDung, taoMoc } from './dung.js';
 import type { NgữCanhTin } from './types.js';
 
@@ -30,6 +31,34 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
     return dung('công tắc tắt hoặc thiếu cấu hình Odoo', {
       bat: batLuongKhach(), duCauHinh: duCauHinh(),
     });
+  }
+
+  // Chặn spam TRƯỚC mọi thứ tốn tiền — một người dội 1.000 tin không được đốt
+  // 1.000 lượt LLM (cost-DoS) và không được để bot máy móc trả lời 1.000 lần
+  // (Zalo gắn cờ nick). Trả TRUE: tin bị chặn thì luồng RAG cũ cũng KHÔNG được
+  // trả lời — nó cũng gọi LLM, nhường là thủng trần ở cửa sau.
+  const gioiHan = demVaKiemTra(ctx.conversationId);
+  if (!gioiHan.cho) {
+    if (gioiHan.lanDau) {
+      const dichChan = await timDich(ctx.conversationId);
+      if (dichChan) {
+        // Vượt trần GIỜ: xin phép một câu (khách thật nhắn hăng vẫn được giữ
+        // chân). Vượt trần NGÀY: im — đến mức này gần như chắc chắn là spam.
+        if (gioiHan.lyDo === 'qua_tran_gio') {
+          try {
+            await guiTin(dichChan, CAU_XIN_PHEP, true);
+          } catch (err) {
+            logger.warn({ err, conversationId: ctx.conversationId }, '[agent/khach] gửi câu xin phép lỗi');
+          }
+        }
+        await baoNhanVien(dichChan, {
+          conversationId: ctx.conversationId,
+          lyDo: `khách vượt giới hạn tin (${gioiHan.lyDo}) — bot ngừng trả lời, cần người xem có phải khách thật không`,
+          tinKhach: ctx.content,
+        });
+      }
+    }
+    return true;
   }
 
   // Tôn trọng công tắc chung: tắt auto-reply thì agent cũng im, giống luồng cũ.
