@@ -28,6 +28,49 @@ export function taoDung(luong: TenLuong): (lyDo: string, chiTiet?: Record<string
   };
 }
 
+/**
+ * Hạn giờ CẢ LƯỢT — hàng rào cuối chống treo im lặng.
+ *
+ * BÀI HỌC TRẢ GIÁ (2026-08-05, lần hai): `taoDung` diệt được cổng im lặng ở
+ * các nhánh `return`, nhưng KHÔNG phủ trường hợp code TREO giữa chừng. Thủ
+ * phạm: một `fetch` không timeout trong embedding. Triệu chứng y hệt lần
+ * trước — log dừng ở "BẮT ĐẦU xử lý", không lỗi, không XONG, khách chờ mãi.
+ *
+ * Từ nay mọi lượt agent phải chạy trong hàn giờ này. Quá hạn → ném, và
+ * caller xử như mọi lỗi khác (báo nhân viên, giữ chân khách). Thà trả lời
+ * muộn có lý do còn hơn im lặng vô tận.
+ *
+ * 90s: lượt bình thường 3-15s, trần LLM leo thang tối đa 40s × vài vòng tool.
+ * Quá 90s nghĩa là hỏng chứ không phải chậm.
+ */
+export function hanGioLuot(): number {
+  return Number(process.env.AI_AGENT_HAN_GIO_MS) || 90_000;
+}
+
+/**
+ * Chạy `viec` với hạn giờ. Quá hạn → ném `Error` có chữ "quá hạn" để log đọc
+ * ra ngay, thay vì treo vô tận.
+ *
+ * KHÔNG huỷ được việc đang chạy (Promise không huỷ được) — nhưng nó thành
+ * việc mồ côi chạy nền, không còn chặn câu trả lời cho khách.
+ */
+export async function chayCoHanGio<T>(luong: TenLuong, viec: Promise<T>, ms = hanGioLuot()): Promise<T> {
+  let hen: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      viec,
+      new Promise<never>((_, tuChoi) => {
+        hen = setTimeout(() => {
+          logger.error({ ms }, `[agent/${luong}] QUÁ HẠN ${ms}ms — cắt lượt, không để treo im lặng`);
+          tuChoi(new Error(`lượt agent quá hạn ${ms}ms`));
+        }, ms);
+      }),
+    ]);
+  } finally {
+    if (hen) clearTimeout(hen);
+  }
+}
+
 /** Log mốc bắt đầu/kết thúc với cùng prefix — đọc log thấy trọn vòng đời một lượt. */
 export function taoMoc(luong: TenLuong): {
   batDau: (chiTiet: Record<string, unknown>) => number;

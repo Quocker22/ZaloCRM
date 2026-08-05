@@ -14,7 +14,7 @@ import { batLuongNhanVien, duCauHinh } from './cong-tac.js';
 import { dungGenerate } from './llm.js';
 import { layOdoo, layAnhClient, timTriThuc, layLichSu, seqTuMessageId } from './du-lieu.js';
 import { timDich, guiTin, guiAnh, ghiAnhTam } from './gui-zalo.js';
-import { taoDung, taoMoc } from './dung.js';
+import { taoDung, taoMoc, chayCoHanGio } from './dung.js';
 import type { NgữCanhTin } from './types.js';
 
 // Prisma sinh kiểu `create` chặt hơn `PrismaGhiLog` (vốn chỉ cần hàm nhận
@@ -78,7 +78,12 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
 
   try {
     const lichSu = await layLichSu(ctx.conversationId, ctx.messageId);
-    const r = await chayLenhNhanVien(
+    // Log từng chặng: treo ở đâu thì dòng cuối cùng chỉ thẳng ra chỗ đó.
+    logger.info({ soTin: lichSu.length }, '[agent/nv] đã lấy lịch sử');
+    const triThuc = await timTriThuc(ctx.orgId);
+    logger.info({ coTriThuc: Boolean(triThuc) }, '[agent/nv] đã dựng tri thức — vào LLM');
+
+    const r = await chayCoHanGio('nv', chayLenhNhanVien(
       {
         odoo: layOdoo(),
         generate,
@@ -89,7 +94,7 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
         ghiLog: ghiDb,
         anhClient: layAnhClient(),
         odooUrl: process.env.ODOO_URL,
-        timDoanTriThuc: await timTriThuc(ctx.orgId),
+        timDoanTriThuc: triThuc,
       },
       {
         bizName: ctx.bizName,
@@ -101,7 +106,7 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
           noiDung: m.content,
         })),
       },
-    );
+    ));
 
     if (r.trangThai === 'khong_phai_lenh') return false;
 
@@ -133,6 +138,15 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
     return true;
   } catch (err) {
     logger.error({ err, conversationId: ctx.conversationId }, '[agent/nv] lỗi giữa chừng');
+    // Nhân viên gõ lệnh thì PHẢI biết kết quả — im lặng là họ ngồi chờ một
+    // câu trả lời không bao giờ tới (bug thật 05/08: lượt treo, log dừng ở
+    // "BẮT ĐẦU xử lý", nhân viên không hay biết gì).
+    try {
+      const loi = err instanceof Error ? err.message.slice(0, 120) : String(err).slice(0, 120);
+      await guiTin(dich, `Bot gặp lỗi (${loi}). Anh/chị xử lý giúp nhé.`, false);
+    } catch (e2) {
+      logger.warn({ err: e2 }, '[agent/nv] báo lỗi cho nhân viên cũng thất bại');
+    }
     return true; // đã nhận lệnh rồi — đừng để luồng cũ trả lời chồng lên
   }
 }

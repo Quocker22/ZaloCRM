@@ -18,7 +18,7 @@ import { layOdoo, timTriThuc, layLichSu, seqTuMessageId } from './du-lieu.js';
 import { timDich, guiTin, guiAnh, guiHoaDonVaQr } from './gui-zalo.js';
 import { baoNhanVien, CAU_GIU_CHAN } from './bao-nhan-vien.js';
 import { demVaKiemTra, CAU_XIN_PHEP } from './gioi-han.js';
-import { taoDung, taoMoc } from './dung.js';
+import { taoDung, taoMoc, chayCoHanGio } from './dung.js';
 import type { NgữCanhTin } from './types.js';
 
 const prismaLog = prisma as unknown as PrismaGhiLog;
@@ -88,7 +88,12 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
 
   try {
     const lichSu = await layLichSu(ctx.conversationId, ctx.messageId);
-    const r = await chayTuVanKhach(
+    // Log từng chặng: treo ở đâu thì dòng cuối cùng chỉ thẳng ra chỗ đó.
+    logger.info({ soTin: lichSu.length }, '[agent/khach] đã lấy lịch sử');
+    const triThuc = await timTriThuc(ctx.orgId);
+    logger.info({ coTriThuc: Boolean(triThuc) }, '[agent/khach] đã dựng tri thức — vào LLM');
+
+    const r = await chayCoHanGio('khach', chayTuVanKhach(
       {
         odoo: layOdoo(),
         generate,
@@ -104,7 +109,7 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
           });
         },
         ghiLog: (l) => { soToolDaChay++; ghiDb(l); },
-        timDoanTriThuc: await timTriThuc(ctx.orgId),
+        timDoanTriThuc: triThuc,
         choKhachChotDon: batKhachTuChotDon()
           ? {
               conversationId: ctx.conversationId,
@@ -126,7 +131,7 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
           noiDung: m.content,
         })),
       },
-    );
+    ));
 
     if (r.trangThai !== 'xong') {
       // Bot bí → giữ chân khách + báo nhân viên kèm ngữ cảnh. Trước đây là im

@@ -2,6 +2,7 @@
 // NGUỒN DỮ LIỆU cho một lượt agent: Odoo client, lịch sử hội thoại, tri thức,
 // và khoá chống trùng đơn. Không gửi gì đi đâu — chỉ ĐỌC và dựng.
 import { prisma } from '../../../../shared/database/prisma-client.js';
+import { logger } from '../../../../shared/utils/logger.js';
 import { odooClientFromEnv, type OdooClient } from '../../odoo/client.js';
 import { HoaDonAnhClient } from '../../odoo/hoa-don-anh.js';
 import { searchKnowledge } from '../../knowledge/knowledge-service.js';
@@ -38,10 +39,28 @@ export async function timTriThuc(
 ): Promise<((cauHoi: string, soDoan: number) => Promise<Array<{ content: string; score?: number }>>) | undefined> {
   const n = await prisma.knowledgeChunk.count({ where: { orgId } });
   if (n === 0) return undefined;
+
+  // KHÔNG mặc định `localhost:11434` nữa (2026-08-05). Mặc định đó viết cho
+  // máy dev có Ollama; lên production không ai đặt biến nên nó âm thầm trỏ vào
+  // cổng không tồn tại — chức năng tra tài liệu chết mà KHÔNG ai biết: 212 đoạn
+  // nằm trong DB, đủ vector, không tra được lần nào.
+  //
+  // Thiếu cấu hình → tool KHÔNG đăng ký + log CẢNH BÁO. Bot mất khả năng tra
+  // tài liệu (nó đang mất sẵn rồi), nhưng lần này có tiếng nói trong log.
+  const baseUrl = process.env.EMBED_BASE_URL;
+  if (!baseUrl) {
+    logger.warn(
+      { orgId, soDoan: n },
+      '[agent] CHƯA đặt EMBED_BASE_URL — tắt tra tài liệu kỹ thuật dù DB có sẵn đoạn',
+    );
+    return undefined;
+  }
+
   const cfg = {
-    provider: process.env.EMBED_PROVIDER ?? 'local',
-    model: process.env.EMBED_MODEL ?? 'bge-m3',
-    baseUrl: process.env.EMBED_BASE_URL ?? 'http://localhost:11434/v1',
+    provider: process.env.EMBED_PROVIDER ?? 'openai',
+    model: process.env.EMBED_MODEL ?? 'google/gemini-embedding-001',
+    baseUrl,
+    apiKey: process.env.EMBED_API_KEY,
   };
   return async (cauHoi, soDoan) =>
     (await searchKnowledge({ prisma, embed: generateEmbedding } as never, orgId, cauHoi, soDoan, cfg))
