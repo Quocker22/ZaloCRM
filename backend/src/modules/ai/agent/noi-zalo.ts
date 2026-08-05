@@ -345,26 +345,45 @@ export interface NgữCanhTin {
  * Trả về true nếu ĐÃ xử lý (kể cả khi lỗi) để caller biết không cần làm gì thêm.
  */
 export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
-  if (!batLuongNhanVien() || !duCauHinh()) return false;
-  // CỔNG RẺ: không tag @bot thì không dựng registry, không gọi LLM.
-  if (!nhanDienLenhNhanVien({
+  // MỖI cổng ghi log riêng. Trước đây hai cổng đầu im lặng, nên khi bot không
+  // trả lời thì không có cách nào biết nó dừng ở đâu — đã mất cả tiếng dò tay
+  // (2026-08-05). Log rẻ hơn nhiều so với đoán.
+  if (!batLuongNhanVien() || !duCauHinh()) {
+    logger.warn(
+      { bat: batLuongNhanVien(), duCauHinh: duCauHinh() },
+      '[agent/nv] dừng: công tắc tắt hoặc thiếu cấu hình Odoo',
+    );
+    return false;
+  }
+
+  // CỔNG RẺ: nick shop không tag @bot thì không dựng registry, không gọi LLM.
+  // UID trong AI_AGENT_UID_NHANVIEN thì KHÔNG cần tag.
+  const lenh = nhanDienLenhNhanVien({
     content: ctx.content,
     isSelf: ctx.isSelf ?? true,
     senderUid: ctx.senderUid,
-  })) return false;
+  });
+  if (!lenh) {
+    logger.warn(
+      { senderUid: ctx.senderUid, isSelf: ctx.isSelf, noiDung: ctx.content?.slice(0, 40) },
+      '[agent/nv] dừng: không qua cổng nhận lệnh',
+    );
+    return false;
+  }
 
   const dich = await timDich(ctx.conversationId);
   if (!dich) {
-    logger.warn({ conversationId: ctx.conversationId }, '[agent] không tra được thread để trả lời');
+    logger.warn({ conversationId: ctx.conversationId }, '[agent/nv] dừng: không tra được thread');
     return false;
   }
 
   const generate = await dungGenerate(ctx.orgId);
   if (!generate) {
-    logger.warn({ orgId: ctx.orgId }, '[agent] chưa cấu hình LLM cho tổ chức — bỏ qua');
+    logger.warn({ orgId: ctx.orgId }, '[agent/nv] dừng: chưa cấu hình LLM cho tổ chức');
     return false;
   }
 
+  logger.info({ noiDung: lenh.noiDung.slice(0, 50) }, '[agent/nv] BẮT ĐẦU xử lý');
   const t0 = Date.now();
   const ghiDb = taoGhiLog({
     prisma: prismaLog, orgId: ctx.orgId, vai: 'nhanvien', conversationId: ctx.conversationId,
@@ -438,14 +457,26 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
  * khách nhận hai câu trả lời khác nhau cho cùng một tin.
  */
 export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
-  if (!batLuongKhach() || !duCauHinh()) return false;
+  if (!batLuongKhach() || !duCauHinh()) {
+    logger.warn(
+      { bat: batLuongKhach(), duCauHinh: duCauHinh() },
+      '[agent/khach] dừng: công tắc tắt hoặc thiếu cấu hình Odoo',
+    );
+    return false;
+  }
 
   const cfg = await prisma.aiConfig.findUnique({ where: { orgId: ctx.orgId } });
   // Tôn trọng công tắc chung: tắt auto-reply thì agent cũng im, giống luồng cũ.
-  if (!cfg?.autoReplyEnabled) return false;
+  if (!cfg?.autoReplyEnabled) {
+    logger.warn({ orgId: ctx.orgId }, '[agent/khach] dừng: autoReplyEnabled tắt');
+    return false;
+  }
 
   const dich = await timDich(ctx.conversationId);
-  if (!dich) return false;
+  if (!dich) {
+    logger.warn({ conversationId: ctx.conversationId }, '[agent/khach] dừng: không tra được thread');
+    return false;
+  }
 
   // Chống trả lời hai lần cùng một tin (retry, tin trùng từ Zalo).
   const daXuLy = await prisma.aiSuggestion.count({
