@@ -25,11 +25,17 @@ const args = {
   tools,
 };
 
+// `text` phải khớp `json`: từ 2026-08-05 provider đọc bằng text() rồi tự phân
+// tích (docJson) để chịu được rác đầu thân mà OpenRouter hay chèn.
+const THAN_OK = JSON.stringify({
+  choices: [{ message: { content: 'xong' }, finish_reason: 'stop' }],
+});
+
 const OK = {
   ok: true,
   status: 200,
-  json: async () => ({ choices: [{ message: { content: 'xong' }, finish_reason: 'stop' }] }),
-  text: async () => '{}',
+  json: async () => JSON.parse(THAN_OK),
+  text: async () => THAN_OK,
 };
 
 const loiHTTP = (status: number) => ({
