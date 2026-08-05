@@ -10,6 +10,7 @@
 // validate nghiệp vụ. Nghiệp vụ ("SP này có tồn tại không") là việc của tool.
 
 import type { ToolCall, ToolDefinition, ToolResult } from './types.js';
+import { laToolGhi, lyDoChan } from './y-dinh-dung.js';
 
 export interface RegisteredTool {
   definition: ToolDefinition;
@@ -114,9 +115,16 @@ export class ToolRegistry {
    * Trả về executor cho vòng lặp. Executor này KHÔNG ném exception — mọi lỗi
    * (không tìm thấy tool, sai tham số, tool ném) đều thành ToolResult isError,
    * để model nhìn thấy và tự sửa.
+   *
+   * @param chanToolGhi bật thì MỌI tool GHI bị từ chối trước khi chạy. Dùng khi
+   *   người dùng vừa nói dừng/huỷ — xem `y-dinh-dung.ts`. Chặn ở ĐÂY vì đây là
+   *   cửa duy nhất mọi tool đi qua: thêm tool mới cũng tự động được bảo vệ.
    */
-  executor(): (call: ToolCall) => Promise<ToolResult> {
+  executor(chanToolGhi = false): (call: ToolCall) => Promise<ToolResult> {
     return async (call: ToolCall): Promise<ToolResult> => {
+      if (chanToolGhi && laToolGhi(call.name)) {
+        return { toolCallId: call.id, content: lyDoChan(call.name), isError: true };
+      }
       // Model hay thêm tiền tố vào tên tool: Gemini gọi
       // `default_api.tra_danh_muc` thay vì `tra_danh_muc` (bug thật 2026-08-05
       // — khách hỏi "có những loại nào", bot đáp "em không tra được danh mục").

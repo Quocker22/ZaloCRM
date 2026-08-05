@@ -143,6 +143,11 @@ export async function taoDonNhap(
       [
         ['client_order_ref', 'like', `${tienToHoiThoai}%`],
         ['create_date', '>=', moc],
+        // CÙNG KHÁCH mới chặn. Đo thật 05/08 khi kiểm hàng rào: nhân viên lên
+        // đơn cho khách MỚI ngay sau một đơn khác cũng bị chặn — sai, đó là
+        // việc thật hợp lệ. Sửa đơn thì bao giờ cũng cùng khách; lên đơn cho
+        // người khác thì partner_id khác.
+        ['partner_id', '=', partnerId],
       ],
       ['id', 'name', 'amount_total', 'create_date'],
       { limit: 1, order: 'create_date desc' },

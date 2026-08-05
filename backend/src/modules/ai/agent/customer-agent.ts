@@ -40,6 +40,7 @@ import {
   traTriThuc, traTriThucDefinition, dinhDangTriThuc,
 } from '../odoo/tools/tra-tri-thuc.js';
 import { findImageForReply } from '../knowledge/product-image.js';
+import { laYDinhDung } from './y-dinh-dung.js';
 
 export interface CustomerAgentDeps {
   odoo: OdooClient;
@@ -350,7 +351,9 @@ export async function chayTuVanKhach(
     system: buildCustomerSystemPrompt(input.bizName, Boolean(deps.choKhachChotDon)),
     userMessage: ghepLichSu(input.history, input.message),
     tools: registry.definitions(),
-    execute: registry.executor(),
+    // Khách nói "thôi không lấy nữa" → KHOÁ tool ghi. Cùng hàng rào với luồng
+    // nhân viên (bug 05/08): prompt dặn không đủ, model vẫn tạo đơn.
+    execute: registry.executor(laYDinhDung(input.message)),
     generate: deps.generate,
     // Trần 5 vòng (thấp hơn staff = 8): khách chat trên điện thoại, chờ quá 15s
     // là mất kiên nhẫn. Tra 1-2 lần không ra thì hỏi lại hoặc chuyển sale — tốt

@@ -8,6 +8,7 @@
 import { runAgent } from './loop.js';
 import { ToolRegistry } from './registry.js';
 import { nhanDienLenhNhanVien, buildStaffSystemPrompt } from './staff-command.js';
+import { laYDinhDung, laToolGhi, khoeDaGhi } from './y-dinh-dung.js';
 import type { ContextManagementConfig, ToolAwareGenerate, TurnUsage } from './types.js';
 
 /**
@@ -150,18 +151,28 @@ export function ghepLichSuNhanVien(
     .map((h) => `${h.vai === 'nhanvien' ? 'NHÂN VIÊN' : 'BOT'}: ${h.noiDung}`)
     .join('\n');
 
+  // THỨ TỰ CÓ Ý: luật DỪNG đứng TRƯỚC luật làm-tiếp. Model đọc tuần tự và
+  // luật đọc sau dễ bị luật đọc trước lấn át khi hai bên mâu thuẫn.
+  //
+  // Bug thật 05/08/2026 21:23: nhân viên nhắn "tôi không muốn mua nữa đâu",
+  // BA GIÂY sau bot gọi tao_don_nhap tạo đơn S13799 (780.000đ). Lúc đó câu
+  // nhắc chỉ có vế "hãy LÀM TIẾP cho xong" — bot làm tiếp thật, bất chấp
+  // người vừa bảo dừng. Làm NGƯỢC ý người dùng tệ hơn nhiều so với làm thiếu.
   return (
     `[Hội thoại trước]\n${dong}\n\n[Tin mới]\n${noiDung}\n\n` +
-    'Tin mới có thể là CÂU TRẢ LỜI cho câu bạn vừa hỏi. Nếu trên kia có việc ' +
-    'đang làm dở (lên đơn, tra cứu), hãy LÀM TIẾP cho xong — dùng lại thông tin ' +
-    'đã có (tên khách, số lượng) thay vì hỏi lại.\n' +
-    // Bug thật 05/08/2026: bot vừa tạo đơn S13797 (1 cái), nhân viên nhắn
-    // "10 cái mà" để SỬA. Bot đọc câu nhắc trên, "làm tiếp", ghép tên khách
-    // trong lịch sử với số lượng mới → tạo hẳn đơn S13798 THỪA cho khách khác.
-    'NHƯNG: nếu bạn VỪA tạo xong một đơn ở lượt trước và tin mới là lời SỬA ' +
-    '("10 cái mà", "sai rồi", "là 5 cái", "nhầm khách") thì TUYỆT ĐỐI KHÔNG ' +
-    'gọi tao_don_nhap lần nữa — tạo đơn mới là làm bẩn dữ liệu, phải dò và xoá ' +
-    'bằng tay. Hãy nói rõ mã đơn vừa tạo cần sửa gì, để nhân viên sửa trên Odoo.'
+    'TRƯỚC HẾT, đọc tin mới xem nó có phải một trong ba loại này không:\n' +
+    '1. DỪNG / HUỶ — "thôi", "không mua nữa", "bỏ đi", "huỷ", "khoan đã", ' +
+    '"để sau". Thì DỪNG NGAY: KHÔNG gọi tool GHI nào nữa (tao_don_nhap, ' +
+    'tao_khach_hang, gui_hoa_don). Xác nhận đã dừng, và nếu lượt trước đã lỡ ' +
+    'tạo đơn thì nói rõ mã đơn đó để nhân viên huỷ trên Odoo.\n' +
+    '2. SỬA đơn vừa tạo — "10 cái mà", "sai rồi", "là 5 cái", "nhầm khách". ' +
+    'Thì TUYỆT ĐỐI KHÔNG gọi tao_don_nhap lần nữa: tạo đơn mới là làm bẩn dữ ' +
+    'liệu, phải dò và xoá bằng tay. Nói rõ mã đơn vừa tạo cần sửa gì.\n' +
+    '3. Còn lại — có thể là CÂU TRẢ LỜI cho câu bạn vừa hỏi. Nếu trên kia có ' +
+    'việc đang làm dở (lên đơn, tra cứu), hãy LÀM TIẾP cho xong: dùng lại ' +
+    'thông tin đã có (tên khách, số lượng) thay vì hỏi lại.\n' +
+    'Nghi ngờ giữa 1/2 và 3 thì HỎI LẠI, đừng đoán — ghi nhầm vào Odoo tốn ' +
+    'công dò và xoá, hỏi một câu chỉ tốn vài giây.'
   );
 }
 
@@ -371,11 +382,18 @@ export async function chayLenhNhanVien(
 
   const log: ToolCallLog[] = [];
 
+  // Người vừa bảo dừng → KHOÁ mọi tool GHI ở tầng registry, không tin prompt.
+  //
+  // Bug thật 05/08/2026 21:23: nhân viên nhắn "tôi không muốn mua nữa đâu",
+  // BA GIÂY sau bot gọi tao_don_nhap tạo đơn 780.000đ. Prompt đã dặn nhưng
+  // model lờ đi — làm NGƯỢC ý người dùng. Ranh giới phải ở CODE (quy tắc 2).
+  const dungLai = laYDinhDung(lenh.noiDung);
+
   const kq = await runAgent({
     system: buildStaffSystemPrompt(input.bizName),
     userMessage: ghepLichSuNhanVien(input.history, lenh.noiDung),
     tools: registry.definitions(),
-    execute: registry.executor(),
+    execute: registry.executor(dungLai),
     generate: deps.generate,
     maxIterations: input.maxIterations,
     onToolCall: async (info) => {
@@ -426,6 +444,27 @@ export async function chayLenhNhanVien(
         (toolDaChay.length > 0 ? ` (đã chạy: ${toolDaChay.join(', ')})` : '') +
         (toolGhi.length > 0 ? ' — CHÚ Ý: đã GHI vào Odoo, kiểm tra lại đơn!' : '') +
         '.',
+      log,
+      usage: kq.usage,
+    };
+  }
+
+  // HÀNG RÀO CHỐNG BỊA — bot không được KHOE đã ghi khi tool ghi không chạy.
+  //
+  // Đo thật 05/08/2026 khi kiểm hàng rào đơn-liền-kề: `tao_don_nhap` bị chặn
+  // đúng như thiết kế, nhưng bot vẫn đáp "Tôi đã cập nhật đơn S13797 thành 10
+  // cái" — nhân viên đọc câu đó sẽ tin là xong và không sửa gì nữa.
+  //
+  // Cùng bản chất với `khoeDaLenDon()` ở luồng khách (bot bịa "đã lên đơn" 4
+  // lần liên tiếp). Khác chỗ: nhân viên CÓ quyền ghi, nên phải đối chiếu với
+  // log tool thật thay vì cấm tuyệt đối.
+  const coGhiThat = log.some((l) => laToolGhi(l.toolName) && l.thanhCong);
+  if (!coGhiThat && khoeDaGhi(traLoi)) {
+    return {
+      trangThai: 'chua_hoan_tat',
+      lyDo:
+        `Model nói đã ghi ("${traLoi.slice(0, 80)}") nhưng KHÔNG tool ghi nào chạy thành công. ` +
+        'Chặn để nhân viên khỏi tin nhầm là việc đã xong.',
       log,
       usage: kq.usage,
     };

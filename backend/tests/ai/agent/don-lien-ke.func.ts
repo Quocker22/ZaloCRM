@@ -111,4 +111,20 @@ describe('BUG 1 — sửa đơn KHÔNG được thành đơn mới', () => {
     const truyVan = goi.find((g) => JSON.stringify(g.domain).includes('create_date'));
     expect(JSON.stringify(truyVan?.domain)).toContain(`zalo:${CONV}:`);
   });
+
+  it('lọc theo ĐÚNG KHÁCH — lên đơn cho khách MỚI ngay sau đó vẫn phải chạy', async () => {
+    // Đo thật 05/08 khi kiểm hàng rào: nhân viên gõ "lên đơn 3 cái cho chị Hoa"
+    // ngay sau đơn của anh Tuấn Anh và bị chặn oan. Sửa đơn thì luôn CÙNG
+    // khách; lên đơn cho người khác là việc hợp lệ, không được cản.
+    const { odoo, goi } = odooGia({ donGan: [] });
+
+    await taoDonNhap(
+      { odoo, conversationId: CONV, seq: 2, chanDonLienKeGiay: 90 },
+      { khach_hang_id: 999, dong: [{ san_pham_id: SP.id, so_luong: 3 }] },
+    );
+
+    const truyVan = goi.find((g) => JSON.stringify(g.domain).includes('create_date'));
+    expect(JSON.stringify(truyVan?.domain), 'phải lọc theo partner_id').toContain('partner_id');
+    expect(JSON.stringify(truyVan?.domain)).toContain('999');
+  });
 });
