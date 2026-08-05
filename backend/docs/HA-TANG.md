@@ -185,6 +185,66 @@ ODOO_DB=nelia_prod
 
 ---
 
+## Nick Zalo bị khoá — rủi ro & cách xử lý
+
+Viết 05/08/2026. **Mất nick = mất cả kênh bán hàng.** Đây là rủi ro nền tảng
+lớn nhất của hệ thống, và nó chỉ GIẢM được chứ không xoá được.
+
+### Vì sao có rủi ro
+
+Bot dùng `zca-js` — thư viện KHÔNG chính thức, giả lập trình duyệt đăng nhập
+Zalo Web. [SECURITY.md của chính thư viện](https://github.com/RFS-ADRENO/zca-js/blob/main/SECURITY.md)
+nói thẳng: dùng có thể bị **khoá tài khoản**. Không có SLA, không có kênh
+khiếu nại, Zalo đổi giao thức lúc nào cũng được.
+
+### Đang phòng những gì (đã có trong code)
+
+| Hàng rào | Ở đâu | Làm gì |
+|---|---|---|
+| Nhịp gõ người | `knowledge/human-pace.ts` | chờ 1,5–9s trước mỗi tin, jitter 0,6–1,4× — gửi đều tăm tắp là dấu hiệu bot rõ nhất |
+| Trần tin/khách | `noi-zalo/gioi-han.ts` | 15 tin/giờ, 60 tin/ngày — bot không thể thành máy dội tin |
+| Chặn lặp câu | `bao-nhan-vien.ts` | mỗi hội thoại chỉ một câu giữ chân / 10 phút |
+
+**Đừng bao giờ tắt** `AI_HUMAN_PACE` cho luồng khách, kể cả khi thấy chậm.
+Nhân viên thì đã tắt sẵn (họ biết đang nói với bot).
+
+### Khi nick bị khoá — làm theo thứ tự
+
+1. **Xác nhận đúng là bị khoá**, không phải rớt mạng:
+   ```bash
+   ssh root@100.107.48.28 'docker logs --since 30m zalo-crm-app 2>&1 | grep -iE "listener|login|401|403"'
+   ```
+   Rớt mạng thì log có "Listener connected" lại sau vài phút. Bị khoá thì
+   đăng nhập fail liên tục, hoặc mở Zalo Web bằng tay cũng không vào được.
+
+2. **TẮT bot ngay** để không đốt tiền LLM và không làm nặng thêm:
+   Dokploy → `zalocrm-zalo-xayzqq` → env → `AI_AGENT_KHACH=0`,
+   `AI_AGENT_NHANVIEN=0` → Deploy. (Tắt biến an toàn hơn tắt container: CRM
+   vẫn chạy, nhân viên vẫn dùng được giao diện.)
+
+3. **Báo nhân viên chuyển sang trả lời tay** — khách đang chờ không biết gì.
+
+4. **Khôi phục nick**: mở Zalo trên điện thoại (nick đó phải còn đăng nhập ở
+   đâu đó), làm theo hướng dẫn mở khoá của Zalo. Nếu khoá vĩnh viễn thì phải
+   dùng nick khác.
+
+5. **Nối nick mới**: giao diện CRM → Kết nối Zalo → quét QR. Bảng
+   `zalo_accounts` giữ session ở cột `session_data`; nick mới là bản ghi mới,
+   `zalo_uid` khác. Hội thoại cũ vẫn còn nhưng gắn với `zaloAccountId` cũ —
+   khách sẽ thấy tin đến từ nick khác, cần báo họ.
+
+6. **Bật lại bot** sau khi đã nhắn thử tay vài tin và thấy ổn.
+
+### Chuẩn bị TRƯỚC (chưa làm — việc của anh)
+
+- [ ] Một nick Zalo dự phòng, đã kết bạn sẵn với khách quan trọng
+- [ ] SĐT/thiết bị đăng nhập nick chính ghi lại chỗ nào đó an toàn
+- [ ] Sao lưu `zalo_accounts.session_data` định kỳ (nằm trong dump DB thường ngày)
+- [ ] Cân nhắc Zalo OA (API chính thức) nếu doanh số đủ bù chi phí — hiện
+      CHƯA làm, chỉ ghi lại để nhớ
+
+---
+
 ## Lệnh kiểm nhanh
 
 ```bash

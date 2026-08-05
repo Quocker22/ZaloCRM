@@ -90,9 +90,26 @@ message-handler là façade, env switch là kill switch, `soToolDaChay` là lu�
 **Cách làm chọn.** Không viết thêm hạ tầng — chỉ chạy đúng trình tự strangler:
 đo → chuyển hết → để nguội → xoá. KHÔNG xoá gì trước khi mục 1 (eval) có số.
 
+**Đo thật 05/08/2026** (bảng `ai_suggestions`, 7 ngày — log container không
+dùng được vì restart mất sạch, DB mới là nguồn bền):
+
+| Hệ | Số lượt | Số hội thoại | Khoảng thời gian |
+|---|---|---|---|
+| `auto_reply_agent` | 51 (75%) | 3 | 04/08 08:51 → 19:12 |
+| `auto_reply_rag` | 17 (25%) | 1 | 04/08 05:20 → 18:50 |
+
+Đọc số này: RAG cũ **chưa chết** — vẫn 1/4 số lượt. Nhưng cả hai đều dồn vào
+ngày 04/08 (ngày bật agent + test tay), và RAG chỉ phục vụ ĐÚNG MỘT hội
+thoại. Lượng thật quá nhỏ để kết luận; cần đo lại sau khi chạy thật vài ngày.
+Câu lệnh đo lại:
+
+```bash
+ssh root@100.107.48.28 'docker exec zalo-crm-db sh -c "psql -U \$POSTGRES_USER -d zalocrm -tAc \"select type, count(*), count(distinct conversation_id) from ai_suggestions where created_at > now() - interval '"'"'7 days'"'"' group by 1\""'
+```
+
 **Bước làm.**
-1. Đếm thực tế: bao nhiêu % tin khách đang rơi xuống RAG cũ (grep log
-   `nhường luồng cũ` 7 ngày). Nếu ~0% thì hệ cũ đã chết lâm sàng rồi.
+1. ~~Đếm thực tế~~ — đã đo ở trên. Đo lại sau khi chạy thật 1 tuần; RAG còn
+   >10% thì phải tìm hiểu nó đỡ những ca nào trước khi xoá.
 2. Sau khi eval bậc 1 đạt 100% (mục 1): sửa các đường nhường còn lại thành
    báo-nhân-viên (mục 2) thay vì rơi xuống RAG — RAG cũ hết đường vào.
 3. Để nguội 2 tuần, theo dõi log. Kill switch vẫn là `AI_AGENT_KHACH=0`.
@@ -181,12 +198,13 @@ ban — quy trình + phương án lùi.
    cổng LLM trong `luong-khach.ts`, qua `dung()` để có log.
 3. Test: 16 tin/giờ → tin 16 không tạo request LLM.
 
-**Bước làm — 6a (giảm rủi ro ban).**
-1. Giữ humanPace mọi tin gửi khách (đã có); thêm jitter nếu chưa.
-2. Số điện thoại đăng nhập Zalo dự phòng + quy trình khôi phục session ghi vào
-   `docs/HA-TANG.md` (mất nick = mất kênh bán).
-3. Theo dõi: nếu Zalo OA (API chính thức) khả thi về giá cho shop → cân nhắc
-   sau, KHÔNG làm bây giờ.
+**Bước làm — 6a (giảm rủi ro ban). ĐÃ XONG 05/08/2026.**
+1. ~~humanPace + jitter~~ — kiểm rồi, đã có sẵn: chờ 1,5–9s, jitter 0,6–1,4×.
+   Không phải sửa gì. Ghi thêm luật "đừng bao giờ tắt cho luồng khách".
+2. ~~Quy trình khôi phục~~ — `docs/HA-TANG.md` mục "Nick Zalo bị khoá": 6 bước
+   xử lý khi mất nick (xác nhận → tắt bot bằng env → báo nhân viên → mở khoá →
+   nối nick mới qua QR → bật lại) + 4 việc chuẩn bị trước cho anh.
+3. Zalo OA: ghi lại để nhớ, CHƯA làm.
 
 **Xong khi.** 1.000 tin spam tốn đúng 15 lượt LLM/giờ; quy trình mất-nick có giấy tờ.
 **Ước lượng.** 6b: nửa ngày. 6a: 1 giờ viết quy trình.
