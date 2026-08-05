@@ -100,7 +100,17 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
         bizName: ctx.bizName,
         conversationId: ctx.conversationId,
         seq: seqTuMessageId(ctx.messageId),
-        message: { content: ctx.content, isSelf: true }, // đã qua cổng nhận lệnh ở trên
+        // GỬI NỘI DUNG ĐÃ QUA CỔNG, không phải `ctx.content` thô.
+        //
+        // Bug thật 2026-08-05: `chayLenhNhanVien` kiểm cổng LẦN HAI, nhưng ở
+        // đó KHÔNG có `senderUid` — nên tin từ UID nhân viên mà không gõ `@bot`
+        // bị chính nó từ chối (`khong_phai_lenh`), rồi nhánh đó `return false`
+        // KHÔNG log gì. Nhìn log tưởng agent treo ở lượt LLM; thực ra nó thoát
+        // ngay sau 0,00s. Mất một buổi mới tìm ra.
+        //
+        // `lenh.noiDung` đã bỏ tag và ĐÃ qua cổng bảo mật ở trên — nối `@bot`
+        // lại để cổng thứ hai luôn nhận, dù người gửi không tự gõ tag.
+        message: { content: `@bot ${lenh.noiDung}`, isSelf: true },
         history: lichSu.map((m) => ({
           vai: m.senderType === 'self' ? ('nhanvien' as const) : ('bot' as const),
           noiDung: m.content,
@@ -108,7 +118,14 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
       },
     ));
 
-    if (r.trangThai === 'khong_phai_lenh') return false;
+    // KHÔNG được im lặng ở đây: cổng trên đã CHO QUA, nên đến được đây mà bị
+    // từ chối nghĩa là hai cổng bất đồng — lỗi lập trình, không phải luồng
+    // bình thường. Im lặng ở nhánh này chính là thứ giấu bug 05/08 cả buổi.
+    if (r.trangThai === 'khong_phai_lenh') {
+      return dung('chayLenhNhanVien từ chối dù cổng trên đã cho qua — HAI CỔNG BẤT ĐỒNG', {
+        conversationId: ctx.conversationId, noiDung: lenh.noiDung.slice(0, 60),
+      });
+    }
 
     if (r.trangThai === 'xong') {
       // Nhân viên KHÔNG cần giả nhịp người — họ biết đang nói với bot.
