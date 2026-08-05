@@ -98,6 +98,19 @@ luong-*.ts  →  gui-zalo, du-lieu, llm, dung, cong-tac  →  (shared, odoo, kno
 7. **Prompt không được tự vi phạm luật của chính nó.** Prompt cấm markdown mà
    chứa 26 dấu `**` → bot bắt chước (05/08). Model học từ cái nó THẤY.
 
+8. **Một cổng kiểm MỘT LẦN — kiểm lại với dữ liệu nghèo hơn là tự bắn chân.**
+   `chayLenhNhanVien` kiểm cổng nhận lệnh lần hai nhưng chỉ có `content` +
+   `isSelf`, KHÔNG có `senderUid` — nên tin từ UID nhân viên không gõ `@bot`
+   bị chính nó từ chối, rồi thoát im lặng (05/08, mất một buổi truy). Đã sửa
+   bằng cách truyền nội dung ĐÃ qua cổng xuống. Bài học rộng hơn: nhánh
+   "không phải việc của tôi" ở TẦNG TRONG phải log — tầng ngoài đã cho qua thì
+   tầng trong từ chối là hai cổng bất đồng, tức lỗi lập trình.
+
+9. **Test mock LLM không bắt được lỗi tích hợp.** Mọi e2e cũ đều mock LLM nên
+   bug số 8 lọt hết. `noi-zalo-that.e2e.ts` gọi ĐÚNG hàm message-handler gọi
+   với LLM + Odoo + DB thật, khoá hai hợp đồng: lượt phải KẾT THÚC (không
+   treo) và Zalo phải NHẬN được tin (không im lặng).
+
 ## Debug nhanh
 
 Bot im? — grep theo thứ tự:
@@ -107,6 +120,20 @@ docker logs --since 10m zalo-crm-app | grep '"] dừng:'      # dừng ở cổn
 docker logs --since 10m zalo-crm-app | grep 'BẮT ĐẦU xử lý'  # có vào handler không
 docker logs --since 10m zalo-crm-app | grep '\[agent/'       # toàn bộ vòng đời
 ```
+
+Thấy `BẮT ĐẦU` rồi im, không `XONG` cũng không `dừng`? Log chặng chỉ chỗ chết:
+`đã lấy lịch sử` → `đã dựng tri thức — vào LLM` → `XONG`. Dòng cuối cùng thấy
+được là chặng cuối cùng chạy xong.
+
+Cách nhanh nhất để biết lỗi ở đâu — chạy code THẬT trong container production
+thay vì đoán (đã dùng để tìm ra bug hai-cổng 05/08):
+
+```bash
+# viết script gọi thẳng dist/, copy vào rồi chạy
+docker cp chan-doan.mjs zalo-crm-app:/app/ && docker exec zalo-crm-app node /app/chan-doan.mjs
+```
+
+Import từ `/app/dist/...`, đo mốc thời gian từng chặng. Nhớ `rm` sau khi xong.
 
 Bot trả lời sai? — xem nó đã hỏi Odoo gì:
 
