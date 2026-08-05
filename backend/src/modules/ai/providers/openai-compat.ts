@@ -49,7 +49,7 @@ export async function generateWithOpenaiCompat(
       throw new Error(`OpenAI-compat request failed with status ${status}`);
     }
 
-    const data = (await response.json()) as {
+    const data = (await docJson(response)) as {
       choices?: Array<{ message?: { content?: string } }>;
     };
     const text = boSuyNghi(data.choices?.[0]?.message?.content ?? '');
@@ -68,6 +68,33 @@ interface OpenAIToolCall {
   id?: string;
   type?: string;
   function?: { name?: string; arguments?: string };
+}
+
+/**
+ * Đọc JSON từ phản hồi, chịu được rác ở đầu thân.
+ *
+ * Bug thật 2026-08-05: OpenRouter trả `"\n         \n{...}"` — khoảng trắng và
+ * xuống dòng TRƯỚC dấu `{`. `response.json()` của Node ném ngay, agent chết ở
+ * lượt LLM đầu tiên và bot im lặng hoàn toàn (log chỉ có "BẮT ĐẦU xử lý" rồi
+ * không gì nữa).
+ *
+ * Cắt tới ký tự `{` hoặc `[` đầu tiên rồi mới phân tích. Thân không có JSON nào
+ * thì ném kèm 200 ký tự đầu — để lần sau đọc log là biết ngay, khỏi đoán.
+ */
+export async function docJson(response: Response): Promise<unknown> {
+  const raw = await response.text();
+  const dau = raw.search(/[{[]/);
+  if (dau < 0) {
+    throw new Error(`Phản hồi không phải JSON: ${JSON.stringify(raw.slice(0, 200))}`);
+  }
+  try {
+    return JSON.parse(raw.slice(dau));
+  } catch (err) {
+    throw new Error(
+      `JSON hỏng (${err instanceof Error ? err.message.slice(0, 60) : 'lỗi'}): ` +
+      JSON.stringify(raw.slice(dau, dau + 200)),
+    );
+  }
 }
 
 /**
@@ -269,7 +296,7 @@ export async function generateWithOpenaiCompatTools(args: {
         throw err;
       }
 
-      return docPhanHoi(await response.json());
+      return docPhanHoi(await docJson(response));
     } catch (err) {
       loiCuoi = err;
       if (lan < toiDa && nenThuLai(err)) continue;
