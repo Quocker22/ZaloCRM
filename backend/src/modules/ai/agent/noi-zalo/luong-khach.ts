@@ -16,6 +16,7 @@ import { batLuongKhach, batKhachTuChotDon, duCauHinh, tranTienKhach } from './co
 import { dungGenerate } from './llm.js';
 import { layOdoo, timTriThuc, layLichSu, seqTuMessageId } from './du-lieu.js';
 import { timDich, guiTin, guiAnh, guiHoaDonVaQr } from './gui-zalo.js';
+import { baoNhanVien, CAU_GIU_CHAN } from './bao-nhan-vien.js';
 import { taoDung, taoMoc } from './dung.js';
 import type { NgữCanhTin } from './types.js';
 
@@ -62,8 +63,16 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
       {
         odoo: layOdoo(),
         generate,
+        // Bot chủ động xin chuyển sale → báo nhân viên THẬT, không chỉ log.
+        // Khách đã có câu trả lời của agent ("em chuyển anh/chị cho nhân viên…")
+        // nên KHÔNG gửi thêm câu giữ chân ở đây.
         ghiNhanChuyenSale: async (yc) => {
           logger.info({ lyDo: yc.lyDo, conversationId: ctx.conversationId }, '[agent/khach] cần sale');
+          await baoNhanVien(dich, {
+            conversationId: ctx.conversationId,
+            lyDo: `bot xin chuyển sale (${yc.lyDo}): ${yc.tomTat}`,
+            tinKhach: ctx.content,
+          });
         },
         ghiLog: (l) => { soToolDaChay++; ghiDb(l); },
         timDoanTriThuc: await timTriThuc(ctx.orgId),
@@ -91,9 +100,23 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
     );
 
     if (r.trangThai !== 'xong') {
-      // Bot bí → IM LẶNG để nhân viên vào trả lời, tốt hơn "em chưa xử lý được"
-      // rồi khách bỏ đi. Vẫn trả true — không để luồng cũ nói thay.
-      logger.warn({ lyDo: r.lyDo, conversationId: ctx.conversationId }, '[agent/khach] chưa hoàn tất — im lặng');
+      // Bot bí → giữ chân khách + báo nhân viên kèm ngữ cảnh. Trước đây là im
+      // lặng hoàn toàn — khách chờ vô vọng nếu nhân viên không mở CRM (05/08).
+      // Vẫn trả true — không để luồng cũ nói thay.
+      logger.warn({ lyDo: r.lyDo, conversationId: ctx.conversationId }, '[agent/khach] chưa hoàn tất — giữ chân + báo nhân viên');
+      const lanDau = await baoNhanVien(dich, {
+        conversationId: ctx.conversationId,
+        lyDo: r.lyDo,
+        tinKhach: ctx.content,
+        soToolDaChay,
+      });
+      if (lanDau) {
+        try {
+          await guiTin(dich, CAU_GIU_CHAN, true);
+        } catch (err) {
+          logger.warn({ err, conversationId: ctx.conversationId }, '[agent/khach] gửi câu giữ chân lỗi');
+        }
+      }
       return true;
     }
 
@@ -127,21 +150,36 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
     moc.xong(t0, { soTool: r.log.length, conversationId: ctx.conversationId });
     return true;
   } catch (err) {
-    // Lỗi SAU khi đã gọi tool → IM LẶNG, KHÔNG nhường luồng RAG cũ.
+    // Lỗi SAU khi đã gọi tool → giữ chân + báo nhân viên, KHÔNG nhường luồng RAG cũ.
     //
     // Bug thật 2026-08-05: agent tra Odoo xong, model trả câu rỗng, sendMessage
     // ném → nhường luồng cũ → khách nhận câu của RAG (không biết gì về thứ
     // agent vừa tra): bot lặp y hệt câu trước và nói "để em kiểm tra tồn kho".
     //
     // Nhường chỉ đúng khi CHƯA chạm dữ liệu — lúc đó luồng cũ còn xử lý được
-    // từ đầu. Sau đó thì im lặng, đừng để hai hệ thống nói hai chuyện khác nhau.
+    // từ đầu. Sau đó thì người phải vào — đừng để hai hệ nói hai chuyện khác nhau.
     const daChayTool = soToolDaChay > 0;
     logger.error(
       { err, conversationId: ctx.conversationId, daChayTool },
       daChayTool
-        ? '[agent/khach] lỗi SAU khi gọi tool — im lặng, KHÔNG nhường luồng cũ'
+        ? '[agent/khach] lỗi SAU khi gọi tool — giữ chân + báo nhân viên, KHÔNG nhường luồng cũ'
         : '[agent/khach] lỗi trước khi gọi tool — nhường luồng cũ',
     );
+    if (daChayTool) {
+      const lanDau = await baoNhanVien(dich, {
+        conversationId: ctx.conversationId,
+        lyDo: `lỗi hệ thống: ${err instanceof Error ? err.message : String(err)}`,
+        tinKhach: ctx.content,
+        soToolDaChay,
+      });
+      if (lanDau) {
+        try {
+          await guiTin(dich, CAU_GIU_CHAN, true);
+        } catch (e2) {
+          logger.warn({ err: e2, conversationId: ctx.conversationId }, '[agent/khach] gửi câu giữ chân lỗi');
+        }
+      }
+    }
     return daChayTool;
   }
 }

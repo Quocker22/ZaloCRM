@@ -57,3 +57,17 @@ export function tranTienKhach(): number {
 
 /** Số tin lịch sử nạp vào ngữ cảnh — đủ để hiểu "cái đó", không phình prompt. */
 export const SO_TIN_LICH_SU = 10;
+
+/**
+ * Thread Zalo nhận báo "bot bí" — nhóm sale hoặc UID một nhân viên.
+ *
+ *   AI_AGENT_THREAD_BAO_SALE       threadId nhận báo (bắt buộc để bật tính năng)
+ *   AI_AGENT_THREAD_BAO_SALE_LOAI  '0' = chat 1-1, mặc định '1' = nhóm
+ *
+ * Không đặt → bot vẫn giữ chân khách nhưng KHÔNG báo được ai — chỉ còn log.
+ */
+export function threadBaoSale(): { threadId: string; threadType: 0 | 1 } | null {
+  const threadId = process.env.AI_AGENT_THREAD_BAO_SALE;
+  if (!threadId) return null;
+  return { threadId, threadType: process.env.AI_AGENT_THREAD_BAO_SALE_LOAI === '0' ? 0 : 1 };
+}

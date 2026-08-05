@@ -53,6 +53,7 @@ message-handler.ts ─── lưu tin vào DB, rồi rẽ nhánh (fire-and-forge
 | `du-lieu.ts` | Odoo client, lịch sử, tri thức, seq chống trùng | seq đếm log → 2 đơn/1 ý định (04/08) |
 | `gui-zalo.ts` | MỌI thứ gửi ra Zalo | logic gửi rải 4 chỗ, sửa sót |
 | `dung.ts` | dừng-PHẢI-có-log | 2 cổng im lặng → mất 1 tiếng dò tay (05/08) |
+| `bao-nhan-vien.ts` | bot bí → giữ chân khách + báo nhân viên | mọi nhánh bí đều im lặng, khách chờ vô vọng (05/08) |
 | `luong-nhan-vien.ts` | handler luồng NV | — |
 | `luong-khach.ts` | handler luồng khách + luật nhường RAG | nhường sai → khách nhận câu RAG nói tồn kho (05/08) |
 | `../noi-zalo.ts` | barrel re-export — điểm vào DUY NHẤT | — |
