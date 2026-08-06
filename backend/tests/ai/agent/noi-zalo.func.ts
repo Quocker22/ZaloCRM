@@ -6,6 +6,7 @@
 // phải là hành động có chủ đích, không phải hiệu ứng phụ của một lần deploy.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { batLuongNhanVien, batLuongKhach, duCauHinh, seqTuMessageId, batKhachTuChotDon, duongDanChat } from '../../../src/modules/ai/agent/noi-zalo.js';
+import { odooUrlCongKhai } from '../../../src/modules/ai/agent/noi-zalo/cong-tac.js';
 import { sinhKhoaDon, tachKhoaDon } from '../../../src/modules/ai/odoo/idempotency.js';
 
 const DU = {
@@ -154,5 +155,23 @@ describe('Đường dẫn LLM phải khớp ai-service (luồng RAG cũ)', () =>
   it('bỏ dấu / thừa cuối baseUrl — không sinh //v1', () => {
     expect(duongDanChat('openai', 'https://x.com/')).toBe('https://x.com/v1/chat/completions');
     expect(duongDanChat('openai', 'https://x.com///')).toBe('https://x.com/v1/chat/completions');
+  });
+});
+
+describe('odooUrlCongKhai — link cho NGƯỜI bấm, không phải hostname Docker', () => {
+  // Bug thật 06/08/2026: link hoá đơn ra "http://incokit_nginx_prod/web#..."
+  // — ODOO_URL là hostname nội bộ Docker, nhân viên bấm là chết.
+  it('có ODOO_PUBLIC_URL → dùng nó, mặc kệ ODOO_URL nội bộ', () => {
+    process.env.ODOO_URL = 'http://incokit_nginx_prod';
+    process.env.ODOO_PUBLIC_URL = 'https://led.incokit.com';
+
+    expect(odooUrlCongKhai()).toBe('https://led.incokit.com');
+  });
+
+  it('chưa đặt ODOO_PUBLIC_URL → rơi về ODOO_URL, không tệ hơn trước', () => {
+    process.env.ODOO_URL = 'http://incokit_nginx_prod';
+    delete process.env.ODOO_PUBLIC_URL;
+
+    expect(odooUrlCongKhai()).toBe('http://incokit_nginx_prod');
   });
 });

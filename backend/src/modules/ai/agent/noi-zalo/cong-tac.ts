@@ -74,6 +74,22 @@ export function chanDonLienKeGiay(): number {
 }
 
 /**
+ * URL Odoo để NGƯỜI bấm vào (link xử lý đơn trong tin Zalo).
+ *
+ * Bug thật 06/08/2026: link hoá đơn ra "http://incokit_nginx_prod/web#..." —
+ * ODOO_URL là hostname NỘI BỘ Docker, chỉ container thấy được; nhân viên bấm
+ * là chết. Bot gọi XML-RPC vẫn phải dùng ODOO_URL nội bộ (nhanh, không qua
+ * tunnel) — nên cần biến RIÊNG cho link người dùng:
+ *
+ *   ODOO_PUBLIC_URL=https://led.incokit.com
+ *
+ * Chưa đặt thì rơi về ODOO_URL — ít nhất không tệ hơn trước.
+ */
+export function odooUrlCongKhai(): string | undefined {
+  return process.env.ODOO_PUBLIC_URL || process.env.ODOO_URL;
+}
+
+/**
  * Thread Zalo nhận báo "bot bí" — nhóm sale hoặc UID một nhân viên.
  *
  *   AI_AGENT_THREAD_BAO_SALE       threadId nhận báo (bắt buộc để bật tính năng)

@@ -173,9 +173,14 @@ curl -s -o /dev/null -w '%{http_code}\n' https://led.incokit.com/web/assets/54e3
 Biến trên Dokploy → project `zalocrm-zalo`:
 
 ```
-ODOO_URL=http://incokit_nginx_prod   ← Odoo THỬ, cùng máy CRM
+ODOO_URL=http://incokit_nginx_prod   ← Odoo THỬ, cùng máy CRM (NỘI BỘ — cho XML-RPC)
+ODOO_PUBLIC_URL=https://led.incokit.com  ← link NGƯỜI bấm (hoá đơn trong tin Zalo)
 ODOO_DB=nelia_test                   ← bản sao, an toàn
 ```
+
+HAI biến URL là CỐ Ý (06/08/2026): bot gọi XML-RPC qua hostname Docker nội bộ
+(nhanh, không qua tunnel), nhưng link trong tin Zalo phải là domain công khai —
+nhân viên bấm `http://incokit_nginx_prod/...` là chết.
 
 Chuyển sang Odoo THẬT (chỉ khi đã yên tâm):
 ```

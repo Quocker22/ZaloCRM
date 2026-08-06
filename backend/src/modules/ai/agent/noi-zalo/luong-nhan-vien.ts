@@ -10,7 +10,7 @@ import { logger } from '../../../../shared/utils/logger.js';
 import { chayLenhNhanVien } from '../staff-agent.js';
 import { nhanDienLenhNhanVien, coTagBot } from '../staff-command.js';
 import { taoGhiLog, type PrismaGhiLog } from '../ghi-log-tool.js';
-import { batLuongNhanVien, duCauHinh, chanDonLienKeGiay } from './cong-tac.js';
+import { batLuongNhanVien, duCauHinh, chanDonLienKeGiay, odooUrlCongKhai } from './cong-tac.js';
 import { dungGenerate } from './llm.js';
 import { layOdoo, layAnhClient, timTriThuc, layLichSu, seqTuMessageId } from './du-lieu.js';
 import { timDich, guiTin, guiAnh, ghiAnhTam } from './gui-zalo.js';
@@ -106,7 +106,9 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
         },
         ghiLog: ghiDb,
         anhClient: layAnhClient(),
-        odooUrl: process.env.ODOO_URL,
+        // Link cho NGƯỜI bấm — phải là domain công khai, không phải hostname
+        // Docker nội bộ (bug thật 06/08: "http://incokit_nginx_prod/web#...").
+        odooUrl: odooUrlCongKhai(),
         timDoanTriThuc: triThuc,
       },
       {
