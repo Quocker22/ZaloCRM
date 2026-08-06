@@ -35,9 +35,17 @@ export function laLenhNhanVien(input: {
   content: string;
   isSelf: boolean;
   senderUid?: string | null;
+  laNhom?: boolean;
+  daTagBot?: boolean;
 }): boolean {
   if (!batLuongNhanVien() || !duCauHinh()) return false;
-  return nhanDienLenhNhanVien(input) !== null;
+  return nhanDienLenhNhanVien({
+    // Mention Zalo thật (@TênBot) không chứa chữ "@bot" — quy đổi thành tag.
+    content: input.daTagBot ? `@bot ${input.content}` : input.content,
+    isSelf: input.isSelf,
+    senderUid: input.senderUid,
+    batBuocTag: input.laNhom === true,
+  }) !== null;
 }
 
 /**
@@ -52,11 +60,15 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
   }
 
   // CỔNG RẺ: nick shop không tag @bot thì không gọi LLM (nó gửi hàng chục tin
-  // trả lời khách mỗi ngày). UID trong AI_AGENT_UID_NHANVIEN thì KHÔNG cần tag.
+  // trả lời khách mỗi ngày). UID trong AI_AGENT_UID_NHANVIEN thì KHÔNG cần tag
+  // — TRỪ trong NHÓM: ở đó nhân viên tán gẫu/nói với khách, coi mọi câu là
+  // lệnh thì bot chen vào liên tục (06/08/2026). Mention Zalo thật (@TênBot)
+  // được quy đổi thành tag "@bot" vì text mention không chứa chữ đó.
   const lenh = nhanDienLenhNhanVien({
-    content: ctx.content,
+    content: ctx.daTagBot ? `@bot ${ctx.content}` : ctx.content,
     isSelf: ctx.isSelf ?? true,
     senderUid: ctx.senderUid,
+    batBuocTag: ctx.laNhom === true,
   });
   if (!lenh) {
     return dung('không qua cổng nhận lệnh', {

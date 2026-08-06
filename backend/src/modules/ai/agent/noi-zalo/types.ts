@@ -12,4 +12,8 @@ export interface NgữCanhTin {
   senderUid?: string | null;
   /** true khi tin do chính nick shop gửi. */
   isSelf?: boolean;
+  /** Tin đến từ NHÓM. Trong nhóm bot chỉ nói khi được tag (06/08/2026). */
+  laNhom?: boolean;
+  /** Tin có mention đúng UID của nick bot (Zalo mentions, chỉ nhóm mới có). */
+  daTagBot?: boolean;
 }

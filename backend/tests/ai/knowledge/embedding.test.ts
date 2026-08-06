@@ -5,10 +5,13 @@ import { generateEmbedding } from '../../../src/modules/ai/knowledge/embedding.j
 afterEach(() => vi.restoreAllMocks());
 
 function mockFetchOnce(json: unknown) {
+  // `text` phải có từ 2026-08-05: embedOpenAICompat đọc bằng text() rồi tự
+  // phân tích — OpenRouter chèn khoảng trắng trước JSON làm res.json() ném.
   vi.spyOn(globalThis, 'fetch').mockResolvedValue({
     ok: true,
     status: 200,
     json: async () => json,
+    text: async () => JSON.stringify(json),
   } as Response);
 }
 

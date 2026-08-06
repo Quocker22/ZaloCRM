@@ -54,6 +54,15 @@ function timTag(khongDau: string): { tag: string; viTri: number } | null {
   return null;
 }
 
+/**
+ * Text có chứa tag gọi bot không (@bot, @ai, bot ơi…) — cho gate NHÓM của
+ * luồng khách: khách trong nhóm gõ tay "@bot còn hàng không" cũng phải được
+ * trả lời, dù họ không mention Zalo thật.
+ */
+export function coTagBot(content: string): boolean {
+  return timTag(boDau(String(content ?? '').trim())) !== null;
+}
+
 export interface LenhNhanVien {
   /** Nội dung đã bỏ tag — gửi thẳng cho LLM, không diễn giải thêm. */
   noiDung: string;
@@ -105,6 +114,15 @@ export function nhanDienLenhNhanVien(input: {
   isSelf: boolean;
   /** UID Zalo người gửi. Thiếu → chỉ `isSelf` mới qua cổng. */
   senderUid?: string | null;
+  /**
+   * BẮT BUỘC có tag dù UID đã khai — dùng cho tin trong NHÓM (06/08/2026).
+   *
+   * Đặc quyền không-cần-tag sinh ra cho chat 1-1 với nick shop: ở đó mọi tin
+   * của nhân viên đều là lệnh. Trong NHÓM thì ngược lại — nhân viên tán gẫu,
+   * bàn việc, nói với khách; coi mọi câu là lệnh thì bot chen vào liên tục
+   * và đốt tiền LLM theo từng câu chuyện phiếm.
+   */
+  batBuocTag?: boolean;
   env?: NodeJS.ProcessEnv;
 }): LenhNhanVien | null {
   // Cổng 1 — BẢO MẬT. Tin khách không bao giờ chạm được luồng có quyền ghi,
@@ -123,7 +141,8 @@ export function nhanDienLenhNhanVien(input: {
   //
   // UID khai báo thì BỎ QUA cổng này (anh chốt 2026-08-04): nick cá nhân nhân
   // viên chỉ dùng để sai bot, bắt gõ `@bot` mỗi lần là phiền vô ích.
-  if (!khop && !uidKhai) return null;
+  // NGOẠI LỆ: trong nhóm (`batBuocTag`) thì UID cũng phải tag — xem chú thích trên.
+  if (!khop && (!uidKhai || input.batBuocTag)) return null;
 
   // Không tag (UID khai báo) → dùng nguyên câu.
   if (!khop) return { noiDung: goc, cachGoi: '' };

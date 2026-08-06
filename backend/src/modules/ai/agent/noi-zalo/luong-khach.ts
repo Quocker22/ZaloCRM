@@ -11,6 +11,8 @@ import { prisma } from '../../../../shared/database/prisma-client.js';
 import { logger } from '../../../../shared/utils/logger.js';
 import { findImageForReply } from '../../knowledge/product-image.js';
 import { chayTuVanKhach } from '../customer-agent.js';
+import { coTagBot } from '../staff-command.js';
+import { chiCoEmoji } from './luong-media.js';
 import { taoGhiLog, type PrismaGhiLog } from '../ghi-log-tool.js';
 import { batLuongKhach, batKhachTuChotDon, duCauHinh, tranTienKhach, chanDonLienKeGiay } from './cong-tac.js';
 import { dungGenerate } from './llm.js';
@@ -31,6 +33,25 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
     return dung('công tắc tắt hoặc thiếu cấu hình Odoo', {
       bat: batLuongKhach(), duCauHinh: duCauHinh(),
     });
+  }
+
+  // TRONG NHÓM: chỉ nói khi được tag (06/08/2026). Nhóm là chỗ nhiều người
+  // nói chuyện với nhau — bot chen vào từng câu vừa phiền vừa đốt tiền LLM
+  // theo cuộc tán gẫu của người khác. Trả TRUE để luồng RAG cũ cũng không
+  // được nhảy vào nói thay (nó không có gate nhóm).
+  //
+  // Đứng TRƯỚC rate limit: tin nhóm không tag là phần lớn lưu lượng nhóm,
+  // không được ăn vào quota 15 tin/giờ của hội thoại.
+  if (ctx.laNhom && !ctx.daTagBot && !coTagBot(ctx.content)) {
+    logger.info({ conversationId: ctx.conversationId }, '[agent/khach] tin nhóm không tag bot — bỏ qua');
+    return true;
+  }
+
+  // "👍" / "😀😀" — không có gì để trả lời, và một lượt agent cho cái like là
+  // đốt ~3k token. Người thật cũng chỉ… nhìn nó. Trả TRUE để RAG cũ khỏi đáp.
+  if (chiCoEmoji(ctx.content)) {
+    logger.info({ conversationId: ctx.conversationId }, '[agent/khach] tin chỉ emoji — bỏ qua');
+    return true;
   }
 
   // Chặn spam TRƯỚC mọi thứ tốn tiền — một người dội 1.000 tin không được đốt

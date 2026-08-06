@@ -12,7 +12,7 @@ import { randomUUID } from 'node:crypto';
 import { emitWebhook } from '../api/webhook-service.js';
 import { runAutomationRules } from '../../shared/ee-registry/automation.js';
 import { runAutoReplyForMessage } from '../ai/knowledge/auto-reply-wiring.js';
-import { xuLyTinNhanVien, xuLyTinKhach, laLenhNhanVien } from '../ai/agent/noi-zalo.js';
+import { xuLyTinNhanVien, xuLyTinKhach, xuLyTinMedia, laLenhNhanVien } from '../ai/agent/noi-zalo.js';
 import { automationEventBus } from '../../shared/ee-registry/event-bus.js';
 import { applyContactAggregateFromMessage, applyContactInteraction, applyFriendAggregate } from '../contacts/contact-aggregate.js';
 import { followMergedInto } from '../contacts/resolve-contact.js';
@@ -298,10 +298,21 @@ export async function handleIncomingMessage(
         orgId: true,
         ownerUserId: true,
         displayName: true,
+        // zaloUid: để biết tin nhóm có MENTION đúng nick bot không — trong
+        // nhóm agent chỉ trả lời khi được tag (06/08/2026).
+        zaloUid: true,
         owner: { select: { fullName: true } },
       },
     });
     if (!account) return null;
+
+    // Ngữ cảnh nhóm cho các luồng agent: nhóm thì phải tag bot mới trả lời.
+    // `mentions` chỉ nhóm mới có; so với zaloUid của chính nick đang nhận.
+    const laNhom = msg.threadType === 'group';
+    const daTagBot =
+      laNhom &&
+      Boolean(account.zaloUid) &&
+      (msg.mentions?.some((m) => String(m.uid) === String(account.zaloUid)) ?? false);
 
     const contactId = await upsertContact(msg, account.orgId);
 
@@ -664,6 +675,8 @@ export async function handleIncomingMessage(
             content: noiDung,
             senderUid: msg.senderUid,
             isSelf: msg.isSelf,
+            laNhom,
+            daTagBot,
           });
         } catch (err) {
           logger.warn({ err }, '[agent] luồng nhân viên lỗi (bỏ qua)');
@@ -704,6 +717,22 @@ export async function handleIncomingMessage(
         message: { id: message.id, content: message.content, contentType: message.contentType, senderType: message.senderType },
       });
 
+      // TIN KHÔNG PHẢI CHỮ từ khách (ảnh/voice/video/file): agent không đọc
+      // được nhưng KHÔNG được im lặng — ảnh khách gửi thường là ảnh CHUYỂN
+      // KHOẢN hoặc ảnh sản phẩm cần báo giá (06/08/2026). Sticker/gif thì bỏ
+      // qua có chủ đích. Xem noi-zalo/luong-media.ts.
+      if (message.contentType !== 'text') {
+        void xuLyTinMedia(
+          {
+            orgId: account.orgId,
+            conversationId: conversation.id,
+            messageId: message.id,
+            laNhom,
+          },
+          message.contentType,
+        ).catch((err) => logger.warn({ err }, '[agent] luồng media lỗi (bỏ qua)'));
+      }
+
       // RAG auto-reply 2026-06-28 (luồng B) — fire-and-forget, chỉ chạy khi AiConfig.autoReplyEnabled.
       // Quyết định gửi/handoff ở ai-auto-reply-hook (đã test); wiring nuốt mọi lỗi, không block inbound.
       if (message.contentType === 'text' && message.content) {
@@ -725,6 +754,7 @@ export async function handleIncomingMessage(
           // luồng khách phải TRÁNH, nếu không khách nhận hai câu trả lời.
           if (laLenhNhanVien({
             content: message.content ?? '', isSelf: msg.isSelf, senderUid: msg.senderUid,
+            laNhom, daTagBot,
           })) return;
 
           const agentDaTraLoi = await xuLyTinKhach({
@@ -733,6 +763,8 @@ export async function handleIncomingMessage(
             conversationId: conversation.id,
             messageId: message.id,
             content: contentForBot,
+            laNhom,
+            daTagBot,
           }).catch((err) => {
             logger.warn({ err }, '[agent] luồng khách lỗi, nhường luồng RAG');
             return false;
