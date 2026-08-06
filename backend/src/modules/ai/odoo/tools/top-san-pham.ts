@@ -129,7 +129,7 @@ export function dinhDangTopSanPham(kq: KetQuaTop, daDinhKem = false): string {
   return (
     (banChay ? `Top bán chạy kỳ ${kq.ky} (gồm cả đơn nháp, loại đơn huỷ):\n` : `Hàng ế kỳ ${kq.ky} (còn tồn, 0 bán):\n`) +
     dong +
-    (daDinhKem ? `\n... Ảnh bảng đầy đủ ${kq.danhSach.length} dòng được gửi kèm — nói "xem ảnh".` : '')
+    (daDinhKem ? `\n... Đã gửi kèm ẢNH bảng đầy đủ ${kq.danhSach.length} dòng. Nói với nhân viên "xem ẢNH bên dưới" — TUYỆT ĐỐI KHÔNG nói "file Excel", KHÔNG có file nào cả.` : '')
   );
 }
 

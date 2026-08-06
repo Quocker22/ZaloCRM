@@ -78,7 +78,7 @@ export function dinhDangDonCho(kq: KetQuaDonCho, daDinhKem = false): string {
   return (
     `${kq.danhSach.length} đơn nháp chờ xác nhận, tổng ${kq.tongTien.toLocaleString('vi-VN')}đ ` +
     '(đơn chờ lâu nhất lên đầu):\n' + dong +
-    (daDinhKem ? `\n... Ảnh bảng đầy đủ ${kq.danhSach.length} đơn được gửi kèm — nói "xem ảnh".` : '')
+    (daDinhKem ? `\n... Đã gửi kèm ẢNH bảng đầy đủ ${kq.danhSach.length} đơn. Nói với nhân viên "xem ẢNH bên dưới" — TUYỆT ĐỐI KHÔNG nói "file Excel", KHÔNG có file nào cả.` : '')
   );
 }
 
