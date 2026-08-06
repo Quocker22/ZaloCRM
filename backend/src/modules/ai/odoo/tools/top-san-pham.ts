@@ -57,12 +57,26 @@ export async function topSanPham(
           ['order_id.state', '!=', 'cancel'],
           ['create_date', '>=', `${tu} 00:00:00`],
           ['create_date', '<=', `${den} 23:59:59`],
+          // LOẠI dòng KHÔNG phải hàng bán thật: dòng thuế/phí/ghi chú
+          // (display_type có giá trị), và dòng không gắn sản phẩm kho.
+          //
+          // Bug thật 06/08: top bán chạy đưa ra "[SP000070] VAT 8% —
+          // 503.306.453" đứng đầu — đó là dòng THUẾ gộp cả kỳ, không phải
+          // sản phẩm. product_type != 'service' để bỏ dịch vụ/phí; và bỏ
+          // dòng section/note.
+          ['display_type', '=', false],
+          ['product_id.type', '!=', 'service'],
         ],
         ['product_uom_qty:sum', 'price_total:sum'],
         ['product_id'],
       ],
       { orderby: 'product_uom_qty desc', limit: kieu === 'ban_chay' ? limit : TRAN_DONG, lazy: true },
     );
+    // Lớp lọc TÊN dự phòng: shop này để "VAT 8%", "chiết khấu", "phí ship"
+    // thành product thật (không phải type=service) nên domain trên không chặn
+    // hết. Lọc theo từ khoá tên là hàng rào cuối — số vẫn do Odoo cộng, đây
+    // chỉ bỏ dòng rác khỏi danh sách hiển thị.
+    const LA_RAC = /\b(vat|thuế|thue|chiết khấu|chiet khau|phí|phi ship|ship|discount|tax)\b/i;
     const daBan = nhom
       .filter((g) => Array.isArray(g.product_id))
       .map((g) => ({
@@ -70,7 +84,8 @@ export async function topSanPham(
         ten: String((g.product_id as unknown[])[1] ?? ''),
         soLuong: Number(g.product_uom_qty ?? 0),
         tongTien: Number(g.price_total ?? 0),
-      }));
+      }))
+      .filter((d) => !LA_RAC.test(d.ten));
 
     if (kieu === 'ban_chay') {
       return { trangThai: 'ok', kieu, danhSach: daBan, ky };

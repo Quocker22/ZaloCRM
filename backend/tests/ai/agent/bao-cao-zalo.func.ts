@@ -241,3 +241,37 @@ describe('top_san_pham — Ế = còn tồn nhưng 0 bán trong kỳ', () => {
     if (kq.trangThai === 'ok') expect(kq.kieu).toBe('ban_chay');
   });
 });
+
+describe('top_san_pham — LOẠI dòng rác (VAT/thuế/phí), bug thật 06/08', () => {
+  it('"VAT 8%" đứng đầu doanh số vẫn KHÔNG lọt vào top sản phẩm', async () => {
+    const odoo = {
+      searchRead: vi.fn(async () => []),
+      execute: vi.fn(async (model: string) =>
+        model === 'sale.order.line'
+          ? [
+              { product_id: [70, '[SP000070] VAT 8%'], product_uom_qty: 503306453, price_total: 503306453 },
+              { product_id: [1039, 'Nguồn NB 12V100W'], product_uom_qty: 120, price_total: 9360000 },
+              { product_id: [717, 'Chiết khấu đơn'], product_uom_qty: 5, price_total: -100000 },
+            ]
+          : [],
+      ),
+    };
+    const kq = await topSanPham({ odoo } as never, { kieu: 'ban_chay' });
+
+    expect(kq.trangThai).toBe('ok');
+    if (kq.trangThai !== 'ok') return;
+    const ten = kq.danhSach.map((d) => d.ten);
+    expect(ten).not.toContain('[SP000070] VAT 8%');
+    expect(ten.some((t) => t.includes('Chiết khấu'))).toBe(false);
+    expect(ten).toContain('Nguồn NB 12V100W');
+  });
+
+  it('domain gửi Odoo có loại display_type + service', async () => {
+    const odoo = { searchRead: vi.fn(async () => []), execute: vi.fn(async () => []) };
+    await topSanPham({ odoo } as never, { kieu: 'ban_chay' });
+
+    const domain = JSON.stringify((odoo.execute.mock.calls[0] as unknown[])[2]);
+    expect(domain).toContain('display_type');
+    expect(domain).toContain('service');
+  });
+});

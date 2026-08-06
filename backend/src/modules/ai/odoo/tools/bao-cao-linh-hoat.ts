@@ -242,9 +242,12 @@ export function dinhDangLinhHoat(kq: KetQuaLinhHoat, daDinhKem = false): string 
 export const baoCaoLinhHoatDefinition: ToolDefinition = {
   name: 'bao_cao_linh_hoat',
   description:
-    'GỌI KHI câu hỏi báo cáo TỔ HỢP không vừa các tool báo cáo có sẵn — ví dụ "khách nào mua trên 5 ' +
-    'triệu tháng này", "doanh thu theo từng nhân viên tuần trước", "mỗi tháng thêm bao nhiêu khách mới". ' +
-    'KHÔNG dùng khi đã có tool chuyên: doanh thu kỳ (bao_cao_tong_quan), top SP (top_san_pham), ' +
+    'GỌI KHI câu hỏi báo cáo TỔ HỢP không vừa các tool báo cáo có sẵn. Ví dụ: ' +
+    '"khách nào mua nhiều hàng nhất / mua trên 5 triệu tháng này" (bang=don_hang, do=tong_tien, nhom_theo=khach), ' +
+    '"doanh thu theo từng nhân viên tuần trước" (bang=don_hang, do=tong_tien, nhom_theo=nhan_vien), ' +
+    '"mỗi tháng thêm bao nhiêu khách mới" (bang=khach_hang, do=so_khach, nhom_theo=thang). ' +
+    'Hễ hỏi "AI/CÁI GÌ nhiều nhất, theo từng X" mà không có tool chuyên → dùng tool NÀY, đừng bỏ cuộc. ' +
+    'KHÔNG dùng khi đã có tool chuyên: doanh thu tổng kỳ (bao_cao_tong_quan), top SẢN PHẨM (top_san_pham), ' +
     'tồn sắp hết (canh_bao_ton_kho), công nợ (xuat_cong_no), đơn chờ (don_cho_xac_nhan).',
   inputSchema: {
     type: 'object',
