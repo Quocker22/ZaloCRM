@@ -660,7 +660,14 @@ export async function handleIncomingMessage(
     // nằm trong `nhanDienLenhNhanVien` (isSelf HOẶC UID trong danh sách nhân
     // viên), không phải ở đây.
     if (message.contentType === 'text' && message.content) {
-      const noiDung = message.content;
+      // Nhân viên QUOTE tin khách rồi ra lệnh là thao tác phổ biến nhất:
+      // quote "cho mình 5 cuộn led 5m" + gõ "@bot lên đơn cái này". Không nạp
+      // tin được quote thì "cái này" là câu đố (06/08/2026 — luồng khách đã
+      // có từ trước, luồng nhân viên bị bỏ sót).
+      const quoteNv = extractQuotedText(message.quote);
+      const noiDung = quoteNv
+        ? `[Trả lời tin: "${quoteNv.slice(0, 200)}"] ${message.content}`
+        : message.content;
       void (async () => {
         try {
           const org = await prisma.organization.findUnique({

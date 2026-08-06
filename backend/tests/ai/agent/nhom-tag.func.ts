@@ -64,6 +64,28 @@ describe('batBuocTag — UID nhân viên trong NHÓM mất đặc quyền không
   });
 });
 
+describe('quote-reply nhân viên — tag vẫn được nhận khi có tiền tố quote', () => {
+  // 06/08/2026: message-handler nạp tin được quote thành tiền tố
+  // `[Trả lời tin: "..."] @bot ...` — cổng phải tìm được tag ở GIỮA chuỗi.
+  it('nick shop: `[Trả lời tin: "..."] @bot lên đơn` → là lệnh, giữ nguyên quote cho model', () => {
+    const lenh = nhanDienLenhNhanVien({
+      content: '[Trả lời tin: "cho mình 5 cuộn led 5m"] @bot lên đơn cái này',
+      isSelf: true,
+    });
+    expect(lenh).not.toBeNull();
+    expect(lenh!.noiDung).toBe('[Trả lời tin: "cho mình 5 cuộn led 5m"] lên đơn cái này');
+  });
+
+  it('quote chứa chữ "@bot" bên trong ngoặc kép KHÔNG bị nhầm là tag khi thiếu ranh giới từ', () => {
+    // Tin khách được quote có "mail@bot.com" — không có khoảng trắng quanh
+    // @bot nên timTag bỏ qua (cùng luật đã chặn mail@ai.com từ 03/08).
+    expect(nhanDienLenhNhanVien({
+      content: '[Trả lời tin: "gửi vào mail@bot.com nhé"] dạ vâng ạ',
+      isSelf: true,
+    })).toBeNull();
+  });
+});
+
 describe('coTagBot — gate nhóm của luồng khách', () => {
   it.each(['@bot còn hàng không', 'bot ơi giá nhiêu', 'cho hỏi @ai cái này'])(
     'có tag: "%s"', (c) => expect(coTagBot(c)).toBe(true),

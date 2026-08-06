@@ -225,8 +225,10 @@ describe('Tag phải ở RANH GIỚI TỪ — không lọt giữa chữ', () => 
   });
 
   it('tag giữa câu vẫn nhận, miễn có khoảng trắng hai bên', () => {
+    // 06/08/2026: cắt tag giữa chuỗi không còn để lại hai khoảng trắng liền
+    // nhau — vết mổ được gộp lại một, model không cần thấy.
     expect(nhanDienLenhNhanVien({ content: 'anh @bot xem giúp', isSelf: true })?.noiDung)
-      .toBe('anh  xem giúp');
+      .toBe('anh xem giúp');
   });
 });
 

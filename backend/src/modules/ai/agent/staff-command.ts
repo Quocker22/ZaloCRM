@@ -150,7 +150,11 @@ export function nhanDienLenhNhanVien(input: {
   // Bỏ tag khỏi nội dung — model không cần thấy "@bot".
   // `boDau` giữ nguyên độ dài chuỗi nên vị trí trên bản không dấu dùng được
   // thẳng cho bản gốc.
-  const noiDung = (goc.slice(0, khop.viTri) + goc.slice(khop.viTri + khop.tag.length)).trim();
+  // Cắt tag ở GIỮA chuỗi (vd sau tiền tố quote) để lại hai khoảng trắng liền
+  // nhau — gộp lại một, model không cần thấy vết mổ.
+  const noiDung = (goc.slice(0, khop.viTri) + goc.slice(khop.viTri + khop.tag.length))
+    .replace(/[^\S\n]{2,}/g, ' ')
+    .trim();
 
   // Chỉ có tag, không có nội dung ("@bot") → không có gì để làm.
   if (!noiDung) return null;
