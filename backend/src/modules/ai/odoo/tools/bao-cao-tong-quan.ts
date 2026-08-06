@@ -121,11 +121,13 @@ export const baoCaoTongQuanDefinition: ToolDefinition = {
   name: 'bao_cao_tong_quan',
   description:
     'Báo cáo tổng quan tình hình kinh doanh: doanh thu, số hoá đơn, trả hàng, ' +
-    'so sánh với kỳ trước, top sản phẩm bán chạy, top khách hàng, top nhân viên. ' +
-    'GỌI KHI sếp hoặc nhân viên hỏi: "tháng này thế nào", "doanh thu bao nhiêu", ' +
-    '"tình hình kinh doanh", "hàng nào bán chạy nhất", "khách nào mua nhiều nhất", ' +
-    '"so với tháng trước". ' +
+    'so sánh với kỳ trước, kèm vài dòng top sản phẩm/khách/nhân viên. ' +
+    'GỌI KHI hỏi BỨC TRANH CHUNG: "tháng này thế nào", "doanh thu bao nhiêu", ' +
+    '"tình hình kinh doanh", "so với tháng trước". ' +
     'Số liệu lấy thẳng từ Odoo — GIỐNG HỆT màn hình dashboard, không tự tính. ' +
+    // 06/08/2026: nhường hẳn "bán chạy" cho top_san_pham — đo thật flash-lite
+    // chọn nhầm tool này cho câu "sản phẩm nào bán chạy nhất?".
+    'Hỏi RIÊNG top sản phẩm bán chạy/hàng ế → dùng top_san_pham. ' +
     'Cần bảng chi tiết theo ngày/nhân viên/chi nhánh thì dùng bao_cao_ban_hang.',
   inputSchema: {
     type: 'object',

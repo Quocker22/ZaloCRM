@@ -44,6 +44,19 @@ message-handler.ts ─── lưu tin vào DB, rồi rẽ nhánh (fire-and-forge
 | `customer-agent.ts` | registry 4-6 tool khách + `chayTuVanKhach` + hàng rào chống bịa | gửi Zalo |
 | `ghi-log-tool.ts` | ghi ToolCallLog xuống DB, không bao giờ ném | — |
 
+### Báo cáo qua Zalo (spec `docs/superpowers/specs/2026-08-06-bao-cao-zalo-design.md`)
+
+| File | Trách nhiệm |
+|---|---|
+| `odoo/tools/don-cho-xac-nhan.ts` | đơn nháp chờ duyệt, đơn già nhất lên đầu |
+| `odoo/tools/top-san-pham.ts` | bán chạy / Ế (= còn tồn, 0 bán trong kỳ) |
+| `odoo/tools/bao-cao-linh-hoat.ts` | đuôi dài: form đóng → whitelist → Odoo `read_group` tính |
+| `odoo/xuat-excel.ts` | dữ liệu → .xlsx; ngưỡng đính kèm 15 dòng |
+| `noi-zalo/gui-zalo.ts:guiFile` | gửi file qua zca-js (đuôi file quyết định loại) |
+
+Ba hàng rào chính xác: Odoo cộng (model không tự cộng) · trả lời số kèm
+nguồn + kỳ · rỗng ≠ lỗi ("kỳ này không có dữ liệu"). CHỈ registry nhân viên.
+
 ### Lớp nối Zalo (`src/modules/ai/agent/noi-zalo/`)
 
 | File | Trách nhiệm | Bug gốc dẫn tới việc tách |

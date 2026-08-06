@@ -76,6 +76,18 @@ import {
 import {
   xuatCongNo, xuatCongNoDefinition, dinhDangCongNo,
 } from '../odoo/tools/xuat-cong-no.js';
+import {
+  donChoXacNhan, donChoXacNhanDefinition, dinhDangDonCho, bangDonCho,
+} from '../odoo/tools/don-cho-xac-nhan.js';
+import {
+  topSanPham, topSanPhamDefinition, dinhDangTopSanPham, bangTopSanPham,
+} from '../odoo/tools/top-san-pham.js';
+import {
+  baoCaoLinhHoat, baoCaoLinhHoatDefinition, dinhDangLinhHoat, bangLinhHoat,
+} from '../odoo/tools/bao-cao-linh-hoat.js';
+import {
+  xuatExcel, tenFileBaoCao, NGUONG_DINH_KEM, type BangExcel, type TepBaoCao,
+} from '../odoo/xuat-excel.js';
 
 /** Bản ghi 1 lần gọi tool — cho quan trắc. */
 export interface ToolCallLog {
@@ -186,6 +198,8 @@ export type StaffAgentResult =
       log: ToolCallLog[]; usage: TurnUsage;
       /** Hóa đơn cần đính kèm vào tin Zalo (nếu bot có gọi gui_hoa_don). */
       hoaDon?: KetQuaGuiHoaDon;
+      /** File Excel báo cáo dài — caller gửi qua Zalo sau phần text. */
+      tepBaoCao?: TepBaoCao[];
     }
   | { trangThai: 'chua_hoan_tat'; lyDo: string; log: ToolCallLog[]; usage: TurnUsage };
 
@@ -199,6 +213,27 @@ export type StaffAgentResult =
  *
  * Tách hàm riêng để test dựng được registry mà không cần cả agent.
  */
+/**
+ * Kết quả dài quá ngưỡng → xuất Excel giao cho caller đính kèm. Trả về việc
+ * ĐÃ đính kèm chưa để dinhDang* biết đường nói "xem file". Xuất lỗi thì thôi
+ * — text tóm tắt vẫn đi, thiếu file không phải lý do hỏng cả câu trả lời.
+ */
+async function dinhKemNeuDai(
+  soDong: number,
+  taoBang: () => BangExcel,
+  nhan?: (tep: TepBaoCao) => void,
+): Promise<boolean> {
+  if (!nhan || soDong <= NGUONG_DINH_KEM) return false;
+  try {
+    const bang = taoBang();
+    const duLieu = await xuatExcel(bang);
+    nhan({ tenFile: tenFileBaoCao(bang.tieuDe), duLieu, moTa: `Đầy đủ ${soDong} dòng` });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function buildStaffRegistry(deps: {
   odoo: OdooClient;
   conversationId: string;
@@ -213,6 +248,8 @@ export function buildStaffRegistry(deps: {
   odooUrl?: string;
   /** Nhận ảnh để caller đính kèm vào tin Zalo. */
   nhanHoaDon?: (kq: KetQuaGuiHoaDon) => void;
+  /** Nhận file Excel báo cáo dài — caller gửi qua Zalo. Thiếu → chỉ text. */
+  nhanTepBaoCao?: (tep: TepBaoCao) => void;
   /**
    * Tra tài liệu kỹ thuật. KHÔNG truyền thì tool `tra_tri_thuc` không đăng ký —
    * bot sẽ không hứa tra tài liệu rồi không tra được.
@@ -331,6 +368,34 @@ export function buildStaffRegistry(deps: {
         dinhDangChuyenSale(
           await chuyenSale({ ghiNhan: deps.ghiNhanChuyenSale }, input as { ly_do: string; tom_tat: string }),
         ),
+    })
+    // ── BÁO CÁO (spec 06/08/2026) — CHỈ registry nhân viên, khách không thấy ──
+    .register({
+      definition: donChoXacNhanDefinition,
+      run: async (input) => {
+        const kq = await donChoXacNhan({ odoo }, input as { gioi_han?: number });
+        const kem = kq.trangThai === 'ok' &&
+          (await dinhKemNeuDai(kq.danhSach.length, () => bangDonCho(kq), deps.nhanTepBaoCao));
+        return dinhDangDonCho(kq, kem);
+      },
+    })
+    .register({
+      definition: topSanPhamDefinition,
+      run: async (input) => {
+        const kq = await topSanPham({ odoo }, input as Parameters<typeof topSanPham>[1]);
+        const kem = kq.trangThai === 'ok' &&
+          (await dinhKemNeuDai(kq.danhSach.length, () => bangTopSanPham(kq), deps.nhanTepBaoCao));
+        return dinhDangTopSanPham(kq, kem);
+      },
+    })
+    .register({
+      definition: baoCaoLinhHoatDefinition,
+      run: async (input) => {
+        const kq = await baoCaoLinhHoat({ odoo }, input as Parameters<typeof baoCaoLinhHoat>[1]);
+        const kem = kq.trangThai === 'ok' &&
+          (await dinhKemNeuDai(kq.danhSach.length, () => bangLinhHoat(kq), deps.nhanTepBaoCao));
+        return dinhDangLinhHoat(kq, kem);
+      },
     });
 
   // Tool ảnh hóa đơn chỉ đăng ký khi caller cấp đủ hạ tầng render. Không có
@@ -386,6 +451,7 @@ export async function chayLenhNhanVien(
 
   // Hóa đơn model gọi ra — gom ở đây để trả về cho caller đính kèm.
   let hoaDon: KetQuaGuiHoaDon | undefined;
+  const tepBaoCao: TepBaoCao[] = [];
 
   const registry = buildStaffRegistry({
     zaloUid: deps.zaloUid,
@@ -399,6 +465,7 @@ export async function chayLenhNhanVien(
     timDoanTriThuc: deps.timDoanTriThuc,
     // Bot gọi gui_hoa_don nhiều lần thì lấy cái CUỐI — đó là đơn nó đang nói tới.
     nhanHoaDon: (kq) => { hoaDon = kq; },
+    nhanTepBaoCao: (tep) => { tepBaoCao.push(tep); },
   });
 
   const log: ToolCallLog[] = [];
@@ -498,5 +565,6 @@ export async function chayLenhNhanVien(
     log,
     usage: kq.usage,
     hoaDon,
+    ...(tepBaoCao.length > 0 ? { tepBaoCao } : {}),
   };
 }

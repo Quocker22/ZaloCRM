@@ -201,7 +201,11 @@ describe('buildStaffSystemPrompt', () => {
     // nhận thừa, quên số lượng đã nói, liệt kê id trần, lộ nhãn [Tin mới],
     // chuyện phiếm gọi tool, thiếu tóm tắt sau tạo đơn). Chi phí ký tự tĩnh
     // cũng đã rẻ đi 4 lần nhờ implicit cache (prefix bất biến, đọc 0,25×).
-    expect(buildStaffSystemPrompt(BIZ_THAT).length).toBeLessThan(2500);
+    //
+    // 2.500 → 2.650 (06/08 chiều): thêm 3 tool báo cáo theo spec
+    // bao-cao-zalo (don_cho_xac_nhan, top_san_pham, bao_cao_linh_hoat) —
+    // đã nén phần thêm từ ~320 xuống ~180 ký tự trước khi nới.
+    expect(buildStaffSystemPrompt(BIZ_THAT).length).toBeLessThan(2650);
   });
 });
 

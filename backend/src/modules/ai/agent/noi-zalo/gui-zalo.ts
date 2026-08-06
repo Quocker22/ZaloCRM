@@ -67,6 +67,15 @@ export async function guiAnh(dich: DichGui, duongDan: string, giaNguoi: boolean)
 }
 
 /**
+ * Gửi một FILE (xlsx…) theo đường dẫn cục bộ — cho báo cáo dài (spec 06/08).
+ * zca-js nhận diện loại theo ĐUÔI file, nên đường dẫn phải có .xlsx thật.
+ * Không giả nhịp người: file chỉ đi trong luồng nhân viên.
+ */
+export async function guiFile(dich: DichGui, duongDan: string, caption = ''): Promise<void> {
+  await zaloOps.sendFile(dich.accountId, dich.threadId, dich.threadType, [duongDan], null, caption);
+}
+
+/**
  * Ghi ảnh ra file tạm — `zaloOps.sendImage` nhận đường dẫn, không nhận Buffer.
  *
  * Không dọn file: thư mục tạm do OS dọn, và giữ lại thì còn tra được khi

@@ -13,7 +13,7 @@ import { taoGhiLog, type PrismaGhiLog } from '../ghi-log-tool.js';
 import { batLuongNhanVien, duCauHinh, chanDonLienKeGiay, odooUrlCongKhai } from './cong-tac.js';
 import { dungGenerate } from './llm.js';
 import { layOdoo, layAnhClient, timTriThuc, layLichSu, seqTuMessageId } from './du-lieu.js';
-import { timDich, guiTin, guiAnh, ghiAnhTam } from './gui-zalo.js';
+import { timDich, guiTin, guiAnh, guiFile, ghiAnhTam } from './gui-zalo.js';
 import { taoDung, taoMoc, chayCoHanGio } from './dung.js';
 import type { NgữCanhTin } from './types.js';
 
@@ -170,6 +170,15 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
           }
         }
         await guiTin(dich, `Hoá đơn ${r.hoaDon.maDon}: ${r.hoaDon.link}`, false);
+      }
+      // File Excel báo cáo dài (spec 06/08) — gửi SAU text để người đọc thấy
+      // tóm tắt trước, file sau. Lỗi từng file không phá các file còn lại.
+      for (const tep of r.tepBaoCao ?? []) {
+        try {
+          await guiFile(dich, await ghiAnhTam(tep.duLieu, tep.tenFile), tep.moTa);
+        } catch (err) {
+          logger.warn({ err, tenFile: tep.tenFile }, '[agent/nv] gửi file báo cáo lỗi (đã có text tóm tắt)');
+        }
       }
     } else {
       // Dở dang: báo nhân viên tự xử, KHÔNG im lặng để họ còn biết mà làm.
