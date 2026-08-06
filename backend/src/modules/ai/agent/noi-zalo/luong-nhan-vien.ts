@@ -171,13 +171,16 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
         }
         await guiTin(dich, `Hoá đơn ${r.hoaDon.maDon}: ${r.hoaDon.link}`, false);
       }
-      // File Excel báo cáo dài (spec 06/08) — gửi SAU text để người đọc thấy
-      // tóm tắt trước, file sau. Lỗi từng file không phá các file còn lại.
+      // Báo cáo dài (spec 06/08) — gửi SAU text. Mặc định là ẢNH (zca-js gửi
+      // ảnh ổn định; .xlsx hay rớt âm thầm — bug thật 06/08). Lỗi từng cái
+      // không phá cái còn lại.
       for (const tep of r.tepBaoCao ?? []) {
         try {
-          await guiFile(dich, await ghiAnhTam(tep.duLieu, tep.tenFile), tep.moTa);
+          const duongDan = await ghiAnhTam(tep.duLieu, tep.tenFile);
+          if (tep.loai === 'file') await guiFile(dich, duongDan, tep.moTa);
+          else await guiAnh(dich, duongDan, false);
         } catch (err) {
-          logger.warn({ err, tenFile: tep.tenFile }, '[agent/nv] gửi file báo cáo lỗi (đã có text tóm tắt)');
+          logger.warn({ err, tenFile: tep.tenFile }, '[agent/nv] gửi ảnh/file báo cáo lỗi (đã có text tóm tắt)');
         }
       }
     } else {

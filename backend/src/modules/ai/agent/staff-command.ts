@@ -214,7 +214,7 @@ export function buildStaffSystemPrompt(bizName: string): string {
     '`don_cho_xac_nhan` · bán chạy/hàng ế → `top_san_pham`',
     'bảo hành/thông số → `tra_tri_thuc` · chiết khấu → `sua_chiet_khau`',
     'Câu tổ hợp khác ("khách mua trên X tháng này") → `bao_cao_linh_hoat`.',
-    'Kết quả dài: Excel tự đính kèm — nói "xem file", đừng chép cả bảng.',
+    'Kết quả dài: ảnh bảng tự gửi kèm — nói "xem ảnh", đừng chép cả bảng.',
     '',
     'KHÔNG tự cộng, tự tính %, tự suy tổng. Chỉ đọc số tool trả. Không có số',
     '→ "chưa có báo cáo này". Báo số PHẢI kèm nguồn + kỳ.',

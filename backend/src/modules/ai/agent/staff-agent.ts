@@ -86,8 +86,9 @@ import {
   baoCaoLinhHoat, baoCaoLinhHoatDefinition, dinhDangLinhHoat, bangLinhHoat,
 } from '../odoo/tools/bao-cao-linh-hoat.js';
 import {
-  xuatExcel, tenFileBaoCao, NGUONG_DINH_KEM, type BangExcel, type TepBaoCao,
+  tenFileBaoCao, NGUONG_DINH_KEM, type BangExcel, type TepBaoCao,
 } from '../odoo/xuat-excel.js';
+import { bangRaAnh } from '../odoo/anh-bang.js';
 
 /** Bản ghi 1 lần gọi tool — cho quan trắc. */
 export interface ToolCallLog {
@@ -214,9 +215,13 @@ export type StaffAgentResult =
  * Tách hàm riêng để test dựng được registry mà không cần cả agent.
  */
 /**
- * Kết quả dài quá ngưỡng → xuất Excel giao cho caller đính kèm. Trả về việc
- * ĐÃ đính kèm chưa để dinhDang* biết đường nói "xem file". Xuất lỗi thì thôi
- * — text tóm tắt vẫn đi, thiếu file không phải lý do hỏng cả câu trả lời.
+ * Kết quả dài quá ngưỡng → render bảng thành ẢNH giao cho caller gửi. Trả về
+ * việc ĐÃ đính kèm chưa để dinhDang* biết đường nói "xem ảnh". Render lỗi thì
+ * thôi — text tóm tắt vẫn đi, thiếu ảnh không phải lý do hỏng cả câu trả lời.
+ *
+ * Vì sao ẢNH chứ không phải Excel (bug thật 06/08): zca-js gửi file .xlsx hay
+ * rớt âm thầm (upload OK, không hiện trong thread). Ảnh thì gửi ổn định như
+ * hoá đơn. Xem anh-bang.ts:bangRaAnh.
  */
 async function dinhKemNeuDai(
   soDong: number,
@@ -226,8 +231,8 @@ async function dinhKemNeuDai(
   if (!nhan || soDong <= NGUONG_DINH_KEM) return false;
   try {
     const bang = taoBang();
-    const duLieu = await xuatExcel(bang);
-    nhan({ tenFile: tenFileBaoCao(bang.tieuDe), duLieu, moTa: `Đầy đủ ${soDong} dòng` });
+    const duLieu = await bangRaAnh(bang);
+    nhan({ tenFile: tenFileBaoCao(bang.tieuDe).replace(/\.xlsx$/, '.png'), duLieu, loai: 'anh', moTa: `Đầy đủ ${soDong} dòng` });
     return true;
   } catch {
     return false;

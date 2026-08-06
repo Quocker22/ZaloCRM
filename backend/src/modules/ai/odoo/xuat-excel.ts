@@ -23,11 +23,18 @@ export interface BangExcel {
 /** Quá ngưỡng này thì text chỉ tóm tắt (tổng + top 5), file mang đủ. */
 export const NGUONG_DINH_KEM = 15;
 
-/** Tệp báo cáo chờ gửi qua Zalo — caller quyết định gửi đi đâu. */
+/**
+ * Tệp báo cáo chờ gửi qua Zalo — caller quyết định gửi đi đâu.
+ *
+ * `loai`: 'anh' gửi qua guiAnh (PNG — mặc định, zca-js gửi ảnh ổn định);
+ * 'file' gửi qua guiFile (xlsx — zca-js gửi file .xlsx hay rớt âm thầm, chỉ
+ * dùng khi thật cần bản mở-sửa-được). Xem anh-bang.ts:bangRaAnh.
+ */
 export interface TepBaoCao {
   tenFile: string;
   duLieu: Buffer;
-  /** Một dòng mô tả gửi kèm file, vd "Đầy đủ 47 dòng". */
+  loai: 'anh' | 'file';
+  /** Một dòng mô tả gửi kèm, vd "Đầy đủ 47 dòng". */
   moTa: string;
 }
 

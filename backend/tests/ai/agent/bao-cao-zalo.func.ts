@@ -16,6 +16,7 @@ import {
 } from '../../../src/modules/ai/odoo/tools/don-cho-xac-nhan.js';
 import { topSanPham } from '../../../src/modules/ai/odoo/tools/top-san-pham.js';
 import { xuatExcel, tenFileBaoCao, NGUONG_DINH_KEM } from '../../../src/modules/ai/odoo/xuat-excel.js';
+import { bangRaAnh } from '../../../src/modules/ai/odoo/anh-bang.js';
 import { buildCustomerRegistry } from '../../../src/modules/ai/agent/customer-agent.js';
 import { buildStaffRegistry } from '../../../src/modules/ai/agent/staff-agent.js';
 import type { OdooClient } from '../../../src/modules/ai/odoo/client.js';
@@ -156,6 +157,24 @@ describe('xuất Excel', () => {
 
   it('ngưỡng đính kèm là 15 — khớp con số trong spec', () => {
     expect(NGUONG_DINH_KEM).toBe(15);
+  });
+
+  it('bảng → ẢNH PNG (phương án lùi 06/08: zca-js gửi .xlsx hay rớt)', async () => {
+    // .png magic bytes: 89 50 4E 47.
+    const png = await bangRaAnh({
+      tieuDe: 'Hàng ế', ky: '30 ngày', cot: ['SP', 'Tồn'],
+      dong: Array.from({ length: 20 }, (_, i) => [`SP ${i}`, i * 10]),
+      tongCong: ['TỔNG', 190],
+    });
+    expect(png.subarray(0, 4).toString('hex')).toBe('89504e47');
+    expect(png.length).toBeGreaterThan(2000);
+  });
+
+  it('ảnh chịu được tên SP có ký tự XML (&, <, ") — không vỡ SVG', async () => {
+    const png = await bangRaAnh({
+      tieuDe: 'Thử', cot: ['SP'], dong: [['Đèn <A&B> "3 bóng"']],
+    });
+    expect(png.subarray(0, 4).toString('hex')).toBe('89504e47');
   });
 
   it('bảng đơn chờ dựng đủ cột và hàng tổng', () => {

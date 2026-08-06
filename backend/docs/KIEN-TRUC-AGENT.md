@@ -51,8 +51,9 @@ message-handler.ts ─── lưu tin vào DB, rồi rẽ nhánh (fire-and-forge
 | `odoo/tools/don-cho-xac-nhan.ts` | đơn nháp chờ duyệt, đơn già nhất lên đầu |
 | `odoo/tools/top-san-pham.ts` | bán chạy / Ế (= còn tồn, 0 bán trong kỳ) |
 | `odoo/tools/bao-cao-linh-hoat.ts` | đuôi dài: form đóng → whitelist → Odoo `read_group` tính |
+| `odoo/anh-bang.ts` | bảng → ẢNH PNG (SVG→sharp); MẶC ĐỊNH gửi báo cáo dài |
 | `odoo/xuat-excel.ts` | dữ liệu → .xlsx; ngưỡng đính kèm 15 dòng |
-| `noi-zalo/gui-zalo.ts:guiFile` | gửi file qua zca-js (đuôi file quyết định loại) |
+| `noi-zalo/gui-zalo.ts:guiFile` | gửi file qua zca-js — .xlsx HAY RỚT âm thầm (06/08); nên báo cáo dùng ẢNH |
 
 Ba hàng rào chính xác: Odoo cộng (model không tự cộng) · trả lời số kèm
 nguồn + kỳ · rỗng ≠ lỗi ("kỳ này không có dữ liệu"). CHỈ registry nhân viên.

@@ -235,7 +235,7 @@ export function dinhDangLinhHoat(kq: KetQuaLinhHoat, daDinhKem = false): string 
   return (
     `Báo cáo (${kq.moTa}) — TỔNG: ${kq.tong.toLocaleString('vi-VN')}\n` +
     dong +
-    (daDinhKem ? `\n... File Excel đính kèm có đủ ${kq.danhSach.length} dòng — báo nhân viên xem file.` : '')
+    (daDinhKem ? `\n... Ảnh bảng đầy đủ ${kq.danhSach.length} dòng được gửi kèm — nói "xem ảnh".` : '')
   );
 }
 
