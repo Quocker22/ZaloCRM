@@ -129,7 +129,7 @@ export interface StaffAgentInput {
    * Nhân viên đã nói "1000 cái" và tên khách ở lượt trước, bắt họ gõ lại đủ
    * mọi thứ trong một tin là bắt họ phục vụ máy.
    */
-  history?: Array<{ vai: 'nhanvien' | 'bot'; noiDung: string }>;
+  history?: Array<{ vai: 'nhanvien' | 'bot' | 'khach'; noiDung: string }>;
   maxIterations?: number;
 }
 
@@ -148,7 +148,10 @@ export function ghepLichSuNhanVien(
   if (!history || history.length === 0) return noiDung;
 
   const dong = history
-    .map((h) => `${h.vai === 'nhanvien' ? 'NHÂN VIÊN' : 'BOT'}: ${h.noiDung}`)
+    .map((h) => {
+      const nhan = h.vai === 'nhanvien' ? 'NHÂN VIÊN' : h.vai === 'khach' ? 'KHÁCH' : 'BOT';
+      return `${nhan}: ${h.noiDung}`;
+    })
     .join('\n');
 
   // THỨ TỰ CÓ Ý: luật DỪNG đứng TRƯỚC luật làm-tiếp. Model đọc tuần tự và

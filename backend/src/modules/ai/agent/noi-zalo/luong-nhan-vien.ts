@@ -8,7 +8,7 @@
 import { prisma } from '../../../../shared/database/prisma-client.js';
 import { logger } from '../../../../shared/utils/logger.js';
 import { chayLenhNhanVien } from '../staff-agent.js';
-import { nhanDienLenhNhanVien } from '../staff-command.js';
+import { nhanDienLenhNhanVien, coTagBot } from '../staff-command.js';
 import { taoGhiLog, type PrismaGhiLog } from '../ghi-log-tool.js';
 import { batLuongNhanVien, duCauHinh, chanDonLienKeGiay } from './cong-tac.js';
 import { dungGenerate } from './llm.js';
@@ -124,8 +124,23 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
         // `lenh.noiDung` đã bỏ tag và ĐÃ qua cổng bảo mật ở trên — nối `@bot`
         // lại để cổng thứ hai luôn nhận, dù người gửi không tự gõ tag.
         message: { content: `@bot ${lenh.noiDung}`, isSelf: true },
+        // GÁN VAI THEO NGƯỜI GỬI THẬT, không suy mù từ senderType (bug thật
+        // 06/08/2026 13:02): mapping cũ `self→nhanvien, còn lại→bot` bị NGƯỢC
+        // khi nhân viên gõ từ nick cá nhân (contact): model đọc lịch sử thấy
+        // "BOT ra lệnh lên đơn, NHÂN VIÊN liệt kê 10 khách" — lú hoàn toàn,
+        // nhai lại câu tồn kho cũ thay vì xử lý tin mới, 0 tool nào chạy.
+        //
+        //   self + có tag bot   → nhanvien (lệnh cũ gõ từ nick shop)
+        //   self không tag      → bot (bot hoặc sale trả khách — đều "phía shop")
+        //   cùng UID người đang ra lệnh → nhanvien (lệnh cũ từ nick cá nhân)
+        //   còn lại             → khach
         history: lichSu.map((m) => ({
-          vai: m.senderType === 'self' ? ('nhanvien' as const) : ('bot' as const),
+          vai:
+            m.senderType === 'self'
+              ? coTagBot(m.content) ? ('nhanvien' as const) : ('bot' as const)
+              : ctx.senderUid && m.senderUid === ctx.senderUid
+                ? ('nhanvien' as const)
+                : ('khach' as const),
           noiDung: m.content,
         })),
       },

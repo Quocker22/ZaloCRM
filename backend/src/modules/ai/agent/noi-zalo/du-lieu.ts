@@ -74,15 +74,17 @@ export async function timTriThuc(
 export async function layLichSu(
   conversationId: string,
   messageId: string,
-): Promise<Array<{ senderType: string; content: string }>> {
+): Promise<Array<{ senderType: string; content: string; senderUid: string | null }>> {
   const rows = await prisma.message.findMany({
     where: { conversationId, isDeleted: false, id: { not: messageId }, contentType: 'text' },
     orderBy: { sentAt: 'desc' },
     take: SO_TIN_LICH_SU,
-    select: { senderType: true, content: true },
+    // senderUid: để luồng nhân viên phân biệt AI ĐANG RA LỆNH với khách/bot —
+    // thiếu nó thì vai trong lịch sử bị gán ngược (bug thật 06/08).
+    select: { senderType: true, content: true, senderUid: true },
   });
   return rows.reverse()
-    .filter((m): m is { senderType: string; content: string } => Boolean(m.content));
+    .filter((m): m is { senderType: string; content: string; senderUid: string | null } => Boolean(m.content));
 }
 
 /**

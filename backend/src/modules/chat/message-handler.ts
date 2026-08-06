@@ -12,7 +12,7 @@ import { randomUUID } from 'node:crypto';
 import { emitWebhook } from '../api/webhook-service.js';
 import { runAutomationRules } from '../../shared/ee-registry/automation.js';
 import { runAutoReplyForMessage } from '../ai/knowledge/auto-reply-wiring.js';
-import { xuLyTinNhanVien, xuLyTinKhach, xuLyTinMedia, laLenhNhanVien } from '../ai/agent/noi-zalo.js';
+import { xuLyTinNhanVien, xuLyTinKhach, xuLyTinMedia, laLenhNhanVien, bocMention } from '../ai/agent/noi-zalo.js';
 import { automationEventBus } from '../../shared/ee-registry/event-bus.js';
 import { applyContactAggregateFromMessage, applyContactInteraction, applyFriendAggregate } from '../contacts/contact-aggregate.js';
 import { followMergedInto } from '../contacts/resolve-contact.js';
@@ -313,6 +313,13 @@ export async function handleIncomingMessage(
       laNhom &&
       Boolean(account.zaloUid) &&
       (msg.mentions?.some((m) => String(m.uid) === String(account.zaloUid)) ?? false);
+
+    // BÓC chuỗi mention khỏi nội dung đưa cho agent (06/08/2026): "@Led Nelia
+    // Anh Dương Tuấn Anh" mà để nguyên thì model thấy một cái tên lạ lơ lửng
+    // đầu câu và lú. Bản lưu DB giữ nguyên để FE render mention.
+    const contentSachMention = laNhom
+      ? bocMention(msg.content ?? '', msg.mentions)
+      : (msg.content ?? '');
 
     const contactId = await upsertContact(msg, account.orgId);
 
@@ -666,8 +673,8 @@ export async function handleIncomingMessage(
       // có từ trước, luồng nhân viên bị bỏ sót).
       const quoteNv = extractQuotedText(message.quote);
       const noiDung = quoteNv
-        ? `[Trả lời tin: "${quoteNv.slice(0, 200)}"] ${message.content}`
-        : message.content;
+        ? `[Trả lời tin: "${quoteNv.slice(0, 200)}"] ${contentSachMention}`
+        : contentSachMention;
       void (async () => {
         try {
           const org = await prisma.organization.findUnique({
@@ -748,8 +755,8 @@ export async function handleIncomingMessage(
         // khi khách quote SP rồi chốt. Không quote → giữ nguyên tin.
         const quotedText = extractQuotedText(message.quote);
         const contentForBot = quotedText
-          ? `[Khách trả lời tin: "${quotedText.slice(0, 200)}"] ${message.content}`
-          : message.content;
+          ? `[Khách trả lời tin: "${quotedText.slice(0, 200)}"] ${contentSachMention}`
+          : contentSachMention;
         // Agent tool-calling đi TRƯỚC, luồng RAG cũ đỡ lấy.
         //
         // `xuLyTinKhach` trả true = đã trả lời khách → KHÔNG chạy RAG nữa, nếu
@@ -760,7 +767,7 @@ export async function handleIncomingMessage(
           // Lệnh nhân viên (@bot) đã do agent nhân viên xử lý ở nhánh trên —
           // luồng khách phải TRÁNH, nếu không khách nhận hai câu trả lời.
           if (laLenhNhanVien({
-            content: message.content ?? '', isSelf: msg.isSelf, senderUid: msg.senderUid,
+            content: contentSachMention, isSelf: msg.isSelf, senderUid: msg.senderUid,
             laNhom, daTagBot,
           })) return;
 
