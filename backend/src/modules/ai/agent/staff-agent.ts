@@ -86,7 +86,7 @@ import {
   baoCaoLinhHoat, baoCaoLinhHoatDefinition, dinhDangLinhHoat, bangLinhHoat,
 } from '../odoo/tools/bao-cao-linh-hoat.js';
 import {
-  tenFileBaoCao, NGUONG_DINH_KEM, type BangExcel, type TepBaoCao,
+  xuatExcel, tenFileBaoCao, NGUONG_DINH_KEM, type BangExcel, type TepBaoCao,
 } from '../odoo/xuat-excel.js';
 import { bangRaAnh } from '../odoo/anh-bang.js';
 
@@ -215,13 +215,14 @@ export type StaffAgentResult =
  * Tách hàm riêng để test dựng được registry mà không cần cả agent.
  */
 /**
- * Kết quả dài quá ngưỡng → render bảng thành ẢNH giao cho caller gửi. Trả về
- * việc ĐÃ đính kèm chưa để dinhDang* biết đường nói "xem ảnh". Render lỗi thì
- * thôi — text tóm tắt vẫn đi, thiếu ảnh không phải lý do hỏng cả câu trả lời.
+ * Kết quả dài quá ngưỡng → đính kèm cho caller gửi. Trả về việc ĐÃ đính kèm
+ * chưa để dinhDang* biết đường nói "xem file/ảnh".
  *
- * Vì sao ẢNH chứ không phải Excel (bug thật 06/08): zca-js gửi file .xlsx hay
- * rớt âm thầm (upload OK, không hiện trong thread). Ảnh thì gửi ổn định như
- * hoá đơn. Xem anh-bang.ts:bangRaAnh.
+ * MẶC ĐỊNH gửi FILE EXCEL — nhân viên hỏi "xuất danh sách" là muốn bản tải về
+ * mở/sửa được, không phải ảnh để nhìn (anh chốt 06/08). Kèm CẢ ảnh để chắc
+ * chắn có gì đó đọc được ngay nếu Zalo nuốt file.
+ *
+ * Đặt AI_BAO_CAO_CHI_ANH=1 để chỉ gửi ảnh (khi Zalo chặn file hẳn).
  */
 async function dinhKemNeuDai(
   soDong: number,
@@ -229,14 +230,26 @@ async function dinhKemNeuDai(
   nhan?: (tep: TepBaoCao) => void,
 ): Promise<boolean> {
   if (!nhan || soDong <= NGUONG_DINH_KEM) return false;
-  try {
-    const bang = taoBang();
-    const duLieu = await bangRaAnh(bang);
-    nhan({ tenFile: tenFileBaoCao(bang.tieuDe).replace(/\.xlsx$/, '.png'), duLieu, loai: 'anh', moTa: `Đầy đủ ${soDong} dòng` });
-    return true;
-  } catch {
-    return false;
+  const bang = taoBang();
+  const chiAnh = process.env.AI_BAO_CAO_CHI_ANH === '1';
+  let daKem = false;
+
+  if (!chiAnh) {
+    try {
+      const xlsx = await xuatExcel(bang);
+      nhan({ tenFile: tenFileBaoCao(bang.tieuDe), duLieu: xlsx, loai: 'file', moTa: `Đầy đủ ${soDong} dòng` });
+      daKem = true;
+    } catch { /* file lỗi → còn ảnh đỡ */ }
   }
+  // Ảnh: xem NGAY trong chat, không phải tải. Luôn kèm (trừ khi file đã đủ và
+  // ta muốn gọn — nhưng bug 06/08 cho thấy file hay rớt, nên kèm cả hai).
+  try {
+    const png = await bangRaAnh(bang);
+    nhan({ tenFile: tenFileBaoCao(bang.tieuDe).replace(/\.xlsx$/, '.png'), duLieu: png, loai: 'anh', moTa: `Đầy đủ ${soDong} dòng` });
+    daKem = true;
+  } catch { /* ảnh lỗi → còn file (nếu có) */ }
+
+  return daKem;
 }
 
 export function buildStaffRegistry(deps: {

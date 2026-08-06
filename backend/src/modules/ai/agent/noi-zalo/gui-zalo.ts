@@ -70,9 +70,23 @@ export async function guiAnh(dich: DichGui, duongDan: string, giaNguoi: boolean)
  * Gửi một FILE (xlsx…) theo đường dẫn cục bộ — cho báo cáo dài (spec 06/08).
  * zca-js nhận diện loại theo ĐUÔI file, nên đường dẫn phải có .xlsx thật.
  * Không giả nhịp người: file chỉ đi trong luồng nhân viên.
+ *
+ * File .xlsx upload BẤT ĐỒNG BỘ qua ws-callback của zca-js rồi mới gửi — hay
+ * rớt âm thầm (bug 06/08). Log kết quả THẬT để lần sau biết fail ở đâu, thay
+ * vì đoán: `sendMessage` trả gì, ném gì.
  */
 export async function guiFile(dich: DichGui, duongDan: string, caption = ''): Promise<void> {
-  await zaloOps.sendFile(dich.accountId, dich.threadId, dich.threadType, [duongDan], null, caption);
+  const t0 = Date.now();
+  try {
+    const kq = await zaloOps.sendFile(dich.accountId, dich.threadId, dich.threadType, [duongDan], null, caption);
+    logger.info(
+      { duongDan, ms: Date.now() - t0, ketQua: JSON.stringify(kq)?.slice(0, 200) },
+      '[gui-file] sendFile trả về',
+    );
+  } catch (err) {
+    logger.error({ err, duongDan, ms: Date.now() - t0 }, '[gui-file] sendFile NÉM');
+    throw err;
+  }
 }
 
 /**
