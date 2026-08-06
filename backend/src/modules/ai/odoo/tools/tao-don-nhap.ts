@@ -305,13 +305,29 @@ export const taoDonNhapDefinition: ToolDefinition = {
 };
 
 /** Định dạng cho LLM. Nói rõ đơn là NHÁP để model không hứa "đã xong" với khách. */
-export function dinhDangTaoDon(kq: KetQuaTaoDon): string {
+/**
+ * @param choNhanVien câu chữ cho LUỒNG NHÂN VIÊN. Mặc định là luồng khách.
+ *
+ *   Bug thật 06/08/2026: câu "chờ sale xác nhận — nói với khách là sale sẽ
+ *   liên hệ" viết cho luồng KHÁCH, bị model nhại nguyên văn khi nói với chính
+ *   nhân viên sale — "Đơn đang chờ anh sale xác nhận ạ" nghe ngớ ngẩn vì
+ *   người nghe CHÍNH LÀ sale.
+ */
+export function dinhDangTaoDon(kq: KetQuaTaoDon, choNhanVien = false): string {
   if (kq.trangThai === 'loi') return `Không tạo được đơn: ${kq.lyDo}`;
   if (kq.trangThai === 'da_ton_tai') {
     return `Đơn này đã được tạo trước đó rồi: ${kq.maDon} (id=${kq.donId}). KHÔNG tạo lại.`;
   }
+  const dau = `Đã tạo đơn NHÁP ${kq.maDon} (id=${kq.donId}), tổng ${kq.tongTien.toLocaleString('vi-VN')}đ. `;
+  if (choNhanVien) {
+    return (
+      dau +
+      'Ảnh hoá đơn + link xử lý được gửi kèm tự động. Báo nhân viên: đơn ở trạng thái nháp, ' +
+      'anh/chị vào link để xác nhận. KHÔNG nói là đã xong hay đã giao.'
+    );
+  }
   return (
-    `Đã tạo đơn NHÁP ${kq.maDon} (id=${kq.donId}), tổng ${kq.tongTien.toLocaleString('vi-VN')}đ. ` +
+    dau +
     'Đơn đang chờ sale xác nhận — hãy nói với khách là đơn đã được ghi nhận và sale sẽ liên hệ xác nhận, ' +
     'KHÔNG nói là đã xong hay đã giao.'
   );

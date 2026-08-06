@@ -277,20 +277,38 @@ export function buildStaffRegistry(deps: {
     })
     .register({
       definition: taoDonNhapDefinition,
-      run: async (input) =>
-        dinhDangTaoDon(
-          await taoDonNhap(
-            {
-              odoo,
-              conversationId: deps.conversationId,
-              seq: deps.seq,
-              // Nhân viên sửa đơn vừa lên ("10 cái mà") KHÔNG được thành đơn
-              // mới — bug thật 05/08, xem cong-tac.ts:chanDonLienKeGiay.
-              chanDonLienKeGiay: deps.chanDonLienKeGiay,
-            },
-            input as Parameters<typeof taoDonNhap>[1],
-          ),
-        ),
+      run: async (input) => {
+        const kq = await taoDonNhap(
+          {
+            odoo,
+            conversationId: deps.conversationId,
+            seq: deps.seq,
+            // Nhân viên sửa đơn vừa lên ("10 cái mà") KHÔNG được thành đơn
+            // mới — bug thật 05/08, xem cong-tac.ts:chanDonLienKeGiay.
+            chanDonLienKeGiay: deps.chanDonLienKeGiay,
+          },
+          input as Parameters<typeof taoDonNhap>[1],
+        );
+
+        // HOÁ ĐƠN TỰ ĐỘNG (06/08/2026): gửi ảnh đơn là bước CHẮC CHẮN sau khi
+        // tạo — không giao cho model quyết. Đo thật: prompt dặn "gửi ngay
+        // không cần hỏi" mà S13801 tạo xong model vẫn quên gọi gui_hoa_don,
+        // nhân viên phải hỏi "sao không gửi hình?". Cùng nguyên tắc với ảnh
+        // sản phẩm luồng khách: việc luôn-phải-làm thì code làm.
+        // Ảnh lỗi không phá việc tạo đơn — guiHoaDon tự nuốt lỗi render.
+        if (kq.trangThai === 'da_tao' && deps.anhClient && deps.odooUrl) {
+          try {
+            const hd = await guiHoaDon(
+              { odoo, anhClient: deps.anhClient, odooUrl: deps.odooUrl },
+              { don_id: kq.donId },
+            );
+            if (hd) deps.nhanHoaDon?.(hd);
+          } catch {
+            // đơn đã tạo xong — thiếu ảnh không phải lý do báo lỗi cả lượt
+          }
+        }
+        return dinhDangTaoDon(kq, true);
+      },
     })
     // Tool GHI sửa đơn — chỉ đơn nháp, ranh giới nằm trong code không phải prompt.
     .register({
