@@ -357,3 +357,57 @@ describe('runAgent — quan trắc', () => {
     expect(onToolCall.mock.calls[0][0].result.isError).toBe(true);
   });
 });
+
+describe('runAgent — NHẮC LẠI khi model kết thúc bằng câu RỖNG sau tool', () => {
+  // Đo thật 06/08/2026: gemini-2.5-flash-lite mắc BA LẦN trong 12 phút chat —
+  // gọi tra_khach_hang xong trả rỗng, nhân viên nhận "Bot chưa xử lý xong"
+  // trong khi dữ liệu tool đã nằm sẵn trong context. Một cú nhắc cứu được cả lượt.
+  it('rỗng sau tool → nhắc một lần, model trả lời được ở lượt kế', async () => {
+    const generate = fakeProvider([
+      turnCallingTool(),
+      turnDone(''),                       // kết thúc RỖNG — bệnh của flash-lite
+      turnDone('Tìm thấy 10 khách tên Tuấn, anh/chị cho xin SĐT ạ'),
+    ]);
+    const execute = vi.fn(async () => ({ toolCallId: 't1', content: '10 khách tên Tuấn' }));
+
+    const kq = await runAgent({ ...base, generate, execute });
+
+    expect(kq.text).toBe('Tìm thấy 10 khách tên Tuấn, anh/chị cho xin SĐT ạ');
+    expect(kq.stopReason).toBe('end_turn');
+    expect(generate).toHaveBeenCalledTimes(3);
+    // Câu nhắc phải nằm trong messages gửi lượt 3.
+    const goiCuoi = generate.mock.calls[2][0] as { messages: Array<{ role: string; content: unknown }> };
+    const nhac = goiCuoi.messages.filter((m) => typeof m.content === 'string' && (m.content as string).includes('KHÔNG nói gì'));
+    expect(nhac).toHaveLength(1);
+  });
+
+  it('chỉ nhắc MỘT lần — model lì thì chịu, trả rỗng để tầng trên xử', async () => {
+    const generate = fakeProvider([turnCallingTool(), turnDone(''), turnDone('')]);
+    const execute = vi.fn(async () => ({ toolCallId: 't1', content: 'x' }));
+
+    const kq = await runAgent({ ...base, generate, execute });
+
+    expect(kq.text).toBe('');
+    expect(generate).toHaveBeenCalledTimes(3); // tool + rỗng + nhắc-vẫn-rỗng, KHÔNG lặp nữa
+  });
+
+  it('KHÔNG nhắc khi chưa gọi tool nào — rỗng lượt đầu là chuyện khác', async () => {
+    const generate = fakeProvider([turnDone('')]);
+    const execute = vi.fn();
+
+    const kq = await runAgent({ ...base, generate, execute });
+
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(kq.text).toBe('');
+  });
+
+  it('KHÔNG nhắc khi model đã có text — hành vi cũ giữ nguyên', async () => {
+    const generate = fakeProvider([turnCallingTool(), turnDone('xong rồi ạ')]);
+    const execute = vi.fn(async () => ({ toolCallId: 't1', content: 'x' }));
+
+    const kq = await runAgent({ ...base, generate, execute });
+
+    expect(kq.text).toBe('xong rồi ạ');
+    expect(generate).toHaveBeenCalledTimes(2);
+  });
+});

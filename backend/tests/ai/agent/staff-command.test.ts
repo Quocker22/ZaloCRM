@@ -195,7 +195,13 @@ describe('buildStaffSystemPrompt', () => {
     // ĐO BẰNG TÊN THẬT production dùng (39 ký tự), không phải 'LEDNELIA' (8).
     // Bug thật 2026-08-02: test đo tên ngắn nên prompt thật 1.824 ký tự vượt
     // trần mà test vẫn xanh — chênh 31 ký tự đủ để lọt.
-    expect(buildStaffSystemPrompt(BIZ_THAT).length).toBeLessThan(1900);
+    //
+    // Trần 1.900 → 2.500 (06/08/2026, CÓ CHỦ ĐÍCH sau khi đã nén sử tích ra
+    // comment): 6 luật mới, MỖI luật một lỗi thật trong chat 06/08 (hỏi xác
+    // nhận thừa, quên số lượng đã nói, liệt kê id trần, lộ nhãn [Tin mới],
+    // chuyện phiếm gọi tool, thiếu tóm tắt sau tạo đơn). Chi phí ký tự tĩnh
+    // cũng đã rẻ đi 4 lần nhờ implicit cache (prefix bất biến, đọc 0,25×).
+    expect(buildStaffSystemPrompt(BIZ_THAT).length).toBeLessThan(2500);
   });
 });
 

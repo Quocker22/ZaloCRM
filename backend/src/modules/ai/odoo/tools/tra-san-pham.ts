@@ -265,14 +265,42 @@ export async function traSanPham(
     }
   }
 
+  // DỰ PHÒNG 2 — VIẾT LIỀN vs VIẾT CÁCH (bug thật 06/08/2026): nhân viên gõ
+  // "Nb12v100w", SP tên "NB 12V100w". Tách-theo-khoảng-trắng ra MỘT token nên
+  // dự phòng trên bị bỏ qua, bot đáp "không khớp sản phẩm nào" — trong khi
+  // chính nó vừa liệt kê SP đó một tin trước.
+  //
+  // Cách xử: chèn wildcard `%` của ilike vào MỌI ranh giới chữ↔số:
+  // "Nb12v100w" → "nb%12%v%100%w". `%` khớp cả chuỗi rỗng nên pattern này
+  // khớp "NB 12V100w", "NB12V100W", lẫn "NB-12V-100W" — mọi kiểu gõ.
+  if (rowsFinal.length === 0) {
+    const lien = ten.replace(/\s+/g, '');
+    const doan = lien.match(/\p{L}+|\d+/gu) ?? [];
+    if (doan.length >= 2) {
+      // lowercase chỉ để log/test nhất quán — ilike vốn không phân biệt hoa thường.
+      const mau = doan.join('%').toLowerCase();
+      rowsFinal = await deps.odoo.searchRead<Record<string, unknown>>(
+        'product.product',
+        [...domainGoc, '|', ['name', 'ilike', mau], ['default_code', 'ilike', mau]],
+        [...ALLOWED_FIELDS],
+        { limit: limit * 4 },
+      );
+    }
+  }
+
   const sach = rowsFinal.map(locFieldCam);
 
   // Lọc theo mã model nếu query có mã — chống trả nhầm SP khác dòng.
+  //
+  // So khớp MỘT CHIỀU nới lỏng (06/08/2026): query viết liền "Nb12v100w" cho
+  // ra mã "nb12v100w", còn SP cho ra "12v100w" — so bằng tuyệt đối là loại
+  // oan chính SP đúng. Mã query CHỨA mã SP thì nhận ("nb" chỉ là tiền tố dòng
+  // hàng). KHÔNG so chiều ngược lại: "p10" không được khớp "p104".
   const maQuery = macModel(ten);
   const loc = maQuery.length > 0
     ? sach.filter((r) => {
         const maSp = macModel(`${r.name ?? ''} ${r.default_code ?? ''}`);
-        return maQuery.some((m) => maSp.includes(m));
+        return maQuery.some((m) => maSp.some((s) => s === m || m.includes(s)));
       })
     : sach;
 

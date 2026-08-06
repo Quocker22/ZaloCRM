@@ -632,3 +632,60 @@ describe('dấu cắt tường minh — CHỐNG "agent nói dối"', () => {
     expect(kq.tongKhop).toBe(12);
   });
 });
+
+describe('traSanPham — viết liền vs viết cách (dự phòng 2)', () => {
+  // Bug thật 06/08/2026: nhân viên gõ "Nb12v100w", SP tên "NB 12V100w".
+  // Tách-theo-khoảng-trắng ra MỘT token nên dự phòng OR bị bỏ qua, bot đáp
+  // "không khớp sản phẩm nào" — ngay sau khi CHÍNH NÓ liệt kê SP đó.
+  const spNguon = () => ({
+    id: 1039,
+    name: 'Nguồn NB Ngoài Trời 12V100W (cái)',
+    default_code: 'NB 12V100w',
+    list_price: 78000,
+    uom_id: [1, 'Cái'],
+  });
+
+  /** Odoo giả: chỉ khớp khi domain chứa pattern có wildcard `%`. */
+  const odooChiKhopWildcard = () => ({
+    searchRead: vi.fn(async (_m: string, domain: unknown[]) => {
+      const d = JSON.stringify(domain);
+      return d.includes('%') && d.includes('nb%12%v%100%w') ? [spNguon()] : [];
+    }),
+  });
+
+  it('"Nb12v100w" (viết liền) → tìm ra "NB 12V100w" nhờ wildcard ranh giới chữ-số', async () => {
+    const odoo = odooChiKhopWildcard();
+
+    const kq = await traSanPham({ odoo } as never, { ten: 'Nb12v100w' });
+
+    expect(kq).toHaveLength(1);
+    expect(kq[0].ten).toContain('12V100W');
+  });
+
+  it('pattern đúng dạng nb%12%v%100%w — chèn % ở MỌI ranh giới chữ↔số', async () => {
+    const odoo = odooChiKhopWildcard();
+
+    await traSanPham({ odoo } as never, { ten: 'Nb12v100w' });
+
+    const domainCuoi = JSON.stringify(odoo.searchRead.mock.calls.at(-1)?.[1]);
+    expect(domainCuoi).toContain('nb%12%v%100%w');
+  });
+
+  it('query MỘT đoạn thuần chữ ("ziczac") → KHÔNG chạy dự phòng wildcard (vô nghĩa)', async () => {
+    const odoo = { searchRead: vi.fn(async () => []) };
+
+    await traSanPham({ odoo } as never, { ten: 'ziczac' });
+
+    const coWildcard = odoo.searchRead.mock.calls.some((c) => JSON.stringify(c[1]).includes('%'));
+    expect(coWildcard).toBe(false);
+  });
+
+  it('tìm thấy ngay từ vòng thường → KHÔNG tốn thêm round-trip wildcard', async () => {
+    const odoo = fakeOdoo([sp()]);
+
+    await traSanPham({ odoo } as never, { ten: 'P10' });
+
+    const coWildcard = odoo.searchRead.mock.calls.some((c) => JSON.stringify(c[1]).includes('nb%'));
+    expect(coWildcard).toBe(false);
+  });
+});

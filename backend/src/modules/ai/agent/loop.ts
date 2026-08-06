@@ -96,6 +96,9 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
     cacheWriteTokens: 0,
   };
 
+  // Đã nhắc model vì nó kết thúc với câu RỖNG chưa — chỉ nhắc MỘT lần.
+  let daNhacRong = false;
+
   while (iterations < maxIterations) {
     iterations += 1;
 
@@ -111,6 +114,22 @@ export async function runAgent(opts: RunAgentOptions): Promise<RunAgentResult> {
 
     // Model đã trả lời xong — không còn tool nào để chạy.
     if (turn.stopReason !== 'tool_use' || turn.toolCalls.length === 0) {
+      // KẾT THÚC VỚI CÂU RỖNG sau khi đã gọi tool → nhắc lại MỘT lần thay vì
+      // bỏ cuộc. Đo thật 06/08/2026: gemini-2.5-flash-lite mắc lỗi này BA LẦN
+      // trong 12 phút chat ("lên đơn cho anh Tuấn 10 cái nguồn NB" → gọi
+      // tra_khach_hang xong trả rỗng) — mỗi lần là một câu "Bot chưa xử lý
+      // xong" vô ích với nhân viên, trong khi dữ liệu tool đã nằm sẵn trong
+      // context. Một cú nhắc rẻ hơn nhiều so với bắt người gõ lại từ đầu.
+      if (!lastText.trim() && toolCalls.length > 0 && !daNhacRong && iterations < maxIterations) {
+        daNhacRong = true;
+        messages.push({
+          role: 'user',
+          content:
+            'Bạn vừa kết thúc mà KHÔNG nói gì. Hãy trả lời người dùng dựa trên ' +
+            'kết quả tool ở trên — nếu còn thiếu thông tin thì hỏi lại một câu cụ thể.',
+        });
+        continue;
+      }
       return {
         text: lastText,
         iterations,
