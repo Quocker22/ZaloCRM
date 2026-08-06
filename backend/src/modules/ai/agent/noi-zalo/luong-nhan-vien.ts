@@ -9,6 +9,7 @@ import { prisma } from '../../../../shared/database/prisma-client.js';
 import { logger } from '../../../../shared/utils/logger.js';
 import { chayLenhNhanVien } from '../staff-agent.js';
 import { nhanDienLenhNhanVien, coTagBot } from '../staff-command.js';
+import { laNhanVienSync } from '../agent-operator-service.js';
 import { taoGhiLog, type PrismaGhiLog } from '../ghi-log-tool.js';
 import { batLuongNhanVien, duCauHinh, chanDonLienKeGiay, odooUrlCongKhai } from './cong-tac.js';
 import { dungGenerate } from './llm.js';
@@ -32,6 +33,7 @@ const moc = taoMoc('nv');
  * RAG trả lời câu khác — khách thấy cả hai.
  */
 export function laLenhNhanVien(input: {
+  orgId: string;
   content: string;
   isSelf: boolean;
   senderUid?: string | null;
@@ -45,6 +47,7 @@ export function laLenhNhanVien(input: {
     isSelf: input.isSelf,
     senderUid: input.senderUid,
     batBuocTag: input.laNhom === true,
+    laNhanVien: (uid) => laNhanVienSync(input.orgId, uid),
   }) !== null;
 }
 
@@ -69,6 +72,7 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
     isSelf: ctx.isSelf ?? true,
     senderUid: ctx.senderUid,
     batBuocTag: ctx.laNhom === true,
+    laNhanVien: (uid) => laNhanVienSync(ctx.orgId, uid),
   });
   if (!lenh) {
     return dung('không qua cổng nhận lệnh', {

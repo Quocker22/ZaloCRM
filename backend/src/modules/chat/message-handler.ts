@@ -767,6 +767,7 @@ export async function handleIncomingMessage(
           // Lệnh nhân viên (@bot) đã do agent nhân viên xử lý ở nhánh trên —
           // luồng khách phải TRÁNH, nếu không khách nhận hai câu trả lời.
           if (laLenhNhanVien({
+            orgId: account.orgId,
             content: contentSachMention, isSelf: msg.isSelf, senderUid: msg.senderUid,
             laNhom, daTagBot,
           })) return;

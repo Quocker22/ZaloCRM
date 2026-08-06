@@ -45,6 +45,7 @@ model Organization {
   teams                       Team[]
   users                       User[]
   zaloAccounts                ZaloAccount[]
+  agentOperators              AgentOperator[]
   contacts                    Contact[]
   contactAccess               ContactAccess[]
   conversations               Conversation[]
@@ -274,6 +275,7 @@ model User {
   org                       Organization                 @relation(fields: [orgId], references: [id], onDelete: Cascade)
   team                      Team?                        @relation(fields: [teamId], references: [id])
   zaloAccounts              ZaloAccount[]
+  agentOperators            AgentOperator[]
   zaloAccess                ZaloAccountAccess[]
   assignedContacts          Contact[]                    @relation("AssignedContacts")
   contactAccess             ContactAccess[]
@@ -4165,4 +4167,30 @@ model ToolCallLog {
   @@index([conversationId])
   @@index([toolName])
   @@map("tool_call_logs")
+}
+
+/// Nhân viên được phép SAI BOT qua Zalo (thay env AI_AGENT_UID_NHANVIEN).
+/// Spec: docs/superpowers/specs/2026-08-06-bang-nhan-vien-design.md
+///
+/// Bug gốc (06/08/2026): danh sách UID cứng trong env, sửa phải deploy →
+/// nhân viên mới (Trần Hưng) bị xử như KHÁCH, bot đi tư vấn SP thay vì báo cáo.
+model AgentOperator {
+  id          String   @id @default(uuid())
+  orgId       String   @map("org_id")
+  /// UID Zalo của nick CÁ NHÂN dùng để sai bot.
+  zaloUid     String   @map("zalo_uid")
+  /// Gắn User CRM — để về sau siết quyền có đường; đợt này không dùng để phân bậc.
+  userId      String?  @map("user_id")
+  /// Tên hiển thị trong giao diện (từ User hoặc admin nhập).
+  tenGoi      String   @map("ten_goi")
+  enabled     Boolean  @default(true)
+  createdById String?  @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([orgId, zaloUid])
+  @@index([orgId, enabled])
+  @@map("agent_operators")
 }

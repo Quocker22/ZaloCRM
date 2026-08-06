@@ -288,6 +288,13 @@ async function bootstrap() {
   await app.register(registerContactCrmTagRoutes, { prefix: '/api/v1/contacts' });
   await app.register(userPreferenceRoutes);
   await app.register(timelineRoutes);
+
+  // Nhân viên được sai bot (spec 06/08/2026) — thay env AI_AGENT_UID_NHANVIEN.
+  const { registerAgentOperatorRoutes } = await import('./modules/ai/agent/agent-operator-routes.js');
+  await app.register(registerAgentOperatorRoutes, { prefix: '/api/v1/agent-operators' });
+  // Nạp trước cache UID nhân viên — thu hẹp cửa sổ "lỡ tin đầu" sau khởi động.
+  const { napCacheLucKhoiDong } = await import('./modules/ai/agent/agent-operator-service.js');
+  void napCacheLucKhoiDong();
   await app.register(scoringRoutes);
   // Phase 8 — Engagement heatmap timeline + admin recompute/backfill
   const { registerEngagementRoutes } = await import('./modules/engagement/engagement-routes.js');

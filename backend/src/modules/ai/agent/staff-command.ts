@@ -123,11 +123,21 @@ export function nhanDienLenhNhanVien(input: {
    * và đốt tiền LLM theo từng câu chuyện phiếm.
    */
   batBuocTag?: boolean;
+  /**
+   * Hàm kiểm "UID này có phải nhân viên không" — do caller bind sẵn orgId
+   * (agent-operator-service.laNhanVienSync). Không truyền → chỉ dùng env, để
+   * test cũ và luồng không có orgId vẫn chạy. Thay cho `env` đọc trực tiếp:
+   * bảng nhân viên giờ ở DB (06/08/2026), env chỉ còn là lớp tương thích ngược.
+   */
+  laNhanVien?: (uid: string) => boolean;
   env?: NodeJS.ProcessEnv;
 }): LenhNhanVien | null {
   // Cổng 1 — BẢO MẬT. Tin khách không bao giờ chạm được luồng có quyền ghi,
-  // TRỪ KHI UID người gửi được khai báo là nhân viên.
-  const uidKhai = Boolean(input.senderUid) && uidNhanVien(input.env).has(String(input.senderUid));
+  // TRỪ KHI UID người gửi được khai báo là nhân viên (DB qua laNhanVien, hoặc
+  // env qua uidNhanVien — hợp nhất, giữ tương thích ngược).
+  const uid = input.senderUid ? String(input.senderUid) : '';
+  const uidKhai = Boolean(uid) &&
+    ((input.laNhanVien?.(uid) ?? false) || uidNhanVien(input.env).has(uid));
   if (!input.isSelf && !uidKhai) return null;
 
   const goc = (input.content ?? '').trim();
