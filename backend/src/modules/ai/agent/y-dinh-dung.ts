@@ -102,6 +102,27 @@ export function khoeDaGhi(traLoi: string): boolean {
   ].some((c) => t.includes(c));
 }
 
+/**
+ * Câu trả lời có KHOE đã/đang GỬI ẢNH hoá đơn không?
+ *
+ * Bug thật 07/08/2026 (DNH36805, trong nhóm): nhân viên "có gửi luôn đi", bot
+ * đáp "Dạ, em gửi lại ảnh đơn hàng DNH36805..." nhưng chạy 0 tool — ẢNH KHÔNG
+ * hề được gửi. `khoeDaGhi` không bắt vì câu này nói về GỬI ẢNH, không phải ghi
+ * đơn; lại còn ở thì hiện tại ("em gửi") chứ không phải "đã ...".
+ *
+ * Bắt CẢ thì hiện tại/tương lai lẫn quá khứ — vì bot bịa hay dùng "em gửi lại
+ * ảnh" như một lời khẳng định hành động đang xảy ra. Caller phải đối chiếu với
+ * ảnh THẬT: chỉ chặn khi khoe mà KHÔNG có ảnh nào được tạo/gửi.
+ */
+export function khoeDaGuiAnh(traLoi: string): boolean {
+  const t = boDau(String(traLoi ?? ''));
+  return [
+    'gui anh', 'gui lai anh', 'gui hinh', 'gui lai hinh', 'gui hoa don',
+    'gui lai hoa don', 'gui anh hoa don', 'gui anh don', 'gui anh don hang',
+    'da gui anh', 'da gui hoa don', 'da gui hinh',
+  ].some((c) => t.includes(c));
+}
+
 /** Câu tool trả về khi bị chặn — nói cho model biết vì sao và phải làm gì. */
 export function lyDoChan(tenTool: string): string {
   return (

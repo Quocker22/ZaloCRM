@@ -8,7 +8,8 @@
 import { runAgent } from './loop.js';
 import { ToolRegistry } from './registry.js';
 import { nhanDienLenhNhanVien, buildStaffSystemPrompt } from './staff-command.js';
-import { laYDinhDung, laToolGhi, khoeDaGhi } from './y-dinh-dung.js';
+import { laYDinhDung, laToolGhi, khoeDaGhi, khoeDaGuiAnh } from './y-dinh-dung.js';
+import { logger } from '../../../shared/utils/logger.js';
 import type { ContextManagementConfig, ToolAwareGenerate, TurnUsage } from './types.js';
 
 /**
@@ -358,8 +359,15 @@ export function buildStaffRegistry(deps: {
               { don_id: kq.donId },
             );
             if (hd) deps.nhanHoaDon?.(hd);
-          } catch {
-            // đơn đã tạo xong — thiếu ảnh không phải lý do báo lỗi cả lượt
+          } catch (err) {
+            // đơn đã tạo xong — thiếu ảnh không phải lý do báo lỗi cả lượt.
+            // Nhưng KHÔNG nuốt câm: bug DNH36805 (07/08) ảnh render fail thầm
+            // lặng nên bot đi HỎI "có gửi không" rồi bịa "đã gửi". Log để lần
+            // sau biết ảnh rớt ở đâu (font/timeout/URL).
+            logger.warn(
+              { err: (err as Error)?.message, donId: kq.donId },
+              '[staff-agent] auto-invoice render/gửi ảnh lỗi — đơn vẫn tạo, ảnh chưa gửi',
+            );
           }
         }
         return dinhDangTaoDon(kq, true);
@@ -570,6 +578,25 @@ export async function chayLenhNhanVien(
       lyDo:
         `Model nói đã ghi ("${traLoi.slice(0, 80)}") nhưng KHÔNG tool ghi nào chạy thành công. ` +
         'Chặn để nhân viên khỏi tin nhầm là việc đã xong.',
+      log,
+      usage: kq.usage,
+    };
+  }
+
+  // HÀNG RÀO CHỐNG BỊA GỬI ẢNH — bot không được KHOE đã/đang gửi ảnh hoá đơn khi
+  // KHÔNG có ảnh thật.
+  //
+  // Bug thật 07/08/2026 (DNH36805, trong nhóm): nhân viên "có gửi luôn đi", bot
+  // đáp "Dạ, em gửi lại ảnh đơn hàng DNH36805..." nhưng chạy 0 tool → ảnh không
+  // hề được gửi. Chỉ chặn khi khoe gửi ảnh mà KHÔNG có ảnh nào được tạo (hoaDon.anh)
+  // — có ảnh thật thì luong-nhan-vien.ts sẽ gửi, câu khoe là đúng.
+  const coAnhThat = Boolean(hoaDon?.anh);
+  if (!coAnhThat && khoeDaGuiAnh(traLoi)) {
+    return {
+      trangThai: 'chua_hoan_tat',
+      lyDo:
+        `Model nói đã gửi ảnh ("${traLoi.slice(0, 80)}") nhưng KHÔNG có ảnh hoá đơn nào được tạo. ` +
+        'Muốn gửi ảnh phải gọi tool gui_hoa_don để render ảnh thật; chặn câu bịa để nhân viên khỏi tin nhầm.',
       log,
       usage: kq.usage,
     };

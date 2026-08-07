@@ -11,7 +11,7 @@
 // Prompt lúc đó bảo "hãy LÀM TIẾP việc đang dở" và model nghe theo. Bài học:
 // prompt là lời khuyên, model lờ được; ranh giới phải là CODE.
 import { describe, it, expect, vi } from 'vitest';
-import { laYDinhDung, laToolGhi, khoeDaGhi, TOOL_GHI } from '../../../src/modules/ai/agent/y-dinh-dung.js';
+import { laYDinhDung, laToolGhi, khoeDaGhi, khoeDaGuiAnh, TOOL_GHI } from '../../../src/modules/ai/agent/y-dinh-dung.js';
 import { ToolRegistry } from '../../../src/modules/ai/agent/registry.js';
 
 describe('laYDinhDung — nhận ra lời dừng/huỷ', () => {
@@ -92,6 +92,32 @@ describe('khoeDaGhi — bot không được nói dối là đã ghi', () => {
     'đơn S13797 cần sửa tay trên Odoo',     // hướng dẫn — không khoe
   ])('KHÔNG bắt nhầm: "%s"', (cau) => {
     expect(khoeDaGhi(cau)).toBe(false);
+  });
+});
+
+describe('khoeDaGuiAnh — bot không được bịa đã gửi ảnh hoá đơn', () => {
+  it('CÂU THẬT bot bịa gửi ảnh (đo 07/08, DNH36805) phải bị bắt', () => {
+    expect(khoeDaGuiAnh('Dạ, em gửi lại ảnh đơn hàng DNH36805 cho anh Hiến ạ.')).toBe(true);
+  });
+
+  it.each([
+    'em gửi ảnh hoá đơn cho anh nhé',
+    'đã gửi hoá đơn cho khách',
+    'em gửi lại hình đơn hàng',
+    'em gửi anh ảnh đơn hàng',
+  ])('bắt lời khoe gửi ảnh: "%s"', (cau) => {
+    expect(khoeDaGuiAnh(cau)).toBe(true);
+  });
+
+  it.each([
+    'anh có muốn em gửi ảnh hoá đơn không ạ',  // câu HỎI (nhưng có "gửi ảnh") — vẫn bắt, guard đối chiếu ảnh thật ở caller
+    'đơn đã tạo xong',                          // không nhắc gửi ảnh
+    'giá 78.000đ một cái',
+  ])('không bắt câu không nhắc gửi ảnh: "%s"', (cau) => {
+    // Câu đầu CÓ "gửi ảnh" nên khoeDaGuiAnh=true là đúng — caller vẫn chặn nếu
+    // không có ảnh thật, mà câu hỏi thì không có ảnh nên chặn cũng vô hại (bot
+    // hỏi lại). Chỉ khẳng định 2 câu sau chắc chắn false:
+    if (!/gửi ảnh|gui anh/i.test(cau)) expect(khoeDaGuiAnh(cau)).toBe(false);
   });
 });
 

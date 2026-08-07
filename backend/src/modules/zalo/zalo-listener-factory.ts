@@ -973,19 +973,22 @@ export function attachZaloListener(ctx: ListenerContext): void {
   // Group system events: member join/leave/kick, name change, etc.
   listener.on('group_event', (event: any) => {
     const eventType = event?.type ?? 'unknown';
+    // Payload THẬT của zca-js nằm trong event.data (đo log prod 07/08): groupId,
+    // updateMembers, groupName… đều ở data. event.* trực tiếp là undefined.
+    const d = event?.data ?? {};
+    const groupId = d.groupId ?? event?.groupId;
     logger.info(`[zalo:${accountId}] Group event: type=${eventType}`, {
-      groupId: event?.groupId,
-      actorId: event?.actorId,
-      members: event?.members,
+      groupId,
+      updateMembers: (d.updateMembers ?? []).map((m: any) => m?.id),
     });
     // PATH TỨC THÌ — avatar/tên/cấu hình nhóm đổi → refresh NGAY nhóm đó (mirror avatar mới
     // + emit live cho client đang mở), bỏ độ trễ ≤6h của cron. update_avatar=đổi ảnh,
     // update/update_setting=đổi tên/cấu hình. Cron 6h vẫn là lưới an toàn cho lúc offline.
-    if ((eventType === 'update_avatar' || eventType === 'update' || eventType === 'update_setting') && event?.groupId) {
+    if ((eventType === 'update_avatar' || eventType === 'update' || eventType === 'update_setting') && groupId) {
       void (async () => {
         const orgId = await resolveOrgId();
         if (!orgId) return;
-        await refreshGroupInfoNow(accountId, orgId, String(event.groupId), io).catch((err) =>
+        await refreshGroupInfoNow(accountId, orgId, String(groupId), io).catch((err) =>
           logger.warn(`[zalo:${accountId}] group_event refresh failed:`, err),
         );
       })();
@@ -995,7 +998,7 @@ export function attachZaloListener(ctx: ListenerContext): void {
     // type='join' và updateMembers chứa uid của chính bot. Dự phòng: nếu không xác
     // định được uid bot trong updateMembers nhưng nhóm chưa từng chào, vẫn thử —
     // cờ groupGreetedAt + blocklist trong chaoNhomKhiThem chặn lặp, nên vô hại.
-    if (eventType === 'join' && event?.groupId) {
+    if (eventType === 'join' && groupId) {
       void (async () => {
         try {
           const orgId = await resolveOrgId();
@@ -1005,19 +1008,20 @@ export function attachZaloListener(ctx: ListenerContext): void {
             select: { zaloUid: true, org: { select: { name: true } } },
           });
           const botUid = acc?.zaloUid ?? null;
-          const members = (event?.updateMembers ?? event?.data?.updateMembers ?? []) as Array<{ id?: string }>;
+          const members = (d.updateMembers ?? []) as Array<{ id?: string }>;
           const botDuocThem = botUid ? members.some((m) => String(m?.id ?? '') === botUid) : false;
-          // Chỉ chào khi CHẮC bot được thêm, HOẶC không rõ member nhưng có isAdd
-          // (payload lệch). Nếu rõ ràng bot KHÔNG nằm trong updateMembers → bỏ (đây
-          // là người khác vào nhóm, không phải bot).
-          const isAdd = Number(event?.isAdd ?? event?.data?.isAdd ?? 0) === 1;
-          if (!botDuocThem && members.length > 0) return; // người khác join, không phải bot
-          if (!botDuocThem && !isAdd) return; // không đủ tín hiệu → bỏ cho an toàn
+          // Rõ ràng bot KHÔNG nằm trong updateMembers → người khác join, bỏ.
+          if (members.length > 0 && !botDuocThem) {
+            logger.info(`[zalo:${accountId}] join nhóm ${groupId} — người khác vào, không phải bot, bỏ`);
+            return;
+          }
+          // members rỗng + không biết botUid → không đủ tín hiệu, bỏ cho an toàn.
+          if (members.length === 0 && !botUid) return;
           const tenShop = process.env.AI_SHOP_NAME || acc?.org?.name || 'Shop';
           const { chaoNhomKhiThem } = await import('../ai/agent/noi-zalo/chao-nhom.js');
           await chaoNhomKhiThem({
-            orgId, accountId, groupId: String(event.groupId),
-            groupName: event?.groupName ?? event?.data?.groupName ?? null,
+            orgId, accountId, groupId: String(groupId),
+            groupName: d.groupName ?? null,
             botUid, api, tenShop,
           });
         } catch (err) {
