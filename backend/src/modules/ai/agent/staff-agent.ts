@@ -479,17 +479,24 @@ export function buildStaffRegistry(deps: {
     });
   }
 
-  // XUẤT HOÁ ĐƠN KẾ TOÁN (account.move, vào sổ) — chỉ cần odooUrl, không cần
-  // render ảnh. CHỈ nhân viên: đây là tool ghi ERP nặng nhất của bot.
+  // XUẤT HOÁ ĐƠN KẾ TOÁN (account.move, vào sổ). CHỈ nhân viên: đây là tool
+  // ghi ERP nặng nhất của bot. Có anhClient thì render ảnh hoá đơn gửi kèm
+  // ("giống đơn hàng" — 23:43 07/08) qua đúng kênh nhanHoaDon của gui_hoa_don.
   if (deps.odooUrl) {
     const odooUrl = deps.odooUrl;
     r.register({
       definition: xuatHoaDonDefinition,
       run: async (input) => {
         const kq = await xuatHoaDon(
-          { odoo, odooUrl, conversationId: deps.conversationId },
+          { odoo, odooUrl, conversationId: deps.conversationId, anhClient: deps.anhClient ?? null },
           input as { don_id?: number; ma_don?: string },
         );
+        if (kq.trangThai !== 'loi' && kq.anh) {
+          deps.nhanHoaDon?.({
+            donId: kq.hoaDonId, maDon: kq.soHoaDon, tongTien: kq.tongTien,
+            tenKhach: kq.tenKhach, anh: kq.anh, link: kq.link,
+          });
+        }
         return dinhDangXuatHoaDon(kq);
       },
     });

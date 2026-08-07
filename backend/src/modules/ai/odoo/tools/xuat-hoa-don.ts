@@ -10,7 +10,11 @@
 // KHÁC `gui_hoa_don`: cái đó chỉ render ẢNH báo giá, không ghi gì vào Odoo.
 import type { ToolDefinition } from '../../agent/types.js';
 import type { OdooClient } from '../client.js';
+import type { HoaDonAnhClient, AnhHoaDon } from '../hoa-don-anh.js';
 import { IDEMPOTENCY_PREFIX } from '../idempotency.js';
+
+/** Report hoá đơn kế toán chuẩn Odoo — smoke thật trên prod 07/08: PNG 131KB. */
+export const REPORT_HOA_DON = 'account.report_invoice';
 
 export interface XuatHoaDonDeps {
   odoo: Pick<OdooClient, 'searchRead' | 'execute'>;
@@ -18,6 +22,8 @@ export interface XuatHoaDonDeps {
   odooUrl: string;
   /** Nói trống ("xuất hoá đơn") → lấy đơn mới nhất của hội thoại này. */
   conversationId?: string;
+  /** Render ẢNH hoá đơn gửi kèm ("giống đơn hàng" — 23:43 07/08). Không có → chỉ text+link. */
+  anhClient?: Pick<HoaDonAnhClient, 'render'> | null;
 }
 
 export type KetQuaXuatHoaDon =
@@ -30,8 +36,24 @@ export type KetQuaXuatHoaDon =
       tenKhach: string;
       tongTien: number;
       link: string;
+      /** Ảnh PNG hoá đơn — caller đính kèm tin Zalo. null = render lỗi/không có anhClient. */
+      anh: AnhHoaDon | null;
     }
   | { trangThai: 'loi'; lyDo: string };
+
+/** Render ảnh hoá đơn — lỗi KHÔNG được phá kết quả xuất (hoá đơn đã vào sổ rồi). */
+async function renderAnh(
+  anhClient: XuatHoaDonDeps['anhClient'],
+  hoaDonId: number,
+  soHoaDon: string,
+): Promise<AnhHoaDon | null> {
+  if (!anhClient) return null;
+  try {
+    return await anhClient.render(hoaDonId, soHoaDon.replace(/\//g, '-'), REPORT_HOA_DON);
+  } catch {
+    return null;
+  }
+}
 
 /** Link mở thẳng hoá đơn trong Odoo (menu Hoá đơn — action 514, menu 370). */
 function linkHoaDon(odooUrl: string, hoaDonId: number): string {
@@ -127,13 +149,15 @@ export async function xuatHoaDon(
     }
 
     if (hoaDon && String(hoaDon.state) === 'posted') {
+      const soCu = String(hoaDon.name ?? '');
       return {
         trangThai: 'da_co_truoc',
         hoaDonId: Number(hoaDon.id),
-        soHoaDon: String(hoaDon.name ?? ''),
+        soHoaDon: soCu,
         maDon, tenKhach,
         tongTien: Number(hoaDon.amount_total ?? 0),
         link: linkHoaDon(deps.odooUrl, Number(hoaDon.id)),
+        anh: await renderAnh(deps.anhClient, Number(hoaDon.id), soCu),
       };
     }
 
@@ -185,13 +209,15 @@ export async function xuatHoaDon(
       };
     }
 
+    const soHoaDon = String(cuoi.name ?? '');
     return {
       trangThai: 'da_xuat',
       hoaDonId,
-      soHoaDon: String(cuoi.name ?? ''),
+      soHoaDon,
       maDon, tenKhach,
       tongTien: Number(cuoi.amount_total ?? 0),
       link: linkHoaDon(deps.odooUrl, hoaDonId),
+      anh: await renderAnh(deps.anhClient, hoaDonId, soHoaDon),
     };
   } catch (err) {
     // Lỗi Odoo (nothing to invoice, kỳ kế toán khoá…) phải tới tai nhân viên

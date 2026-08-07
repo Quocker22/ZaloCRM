@@ -186,6 +186,7 @@ describe('ranh giới + mô tả tool', () => {
       trangThai: 'da_xuat', hoaDonId: 7001, soHoaDon: 'INV/2026/00042',
       maDon: 'S13811', tenKhach: 'A Tuấn Tospino', tongTien: 780000,
       link: 'https://led.incokit.com/web#id=7001',
+      anh: null,
     });
     expect(s).toContain('INV/2026/00042');
     expect(s).toContain('780.000');
@@ -221,5 +222,46 @@ describe('lỗi "cannot marshal None" — action đã chạy xong phía server',
     odoo.execute.mockImplementationOnce(async () => { throw new Error('Access Denied'); });
     const kq = await xuatHoaDon(deps(odoo), { don_id: 26728 });
     expect(kq.trangThai).toBe('loi');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 23:43 07/08: "chưa gửi được ảnh hóa đơn lên đây giống đơn hàng" — sau khi
+// vào sổ phải render ẢNH hoá đơn kế toán (report account.report_invoice,
+// smoke thật trên prod: PNG 131KB) để gửi kèm như ảnh báo giá.
+describe('ảnh hoá đơn kế toán gửi kèm', () => {
+  const fakeAnhClient = (loi = false) => ({
+    render: vi.fn(async (id: number, ma?: string, report?: string) => {
+      if (loi) throw new Error('render sập');
+      return { duLieu: Buffer.from('PNG'), tenFile: `hoa-don-${ma ?? id}.png` };
+    }),
+  });
+
+  it('xuất xong render ảnh bằng report account.report_invoice, trả trong kq.anh', async () => {
+    const odoo = fakeOdoo();
+    const anhClient = fakeAnhClient();
+    const kq = await xuatHoaDon({ ...deps(odoo), anhClient: anhClient as never }, { ma_don: 'S13811' });
+    expect(kq.trangThai).toBe('da_xuat');
+    if (kq.trangThai !== 'da_xuat') return;
+    expect(kq.anh?.duLieu).toBeInstanceOf(Buffer);
+    const [id, , report] = anhClient.render.mock.calls[0];
+    expect(id).toBe(7001);
+    expect(report).toBe('account.report_invoice');
+  });
+
+  it('render sập KHÔNG phá kết quả — hoá đơn vẫn da_xuat, anh=null', async () => {
+    const odoo = fakeOdoo();
+    const kq = await xuatHoaDon({ ...deps(odoo), anhClient: fakeAnhClient(true) as never }, { ma_don: 'S13811' });
+    expect(kq.trangThai).toBe('da_xuat');
+    if (kq.trangThai !== 'da_xuat') return;
+    expect(kq.anh).toBeNull();
+  });
+
+  it('không có anhClient (test/env thiếu) → vẫn chạy, anh=null', async () => {
+    const odoo = fakeOdoo();
+    const kq = await xuatHoaDon(deps(odoo), { ma_don: 'S13811' });
+    expect(kq.trangThai).toBe('da_xuat');
+    if (kq.trangThai !== 'da_xuat') return;
+    expect(kq.anh).toBeNull();
   });
 });
