@@ -4200,3 +4200,20 @@ model AgentOperator {
   @@index([orgId, enabled])
   @@map("agent_operators")
 }
+
+/// Phiên gom đơn của máy trạng thái slot (spec 2026-08-07-luong-len-don-slot).
+/// Lưu DB chứ không in-memory: restart container không rơi phiên giữa chừng,
+/// và test đọc được trạng thái thật.
+model PhienGomDon {
+  id             String   @id @default(cuid())
+  orgId          String   @map("org_id")
+  conversationId String   @unique @map("conversation_id")
+  /// PhienGom serialize nguyên khối — cấu trúc chỉ code gom-don đọc/ghi.
+  slots          Json
+  /// Chạm hạn là phiên chết — tránh phiên ma dính vĩnh viễn vào hội thoại.
+  hetHan         DateTime @map("het_han")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@index([hetHan])
+  @@map("phien_gom_don")
+}
