@@ -6,7 +6,7 @@
 //   2. Chỉ tạo DRAFT — không bao giờ gọi action_confirm
 //   3. Không tạo khách, không tự đặt giá
 import { describe, it, expect, vi } from 'vitest';
-import { taoDonNhap, dinhDangTaoDon } from '../../../src/modules/ai/odoo/tools/tao-don-nhap.js';
+import { taoDonNhap, dinhDangTaoDon, tenKhopKhach } from '../../../src/modules/ai/odoo/tools/tao-don-nhap.js';
 
 const DON_DRAFT = {
   id: 500,
@@ -35,6 +35,8 @@ function fakeOdoo(
   return {
     searchRead: vi.fn(async (model: string, domain: unknown[]) => {
       const s = JSON.stringify(domain);
+      // Xác minh khách (verify id + tên) trước khi tạo
+      if (model === 'res.partner') return [{ id: 1441, name: 'Anh Tuấn Anh' }];
       // Kiểm SP (giá + tồn tại) trước khi tạo
       if (model === 'product.product') return opts.sp ?? [SP_OK];
       // Tra theo khoá (trước khi tạo)
@@ -405,5 +407,70 @@ describe('TRẦN TIỀN — hàng rào cho luồng khách tự chốt', () => {
     );
 
     expect(kq.trangThai).not.toBe('loi');
+  });
+});
+
+// Bug S13810 (07/08): "lên đơn anh Vấn" nhưng model bịa id=1629 (Huy Chung) từ
+// danh sách cũ → đơn sai khách. Verify tên khách khớp id.
+describe('tenKhopKhach — đối chiếu tên nhân viên nhắc vs khách theo id', () => {
+  it('khớp khi tên nhắc là tập con tên partner (bỏ xưng hô)', () => {
+    expect(tenKhopKhach('Vấn', 'Anh Vấn - Hà Đông [KH001]')).toBe(true);
+    expect(tenKhopKhach('anh Tuấn Anh', 'Anh Dương Tuấn Anh [KH002111]')).toBe(true);
+  });
+  it('LỆCH khi tên khác hẳn (Vấn vs Huy Chung)', () => {
+    expect(tenKhopKhach('Vấn', 'Anh Huy Chung [KH001946]')).toBe(false);
+  });
+  it('chỉ xưng hô ("anh") → không đủ cơ sở bác, cho qua', () => {
+    expect(tenKhopKhach('anh', 'Anh Huy Chung')).toBe(true);
+  });
+});
+
+describe('taoDonNhap — chặn khách sai (bug S13810)', () => {
+  function odooCoPartner(tenPartner: string) {
+    let daTao = false;
+    return {
+      searchRead: vi.fn(async (model: string, domain: unknown[]) => {
+        const s = JSON.stringify(domain);
+        if (model === 'res.partner') return [{ id: 1629, name: tenPartner }];
+        if (model === 'product.product') return [SP_OK];
+        if (s.includes('client_order_ref')) return [];
+        if (s.includes('"id"')) return daTao ? [DON_DRAFT] : [];
+        return [];
+      }),
+      execute: vi.fn(async (_m: string, method: string) => { if (method === 'create') { daTao = true; return 500; } return true; }),
+    };
+  }
+
+  it('ten_khach lệch tên partner → CHẶN, không tạo đơn', async () => {
+    const odoo = odooCoPartner('Anh Huy Chung [KH001946]');
+    const kq = await taoDonNhap(
+      { odoo, conversationId: 'c', seq: 0 },
+      { khach_hang_id: 1629, ten_khach: 'Vấn', dong: [{ san_pham_id: SP_OK.id, so_luong: 100 }] },
+    );
+    expect(kq.trangThai).toBe('loi');
+    if (kq.trangThai === 'loi') expect(kq.lyDo).toContain('Huy Chung');
+    expect(odoo.execute).not.toHaveBeenCalled(); // không create
+  });
+
+  it('ten_khach khớp → tạo bình thường', async () => {
+    const odoo = odooCoPartner('Anh Vấn - Hà Đông [KH00123]');
+    const kq = await taoDonNhap(
+      { odoo, conversationId: 'c', seq: 0 },
+      { khach_hang_id: 1629, ten_khach: 'Vấn', dong: [{ san_pham_id: SP_OK.id, so_luong: 100 }] },
+    );
+    expect(kq.trangThai).toBe('da_tao');
+  });
+
+  it('id khách KHÔNG tồn tại → CHẶN, bắt tra lại', async () => {
+    const odoo = {
+      searchRead: vi.fn(async (model: string) => model === 'res.partner' ? [] : []),
+      execute: vi.fn(async () => true),
+    };
+    const kq = await taoDonNhap(
+      { odoo, conversationId: 'c', seq: 0 },
+      { khach_hang_id: 99999, dong: [{ san_pham_id: SP_OK.id, so_luong: 1 }] },
+    );
+    expect(kq.trangThai).toBe('loi');
+    if (kq.trangThai === 'loi') expect(kq.lyDo).toContain('tra_khach_hang');
   });
 });

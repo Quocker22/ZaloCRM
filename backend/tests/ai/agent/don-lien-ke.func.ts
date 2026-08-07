@@ -31,6 +31,7 @@ function odooGia(opts: { donGan?: Array<Record<string, unknown>> } = {}) {
     odoo: {
       searchRead: async (model: string, domain: unknown) => {
         goi.push({ model, domain });
+        if (model === 'res.partner') return [{ id: 1441, name: 'Anh Dương Tuấn Anh' }];
         if (model === 'product.product') return [SP];
         const d = JSON.stringify(domain);
         if (d.includes('create_date')) return opts.donGan ?? [];

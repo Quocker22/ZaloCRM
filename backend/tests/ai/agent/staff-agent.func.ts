@@ -11,7 +11,9 @@ import type { OdooClient } from '../../../src/modules/ai/odoo/client.js';
 
 const fakeOdoo = () =>
   ({
-    searchRead: vi.fn(async () => []),
+    // res.partner: verify khách (bug S13810) — trả 1 partner để tao_don_nhap qua.
+    searchRead: vi.fn(async (model: string) =>
+      model === 'res.partner' ? [{ id: 1, name: 'Khách Test' }] : []),
     execute: vi.fn(async () => 1),
   }) as unknown as OdooClient;
 

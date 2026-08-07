@@ -17,6 +17,7 @@ function odooGia() {
   let daTao = false;
   return {
     searchRead: vi.fn(async (model: string, domain: unknown) => {
+      if (model === 'res.partner') return [{ id: 1441, name: 'Anh Dương Tuấn Anh' }];
       if (model === 'product.product') return [SP];
       const d = JSON.stringify(domain);
       if (model === 'sale.order' && daTao && d.includes('"id"')) {

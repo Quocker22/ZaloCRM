@@ -75,13 +75,58 @@ const FIELDS_DON = ['id', 'name', 'state', 'amount_total', 'client_order_ref'];
  *   4. create() với state mặc định = draft
  *   5. Đọc lại để xác nhận, và KIỂM TRA state đúng là draft
  */
+/** Bỏ dấu + thường hoá để so tên không phân biệt dấu/hoa thường. */
+function chuanTen(s: string): string {
+  return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd')
+    .replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Tên nhân viên nhắc có KHỚP tên khách trong Odoo không?
+ *
+ * Khách trong DB có tên dài ("Anh Vấn - Hà Đông [KH...]"), nhân viên chỉ gõ
+ * "Vấn". Khớp khi MỌI từ đặc trưng nhân viên nhắc (bỏ "anh/chị/a/c") đều xuất
+ * hiện trong tên partner. Đủ để bắt lệch rõ ràng (Vấn vs Huy Chung) mà không
+ * chặn oan cách gõ tắt.
+ */
+export function tenKhopKhach(tenNhac: string, tenPartner: string): boolean {
+  const XUNG = new Set(['anh', 'chi', 'a', 'c', 'em', 'ông', 'ong', 'ba', 'co', 'cô', 'chú', 'chu']);
+  const tuNhac = chuanTen(tenNhac).split(' ').filter((t) => t.length >= 2 && !XUNG.has(t));
+  if (tuNhac.length === 0) return true; // chỉ có xưng hô → không đủ cơ sở bác, cho qua
+  const tenP = chuanTen(tenPartner);
+  return tuNhac.every((t) => tenP.includes(t));
+}
+
 export async function taoDonNhap(
   deps: TaoDonDeps,
-  input: { khach_hang_id: number; dong: DongDon[]; y_dinh?: 'moi' | 'sua' },
+  input: { khach_hang_id: number; dong: DongDon[]; y_dinh?: 'moi' | 'sua'; ten_khach?: string },
 ): Promise<KetQuaTaoDon> {
   const partnerId = Number(input.khach_hang_id);
   if (!Number.isInteger(partnerId) || partnerId <= 0) {
     return { trangThai: 'loi', lyDo: 'khach_hang_id không hợp lệ. Dùng tra_khach_hang để lấy id đúng.' };
+  }
+
+  // ── XÁC MINH KHÁCH KHỚP TÊN ────────────────────────────────────────────
+  // Bug thật 07/08 (S13810): nhân viên "lên đơn anh Vấn" nhưng model KHÔNG tra
+  // khách, bịa id=1629 (Huy Chung) từ danh sách cũ trong lịch sử → đơn ra sai
+  // tên. Đọc partner thật theo id và so với tên nhân viên nhắc: lệch → chặn,
+  // bắt tra lại. Chặn ở CODE vì đây là dữ liệu bẩn (đơn sai khách) khó dò.
+  const partner = await deps.odoo.searchRead<Record<string, unknown>>(
+    'res.partner', [['id', '=', partnerId]], ['id', 'name'], { limit: 1 },
+  );
+  if (partner.length === 0) {
+    return { trangThai: 'loi', lyDo: `Không có khách id=${partnerId}. Dùng tra_khach_hang để lấy id đúng, ĐỪNG bịa id.` };
+  }
+  const tenPartner = String(partner[0].name ?? '');
+  const tenNhac = (input.ten_khach ?? '').trim();
+  if (tenNhac && !tenKhopKhach(tenNhac, tenPartner)) {
+    return {
+      trangThai: 'loi',
+      lyDo:
+        `Khách id=${partnerId} trong hệ thống là "${tenPartner}", KHÔNG khớp tên "${tenNhac}" ` +
+        'nhân viên nhắc. Có thể id lấy nhầm từ danh sách cũ. Hãy gọi tra_khach_hang với tên/mã KH ' +
+        'đúng để lấy id chính xác, ĐỪNG tự lấy id từ lịch sử.',
+    };
   }
 
   const dong = Array.isArray(input.dong) ? input.dong : [];
@@ -283,14 +328,18 @@ export const taoDonNhapDefinition: ToolDefinition = {
   description:
     'Tạo đơn hàng NHÁP trong hệ thống. Đơn ở trạng thái nháp, sale sẽ xác nhận sau. ' +
     'GỌI KHI: khách đã chốt mua và bạn đã có đủ id khách (từ tra_khach_hang) và id sản phẩm ' +
-    '(từ tra_san_pham). KHÔNG tự bịa id. KHÔNG đặt giá — hệ thống tự lấy giá đúng. ' +
+    '(từ tra_san_pham). KHÔNG tự bịa id, KHÔNG lấy id khách từ danh sách/lịch sử cũ — ' +
+    'khách MỚI phải gọi tra_khach_hang trước. KHÔNG đặt giá — hệ thống tự lấy giá đúng. ' +
     'Gọi lại nhiều lần với cùng nội dung là an toàn, sẽ không tạo đơn trùng. ' +
+    'ten_khach: LUÔN truyền tên khách nhân viên vừa nhắc (vd "Vấn") — hệ thống đối chiếu với ' +
+    'khách theo id, lệch thì chặn để khỏi lên đơn nhầm người. ' +
     'y_dinh: nhân viên nói "lên đơn"/"tạo đơn"/"đơn mới" → "moi"; nói "sửa"/"thêm"/"bớt"/' +
     '"đổi" cho đơn vừa tạo → "sua". Mặc định "moi".',
   inputSchema: {
     type: 'object',
     properties: {
       khach_hang_id: { type: 'integer', description: 'id khách, lấy từ tra_khach_hang' },
+      ten_khach: { type: 'string', description: 'Tên khách nhân viên vừa nhắc (vd "Vấn"). LUÔN truyền để đối chiếu.' },
       y_dinh: {
         type: 'string',
         enum: ['moi', 'sua'],
