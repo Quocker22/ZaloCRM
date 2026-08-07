@@ -6,10 +6,10 @@
 // bot xử bao nhiêu lượt, gọi tool gì nhiều, tool nào hay lỗi, bao nhiêu ca
 // nghi model rẻ đuối (gọi 1 tool nhiều lần / lượt dài bất thường).
 //
-// CHẠY (mặc định 7 ngày; đổi số ngày qua đối số):
-//   ODOO... không cần — chỉ đọc Postgres của CRM.
-//   npx tsx scripts/soat-bot.ts        # 7 ngày
-//   npx tsx scripts/soat-bot.ts 1      # hôm nay
+// CHẠY:
+//   Local (có src):     npx tsx scripts/soat-bot.ts [số ngày]
+//   Container (có dist): node dist/scripts/soat-bot.js [số ngày]
+//     — chỉ đọc Postgres CRM, không đụng Odoo/Zalo.
 //
 // Học Chatwoot bot_metrics_builder: 4 số cốt lõi (lượt, tool, lỗi, handoff).
 // Handoff/chửi/rỗng nằm trong LOG container, không DB — cuối script in lệnh
