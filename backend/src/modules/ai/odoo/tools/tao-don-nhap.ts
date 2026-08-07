@@ -77,7 +77,7 @@ const FIELDS_DON = ['id', 'name', 'state', 'amount_total', 'client_order_ref'];
  */
 export async function taoDonNhap(
   deps: TaoDonDeps,
-  input: { khach_hang_id: number; dong: DongDon[] },
+  input: { khach_hang_id: number; dong: DongDon[]; y_dinh?: 'moi' | 'sua' },
 ): Promise<KetQuaTaoDon> {
   const partnerId = Number(input.khach_hang_id);
   if (!Number.isInteger(partnerId) || partnerId <= 0) {
@@ -132,7 +132,12 @@ export async function taoDonNhap(
   //
   // Chặn ở TOOL chứ không ở prompt: prompt lèo lái được, mà hậu quả ở đây là
   // dữ liệu bẩn trong Odoo — thứ phải dò và xoá bằng tay.
-  const nguongGiay = Number(deps.chanDonLienKeGiay ?? 0);
+  //
+  // NHƯNG (anh chốt 07/08): "lên/tạo đơn" = LUÔN đơn mới, chỉ "sửa/thêm/bớt"
+  // mới là sửa. Nên chỉ chặn khi model xác định y_dinh='sua'. y_dinh='moi'
+  // (mặc định) → bỏ qua chặn, tạo đơn mới thẳng — nhân viên chủ động lên đơn
+  // tiếp cho cùng khách là việc hợp lệ, không phải sửa nhầm.
+  const nguongGiay = input.y_dinh === 'sua' ? Number(deps.chanDonLienKeGiay ?? 0) : 0;
   if (nguongGiay > 0) {
     const moc = new Date(Date.now() - nguongGiay * 1000)
       .toISOString().slice(0, 19).replace('T', ' '); // Odoo dùng UTC 'YYYY-MM-DD HH:MM:SS'
@@ -279,11 +284,18 @@ export const taoDonNhapDefinition: ToolDefinition = {
     'Tạo đơn hàng NHÁP trong hệ thống. Đơn ở trạng thái nháp, sale sẽ xác nhận sau. ' +
     'GỌI KHI: khách đã chốt mua và bạn đã có đủ id khách (từ tra_khach_hang) và id sản phẩm ' +
     '(từ tra_san_pham). KHÔNG tự bịa id. KHÔNG đặt giá — hệ thống tự lấy giá đúng. ' +
-    'Gọi lại nhiều lần với cùng nội dung là an toàn, sẽ không tạo đơn trùng.',
+    'Gọi lại nhiều lần với cùng nội dung là an toàn, sẽ không tạo đơn trùng. ' +
+    'y_dinh: nhân viên nói "lên đơn"/"tạo đơn"/"đơn mới" → "moi"; nói "sửa"/"thêm"/"bớt"/' +
+    '"đổi" cho đơn vừa tạo → "sua". Mặc định "moi".',
   inputSchema: {
     type: 'object',
     properties: {
       khach_hang_id: { type: 'integer', description: 'id khách, lấy từ tra_khach_hang' },
+      y_dinh: {
+        type: 'string',
+        enum: ['moi', 'sua'],
+        description: '"moi" = lên đơn mới (mặc định). "sua" = sửa đơn vừa tạo (đổi SL/hàng).',
+      },
       dong: {
         type: 'array',
         description: 'Danh sách dòng hàng cần đặt',

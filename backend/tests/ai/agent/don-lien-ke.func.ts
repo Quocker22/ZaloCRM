@@ -58,21 +58,37 @@ describe('chanDonLienKeGiay — công tắc', () => {
   });
 });
 
+// Chặn liền kề CHỈ áp dụng khi y_dinh='sua' (anh chốt 07/08: "lên đơn" luôn là
+// đơn mới, chỉ "sửa/thêm/bớt" mới sửa). Các test dưới là kịch bản SỬA nên
+// truyền y_dinh:'sua'.
 describe('BUG 1 — sửa đơn KHÔNG được thành đơn mới', () => {
-  it('có đơn vừa tạo trong hội thoại → TỪ CHỐI tạo đơn thứ hai, nêu rõ mã đơn cũ', async () => {
+  it('có đơn vừa tạo trong hội thoại + y_dinh=sua → TỪ CHỐI tạo đơn thứ hai, nêu rõ mã đơn cũ', async () => {
     const { odoo } = odooGia({
       donGan: [{ id: 26715, name: 'S13797', amount_total: 78_000, create_date: '2026-08-05 13:56:41' }],
     });
 
     const kq = await taoDonNhap(
       { odoo, conversationId: CONV, seq: 1, chanDonLienKeGiay: 90 },
-      { khach_hang_id: 1441, dong: [{ san_pham_id: SP.id, so_luong: 10 }] },
+      { khach_hang_id: 1441, dong: [{ san_pham_id: SP.id, so_luong: 10 }], y_dinh: 'sua' },
     );
 
     expect(kq.trangThai).toBe('loi');
     if (kq.trangThai !== 'loi') return;
     expect(kq.lyDo, 'phải nêu mã đơn để nhân viên biết sửa cái nào').toContain('S13797');
     expect(kq.lyDo).toContain('SỬA');
+  });
+
+  it('có đơn vừa tạo NHƯNG y_dinh=moi (lên đơn mới) → TẠO ĐƠN, không chặn', async () => {
+    const { odoo } = odooGia({
+      donGan: [{ id: 26715, name: 'S13797', amount_total: 78_000, create_date: '2026-08-05 13:56:41' }],
+    });
+
+    const kq = await taoDonNhap(
+      { odoo, conversationId: CONV, seq: 5, chanDonLienKeGiay: 90 },
+      { khach_hang_id: 1441, dong: [{ san_pham_id: SP.id, so_luong: 10 }] }, // y_dinh mặc định 'moi'
+    );
+
+    expect(kq.trangThai).toBe('da_tao');
   });
 
   it('KHÔNG có đơn gần đó → tạo bình thường, hàng rào không cản việc thật', async () => {
@@ -105,7 +121,7 @@ describe('BUG 1 — sửa đơn KHÔNG được thành đơn mới', () => {
 
     await taoDonNhap(
       { odoo, conversationId: CONV, seq: 1, chanDonLienKeGiay: 90 },
-      { khach_hang_id: 1441, dong: [{ san_pham_id: SP.id, so_luong: 1 }] },
+      { khach_hang_id: 1441, dong: [{ san_pham_id: SP.id, so_luong: 1 }], y_dinh: 'sua' },
     );
 
     const truyVan = goi.find((g) => JSON.stringify(g.domain).includes('create_date'));
@@ -120,7 +136,7 @@ describe('BUG 1 — sửa đơn KHÔNG được thành đơn mới', () => {
 
     await taoDonNhap(
       { odoo, conversationId: CONV, seq: 2, chanDonLienKeGiay: 90 },
-      { khach_hang_id: 999, dong: [{ san_pham_id: SP.id, so_luong: 3 }] },
+      { khach_hang_id: 999, dong: [{ san_pham_id: SP.id, so_luong: 3 }], y_dinh: 'sua' },
     );
 
     const truyVan = goi.find((g) => JSON.stringify(g.domain).includes('create_date'));

@@ -352,21 +352,33 @@ export function buildStaffRegistry(deps: {
         // nhân viên phải hỏi "sao không gửi hình?". Cùng nguyên tắc với ảnh
         // sản phẩm luồng khách: việc luôn-phải-làm thì code làm.
         // Ảnh lỗi không phá việc tạo đơn — guiHoaDon tự nuốt lỗi render.
-        if (kq.trangThai === 'da_tao' && deps.anhClient && deps.odooUrl) {
+        //
+        // GỬI ẢNH CẢ KHI 'da_ton_tai' (bug S14172 07/08): model hay gọi
+        // tao_don_nhap 2 lần cùng seq (lượt hỏi xác nhận + lượt "đúng rồi"),
+        // lần hai idempotency trả 'da_ton_tai' → TRƯỚC ĐÂY skip ảnh nên đơn
+        // tạo xong mà không có hoá đơn, bot đi bịa "đã gửi ảnh". Đơn đã tồn
+        // tại là đơn THẬT, vẫn phải gửi ảnh.
+        if ((kq.trangThai === 'da_tao' || kq.trangThai === 'da_ton_tai') && deps.anhClient && deps.odooUrl) {
           try {
             const hd = await guiHoaDon(
               { odoo, anhClient: deps.anhClient, odooUrl: deps.odooUrl },
               { don_id: kq.donId },
             );
             if (hd) deps.nhanHoaDon?.(hd);
+            // guiHoaDon NUỐT lỗi render bên trong (trả anh=null + loiAnh) thay vì
+            // throw — nên phải kiểm loiAnh ở ĐÂY, không phải catch. Bug S14172
+            // (07/08): render fail thầm lặng, đơn tạo xong mà không có ảnh, bot
+            // bịa "đã gửi". Log rõ để biết ảnh rớt vì sao (font/timeout/URL).
+            if (hd && !hd.anh) {
+              logger.warn(
+                { donId: kq.donId, loiAnh: hd.loiAnh },
+                '[staff-agent] auto-invoice: render ảnh hoá đơn THẤT BẠI — đơn vẫn tạo, ảnh chưa gửi',
+              );
+            }
           } catch (err) {
-            // đơn đã tạo xong — thiếu ảnh không phải lý do báo lỗi cả lượt.
-            // Nhưng KHÔNG nuốt câm: bug DNH36805 (07/08) ảnh render fail thầm
-            // lặng nên bot đi HỎI "có gửi không" rồi bịa "đã gửi". Log để lần
-            // sau biết ảnh rớt ở đâu (font/timeout/URL).
             logger.warn(
               { err: (err as Error)?.message, donId: kq.donId },
-              '[staff-agent] auto-invoice render/gửi ảnh lỗi — đơn vẫn tạo, ảnh chưa gửi',
+              '[staff-agent] auto-invoice lỗi — đơn vẫn tạo, ảnh chưa gửi',
             );
           }
         }

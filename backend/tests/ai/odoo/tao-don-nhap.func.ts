@@ -100,6 +100,30 @@ describe('taoDonNhap — CHỐNG TRÙNG ĐƠN', () => {
     const k2 = ((o2.execute.mock.calls[0][2] as unknown[])[0] as Record<string, unknown>).client_order_ref;
     expect(k1).not.toBe(k2);
   });
+
+  // Anh chốt 07/08: "lên đơn" = luôn đơn MỚI, không chặn liền kề. Chỉ khi
+  // y_dinh='sua' mới kiểm chặn đơn liền kề.
+  it('y_dinh="moi" (mặc định) → KHÔNG truy vấn chặn đơn liền kề', async () => {
+    const odoo = fakeOdoo();
+    await taoDonNhap({ odoo, conversationId: 'c', seq: 0, chanDonLienKeGiay: 120 }, donHopLe);
+    // Không có query nào lọc theo create_date (query chặn liền kề).
+    const coQueryLienKe = odoo.searchRead.mock.calls.some(
+      (c) => JSON.stringify(c[1]).includes('create_date'),
+    );
+    expect(coQueryLienKe).toBe(false);
+  });
+
+  it('y_dinh="sua" → CÓ kiểm chặn đơn liền kề', async () => {
+    const odoo = fakeOdoo();
+    await taoDonNhap(
+      { odoo, conversationId: 'c', seq: 0, chanDonLienKeGiay: 120 },
+      { ...donHopLe, y_dinh: 'sua' },
+    );
+    const coQueryLienKe = odoo.searchRead.mock.calls.some(
+      (c) => JSON.stringify(c[1]).includes('create_date'),
+    );
+    expect(coQueryLienKe).toBe(true);
+  });
 });
 
 describe('taoDonNhap — CHỈ TẠO DRAFT', () => {
