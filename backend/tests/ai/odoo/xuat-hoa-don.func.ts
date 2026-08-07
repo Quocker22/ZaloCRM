@@ -227,7 +227,8 @@ describe('lỗi "cannot marshal None" — action đã chạy xong phía server',
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 23:43 07/08: "chưa gửi được ảnh hóa đơn lên đây giống đơn hàng" — sau khi
-// vào sổ phải render ẢNH hoá đơn kế toán (report account.report_invoice,
+// vào sổ phải render ẢNH hoá đơn kế toán theo MẪU KIOTVIET của NELIA —
+// mẫu mặc định Odoo bị chê ngay lần gửi đầu (00:xx 08/08),
 // smoke thật trên prod: PNG 131KB) để gửi kèm như ảnh báo giá.
 describe('ảnh hoá đơn kế toán gửi kèm', () => {
   const fakeAnhClient = (loi = false) => ({
@@ -237,7 +238,7 @@ describe('ảnh hoá đơn kế toán gửi kèm', () => {
     }),
   });
 
-  it('xuất xong render ảnh bằng report account.report_invoice, trả trong kq.anh', async () => {
+  it('xuất xong render ảnh bằng report KiotViet của NELIA, trả trong kq.anh', async () => {
     const odoo = fakeOdoo();
     const anhClient = fakeAnhClient();
     const kq = await xuatHoaDon({ ...deps(odoo), anhClient: anhClient as never }, { ma_don: 'S13811' });
@@ -246,7 +247,7 @@ describe('ảnh hoá đơn kế toán gửi kèm', () => {
     expect(kq.anh?.duLieu).toBeInstanceOf(Buffer);
     const [id, , report] = anhClient.render.mock.calls[0];
     expect(id).toBe(7001);
-    expect(report).toBe('account.report_invoice');
+    expect(report).toBe('incokit_pos.report_invoice_document_kiotviet');
   });
 
   it('render sập KHÔNG phá kết quả — hoá đơn vẫn da_xuat, anh=null', async () => {

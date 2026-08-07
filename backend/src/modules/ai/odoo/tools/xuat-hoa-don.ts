@@ -13,8 +13,13 @@ import type { OdooClient } from '../client.js';
 import type { HoaDonAnhClient, AnhHoaDon } from '../hoa-don-anh.js';
 import { IDEMPOTENCY_PREFIX } from '../idempotency.js';
 
-/** Report hoá đơn kế toán chuẩn Odoo — smoke thật trên prod 07/08: PNG 131KB. */
-export const REPORT_HOA_DON = 'account.report_invoice';
+/**
+ * Report hoá đơn KiotViet của NELIA (ir.actions.report id=254, model
+ * account.move) — smoke thật prod 08/08: PNG 185KB. KHÔNG dùng
+ * `account.report_invoice`: đó là mẫu mặc định Odoo, nhân viên chê ngay
+ * lần gửi đầu (00:xx 08/08) vì khác mẫu in quen thuộc.
+ */
+export const REPORT_HOA_DON = 'incokit_pos.report_invoice_document_kiotviet';
 
 export interface XuatHoaDonDeps {
   odoo: Pick<OdooClient, 'searchRead' | 'execute'>;
