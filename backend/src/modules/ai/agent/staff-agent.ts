@@ -483,7 +483,9 @@ export function buildStaffRegistry(deps: {
       definition: guiHoaDonDefinition,
       run: async (input) => {
         const kq = await guiHoaDon(
-          { odoo, anhClient, odooUrl },
+          // conversationId cho ca "xuất hoá đơn" nói trống — lấy đơn mới nhất
+          // của chính hội thoại này (07/08).
+          { odoo, anhClient, odooUrl, conversationId: deps.conversationId },
           input as { don_id?: number; ma_don?: string },
         );
         // Đẩy ảnh ra ngoài để caller đính kèm vào tin Zalo. Ảnh KHÔNG đi qua

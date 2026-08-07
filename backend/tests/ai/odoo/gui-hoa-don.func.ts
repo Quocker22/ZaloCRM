@@ -214,3 +214,27 @@ describe('Định nghĩa tool', () => {
     expect(guiHoaDonDefinition.inputSchema.required).toEqual([]);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// "xuất hoá đơn" KHÔNG kèm mã (07/08): nhân viên nói trống thì lấy đơn MỚI
+// NHẤT của hội thoại — trước đây tool bó tay trả "Không tìm thấy đơn".
+describe('xuất hoá đơn không kèm mã — tự lấy đơn mới nhất của hội thoại', () => {
+  it('không don_id/ma_don nhưng có conversationId → tra theo khoá hội thoại, mới nhất trước', async () => {
+    const odoo = fakeOdoo();
+    const kq = await guiHoaDon({ ...deps(odoo), conversationId: 'conv-1' }, {});
+    expect(kq?.maDon).toBe('S13788');
+    const [model, domain, , opts] = odoo.searchRead.mock.calls[0];
+    expect(model).toBe('sale.order');
+    expect(JSON.stringify(domain)).toContain('zalo:conv-1:');
+    expect(opts).toMatchObject({ order: 'create_date desc', limit: 1 });
+  });
+
+  it('không mã + không conversationId → null như cũ, không tra bừa', async () => {
+    const odoo = fakeOdoo([]);
+    expect(await guiHoaDon(deps(odoo), {})).toBeNull();
+  });
+
+  it('mô tả tool phải có cụm "xuất hóa đơn" — cụm nhân viên nói nhiều nhất', () => {
+    expect(guiHoaDonDefinition.description).toContain('xuất hóa đơn');
+  });
+});

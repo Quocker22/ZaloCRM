@@ -96,7 +96,9 @@ export async function trichSlot(
     'Chỉ trích cái CÓ trong câu — không đoán, không bịa. Bỏ xưng hô (anh/chị/em/bác)',
     'khỏi tên khách. Câu chỉ có số lượng ("10 cái") → điền sl cho món ĐANG THIẾU',
     'trong phần "đang gom". Câu không liên quan đơn (hỏi tồn kho, báo cáo, chào',
-    'hỏi…) → ghi_slot với ngoaiLe=true.',
+    'hỏi…) → ghi_slot với ngoaiLe=true. Câu xin XUẤT/GỬI (lại) HOÁ ĐƠN hay báo',
+    'giá ("xuất hoá đơn", "gửi lại hoá đơn") cũng là ngoaiLe=true — "hoá đơn"',
+    'KHÔNG BAO GIỜ là tên sản phẩm.',
   ].join(' ');
   const nguoiDung = `Đang gom: ${taDangCo(phien)}\nCâu nhân viên: "${cau}"`;
 
