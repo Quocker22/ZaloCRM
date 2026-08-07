@@ -66,7 +66,7 @@ describe('RANH GIỚI — hóa đơn KHÔNG được sang luồng khách', () =>
     });
 
     expect(r.has('gui_hoa_don')).toBe(false);
-    expect(r.definitions()).toHaveLength(15);
+    expect(r.definitions()).toHaveLength(14);
   });
 
   it('có anhClient nhưng THIẾU odooUrl → cũng không đăng ký (link sẽ hỏng)', () => {

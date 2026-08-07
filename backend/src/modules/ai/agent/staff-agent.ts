@@ -380,13 +380,12 @@ export function buildStaffRegistry(deps: {
           await xuatCongNo({ odoo }, input as { khach_id?: number; ten?: string; sdt?: string }),
         ),
     })
-    .register({
-      definition: chuyenSaleDefinition,
-      run: async (input) =>
-        dinhDangChuyenSale(
-          await chuyenSale({ ghiNhan: deps.ghiNhanChuyenSale }, input as { ly_do: string; tom_tat: string }),
-        ),
-    })
+    // BỎ chuyen_sale khỏi registry NHÂN VIÊN (07/08): mô tả tool viết cho luồng
+    // KHÁCH ("chuyển việc cho sale"), nhưng người đang chat CHÍNH LÀ sale —
+    // không có ai để chuyển. Bug thật 06/08: nhân viên hỏi báo cáo, model đọc
+    // "không chắc → chuyển sale" rồi gọi cả bao_cao_ban_hang LẪN chuyen_sale
+    // cùng lượt → gửi tin thừa "đã chuyển bộ phận bán hàng". Đo log: luồng nhân
+    // viên gọi chuyen_sale 0 lần hợp lệ — bỏ hẳn là an toàn.
     // ── BÁO CÁO (spec 06/08/2026) — CHỈ registry nhân viên, khách không thấy ──
     .register({
       definition: donChoXacNhanDefinition,
