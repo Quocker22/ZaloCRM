@@ -70,6 +70,9 @@ import {
 import {
   guiHoaDon, guiHoaDonDefinition, dinhDangGuiHoaDon, type KetQuaGuiHoaDon,
 } from '../odoo/tools/gui-hoa-don.js';
+import {
+  xuatHoaDon, xuatHoaDonDefinition, dinhDangXuatHoaDon,
+} from '../odoo/tools/xuat-hoa-don.js';
 import type { HoaDonAnhClient } from '../odoo/hoa-don-anh.js';
 import {
   suaChietKhau, suaChietKhauDefinition, dinhDangChietKhau,
@@ -473,6 +476,22 @@ export function buildStaffRegistry(deps: {
         dinhDangTriThuc(
           await traTriThuc({ timDoan: deps.timDoanTriThuc! }, input as { cau_hoi: string }),
         ),
+    });
+  }
+
+  // XUẤT HOÁ ĐƠN KẾ TOÁN (account.move, vào sổ) — chỉ cần odooUrl, không cần
+  // render ảnh. CHỈ nhân viên: đây là tool ghi ERP nặng nhất của bot.
+  if (deps.odooUrl) {
+    const odooUrl = deps.odooUrl;
+    r.register({
+      definition: xuatHoaDonDefinition,
+      run: async (input) => {
+        const kq = await xuatHoaDon(
+          { odoo, odooUrl, conversationId: deps.conversationId },
+          input as { don_id?: number; ma_don?: string },
+        );
+        return dinhDangXuatHoaDon(kq);
+      },
     });
   }
 

@@ -234,7 +234,10 @@ describe('xuất hoá đơn không kèm mã — tự lấy đơn mới nhất c�
     expect(await guiHoaDon(deps(odoo), {})).toBeNull();
   });
 
-  it('mô tả tool phải có cụm "xuất hóa đơn" — cụm nhân viên nói nhiều nhất', () => {
-    expect(guiHoaDonDefinition.description).toContain('xuất hóa đơn');
+  it('cụm "xuất hóa đơn" đã dời sang xuat_hoa_don — gui_hoa_don chỉ giữ vai ẢNH', () => {
+    // 07/08: "xuất hoá đơn" = hoá đơn KẾ TOÁN (account.move) → tool xuat_hoa_don.
+    // gui_hoa_don không được nhận cụm đó nữa, tránh model gọi nhầm vai.
+    expect(guiHoaDonDefinition.description).not.toContain('"xuất hóa đơn"');
+    expect(guiHoaDonDefinition.description).toContain('xuat_hoa_don');
   });
 });

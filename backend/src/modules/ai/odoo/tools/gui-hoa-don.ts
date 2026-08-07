@@ -112,13 +112,14 @@ export async function guiHoaDon(
 export const guiHoaDonDefinition: ToolDefinition = {
   name: 'gui_hoa_don',
   description:
-    'Lấy ẢNH hóa đơn/báo giá của một đơn kèm link để nhân viên bấm vào xử lý. ' +
-    'GỌI KHI nhân viên nói: "xuất hóa đơn", "xuất lại hóa đơn", "gửi hóa đơn", ' +
-    '"gửi hình đơn", "cho xem báo giá", "gửi lại hóa đơn đơn S13788". ' +
+    'Lấy ẢNH hóa đơn/báo giá của một đơn kèm link để nhân viên bấm vào xử lý — ' +
+    'KHÔNG ghi gì vào Odoo. GỌI KHI nhân viên nói: "gửi hóa đơn", "gửi hình đơn", ' +
+    '"cho xem báo giá", "gửi lại hóa đơn đơn S13788". ' +
+    'Nhân viên nói "XUẤT hóa đơn" (hoá đơn kế toán) → dùng xuat_hoa_don, KHÔNG phải tool này. ' +
     'SAU KHI TẠO ĐƠN bằng tao_don_nhap thì GỌI LUÔN tool này — nhân viên cần thấy ' +
     'hóa đơn ngay, không phải hỏi thêm. ' +
-    'Truyền don_id (nhanh hơn) hoặc ma_don. Nhân viên nói TRỐNG ("xuất hóa đơn") ' +
-    'không kèm mã → gọi KHÔNG THAM SỐ, tool tự lấy đơn mới nhất của hội thoại.',
+    'Truyền don_id (nhanh hơn) hoặc ma_don. Nhân viên xin gửi ảnh mà KHÔNG kèm mã ' +
+    '→ gọi KHÔNG THAM SỐ, tool tự lấy đơn mới nhất của hội thoại.',
   inputSchema: {
     type: 'object',
     properties: {
