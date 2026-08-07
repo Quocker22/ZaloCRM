@@ -88,6 +88,37 @@ export async function layLichSu(
 }
 
 /**
+ * Có TIN KHÁCH nào MỚI HƠN `messageId` trong hội thoại không?
+ *
+ * Khách Zalo hay gõ 3-4 tin liên tiếp (từng câu ngắn). Bot bắt đầu xử lý tin
+ * #1, gọi LLM mất vài giây, trong lúc đó #2 #3 đến. Nếu cứ trả lời #1 thì lệch
+ * — khách hỏi "cả tháng này và tháng trước" mà bot chỉ thấy "cả" của tin đầu.
+ *
+ * Cách xử (học Chatwoot newer_customer_message_arrived, 07/08): TRƯỚC khi gửi
+ * câu trả lời, kiểm có tin khách mới hơn chưa. Có → BỎ lượt này, để lượt do
+ * tin mới kích trả lời gộp cả chuỗi. Chỉ tính tin KHÁCH (senderType='contact')
+ * — tin của bot/nhân viên không tính.
+ */
+export async function coTinKhachMoiHon(
+  conversationId: string,
+  messageId: string,
+): Promise<boolean> {
+  const dangXuLy = await prisma.message.findUnique({
+    where: { id: messageId }, select: { sentAt: true },
+  });
+  if (!dangXuLy) return false;
+  const moiHon = await prisma.message.count({
+    where: {
+      conversationId,
+      senderType: 'contact',
+      isDeleted: false,
+      sentAt: { gt: dangXuLy.sentAt },
+    },
+  });
+  return moiHon > 0;
+}
+
+/**
  * `seq` cho khoá chống trùng đơn — dẫn xuất từ messageId, KHÔNG phải số đếm.
  *
  * Khoá đơn là `zalo:{conversationId}:{seq}`, nguyên tắc (idempotency.ts): "retry

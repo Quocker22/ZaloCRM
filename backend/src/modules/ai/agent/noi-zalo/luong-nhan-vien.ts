@@ -13,7 +13,7 @@ import { laNhanVienSync } from '../agent-operator-service.js';
 import { taoGhiLog, type PrismaGhiLog } from '../ghi-log-tool.js';
 import { batLuongNhanVien, duCauHinh, chanDonLienKeGiay, odooUrlCongKhai } from './cong-tac.js';
 import { dungGenerate } from './llm.js';
-import { layOdoo, layAnhClient, timTriThuc, layLichSu, seqTuMessageId } from './du-lieu.js';
+import { layOdoo, layAnhClient, timTriThuc, layLichSu, seqTuMessageId, coTinKhachMoiHon } from './du-lieu.js';
 import { timDich, guiTin, guiAnh, guiFile, ghiAnhTam } from './gui-zalo.js';
 import { taoDung, taoMoc, chayCoHanGio } from './dung.js';
 import type { NgữCanhTin } from './types.js';
@@ -159,6 +159,15 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
       return dung('chayLenhNhanVien từ chối dù cổng trên đã cho qua — HAI CỔNG BẤT ĐỒNG', {
         conversationId: ctx.conversationId, noiDung: lenh.noiDung.slice(0, 60),
       });
+    }
+
+    // TIN MỚI ĐẾN GIỮA CHỪNG (07/08): nhân viên cũng gõ nhiều tin liên tiếp
+    // ("báo cáo" rồi "tháng này" rồi "cả đi"). Chưa ghi tool nào → bỏ lượt này,
+    // để lượt do tin mới kích trả lời gộp. Đã ghi (tạo đơn) thì KHÔNG bỏ.
+    const soToolNv = r.trangThai === 'xong' ? r.log.length : (r.log?.length ?? 0);
+    if (soToolNv === 0 && await coTinKhachMoiHon(ctx.conversationId, ctx.messageId)) {
+      moc.xong(t0, { boQua: 'tin mới hơn', conversationId: ctx.conversationId });
+      return true;
     }
 
     if (r.trangThai === 'xong') {

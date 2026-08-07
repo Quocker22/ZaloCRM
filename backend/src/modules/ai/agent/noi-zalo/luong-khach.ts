@@ -16,7 +16,7 @@ import { chiCoEmoji } from './luong-media.js';
 import { taoGhiLog, type PrismaGhiLog } from '../ghi-log-tool.js';
 import { batLuongKhach, batKhachTuChotDon, duCauHinh, tranTienKhach, chanDonLienKeGiay } from './cong-tac.js';
 import { dungGenerate } from './llm.js';
-import { layOdoo, timTriThuc, layLichSu, seqTuMessageId } from './du-lieu.js';
+import { layOdoo, timTriThuc, layLichSu, seqTuMessageId, coTinKhachMoiHon } from './du-lieu.js';
 import { timDich, guiTin, guiAnh, guiHoaDonVaQr } from './gui-zalo.js';
 import { baoNhanVien, CAU_GIU_CHAN } from './bao-nhan-vien.js';
 import { demVaKiemTra, CAU_XIN_PHEP } from './gioi-han.js';
@@ -154,6 +154,18 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
         })),
       },
     ));
+
+    // TIN MỚI ĐẾN GIỮA CHỪNG (07/08, học Chatwoot): khách gõ tiếp trong lúc
+    // bot gọi LLM. Nếu chưa ghi gì vào Odoo → BỎ câu trả lời này, im lặng, để
+    // lượt do tin mới kích trả lời gộp cả chuỗi. Trả TRUE: tin này coi như đã
+    // xử lý (bị gộp), luồng cũ không nhảy vào.
+    //
+    // ĐÃ ghi tool (tạo đơn/khách) thì KHÔNG bỏ — đơn đã vào Odoo, phải trả lời
+    // cho khách biết. seq idempotency đã chống trùng đơn ở tầng dưới.
+    if (soToolDaChay === 0 && await coTinKhachMoiHon(ctx.conversationId, ctx.messageId)) {
+      logger.info({ conversationId: ctx.conversationId }, '[agent/khach] có tin mới hơn — bỏ lượt này, gộp vào lượt sau');
+      return true;
+    }
 
     if (r.trangThai !== 'xong') {
       // Bot bí → giữ chân khách + báo nhân viên kèm ngữ cảnh. Trước đây là im
