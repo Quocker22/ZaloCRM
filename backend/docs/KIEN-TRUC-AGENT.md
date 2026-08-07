@@ -15,6 +15,11 @@ message-handler.ts ─── lưu tin vào DB, rồi rẽ nhánh (fire-and-forge
   ├─ tin BẤT KỲ ──► noi-zalo/luong-nhan-vien.ts ── xuLyTinNhanVien()
   │                   cổng: công tắc → nhận lệnh → thread → LLM
   │                   (UID nhân viên: MỌI tin là lệnh; nick shop: cần @bot)
+  │                   │
+  │                   ├─ MÁY GOM ĐƠN (gom-don/) chạy TRƯỚC agent thường:
+  │                   │    "lên đơn" / phiên đang mở → code quyết quy trình,
+  │                   │    LLM chỉ trích slot. Trả false → agent thường xử.
+  │                   │    (spec 2026-08-07-luong-len-don-slot-design.md)
   │
   └─ tin KHÁCH ──► laLenhNhanVien()? ─ true → thôi (luồng NV đã nhận)
                      │ false
@@ -43,6 +48,23 @@ message-handler.ts ─── lưu tin vào DB, rồi rẽ nhánh (fire-and-forge
 | `staff-agent.ts` | registry 12 tool NV + `chayLenhNhanVien` | gửi Zalo |
 | `customer-agent.ts` | registry 4-6 tool khách + `chayTuVanKhach` + hàng rào chống bịa | gửi Zalo |
 | `ghi-log-tool.ts` | ghi ToolCallLog xuống DB, không bao giờ ném | — |
+
+### Máy gom đơn (`noi-zalo/gom-don/`, spec `2026-08-07-luong-len-don-slot-design.md`)
+
+Vì sao: 4 lần vá prompt trong tối 07/08 mà luồng lên đơn vẫn hỏng kiểu mới
+(hỏi lại SL đã có, lặp y hệt câu hỏi — chat 21:07). Quy trình lên đơn giờ do
+CODE quyết; LLM chỉ trích slot. Mỗi bug thật = thêm kịch bản vào
+`tests/ai/agent/gom-don/replay-07-08.test.ts`, KHÔNG vá prompt.
+
+| File | Trách nhiệm | Không được chứa |
+|---|---|---|
+| `kieu.ts` | PhienGom, DongGom, HanhDong | logic |
+| `buoc-tiep-theo.ts` | bộ não: phiên → hành động kế tiếp (HÀM THUẦN) | I/O |
+| `chon.ts` | map "1a"/mã KH/SĐT/mảnh tên → chốt ứng viên | gọi LLM |
+| `loi-nhan.ts` | template lời gửi NV, tất định | LLM soạn lời |
+| `trich-slot.ts` | LLM trích slot qua 1 tool ép + validate kiểu | quyết quy trình |
+| `phien-store.ts` | phiên ở bảng `phien_gom_don`, TTL 15' | logic đơn |
+| `index.ts` | orchestrator `xuLyGomDon` — nối tất cả, tra song song | prompt dài |
 
 ### Báo cáo qua Zalo (spec `docs/superpowers/specs/2026-08-06-bao-cao-zalo-design.md`)
 
