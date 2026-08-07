@@ -990,6 +990,41 @@ export function attachZaloListener(ctx: ListenerContext): void {
         );
       })();
     }
+
+    // CHÀO NHÓM (2026-08-07): bot vừa ĐƯỢC ADD vào nhóm → chào 1 lần. Trigger khi
+    // type='join' và updateMembers chứa uid của chính bot. Dự phòng: nếu không xác
+    // định được uid bot trong updateMembers nhưng nhóm chưa từng chào, vẫn thử —
+    // cờ groupGreetedAt + blocklist trong chaoNhomKhiThem chặn lặp, nên vô hại.
+    if (eventType === 'join' && event?.groupId) {
+      void (async () => {
+        try {
+          const orgId = await resolveOrgId();
+          if (!orgId) return;
+          const acc = await prisma.zaloAccount.findUnique({
+            where: { id: accountId },
+            select: { zaloUid: true, org: { select: { name: true } } },
+          });
+          const botUid = acc?.zaloUid ?? null;
+          const members = (event?.updateMembers ?? event?.data?.updateMembers ?? []) as Array<{ id?: string }>;
+          const botDuocThem = botUid ? members.some((m) => String(m?.id ?? '') === botUid) : false;
+          // Chỉ chào khi CHẮC bot được thêm, HOẶC không rõ member nhưng có isAdd
+          // (payload lệch). Nếu rõ ràng bot KHÔNG nằm trong updateMembers → bỏ (đây
+          // là người khác vào nhóm, không phải bot).
+          const isAdd = Number(event?.isAdd ?? event?.data?.isAdd ?? 0) === 1;
+          if (!botDuocThem && members.length > 0) return; // người khác join, không phải bot
+          if (!botDuocThem && !isAdd) return; // không đủ tín hiệu → bỏ cho an toàn
+          const tenShop = process.env.AI_SHOP_NAME || acc?.org?.name || 'Shop';
+          const { chaoNhomKhiThem } = await import('../ai/agent/noi-zalo/chao-nhom.js');
+          await chaoNhomKhiThem({
+            orgId, accountId, groupId: String(event.groupId),
+            groupName: event?.groupName ?? event?.data?.groupName ?? null,
+            botUid, api, tenShop,
+          });
+        } catch (err) {
+          logger.warn(`[zalo:${accountId}] chào nhóm lỗi:`, err);
+        }
+      })();
+    }
     // Future: store as system message in the group conversation
   });
 

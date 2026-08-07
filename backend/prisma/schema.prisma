@@ -793,6 +793,12 @@ model Conversation {
   lastMessageAt     DateTime? @map("last_message_at")
   unreadCount       Int       @default(0) @map("unread_count")
   isReplied         Boolean   @default(true) @map("is_replied")
+  // Chào nhóm (2026-08-07): mốc bot đã chào nhóm này. != null → không chào lại
+  // (cờ 1 lần/nhóm vĩnh viễn). Ghi TRƯỚC khi gửi để 2 event join trùng không lọt cả hai.
+  groupGreetedAt    DateTime? @map("group_greeted_at")
+  // Blocklist nhóm: true → bot KHÔNG chào khi được add (và không hoạt động). Cột
+  // này giai đoạn đầu chỉ đọc; UI bật/tắt thêm sau.
+  botGroupBlocked   Boolean   @default(false) @map("bot_group_blocked")
   tab               String    @default("main") @map("tab") // main, other
   // M53 (2026-05-30): Virtual conversation cho KH no-Zalo. isVirtual=true → chat-routes skip
   // Zalo SDK send, lưu thẳng Message isLocal=true. externalThreadId synthetic 'virtual:{contactId}:{nickId}'.
