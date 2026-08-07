@@ -26,6 +26,17 @@ import { docPhien, luuPhien, xoaPhien, type DbPhienGomDon } from './phien-store.
 /** "lên/tạo/đặt + đơn/hàng" ở đầu từ — 'sửa đơn'/'báo cáo đơn' KHÔNG kích máy. */
 const NHAN_LENH_LEN_DON = /(?:^|\s)(?:lên|len|tạo|tao|đặt|dat)\s+(?:đơn|don|hàng|hang)\b/i;
 
+/**
+ * Bỏ khối quote-reply mà message-handler chèn (`[Trả lời tin: "…"] câu thật`).
+ *
+ * Bug thật 23:14 07/08: nhân viên QUOTE danh sách khách rồi gõ "5" — cả danh
+ * sách bị nhét vào câu nên máy không map nổi lựa chọn, nhường agent thường và
+ * mất cổng chốt. Câu CHỌN/LỆNH luôn nằm ở đuôi; phần quote chỉ giữ cho LLM
+ * trích slot (nó cần ngữ cảnh "cái này").
+ */
+const boQuote = (cau: string): string =>
+  cau.replace(/^\[Trả lời tin: "[\s\S]{0,220}?"\]\s*/, '');
+
 export interface GomDonDeps {
   prisma: DbPhienGomDon;
   odoo: Pick<OdooClient, 'searchRead' | 'execute'>;
@@ -170,11 +181,15 @@ export async function xuLyGomDon(
   deps: GomDonDeps,
   input: { orgId: string; conversationId: string; seq: number; cau: string },
 ): Promise<boolean> {
+  // Câu để MAP/nhận lệnh là phần đuôi sau khối quote; câu đầy đủ (kèm quote)
+  // chỉ dành cho LLM trích slot — nó cần ngữ cảnh "cái này".
+  const cauChon = boQuote(input.cau);
+
   let phien = await docPhien(deps.prisma, input.conversationId);
-  if (!phien && !NHAN_LENH_LEN_DON.test(input.cau)) return false;
+  if (!phien && !NHAN_LENH_LEN_DON.test(cauChon)) return false;
 
   // 1. Map lựa chọn bằng CODE trước — "1a"/mã KH/SĐT không tốn lượt LLM nào.
-  const daChon = phien ? apDungChon(phien, input.cau) : false;
+  const daChon = phien ? apDungChon(phien, cauChon) : false;
   let trich: KetQuaTrich = {};
   if (!daChon) trich = await trichSlot(deps.generate, input.cau, phien);
 
@@ -204,7 +219,8 @@ export async function xuLyGomDon(
   }
 
   if (hd.loai === 'tao_don') {
-    const xacNhan = trich.xacNhan || laXacNhanNgan(input.cau);
+    // Kiểm trên câu đã bỏ quote: "[Trả lời tin: …] chốt" phải nhận là xác nhận.
+    const xacNhan = trich.xacNhan || laXacNhanNgan(cauChon);
     if (!xacNhan) {
       // Đủ slot nhưng NV chưa gật (câu là bổ sung thông tin) → nhắc lại tóm tắt.
       await deps.guiTin(renderLoiNhan({ loai: 'tom_tat_cho_chot' }, phien));

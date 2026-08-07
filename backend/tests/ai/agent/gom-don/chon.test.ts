@@ -66,3 +66,31 @@ describe('apDungChon', () => {
     expect(p.khachDaChot?.id).toBe(8);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Bug thật 23:16 07/08: "xuất hóa đơn luôn giúp tôi nhé" — chữ "hoà" khớp
+// địa chỉ "hiệp hoà, Bắc giang" của khách #9 → chốt NHẦM khách → đơn S13814
+// sai người. Câu DÀI không bao giờ là câu chọn.
+describe('câu dài không phải câu chọn — không dò mảnh tên', () => {
+  const tuanBG = {
+    id: 9, ten: 'Anh Tuấn  BG   Tuấn qc cổng trường cấp 3 số 1 thị trấn thắng, hiệp hoà, Bắc giang: Sđt 0906488187',
+    ma: 'KH001409', dienThoai: null, congNo: 0,
+  };
+  const tuan5 = { id: 5, ten: 'Anh Nguyễn - Tuấn', ma: 'KH002262', dienThoai: null, congNo: 0 };
+
+  it('"xuất hóa đơn luôn giúp tôi nhé" → false, KHÔNG chốt khách hiệp hoà (replay S13814)', () => {
+    const p: PhienGom = {
+      khachTuKhoa: 'Tuấn', khachUngVien: [tuan5, tuanBG],
+      dong: [{ tuKhoa: 'cáp 16 sợi nhỏ', sl: 10, daChot: { id: 1051, ten: 'cáp 16 sợi nhỏ (cuộn)', gia: 170000 } }],
+    };
+    expect(apDungChon(p, 'xuất hóa đơn luôn giúp tôi nhé')).toBe(false);
+    expect(p.khachDaChot).toBeUndefined();
+    expect(p.khachUngVien).toHaveLength(2);
+  });
+
+  it('câu chọn NGẮN vẫn chạy: "Nguyễn" chốt đúng khách 5', () => {
+    const p: PhienGom = { khachTuKhoa: 'Tuấn', khachUngVien: [tuan5, tuanBG], dong: [] };
+    expect(apDungChon(p, 'Nguyễn')).toBe(true);
+    expect(p.khachDaChot?.id).toBe(5);
+  });
+});

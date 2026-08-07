@@ -76,9 +76,15 @@ export function apDungChon(p: PhienGom, cauTho: string): boolean {
   }
 
   // ── Mảnh chữ khớp DUY NHẤT một ứng viên (khách hoặc từng dòng SP) ──
+  //
+  // CHỈ với câu NGẮN kiểu câu chọn ("cái 24V", "Trần Hưng"). Câu dài là lệnh/
+  // câu nói thường — dò mảnh trên đó từng chốt NHẦM khách: "xuất hóa đơn LUÔN
+  // giúp tôi nhé" có chữ "hoà" khớp địa chỉ "hiệp hoà, Bắc giang" của đúng một
+  // ứng viên → đơn S13814 sai người (bug thật 23:16 07/08).
   const manh = boDau(cau)
     .split(/\s+/)
     .filter((t) => t.length >= 2);
+  if (manh.length > 4) return map;
   if (p.khachUngVien) {
     const k = khopDuyNhat(p.khachUngVien, manh, (x) => x.ten);
     if (k) {

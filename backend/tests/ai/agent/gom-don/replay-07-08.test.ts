@@ -179,3 +179,39 @@ describe('replay chat 21:07 07/08 — lên đơn anh Hưng 10 cái nguồn NB', 
     expect(m.tinGui).toHaveLength(0);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Bug thật 23:13-23:17 07/08 — quote-reply Zalo nhét cả tin được quote vào câu:
+//   `[Trả lời tin: "Có 10 khách tên "Tuấn":…"] 5`
+// Máy không map nổi "5" trong đống đó → nhường agent thường → đơn tạo KHÔNG
+// qua cổng chốt. Và "xuất hóa đơn luôn giúp tôi nhé" bị dò mảnh chốt nhầm
+// khách hiệp hoà → S13814 sai người (đã huỷ tay 23:25).
+describe('replay 23:13 07/08 — quote-reply và câu xuất hoá đơn', () => {
+  it('quote-reply "1a" vẫn chốt bằng CODE, ra tóm tắt, không tốn lượt LLM', async () => {
+    const m = dungMay();
+    await m.goi('lên đơn cho anh Hưng 10 cái nguồn NB nhé');
+    const llmTruoc = m.soLanGoi();
+    const quote = '[Trả lời tin: "Có 2 khách tên "Hưng":\n1) Hưng Cty A · KH001017 · 0901234567\n2) Trần Hưng"] 1a';
+    expect(await m.goi(quote)).toBe(true);
+    expect(m.soLanGoi()).toBe(llmTruoc);            // map bằng code, không LLM
+    expect(m.tinGui[1]).toContain('10 × Nguồn NB 12V100W');
+    expect(m.tinGui[1]).toContain('1.850.000đ');
+  });
+
+  it('"xuất hóa đơn luôn giúp tôi nhé" giữa phiên → nhường agent thường, KHÔNG chốt bừa khách', async () => {
+    const m = dungMay();
+    await m.goi('lên đơn cho anh Hưng 10 cái nguồn NB nhé');
+    expect(await m.goi('xuất hóa đơn luôn giúp tôi nhé')).toBe(false); // agent thường xử
+    const phien = m.db.rows.get('c1');
+    const slots = phien?.slots as { khachDaChot?: unknown };
+    expect(slots.khachDaChot).toBeUndefined();       // không ai bị chốt oan
+    expect(m.odoo.execute).not.toHaveBeenCalled();
+  });
+
+  it('quote chứa chữ "lên đơn" của tin bot KHÔNG tự mở phiên mới', async () => {
+    const m = dungMay();
+    const cau = '[Trả lời tin: "Đã lên đơn nháp S13813 cho khách…"] xem tồn kho giúp';
+    expect(await m.goi(cau)).toBe(false);
+    expect(m.db.rows.has('c1')).toBe(false);
+  });
+});
