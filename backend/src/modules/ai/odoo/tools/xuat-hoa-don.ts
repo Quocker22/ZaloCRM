@@ -42,6 +42,31 @@ function linkHoaDon(odooUrl: string, hoaDonId: number): string {
 const FIELDS_DON = ['id', 'name', 'state', 'amount_total', 'partner_id', 'invoice_ids'];
 const FIELDS_HD = ['id', 'name', 'state', 'amount_total', 'move_type'];
 
+/**
+ * Gọi action Odoo kiểu void — NUỐT lỗi "cannot marshal None".
+ *
+ * Bug thật 23:33 07/08 (S13815): action_confirm/create_invoices/action_post
+ * phía server CHẠY XONG rồi trả về None (Python), tầng XML-RPC không serialize
+ * được nên ném TypeError — tức lỗi chỉ ở khâu trả về, việc đã làm xong. Ném
+ * tiếp thì flow bỏ dở giữa chừng (đơn confirm rồi, hoá đơn kẹt nháp). Nuốt lỗi
+ * này và để caller XÁC MINH bằng cách đọc lại trạng thái — không tin return.
+ * Lỗi khác (Access Denied, nothing to invoice…) vẫn ném nguyên vẹn.
+ */
+async function goiActionOdoo(
+  odoo: XuatHoaDonDeps['odoo'],
+  model: string,
+  method: string,
+  args: unknown[],
+  kwargs?: Record<string, unknown>,
+): Promise<void> {
+  try {
+    await odoo.execute(model, method, args, kwargs);
+  } catch (err) {
+    const loi = err instanceof Error ? err.message : String(err);
+    if (!loi.includes('cannot marshal None')) throw err;
+  }
+}
+
 /** Tìm đơn theo id → mã → đơn mới nhất của hội thoại (cùng nếp gui_hoa_don). */
 async function timDon(
   deps: XuatHoaDonDeps,
@@ -115,7 +140,7 @@ export async function xuatHoaDon(
     // ── Chưa có hoá đơn: xác nhận đơn (nếu còn nháp) rồi tạo qua wizard ────
     if (!hoaDon) {
       if (String(don.state) === 'draft') {
-        await deps.odoo.execute('sale.order', 'action_confirm', [[donId]]);
+        await goiActionOdoo(deps.odoo, 'sale.order', 'action_confirm', [[donId]]);
       }
       // Wizard chuẩn của Odoo — method create_invoices là public, gọi được qua
       // XML-RPC (khác _create_invoices bị chặn vì tên bắt đầu bằng "_").
@@ -124,7 +149,7 @@ export async function xuatHoaDon(
         'sale.advance.payment.inv', 'create',
         [{ advance_payment_method: 'delivered' }], ctx,
       );
-      await deps.odoo.execute('sale.advance.payment.inv', 'create_invoices', [[wizardId]], ctx);
+      await goiActionOdoo(deps.odoo, 'sale.advance.payment.inv', 'create_invoices', [[wizardId]], ctx);
 
       const donSau = await deps.odoo.searchRead<Record<string, unknown>>(
         'sale.order', [['id', '=', donId]], FIELDS_DON, { limit: 1 },
@@ -145,12 +170,20 @@ export async function xuatHoaDon(
     // ── VÀO SỔ (POST) — hoá đơn lấy số phát hành chính thức ────────────────
     const hoaDonId = Number(hoaDon.id);
     if (String(hoaDon.state) !== 'posted') {
-      await deps.odoo.execute('account.move', 'action_post', [[hoaDonId]]);
+      await goiActionOdoo(deps.odoo, 'account.move', 'action_post', [[hoaDonId]]);
     }
+    // XÁC MINH bằng đọc lại — vì goiActionOdoo nuốt marshal-None nên trạng
+    // thái thật chỉ biết được từ đây, không phải từ giá trị action trả về.
     const sauPost = await deps.odoo.searchRead<Record<string, unknown>>(
       'account.move', [['id', '=', hoaDonId]], FIELDS_HD, { limit: 1 },
     );
     const cuoi = sauPost[0] ?? hoaDon;
+    if (String(cuoi.state) !== 'posted') {
+      return {
+        trangThai: 'loi',
+        lyDo: `Hoá đơn của đơn ${maDon} đã tạo (id=${hoaDonId}) nhưng vào sổ không thành — đọc lại state='${cuoi.state}'. Thử lại "xuất hoá đơn" hoặc vào Odoo bấm Vào sổ.`,
+      };
+    }
 
     return {
       trangThai: 'da_xuat',

@@ -192,3 +192,34 @@ describe('ranh giới + mô tả tool', () => {
     expect(s.toLowerCase()).toContain('chính thức');
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Bug thật 23:33 07/08 (S13815): Odoo chạy XONG action nhưng trả None →
+// XML-RPC ném 'cannot marshal None' — đơn đã confirm, hoá đơn đã tạo mà bot
+// báo lỗi và bỏ dở (hoá đơn kẹt ở nháp). Action kiểu void phải NUỐT lỗi này
+// rồi XÁC MINH bằng đọc lại, không tin giá trị trả về.
+describe('lỗi "cannot marshal None" — action đã chạy xong phía server', () => {
+  it('mọi action ném marshal-None vẫn đi hết flow, hoá đơn vẫn VÀO SỔ', async () => {
+    const odoo = fakeOdoo();
+    const goc = odoo.execute.getMockImplementation()!;
+    odoo.execute.mockImplementation(async (model: string, method: string, args: unknown[] = [], kwargs: Record<string, unknown> = {}) => {
+      const kq = await goc(model, method, args, kwargs);
+      // Giả lập Odoo thật: action_* làm xong việc rồi mới ném marshal None.
+      if (method === 'action_confirm' || method === 'create_invoices' || method === 'action_post') {
+        throw new Error('TypeError: cannot marshal None unless allow_none is enabled');
+      }
+      return kq;
+    });
+    const kq = await xuatHoaDon(deps(odoo), { ma_don: 'S13811' });
+    expect(kq.trangThai).toBe('da_xuat');
+    if (kq.trangThai !== 'da_xuat') return;
+    expect(kq.soHoaDon).toBe('INV/2026/00042');
+  });
+
+  it('lỗi Odoo THẬT (không phải marshal None) vẫn báo lỗi như cũ', async () => {
+    const odoo = fakeOdoo({ ...DON_NHAP, state: 'sale' });
+    odoo.execute.mockImplementationOnce(async () => { throw new Error('Access Denied'); });
+    const kq = await xuatHoaDon(deps(odoo), { don_id: 26728 });
+    expect(kq.trangThai).toBe('loi');
+  });
+});
