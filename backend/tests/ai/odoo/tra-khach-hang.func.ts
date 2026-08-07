@@ -117,6 +117,36 @@ describe('traKhachHang — TRA THEO TÊN', () => {
     expect(kq.trangThai).toBe('khong_thay');
     expect(odoo.searchRead).not.toHaveBeenCalled();
   });
+});
+
+describe('traKhachHang — TRA THEO MÃ KH (ref) — bug S13803 07/08', () => {
+  // Bug thật: bot in danh sách "[KH001017]", NV gõ lại "KH001017", tool không
+  // tra theo ref nên bot lặp danh sách. Giờ nhận mã KH → tra bằng ref (unique).
+
+  it('tham số `ma` → tra theo ref, tìm được đúng 1', async () => {
+    const odoo = fakeOdoo([kh({ ref: 'KH001017' })]);
+    const kq = await traKhachHang({ odoo }, { ma: 'KH001017' });
+    expect(kq.trangThai).toBe('tim_thay');
+    expect(JSON.stringify(odoo.searchRead.mock.calls[0][1])).toContain('ref');
+  });
+
+  it('NV gõ mã KH vào ô sdt/ten → tự nhận, chuyển sang tra ref', async () => {
+    const odoo = fakeOdoo([kh({ ref: 'KH001017' })]);
+    await traKhachHang({ odoo }, { sdt: 'KH001017' });
+    expect(JSON.stringify(odoo.searchRead.mock.calls[0][1])).toContain('ref');
+
+    const odoo2 = fakeOdoo([kh({ ref: 'KH002359AC' })]);
+    await traKhachHang({ odoo: odoo2 }, { ten: 'KH002359AC' });
+    expect(JSON.stringify(odoo2.searchRead.mock.calls[0][1])).toContain('ref');
+  });
+
+  it('số điện thoại KHÔNG bị nhầm là mã KH', async () => {
+    const odoo = fakeOdoo([]);
+    await traKhachHang({ odoo }, { sdt: '0912345678' });
+    const d = JSON.stringify(odoo.searchRead.mock.calls[0][1]);
+    expect(d).toContain('phone');
+    expect(d).not.toContain('"ref"');
+  });
 
   it('vẫn chỉ tìm KHÁCH (customer_rank > 0) khi tra theo tên', async () => {
     const odoo = fakeOdoo([]);

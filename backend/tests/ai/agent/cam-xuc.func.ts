@@ -4,7 +4,7 @@
 // Bug gốc 06/08: "mẹ mày. Cả đi" → bot lấy "Cả" tra thành tên SP. Giờ: tin
 // bực/chửi → báo nhân viên, bot ngừng (người xoa dịu tốt hơn bot máy móc).
 import { describe, it, expect } from 'vitest';
-import { laBucTuc } from '../../../src/modules/ai/agent/noi-zalo/cam-xuc.js';
+import { laBucTuc, laXacNhanNgan } from '../../../src/modules/ai/agent/noi-zalo/cam-xuc.js';
 
 describe('laBucTuc — bắt chửi/bực RÕ RÀNG', () => {
   it('CÂU GỐC gây bug phải bị bắt', () => {
@@ -30,4 +30,19 @@ describe('laBucTuc — bắt chửi/bực RÕ RÀNG', () => {
     'còn hàng không shop',
     '',
   ])('KHÔNG bắt nhầm câu bình thường: "%s"', (c) => expect(laBucTuc(c)).toBe(false));
+});
+
+describe('laXacNhanNgan — nhận lời xác nhận (chống bug lặp S13804)', () => {
+  it.each([
+    'đúng rồi', 'đúng', 'ok', 'oke', 'ừ', 'chốt', 'chốt đơn', 'làm đi',
+    'cập nhật đi', 'tạo đơn đi', 'đồng ý', 'chuẩn rồi', 'vâng',
+    '@Led Nelia đúng rồi',   // có tag vẫn nhận (tag bị strip trước khi tới đây, nhưng test cả dạng thô)
+  ])('nhận xác nhận: "%s"', (c) => expect(laXacNhanNgan(c)).toBe(true));
+
+  it.each([
+    'lên đơn cho anh Tuấn 10 cái nguồn NB',   // câu lệnh dài, không phải xác nhận thuần
+    'cho em hỏi giá đèn led',
+    'sửa lại thành 100 cái với thêm cáp 16 sợi nhỏ giúp tôi',
+    '',
+  ])('KHÔNG nhầm câu dài/không xác nhận: "%s"', (c) => expect(laXacNhanNgan(c)).toBe(false));
 });

@@ -16,6 +16,7 @@ import { dungGenerate } from './llm.js';
 import { layOdoo, layAnhClient, timTriThuc, layLichSu, seqTuMessageId, coTinKhachMoiHon } from './du-lieu.js';
 import { timDich, guiTin, guiAnh, guiFile, ghiAnhTam } from './gui-zalo.js';
 import { taoDung, taoMoc, chayCoHanGio } from './dung.js';
+import { laXacNhanNgan } from './cam-xuc.js';
 import type { NgữCanhTin } from './types.js';
 
 // Prisma sinh kiểu `create` chặt hơn `PrismaGhiLog` (vốn chỉ cần hàm nhận
@@ -164,8 +165,15 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
     // TIN MỚI ĐẾN GIỮA CHỪNG (07/08): nhân viên cũng gõ nhiều tin liên tiếp
     // ("báo cáo" rồi "tháng này" rồi "cả đi"). Chưa ghi tool nào → bỏ lượt này,
     // để lượt do tin mới kích trả lời gộp. Đã ghi (tạo đơn) thì KHÔNG bỏ.
+    //
+    // NGOẠI LỆ (bug S13804 07/08): nếu tin này là lời XÁC NHẬN ("đúng rồi", "ok",
+    // "cập nhật đi") thì TUYỆT ĐỐI KHÔNG bỏ — dù có tin xác nhận mới hơn. Trước
+    // đây nhân viên gõ "đúng rồi" nhiều lần, mỗi lượt thấy tin mới hơn → bỏ hết,
+    // không lượt nào tạo/sửa đơn, bot hỏi lại vô tận. Xác nhận là tín hiệu quyết
+    // định, phải xử ngay cho ra tool ghi.
     const soToolNv = r.trangThai === 'xong' ? r.log.length : (r.log?.length ?? 0);
-    if (soToolNv === 0 && await coTinKhachMoiHon(ctx.conversationId, ctx.messageId)) {
+    const laXacNhan = laXacNhanNgan(lenh.noiDung);
+    if (soToolNv === 0 && !laXacNhan && await coTinKhachMoiHon(ctx.conversationId, ctx.messageId)) {
       moc.xong(t0, { boQua: 'tin mới hơn', conversationId: ctx.conversationId });
       return true;
     }

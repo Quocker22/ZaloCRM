@@ -109,9 +109,9 @@ describe('buildStaffSystemPrompt', () => {
 
   it('thiếu thông tin → hỏi lại, không đoán', () => {
     // Diễn đạt đổi 2026-08-01 (gộp 4 chỗ nói cùng ý thành 1). Assert Ý ĐỊNH:
-    // thiếu thông tin thì HỎI, và nói rõ đừng chuyển sale vội.
+    // thiếu thông tin/mơ hồ thì HỎI LẠI một câu, không đoán.
     expect(buildStaffSystemPrompt('X')).toContain('HỎI LẠI');
-    expect(buildStaffSystemPrompt('X')).toContain('Chỉ chuyển sale khi HỎI RỒI');
+    expect(buildStaffSystemPrompt('X')).toContain('mơ hồ');
   });
 
   it('khách MỚI → tạo rồi lên đơn, KHÔNG chuyển sale', () => {
@@ -207,7 +207,9 @@ describe('buildStaffSystemPrompt', () => {
     // đã nén phần thêm từ ~320 xuống ~180 ký tự trước khi nới.
     // 2.650 → 2.700 (07/08): rule "tin thô/chửi không tra thành tên SP" (Vá 2,
     // học Chatwoot). Đã nén 2 dòng thành 1 trước khi nới. Ký tự tĩnh rẻ 4x nhờ cache.
-    expect(buildStaffSystemPrompt(BIZ_THAT).length).toBeLessThan(2700);
+    // 2.700 → 2.760 (07/08 tối): 2 rule chống bug S13803/S13804 — "đáp đúng/ok →
+    // ghi NGAY không hỏi lại" và "gõ mã KH → tra bằng `ma`". Đã nén tối đa.
+    expect(buildStaffSystemPrompt(BIZ_THAT).length).toBeLessThan(2760);
   });
 });
 

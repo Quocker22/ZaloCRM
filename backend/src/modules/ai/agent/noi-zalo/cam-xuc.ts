@@ -39,3 +39,27 @@ export function laBucTuc(noiDung: string): boolean {
   const t = ` ${boDau(String(noiDung ?? '')).replace(/[^a-z0-9\s]/g, ' ')} `;
   return CUM_BUC.some((c) => t.includes(` ${c} `));
 }
+
+/**
+ * Tin này có phải lời XÁC NHẬN cho việc bot vừa hỏi không? ("đúng", "đúng rồi",
+ * "ok", "ừ", "chốt", "làm đi", "cập nhật đi"…).
+ *
+ * Bug thật 07/08 (S13804): nhân viên đáp "đúng rồi" nhiều lần, mỗi lượt bị guard
+ * `coTinKhachMoiHon` coi là "có tin mới hơn → bỏ" nên KHÔNG lượt nào chạy trọn,
+ * bot cứ hỏi lại vô tận, đơn không được sửa. Tin xác nhận là tín hiệu QUYẾT
+ * ĐỊNH — phải xử ngay, KHÔNG được gộp/bỏ như tin tán gẫu.
+ *
+ * Chỉ bắt câu NGẮN, gọn (≤6 từ) để không nhầm câu dài có chứa "ok" ở giữa.
+ */
+const CUM_XAC_NHAN = [
+  'dung', 'dung roi', 'dung vay', 'chuan', 'chuan roi', 'ok', 'oke', 'okey',
+  'u', 'um', 'uh', 'da', 'vang', 'chot', 'chot don', 'lam di', 'tao di',
+  'tao don di', 'cap nhat di', 'sua di', 'gui di', 'dong y', 'phai', 'yes', 'y',
+];
+export function laXacNhanNgan(noiDung: string): boolean {
+  const raw = boDau(String(noiDung ?? '')).replace(/[^a-z0-9\s]/g, ' ').trim();
+  if (!raw) return false;
+  if (raw.split(/\s+/).length > 6) return false; // câu dài không coi là xác nhận thuần
+  const t = ` ${raw} `;
+  return CUM_XAC_NHAN.some((c) => t.includes(` ${c} `));
+}

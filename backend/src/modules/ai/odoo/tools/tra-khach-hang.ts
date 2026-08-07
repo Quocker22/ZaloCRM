@@ -58,20 +58,34 @@ export function bienTheSdt(raw: string): string[] {
  *  - khong_thay    → model phải chuyển sale, KHÔNG được tự tạo
  *  - nhieu_ket_qua → dữ liệu trùng, người phải chọn
  */
+/** Chuỗi trông như MÃ KH (ref): chữ cái + số, vd KH001017, KH002359AC. */
+export function laMaKh(s: string): boolean {
+  return /^[A-Za-z]{1,4}\d{3,}[A-Za-z]*$/.test(s.trim());
+}
+
 export async function traKhachHang(
   deps: TraKhachHangDeps,
-  input: { sdt?: string; ten?: string },
+  input: { sdt?: string; ten?: string; ma?: string },
 ): Promise<KetQuaTimKhach> {
   const sdt = (input.sdt ?? '').trim();
   const ten = (input.ten ?? '').trim();
+  let ma = (input.ma ?? '').trim();
+
+  // Nhân viên hay gõ mã KH vào ô tên/sdt (vd "KH001017"). Tự nhận và chuyển sang
+  // tra theo ref — ref là KHOÁ UNIQUE THẬT nên khớp là ra đúng 1 người, hết lặp.
+  if (!ma && sdt && laMaKh(sdt) && !normalizeVnPhone(sdt).valid) ma = sdt;
+  if (!ma && ten && laMaKh(ten)) ma = ten;
 
   // Không có gì để tra.
-  if (!sdt && !ten) return { trangThai: 'khong_thay', sdtDaTra: [] };
+  if (!sdt && !ten && !ma) return { trangThai: 'khong_thay', sdtDaTra: [] };
 
   let dieuKien: unknown[];
   let bienThe: string[] = [];
 
-  if (sdt) {
+  if (ma) {
+    // TRA THEO MÃ KH (ref) — khoá unique, ưu tiên cao nhất. =ilike để không phân biệt hoa/thường.
+    dieuKien = [['ref', '=ilike', ma]];
+  } else if (sdt) {
     bienThe = bienTheSdt(sdt);
     if (bienThe.length === 0) return { trangThai: 'khong_thay', sdtDaTra: [] };
     // phone in [...] OR mobile in [...]
@@ -112,18 +126,20 @@ export async function traKhachHang(
 export const traKhachHangDefinition: ToolDefinition = {
   name: 'tra_khach_hang',
   description:
-    'Tìm khách hàng trong hệ thống theo SỐ ĐIỆN THOẠI hoặc TÊN. Trả về id, tên, mã KH và công nợ. ' +
+    'Tìm khách hàng trong hệ thống theo MÃ KH, SỐ ĐIỆN THOẠI hoặc TÊN. Trả về id, tên, mã KH và công nợ. ' +
     'GỌI KHI: cần lên đơn cho khách, hoặc cần biết khách đã có trong hệ thống chưa. ' +
-    'Có SĐT thì ưu tiên dùng sdt (chính xác hơn); chỉ biết tên thì dùng ten. ' +
+    'ƯU TIÊN: có MÃ KH (dạng KH001017, hiện trong [ngoặc] ở danh sách) thì dùng `ma` — ra đúng 1 người. ' +
+    'Có SĐT thì dùng sdt; chỉ biết tên thì dùng ten. ' +
     'LƯU Ý: tool này CHỈ TRA, không tạo khách mới. Nếu không tìm thấy, phải chuyển sale ' +
     'để người tạo khách — tuyệt đối không tự bịa id khách.',
   inputSchema: {
     type: 'object',
     properties: {
+      ma: { type: 'string', description: 'Mã KH (ref), vd "KH001017". Khoá chính xác nhất — có thì ưu tiên dùng.' },
       sdt: { type: 'string', description: 'Số điện thoại khách, dạng nào cũng được (0912…, +84912…)' },
       ten: { type: 'string', description: 'Tên khách, gõ gần đúng cũng được. Vd "hoàng sơn", "chị Lan"' },
     },
-    // Không required: phải có ÍT NHẤT MỘT trong hai, kiểm ở code.
+    // Không required: phải có ÍT NHẤT MỘT trong ba, kiểm ở code.
   },
 };
 
@@ -149,8 +165,9 @@ export function dinhDangKhachHang(kq: KetQuaTimKhach): string {
       .join('\n');
     return (
       `Tìm thấy ${kq.danhSach.length} khách khớp:\n${ds}\n` +
-      'KHÔNG tự chọn. Nếu nhân viên có SĐT chính xác, tra lại bằng `sdt` để ra đúng một người. ' +
-      'Không có SĐT → liệt kê danh sách này cho nhân viên chọn, hoặc dùng chuyen_sale.'
+      'KHÔNG tự chọn, KHÔNG tự nhặt id từ danh sách này. Khi nhân viên chọn, họ thường gõ MÃ KH ' +
+      '(vd KH001017) hoặc SĐT — hãy TRA LẠI bằng `ma` (mã KH) hoặc `sdt` để ra đúng một người rồi mới dùng id đó. ' +
+      'Không có mã/SĐT → liệt kê danh sách này cho nhân viên chọn, hoặc dùng chuyen_sale.'
     );
   }
   const k = kq.khach;
