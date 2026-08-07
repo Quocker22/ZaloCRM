@@ -2,13 +2,34 @@
 // Đọc/ghi phiên gom đơn (bảng phien_gom_don). TTL 15 phút: NV bỏ ngang thì
 // phiên tự chết, không dính vĩnh viễn vào hội thoại làm mọi tin sau lạc vào máy.
 //
-// Nhận prisma dạng hẹp (chỉ delegate phienGomDon) để test mock bằng object thường.
-import type { PrismaClient } from '@prisma/client';
+// Nhận prisma dạng CẤU TRÚC tối thiểu (như PrismaGhiLog) thay vì
+// Pick<PrismaClient,…>: client thật của app là bản $extends nên kiểu generic
+// của Prisma không gán được, còn test thì mock bằng object thường.
 import type { PhienGom } from './kieu.js';
 
 export const HAN_PHIEN_PHUT = 15;
 
-type Db = Pick<PrismaClient, 'phienGomDon'>;
+/** Dòng phien_gom_don tối thiểu mà store cần đọc. */
+interface HangPhien {
+  orgId: string;
+  conversationId: string;
+  slots: unknown;
+  hetHan: Date;
+}
+
+export interface DbPhienGomDon {
+  phienGomDon: {
+    findUnique(a: { where: { conversationId: string } }): Promise<HangPhien | null>;
+    upsert(a: {
+      where: { conversationId: string };
+      create: HangPhien;
+      update: { slots: unknown; hetHan: Date };
+    }): Promise<unknown>;
+    deleteMany(a: { where: { conversationId: string } }): Promise<unknown>;
+  };
+}
+
+type Db = DbPhienGomDon;
 
 /** Phiên còn hạn của hội thoại — quá hạn thì dọn luôn và trả null. */
 export async function docPhien(db: Db, conversationId: string): Promise<PhienGom | null> {
@@ -26,7 +47,8 @@ export async function luuPhien(
   input: { orgId: string; conversationId: string; phien: PhienGom },
 ): Promise<void> {
   const hetHan = new Date(Date.now() + HAN_PHIEN_PHUT * 60_000);
-  const slots = input.phien as unknown as never; // PhienGom → Json: chỉ code gom-don đọc lại
+  // PhienGom → Json: serialize qua JSON để chắc chắn thuần dữ liệu.
+  const slots = JSON.parse(JSON.stringify(input.phien)) as unknown;
   await db.phienGomDon.upsert({
     where: { conversationId: input.conversationId },
     create: { orgId: input.orgId, conversationId: input.conversationId, slots, hetHan },

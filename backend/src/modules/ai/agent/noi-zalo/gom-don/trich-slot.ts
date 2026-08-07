@@ -6,7 +6,7 @@
 // thường, KHÔNG đoán bừa. Mọi field validate kiểu ở code — model flash rẻ mấy
 // cũng không phá được cấu trúc phiên.
 import { logger } from '../../../../../shared/utils/logger.js';
-import type { ToolAwareGenerate, ToolDefinition } from '../types.js';
+import type { ToolAwareGenerate, ToolDefinition } from '../../types.js';
 import type { PhienGom } from './kieu.js';
 
 export interface KetQuaTrich {

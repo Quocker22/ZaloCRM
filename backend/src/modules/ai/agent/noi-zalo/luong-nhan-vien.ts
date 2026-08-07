@@ -15,6 +15,8 @@ import { batLuongNhanVien, duCauHinh, chanDonLienKeGiay, odooUrlCongKhai } from 
 import { dungGenerate } from './llm.js';
 import { layOdoo, layAnhClient, timTriThuc, layLichSu, seqTuMessageId, coTinKhachMoiHon } from './du-lieu.js';
 import { timDich, guiTin, guiAnh, guiFile, ghiAnhTam } from './gui-zalo.js';
+import { xuLyGomDon } from './gom-don/index.js';
+import type { DbPhienGomDon } from './gom-don/phien-store.js';
 import { taoDung, taoMoc, chayCoHanGio } from './dung.js';
 import { laXacNhanNgan } from './cam-xuc.js';
 import type { NgữCanhTin } from './types.js';
@@ -22,6 +24,9 @@ import type { NgữCanhTin } from './types.js';
 // Prisma sinh kiểu `create` chặt hơn `PrismaGhiLog` (vốn chỉ cần hàm nhận
 // `{data}`). Ép ở đúng một chỗ thay vì nới lỏng kiểu trong ghi-log-tool.
 const prismaLog = prisma as unknown as PrismaGhiLog;
+// Cùng lý do: client $extends của app không khớp generic Exact<> của Prisma —
+// store gom-don chỉ cần 3 hàm CRUD trên phien_gom_don.
+const prismaPhien = prisma as unknown as DbPhienGomDon;
 
 const dung = taoDung('nv');
 const moc = taoMoc('nv');
@@ -94,6 +99,30 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
   });
 
   try {
+    // MÁY GOM ĐƠN (spec 07/08) — đứng TRƯỚC agent thường: lệnh "lên đơn" và
+    // phiên đang mở là việc của máy trạng thái (code quyết hỏi gì, LLM chỉ
+    // trích slot). Máy trả false = tin là việc khác → agent thường xử như cũ.
+    // Lỗi trong máy rơi xuống catch dưới — nhân viên luôn được báo, không im.
+    const gomDonNhan = await chayCoHanGio('nv', xuLyGomDon(
+      {
+        prisma: prismaPhien, odoo: layOdoo(), generate, anhClient: layAnhClient() ?? null,
+        // Prod luôn có URL công khai; thiếu (dev) thì link thành tương đối —
+        // xấu nhưng không chặn luồng tạo đơn.
+        odooUrl: odooUrlCongKhai() ?? '',
+        guiTin: (t) => guiTin(dich, t, false),
+        guiAnhHoaDon: async (anh) => guiAnh(dich, await ghiAnhTam(anh.duLieu, anh.tenFile), false),
+        ghiLog: ghiDb,
+      },
+      {
+        orgId: ctx.orgId, conversationId: ctx.conversationId,
+        seq: seqTuMessageId(ctx.messageId), cau: lenh.noiDung,
+      },
+    ));
+    if (gomDonNhan) {
+      moc.xong(t0, { nhanh: 'gom-don', conversationId: ctx.conversationId });
+      return true;
+    }
+
     const lichSu = await layLichSu(ctx.conversationId, ctx.messageId);
     // Log từng chặng: treo ở đâu thì dòng cuối cùng chỉ thẳng ra chỗ đó.
     logger.info({ soTin: lichSu.length }, '[agent/nv] đã lấy lịch sử');

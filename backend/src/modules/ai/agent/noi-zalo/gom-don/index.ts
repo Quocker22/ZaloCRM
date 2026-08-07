@@ -6,7 +6,6 @@
 // Spec: docs/superpowers/specs/2026-08-07-luong-len-don-slot-design.md
 // Vì sao: 4 lần vá prompt trong tối 07/08 mà luồng vẫn hỏng kiểu mới —
 // từ nay quy trình là code, bug mới = thêm kịch bản replay + sửa đúng một ngăn.
-import type { PrismaClient } from '@prisma/client';
 import { logger } from '../../../../../shared/utils/logger.js';
 import type { ToolAwareGenerate } from '../../types.js';
 import type { ToolCallLog } from '../../staff-agent.js';
@@ -22,13 +21,13 @@ import { buocTiepTheo } from './buoc-tiep-theo.js';
 import { apDungChon } from './chon.js';
 import { renderLoiNhan } from './loi-nhan.js';
 import { trichSlot, type KetQuaTrich } from './trich-slot.js';
-import { docPhien, luuPhien, xoaPhien } from './phien-store.js';
+import { docPhien, luuPhien, xoaPhien, type DbPhienGomDon } from './phien-store.js';
 
 /** "lên/tạo/đặt + đơn/hàng" ở đầu từ — 'sửa đơn'/'báo cáo đơn' KHÔNG kích máy. */
 const NHAN_LENH_LEN_DON = /(?:^|\s)(?:lên|len|tạo|tao|đặt|dat)\s+(?:đơn|don|hàng|hang)\b/i;
 
 export interface GomDonDeps {
-  prisma: Pick<PrismaClient, 'phienGomDon'>;
+  prisma: DbPhienGomDon;
   odoo: Pick<OdooClient, 'searchRead' | 'execute'>;
   generate: ToolAwareGenerate;
   /** null = môi trường không render được ảnh — vẫn gửi text + link. */
