@@ -209,7 +209,9 @@ describe('buildStaffSystemPrompt', () => {
     // học Chatwoot). Đã nén 2 dòng thành 1 trước khi nới. Ký tự tĩnh rẻ 4x nhờ cache.
     // 2.700 → 2.760 (07/08 tối): 2 rule chống bug S13803/S13804 — "đáp đúng/ok →
     // ghi NGAY không hỏi lại" và "gõ mã KH → tra bằng `ma`". Đã nén tối đa.
-    expect(buildStaffSystemPrompt(BIZ_THAT).length).toBeLessThan(2760);
+    // 2.760 → 2.820 (07/08 tối): thêm tool sua_don (đổi SL/thêm hàng vào đơn cũ
+    // thay vì tạo đơn mới) — 1 dòng chỉ dẫn dùng tool.
+    expect(buildStaffSystemPrompt(BIZ_THAT).length).toBeLessThan(2820);
   });
 });
 

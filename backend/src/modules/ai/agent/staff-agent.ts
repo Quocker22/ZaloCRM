@@ -75,6 +75,9 @@ import {
   suaChietKhau, suaChietKhauDefinition, dinhDangChietKhau,
 } from '../odoo/tools/sua-chiet-khau.js';
 import {
+  suaDon, suaDonDefinition, dinhDangSuaDon,
+} from '../odoo/tools/sua-don.js';
+import {
   xuatCongNo, xuatCongNoDefinition, dinhDangCongNo,
 } from '../odoo/tools/xuat-cong-no.js';
 import {
@@ -392,6 +395,31 @@ export function buildStaffRegistry(deps: {
         dinhDangChietKhau(
           await suaChietKhau({ odoo }, input as { don_id?: number; ma_don?: string; phan_tram: number }),
         ),
+    })
+    // SỬA ĐƠN (07/08): đổi SL / thêm dòng vào đơn nháp cũ. Sau khi sửa xong, tự
+    // gửi lại ảnh hoá đơn (giống auto-invoice sau tạo) để nhân viên thấy đơn mới.
+    .register({
+      definition: suaDonDefinition,
+      run: async (input) => {
+        const kq = await suaDon({ odoo }, input as Parameters<typeof suaDon>[1]);
+        if (kq.ok && deps.anhClient && deps.odooUrl) {
+          try {
+            const hd = await guiHoaDon(
+              { odoo, anhClient: deps.anhClient, odooUrl: deps.odooUrl },
+              { don_id: kq.donId },
+            );
+            if (hd) deps.nhanHoaDon?.(hd);
+            if (hd && !hd.anh) {
+              logger.warn({ donId: kq.donId, loiAnh: hd.loiAnh },
+                '[staff-agent] sửa đơn: render ảnh THẤT BẠI — đơn đã sửa, ảnh chưa gửi');
+            }
+          } catch (err) {
+            logger.warn({ err: (err as Error)?.message, donId: kq.donId },
+              '[staff-agent] sửa đơn: gửi ảnh lỗi — đơn đã sửa, ảnh chưa gửi');
+          }
+        }
+        return dinhDangSuaDon(kq);
+      },
     })
     .register({
       definition: xuatCongNoDefinition,

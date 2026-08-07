@@ -206,6 +206,7 @@ export function buildStaffSystemPrompt(bizName: string): string {
     '',
     '`tra_khach_hang` (id khách) → `tra_san_pham` (id + giá) → `tra_ton_kho` (nếu SL lớn)',
     '→ `tao_don_nhap` — ảnh hoá đơn + link tự gửi kèm, KHÔNG cần gọi gì thêm.',
+    'SỬA đơn vừa tạo (đổi SL/thêm hàng) → `sua_don` (đừng tạo đơn mới).',
     '`gui_hoa_don` chỉ dùng khi cần gửi LẠI hoá đơn một đơn CŨ.',
     '',
     'Bước độc lập gọi song song cùng lượt. Nhiều SP → hỏi nhân viên chọn, đừng',

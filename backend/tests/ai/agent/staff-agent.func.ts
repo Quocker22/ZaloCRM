@@ -51,7 +51,7 @@ const input = (over: Record<string, unknown> = {}) => ({
 });
 
 describe('buildStaffRegistry', () => {
-  it('đăng ký đủ 14 tool (bỏ chuyen_sale khỏi NV 07/08)', () => {
+  it('đăng ký đủ 15 tool (thêm sua_don 07/08; bỏ chuyen_sale khỏi NV)', () => {
     const r = buildStaffRegistry({
       odoo: fakeOdoo(),
       conversationId: 'c',
@@ -66,6 +66,7 @@ describe('buildStaffRegistry', () => {
       'canh_bao_ton_kho',
       'don_cho_xac_nhan',
       'sua_chiet_khau',
+      'sua_don',
       'tao_don_nhap',
       'tao_khach_hang',
       'top_san_pham',
@@ -77,7 +78,7 @@ describe('buildStaffRegistry', () => {
     ]);
   });
 
-  it('ba tool GHI: sua_chiet_khau, tao_don_nhap, tao_khach_hang (bo chuyen_sale)', () => {
+  it('bốn tool GHI: sua_chiet_khau, sua_don, tao_don_nhap, tao_khach_hang', () => {
     const r = buildStaffRegistry({
       odoo: fakeOdoo(),
       conversationId: 'c',
@@ -86,9 +87,9 @@ describe('buildStaffRegistry', () => {
     });
 
     const ghi = r.definitions().filter((d) => d.mutates).map((d) => d.name);
-    // sua_chiet_khau thêm 2026-08-01 (sửa đơn đã tạo); tao_khach_hang thêm
-    // 2026-08-04 để bot lên đơn được cho khách Zalo chưa có trong Odoo.
-    expect(ghi.sort()).toEqual(['sua_chiet_khau', 'tao_don_nhap', 'tao_khach_hang']);
+    // sua_chiet_khau thêm 2026-08-01; tao_khach_hang 2026-08-04; sua_don 2026-08-07
+    // (đổi SL/thêm hàng vào đơn cũ thay vì tạo đơn mới).
+    expect(ghi.sort()).toEqual(['sua_chiet_khau', 'sua_don', 'tao_don_nhap', 'tao_khach_hang']);
   });
 });
 
@@ -128,11 +129,11 @@ describe('chayLenhNhanVien — chạy vòng lặp', () => {
     expect(msg).toContain('tra giá P10');
   });
 
-  it('gửi đủ 14 tool cho LLM', async () => {
+  it('gửi đủ 15 tool cho LLM (thêm sua_don 07/08)', async () => {
     const generate = fakeLLM([turnXong('ok')]);
     await chayLenhNhanVien(deps({ generate }), input());
 
-    expect(generate.mock.calls[0][0].tools).toHaveLength(14);
+    expect(generate.mock.calls[0][0].tools).toHaveLength(15);
   });
 
   it('system prompt là prompt NHÂN VIÊN, không phải prompt khách', async () => {
