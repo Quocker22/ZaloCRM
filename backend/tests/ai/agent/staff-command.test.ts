@@ -205,7 +205,9 @@ describe('buildStaffSystemPrompt', () => {
     // 2.500 → 2.650 (06/08 chiều): thêm 3 tool báo cáo theo spec
     // bao-cao-zalo (don_cho_xac_nhan, top_san_pham, bao_cao_linh_hoat) —
     // đã nén phần thêm từ ~320 xuống ~180 ký tự trước khi nới.
-    expect(buildStaffSystemPrompt(BIZ_THAT).length).toBeLessThan(2650);
+    // 2.650 → 2.700 (07/08): rule "tin thô/chửi không tra thành tên SP" (Vá 2,
+    // học Chatwoot). Đã nén 2 dòng thành 1 trước khi nới. Ký tự tĩnh rẻ 4x nhờ cache.
+    expect(buildStaffSystemPrompt(BIZ_THAT).length).toBeLessThan(2700);
   });
 });
 

@@ -13,6 +13,7 @@ import { findImageForReply } from '../../knowledge/product-image.js';
 import { chayTuVanKhach } from '../customer-agent.js';
 import { coTagBot } from '../staff-command.js';
 import { chiCoEmoji } from './luong-media.js';
+import { laBucTuc } from './cam-xuc.js';
 import { taoGhiLog, type PrismaGhiLog } from '../ghi-log-tool.js';
 import { batLuongKhach, batKhachTuChotDon, duCauHinh, tranTienKhach, chanDonLienKeGiay } from './cong-tac.js';
 import { dungGenerate } from './llm.js';
@@ -51,6 +52,22 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
   // đốt ~3k token. Người thật cũng chỉ… nhìn nó. Trả TRUE để RAG cũ khỏi đáp.
   if (chiCoEmoji(ctx.content)) {
     logger.info({ conversationId: ctx.conversationId }, '[agent/khach] tin chỉ emoji — bỏ qua');
+    return true;
+  }
+
+  // KHÁCH BỰC / CHỬI (07/08, học Chatwoot): người xoa dịu được, bot càng máy
+  // móc càng chọc giận — và trước đây bot lấy chữ viết hoa trong câu chửi tra
+  // thành tên SP (bug "Cả đi → tra Trần Hưng"). Báo nhân viên, bot ngừng.
+  if (laBucTuc(ctx.content)) {
+    logger.info({ conversationId: ctx.conversationId }, '[agent/khach] khách bực/chửi — báo nhân viên, bot ngừng');
+    const dichBuc = await timDich(ctx.conversationId);
+    if (dichBuc) {
+      await baoNhanVien(dichBuc, {
+        conversationId: ctx.conversationId,
+        lyDo: 'khách có vẻ bực/chửi — cần người vào xoa dịu, bot ngừng để khỏi chọc thêm',
+        tinKhach: ctx.content,
+      });
+    }
     return true;
   }
 
