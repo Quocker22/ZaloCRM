@@ -59,6 +59,8 @@ if (dinhCam.length > 0) {
 }
 
 // ── 1. KB: mỗi dòng có thông số = một chunk ────────────────────────────────
+const chiAnh = process.argv.includes('--chi-anh');
+if (!chiAnh) {
 const chunks = [];
 for (const r of body) {
   const [ma, ten, donVi, , danhMuc, thongSo, baoHanh, ghiChu] = r.map((c) => (c ?? '').trim());
@@ -119,14 +121,20 @@ await prisma.knowledgeChunk.createMany({
   })),
 });
 console.log(`KB: đã ghi ${chunks.length} chunk (document ${doc.id})`);
+}
 
 // ── 2. Ảnh: cột Link ảnh → bảng anh_san_pham (thay trọn mỗi lần) ───────────
-const anh = [];
+// Tên Odoo KHÔNG unique (đo thật 08/08: sheet có tên trùng) — gộp URL các
+// dòng trùng tên vào một bản ghi, khử trùng lặp URL.
+const anhTheoTen = new Map();
 for (const r of body) {
   const ten = (r[1] ?? '').trim();
-  const urls = (r[8] ?? '').split(',').map((u) => u.trim()).filter((u) => u.startsWith('http')).slice(0, 5);
-  if (ten && urls.length > 0) anh.push({ orgId, ten, urls });
+  const urls = (r[8] ?? '').split(',').map((u) => u.trim()).filter((u) => u.startsWith('http'));
+  if (!ten || urls.length === 0) continue;
+  const cu = anhTheoTen.get(ten) ?? [];
+  anhTheoTen.set(ten, [...new Set([...cu, ...urls])].slice(0, 5));
 }
+const anh = [...anhTheoTen.entries()].map(([ten, urls]) => ({ orgId, ten, urls }));
 await prisma.anhSanPham.deleteMany({ where: { orgId } });
 await prisma.anhSanPham.createMany({ data: anh });
 console.log(`Ảnh: ${anh.length} SP có link (${anh.reduce((t, a) => t + a.urls.length, 0)} URL)`);
