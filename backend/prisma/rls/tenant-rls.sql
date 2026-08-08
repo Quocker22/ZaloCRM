@@ -613,3 +613,19 @@ DROP POLICY IF EXISTS tenant_isolation ON "guideline_match_logs";
 CREATE POLICY tenant_isolation ON "guideline_match_logs"
   USING ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on')
   WITH CHECK ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on');
+
+-- phien_gom_don (máy gom đơn — spec 2026-08-07-luong-len-don-slot)
+ALTER TABLE "phien_gom_don" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "phien_gom_don" FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON "phien_gom_don";
+CREATE POLICY tenant_isolation ON "phien_gom_don"
+  USING ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on');
+
+-- anh_san_pham (ảnh SP đồng bộ từ Google Sheet — scripts/dong-bo-sheet.mjs)
+ALTER TABLE "anh_san_pham" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "anh_san_pham" FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON "anh_san_pham";
+CREATE POLICY tenant_isolation ON "anh_san_pham"
+  USING ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on');
