@@ -268,13 +268,20 @@ export async function generateWithOpenaiCompatTools(args: {
     // Gemini có ăn không (prefix ≥1024 token giống hệt → đọc giá 0,25×).
     // Chỉ gửi cho OpenRouter: OpenAI thật từ chối tham số lạ (400).
     ...(args.url.includes('openrouter') ? { usage: { include: true } } : {}),
-    // MODEL THINKING phải bị TRÓI reasoning trong vòng lặp tool. Đo thật
-    // 16:53 08/08: deepseek-v4-flash "suy nghĩ" trọn 90s không gọi nổi một
-    // tool → lượt agent quá hạn, khách nhận "Bot gặp lỗi". effort=low giữ
-    // được chất lượng chọn tool mà mỗi vòng chỉ tốn vài giây suy nghĩ.
+    // MODEL THINKING phải bị TẮT reasoning trong vòng lặp tool.
+    //
+    // Đo thật trên chính key prod (18:50 08/08), câu "chào shop":
+    //   mặc định   13,6s · 643 token suy nghĩ
+    //   effort low  9,4s · 237 token   ← fix 16:53 chỉ giảm 30%, KHÔNG đủ
+    //   tắt hẳn     1,3s ·   0 token   ← câu trả lời vẫn đúng vai, lịch sự
+    // Một lượt tư vấn 2 tool vì thế mất 57s (bug thật 18:41): khách chờ gần
+    // một phút, tin sau bị guard "có tin mới hơn" nuốt nên bot như câm.
+    //
+    // Chọn tool + soạn câu bán hàng KHÔNG cần suy luận sâu — quy trình đã do
+    // máy trạng thái cầm lái. Cần nghĩ sâu ở đâu thì bật riêng chỗ đó.
     // Chỉ gửi cho OpenRouter — gateway khác có thể 400 với tham số lạ.
     ...(args.url.includes('openrouter') && laModelThinking(args.model)
-      ? { reasoning: { effort: 'low' } }
+      ? { reasoning: { enabled: false } }
       : {}),
   });
 
