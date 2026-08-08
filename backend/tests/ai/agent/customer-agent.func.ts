@@ -110,8 +110,11 @@ describe('buildCustomerSystemPrompt — ranh giới', () => {
     expect(p).toContain('Không hứa giảm giá');
   });
 
-  it('SP chưa có giá → KHÔNG nói 0đ', () => {
-    expect(p).toContain('KHÔNG nói "0đ"');
+  it('SP chưa giá → vẫn tư vấn, không lộ chuyện nội bộ, không vội đẩy sale (16:42 08/08)', () => {
+    expect(p).toContain('CHƯA CÓ GIÁ → vẫn nói CÓ');
+    expect(p).toContain('KHÔNG nói 0đ');
+    expect(p).toContain('chưa nhập giá');
+    expect(p).toContain('ĐỪNG hỏi');
   });
 
   it('khách muốn mua → chuyển sale, bot KHÔNG tự lên đơn', () => {
@@ -155,7 +158,9 @@ describe('buildCustomerSystemPrompt — ranh giới', () => {
     // Thêm mục lần sau: NÉN TRƯỚC, nới trần sau. Prompt đi kèm MỌI request nên
     // phình ra là tốn tiền ở mọi lượt chat.
     const BIZ_THAT = 'LEDNELIA - shop đèn LED & phụ kiện điện';
-    expect(buildCustomerSystemPrompt(BIZ_THAT).length).toBeLessThan(2800);
+    // 2.800 → 2.950 (08/08): 2 rule từ chat thật 16:42 — SP chưa giá vẫn tư vấn
+    // (không lộ nội bộ, không đẩy sale sớm) + đừng hỏi số lượng khi khách chưa mua.
+    expect(buildCustomerSystemPrompt(BIZ_THAT).length).toBeLessThan(2950);
   });
 
   it('luật KHÔNG MARKDOWN nằm ngay đầu prompt (model đọc kỹ nhất chỗ đó)', () => {

@@ -111,6 +111,15 @@ export async function docJson(response: Response): Promise<unknown> {
  * Thẻ MỞ mà không có thẻ đóng nghĩa là model bị cắt giữa chừng: bỏ toàn bộ
  * phần còn lại, vì đó vẫn là suy nghĩ chứ chưa phải câu trả lời.
  */
+/**
+ * Model có chế độ thinking/reasoning — nhận diện theo tên để trói effort.
+ * Danh sách mở rộng dần khi đổi model; nhận nhầm model thường thành thinking
+ * thì OpenRouter chỉ lặng lẽ bỏ qua tham số, vô hại.
+ */
+export function laModelThinking(model: string): boolean {
+  return /deepseek|think|reason|-r1\b|qwq|o[134](?:-mini)?/i.test(model);
+}
+
 export function boSuyNghi(raw: string): string {
   return raw
     .replace(/<think>[\s\S]*?<\/think>/gi, '')
@@ -259,6 +268,14 @@ export async function generateWithOpenaiCompatTools(args: {
     // Gemini có ăn không (prefix ≥1024 token giống hệt → đọc giá 0,25×).
     // Chỉ gửi cho OpenRouter: OpenAI thật từ chối tham số lạ (400).
     ...(args.url.includes('openrouter') ? { usage: { include: true } } : {}),
+    // MODEL THINKING phải bị TRÓI reasoning trong vòng lặp tool. Đo thật
+    // 16:53 08/08: deepseek-v4-flash "suy nghĩ" trọn 90s không gọi nổi một
+    // tool → lượt agent quá hạn, khách nhận "Bot gặp lỗi". effort=low giữ
+    // được chất lượng chọn tool mà mỗi vòng chỉ tốn vài giây suy nghĩ.
+    // Chỉ gửi cho OpenRouter — gateway khác có thể 400 với tham số lạ.
+    ...(args.url.includes('openrouter') && laModelThinking(args.model)
+      ? { reasoning: { effort: 'low' } }
+      : {}),
   });
 
   let loiCuoi: unknown;
