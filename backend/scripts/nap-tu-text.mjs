@@ -73,9 +73,16 @@ for (const f of readdirSync(thuMuc).filter((f) => f.endsWith('.txt')).sort()) {
   const dinhCam = TU_KHOA_CAM.filter((c) => thap.includes(c));
   if (dinhCam.length > 0) { console.log(`BỎ ${f} — chứa từ khoá cấm: ${dinhCam.join(', ')}`); continue; }
   const title = basename(f, extname(f));
-  // Chạy lại sau khi đứt giữa chừng: tài liệu nào nạp rồi thì bỏ qua.
+  // Chạy lại sau khi đứt giữa chừng: tài liệu nạp TRỌN (có chunk) mới bỏ qua.
+  // Dòng document được tạo TRƯỚC khi embed — đứt lúc embed để lại dòng mồ côi
+  // 0 chunk (đo thật 08/08 với E Catalog ONBON): phải xoá và nạp lại.
   const daCo = await prisma.knowledgeDocument.findFirst({ where: { orgId, source: nguon, title }, select: { id: true } });
-  if (daCo) { console.log(`BỎ ${title} — đã nạp trước đó`); continue; }
+  if (daCo) {
+    const soChunk = await prisma.knowledgeChunk.count({ where: { documentId: daCo.id } });
+    if (soChunk > 0) { console.log(`BỎ ${title} — đã nạp trước đó (${soChunk} chunk)`); continue; }
+    await prisma.knowledgeDocument.delete({ where: { id: daCo.id } });
+    console.log(`  … ${title}: dòng mồ côi 0 chunk — xoá, nạp lại`);
+  }
   const kq = await ingestDocument(deps, orgId, { title, source: nguon, content }, cfg);
   tongChunk += kq.chunks;
   console.log(`OK  ${title}: ${kq.chunks} chunk (${content.length.toLocaleString()} ký tự)`);
