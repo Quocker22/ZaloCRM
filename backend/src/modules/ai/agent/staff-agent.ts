@@ -225,11 +225,15 @@ export type StaffAgentResult =
  * Kết quả dài quá ngưỡng → đính kèm cho caller gửi. Trả về việc ĐÃ đính kèm
  * chưa để dinhDang* biết đường nói "xem file/ảnh".
  *
- * MẶC ĐỊNH gửi FILE EXCEL — nhân viên hỏi "xuất danh sách" là muốn bản tải về
- * mở/sửa được, không phải ảnh để nhìn (anh chốt 06/08). Kèm CẢ ảnh để chắc
- * chắn có gì đó đọc được ngay nếu Zalo nuốt file.
+ * CHỈ gửi FILE EXCEL (anh chốt 08/08). Nhân viên hỏi "xuất danh sách" là muốn
+ * bản tải về mở/sửa được; ảnh bảng 19 dòng trên điện thoại chữ li ti, không
+ * đọc nổi — gửi kèm chỉ tổ rác chat.
  *
- * Đặt AI_BAO_CAO_CHI_ANH=1 để chỉ gửi ảnh (khi Zalo chặn file hẳn).
+ * Vì sao TRƯỚC ĐÂY kèm cả ảnh: 06/08 file .xlsx qua zca-js hay rớt âm thầm nên
+ * ảnh là lưới đỡ. Đo lại 08/08: 5 file gửi từ 06/08 tới nay, 0 lần `sendFile
+ * NÉM` trong log 72h — nỗi lo đó không còn đúng.
+ *
+ * Đặt AI_BAO_CAO_CHI_ANH=1 để quay lại chỉ gửi ảnh (khi Zalo chặn file hẳn).
  */
 async function dinhKemNeuDai(
   soDong: number,
@@ -248,13 +252,15 @@ async function dinhKemNeuDai(
       daKem = true;
     } catch { /* file lỗi → còn ảnh đỡ */ }
   }
-  // Ảnh: xem NGAY trong chat, không phải tải. Luôn kèm (trừ khi file đã đủ và
-  // ta muốn gọn — nhưng bug 06/08 cho thấy file hay rớt, nên kèm cả hai).
-  try {
-    const png = await bangRaAnh(bang);
-    nhan({ tenFile: tenFileBaoCao(bang.tieuDe).replace(/\.xlsx$/, '.png'), duLieu: png, loai: 'anh', moTa: `Đầy đủ ${soDong} dòng` });
-    daKem = true;
-  } catch { /* ảnh lỗi → còn file (nếu có) */ }
+  // Ảnh CHỈ khi không có file: hoặc cờ AI_BAO_CAO_CHI_ANH, hoặc xuất Excel lỗi.
+  // Còn file thì thôi — ảnh bảng dài đọc không nổi trên điện thoại.
+  if (!daKem) {
+    try {
+      const png = await bangRaAnh(bang);
+      nhan({ tenFile: tenFileBaoCao(bang.tieuDe).replace(/\.xlsx$/, '.png'), duLieu: png, loai: 'anh', moTa: `Đầy đủ ${soDong} dòng` });
+      daKem = true;
+    } catch { /* cả hai lỗi → dinhDang* nói không có đính kèm */ }
+  }
 
   return daKem;
 }
