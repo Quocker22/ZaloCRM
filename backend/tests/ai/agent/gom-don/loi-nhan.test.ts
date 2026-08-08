@@ -79,3 +79,31 @@ describe('renderLoiNhan', () => {
     expect(s).toContain('abc xyz');
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Chế SỬA ĐƠN (spec 08/08)
+describe('renderLoiNhan — chế sua', () => {
+  const donA = { id: 26737, ma: 'S13820', tong: 1070000 };
+  const donB = { id: 26738, ma: 'S13821', tong: 780000 };
+
+  it('hoi_chon_don: liệt kê mã đơn + tổng tiền, đánh số', () => {
+    const p: PhienGom = { che: 'sua', khachTuKhoa: null, donUngVien: [donA, donB], dong: [] };
+    const s = renderLoiNhan({ loai: 'hoi_chon_don' }, p);
+    expect(s).toContain('1) S13820 · 1.070.000đ');
+    expect(s).toContain('2) S13821 · 780.000đ');
+    expect(s.toLowerCase()).toContain('đơn nào');
+  });
+
+  it('khong_thay_don: nói rõ không có đơn nháp nào', () => {
+    const p: PhienGom = { che: 'sua', khachTuKhoa: null, donKhongThay: true, dong: [] };
+    const s = renderLoiNhan({ loai: 'khong_thay_don' }, p);
+    expect(s.toLowerCase()).toContain('không thấy');
+    expect(s.toLowerCase()).toContain('nháp');
+  });
+
+  it('hoi_thieu sp ở chế sửa: hỏi thêm/đổi hàng gì, có nhắc mã đơn', () => {
+    const p: PhienGom = { che: 'sua', khachTuKhoa: null, donSua: donA, dong: [] };
+    const s = renderLoiNhan({ loai: 'hoi_thieu', thieu: 'sp' }, p);
+    expect(s).toContain('S13820');
+  });
+});

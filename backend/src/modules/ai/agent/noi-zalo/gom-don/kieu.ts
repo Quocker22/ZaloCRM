@@ -19,6 +19,13 @@ export interface DongGom {
   khongThay?: boolean;
 }
 
+/** Đơn nháp đang sửa (chế 'sua'). */
+export interface DonSua {
+  id: number;
+  ma: string;
+  tong: number;
+}
+
 export interface PhienGom {
   khachTuKhoa: string | null;
   khachDaChot?: Pick<KhachHang, 'id' | 'ten' | 'ma' | 'dienThoai'>;
@@ -27,6 +34,19 @@ export interface PhienGom {
   dong: DongGom[];
   /** Đã hiện tóm tắt, đang chờ NV chốt — chặn tạo đơn khi chưa ai gật. */
   daHoiChot?: boolean;
+
+  // ── Chế SỬA ĐƠN (spec 2026-08-08) ──────────────────────────────────────
+  /**
+   * Thiếu = 'len' — phiên cũ đang nằm trong DB đọc lên vẫn chạy đúng luồng
+   * lên đơn, không cần migrate dữ liệu.
+   */
+  che?: 'len' | 'sua';
+  /** Đơn đã chốt để sửa. */
+  donSua?: DonSua;
+  /** Nhiều đơn nháp trong hội thoại → chờ NV chọn. */
+  donUngVien?: DonSua[];
+  /** Tra rồi không có đơn nháp nào sửa được. */
+  donKhongThay?: boolean;
 }
 
 /**
@@ -35,9 +55,13 @@ export interface PhienGom {
  * buocTiepTheo để ra hành động nói được).
  */
 export type HanhDong =
-  | { loai: 'tra_cuu'; khach?: string; sp: string[] }
+  | { loai: 'tra_cuu'; khach?: string; sp: string[]; don?: boolean }
   | { loai: 'hoi_chon' }
+  | { loai: 'hoi_chon_don' }
   | { loai: 'hoi_thieu'; thieu: 'khach' | 'sp' | 'sl' }
   | { loai: 'khong_thay'; khach?: string; sp: string[] }
+  | { loai: 'khong_thay_don' }
   | { loai: 'tom_tat_cho_chot' }
-  | { loai: 'tao_don' };
+  | { loai: 'tao_don' }
+  /** Chế 'sua': đủ rõ → ghi THẲNG Odoo, KHÔNG hỏi chốt (anh Quốc chốt 08/08). */
+  | { loai: 'sua_don' };

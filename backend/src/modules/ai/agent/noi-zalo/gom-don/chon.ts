@@ -34,6 +34,22 @@ export function apDungChon(p: PhienGom, cauTho: string): boolean {
   if (!cau) return false;
   let map = false;
 
+  // ── Chế SỬA: chọn ĐƠN trước (số thứ tự hoặc mã đơn S13820) ──
+  if (p.donUngVien?.length) {
+    const soDon = cau.match(/^(\d{1,2})$/);
+    const maDon = cau.toUpperCase().match(/\bS\d{3,}\b/);
+    const chon = soDon
+      ? p.donUngVien[Number(soDon[1]) - 1]
+      : maDon
+        ? p.donUngVien.find((d) => d.ma.toUpperCase() === maDon[0])
+        : undefined;
+    if (chon) {
+      p.donSua = chon;
+      delete p.donUngVien;
+      return true; // chọn đơn xong là đủ cho lượt này
+    }
+  }
+
   // ── "1a", "2", "b", "1 a" — số chốt khách, chữ chốt SP dòng đầu còn chờ ──
   const gon = cau.toLowerCase().replace(/\s+/g, '');
   const soChu = gon.match(/^(\d{1,2})?([a-z])?$/);

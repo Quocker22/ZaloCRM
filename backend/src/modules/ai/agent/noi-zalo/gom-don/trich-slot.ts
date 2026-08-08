@@ -17,6 +17,10 @@ export interface KetQuaTrich {
   xacNhan?: boolean;
   /** Câu không liên quan đơn hàng (digression) — máy nhường agent thường. */
   ngoaiLe?: boolean;
+  /** SỬA đơn đã có (spec 08/08) thay vì lên đơn mới. */
+  sua?: boolean;
+  /** Mã đơn NV nhắc ("sửa đơn S13820") — dạng S + số. */
+  maDon?: string;
 }
 
 const ghiSlotDefinition: ToolDefinition = {
@@ -40,6 +44,8 @@ const ghiSlotDefinition: ToolDefinition = {
           required: ['sp'],
         },
       },
+      sua: { type: 'boolean', description: 'true khi nhân viên SỬA đơn đã có (thêm hàng/đổi số lượng), không phải lên đơn mới' },
+      maDon: { type: 'string', description: 'Mã đơn nhân viên nhắc, dạng S13820' },
       huy: { type: 'boolean', description: 'true khi nhân viên muốn huỷ đơn đang gom' },
       xacNhan: { type: 'boolean', description: 'true khi nhân viên đồng ý chốt (ok, đúng rồi, lên đi)' },
       ngoaiLe: { type: 'boolean', description: 'true khi câu KHÔNG liên quan việc lên đơn' },
@@ -68,6 +74,10 @@ export function lamSachTrich(raw: Record<string, unknown>): KetQuaTrich {
       });
     if (dong.length > 0) kq.dong = dong;
   }
+  if (raw.sua === true) kq.sua = true;
+  if (typeof raw.maDon === 'string' && /^S\d+$/i.test(raw.maDon.trim())) {
+    kq.maDon = raw.maDon.trim().toUpperCase();
+  }
   if (raw.huy === true) kq.huy = true;
   if (raw.xacNhan === true || raw.xac_nhan === true) kq.xacNhan = true;
   if (raw.ngoaiLe === true || raw.ngoai_le === true) kq.ngoaiLe = true;
@@ -93,6 +103,8 @@ export async function trichSlot(
   const system = [
     'Bạn trích thông tin ĐƠN HÀNG từ MỘT câu của nhân viên bán hàng (tiếng Việt,',
     'có thể viết tắt: "10c" = 10 cái). LUÔN gọi tool ghi_slot, không trả lời text.',
+    'Câu SỬA đơn đã có ("sửa đơn thêm 5 cáp", "đổi thành 100 cái", "thêm X vào',
+    'đơn") → sua=true; có nhắc mã đơn (S13820) thì điền maDon.',
     'Chỉ trích cái CÓ trong câu — không đoán, không bịa. Bỏ xưng hô (anh/chị/em/bác)',
     'khỏi tên khách. Câu chỉ có số lượng ("10 cái") → điền sl cho món ĐANG THIẾU',
     'trong phần "đang gom". Câu không liên quan đơn (hỏi tồn kho, báo cáo, chào',
