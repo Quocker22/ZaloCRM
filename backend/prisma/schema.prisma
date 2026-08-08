@@ -4217,3 +4217,19 @@ model PhienGomDon {
   @@index([hetHan])
   @@map("phien_gom_don")
 }
+
+/// Ảnh sản phẩm theo URL — nguồn: cột "Link ảnh" của Google Sheet thông số
+/// (đồng bộ bằng scripts/dong-bo-sheet.mjs). Thay dần kho crawl cứng
+/// product-images/: công ty dán link vào sheet là bot có ảnh mới, không cần deploy.
+model AnhSanPham {
+  id        String   @id @default(cuid())
+  orgId     String   @map("org_id")
+  /// Tên SP đúng như sheet/Odoo — matcher chuẩn hoá lúc so, DB giữ nguyên bản.
+  ten       String
+  /// Mảng URL ảnh công khai (tối đa ~5), thứ tự = thứ tự gửi.
+  urls      Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([orgId, ten])
+  @@map("anh_san_pham")
+}

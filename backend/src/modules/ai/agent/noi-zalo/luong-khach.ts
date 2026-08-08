@@ -10,6 +10,7 @@
 import { prisma } from '../../../../shared/database/prisma-client.js';
 import { logger } from '../../../../shared/utils/logger.js';
 import { findImageForReply } from '../../knowledge/product-image.js';
+import { timAnhSanPhamTheoReply, taiAnhVeTam } from '../../knowledge/anh-san-pham.js';
 import { chayTuVanKhach } from '../customer-agent.js';
 import { coTagBot } from '../staff-command.js';
 import { chiCoEmoji } from './luong-media.js';
@@ -208,13 +209,37 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
     // Khách CẦN giả nhịp người: trả lời tức thì thì lộ là bot, Zalo gắn cờ spam.
     await guiTin(dich, r.traLoi, true);
 
-    // Ảnh sản phẩm: agent trả sẵn đường dẫn; fallback dò từ nội dung trả lời.
-    const anh = r.anhSanPham ?? findImageForReply(r.traLoi);
-    if (anh) {
+    // Ảnh sản phẩm — thứ tự ưu tiên:
+    //   1. agent trả sẵn đường dẫn
+    //   2. bảng anh_san_pham (cột Link ảnh của Sheet, đồng bộ dong-bo-sheet) —
+    //      gửi được NHIỀU ảnh/SP, công ty tự nuôi qua sheet không cần deploy
+    //   3. kho crawl cũ (product-images/) đỡ nốt
+    // Lỗi từng tấm không phá câu trả lời — ảnh là phụ.
+    if (r.anhSanPham) {
       try {
-        await guiAnh(dich, anh, true);
+        await guiAnh(dich, r.anhSanPham, true);
       } catch (err) {
         logger.warn({ err }, '[agent/khach] gửi ảnh sản phẩm lỗi (bỏ qua)');
+      }
+    } else {
+      const urls = await timAnhSanPhamTheoReply(prisma, ctx.orgId, r.traLoi).catch(() => []);
+      if (urls.length > 0) {
+        for (const url of urls) {
+          try {
+            await guiAnh(dich, await taiAnhVeTam(url), true);
+          } catch (err) {
+            logger.warn({ err, url }, '[agent/khach] gửi ảnh từ sheet lỗi (bỏ qua tấm này)');
+          }
+        }
+      } else {
+        const anh = findImageForReply(r.traLoi);
+        if (anh) {
+          try {
+            await guiAnh(dich, anh, true);
+          } catch (err) {
+            logger.warn({ err }, '[agent/khach] gửi ảnh sản phẩm lỗi (bỏ qua)');
+          }
+        }
       }
     }
 
