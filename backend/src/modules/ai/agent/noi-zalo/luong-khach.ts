@@ -12,6 +12,7 @@ import { logger } from '../../../../shared/utils/logger.js';
 import { findImageForReply } from '../../knowledge/product-image.js';
 import { timAnhSanPhamTheoReply, taiAnhVeTam } from '../../knowledge/anh-san-pham.js';
 import { chayTuVanKhach } from '../customer-agent.js';
+import { napGuidelineKhach, type PrismaGuideline } from '../guideline-store.js';
 import { coTagBot } from '../staff-command.js';
 import { chiCoEmoji } from './luong-media.js';
 import { laBucTuc } from './cam-xuc.js';
@@ -132,6 +133,19 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
     const triThuc = await timTriThuc(ctx.orgId);
     logger.info({ coTriThuc: Boolean(triThuc) }, '[agent/khach] đã dựng tri thức — vào LLM');
 
+    // GUIDELINE ENGINE (docs/THIET-KE-GUIDELINE-ENGINE.md): mode theo org trong
+    // ai_configs — 'off' mặc định. Kho rule lỗi/rỗng → napGuidelineKhach trả
+    // null → chạy như 'off'. Rollback = UPDATE 1 cột, không cần deploy.
+    const engineMode = cfg.guidelineEngineMode === 'shadow' || cfg.guidelineEngineMode === 'on'
+      ? cfg.guidelineEngineMode
+      : undefined;
+    const guidelines = engineMode
+      ? await napGuidelineKhach(prisma as unknown as PrismaGuideline, ctx.orgId, batKhachTuChotDon())
+      : null;
+    if (engineMode && !guidelines) {
+      logger.warn({ orgId: ctx.orgId, engineMode }, '[agent/khach] guideline engine bật nhưng kho rule rỗng/lỗi — chạy prompt tĩnh');
+    }
+
     const r = await chayCoHanGio('khach', chayTuVanKhach(
       {
         odoo: layOdoo(),
@@ -149,6 +163,25 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
         },
         ghiLog: (l) => { soToolDaChay++; ghiDb(l); },
         timDoanTriThuc: triThuc,
+        guidelineEngine: engineMode && guidelines
+          ? {
+              mode: engineMode,
+              guidelines,
+              // Ghi log matcher để soát tỷ lệ match đúng trong shadow mode.
+              // create không await ở executor — nhưng ở đây await được vì
+              // ghiMatchLog chạy 1 lần/lượt, không nằm trong vòng nóng.
+              ghiMatchLog: async (log) => {
+                await prisma.guidelineMatchLog.create({
+                  data: {
+                    orgId: ctx.orgId,
+                    conversationId: ctx.conversationId,
+                    vai: 'khach',
+                    ...log,
+                  },
+                });
+              },
+            }
+          : undefined,
         choKhachChotDon: batKhachTuChotDon()
           ? {
               conversationId: ctx.conversationId,

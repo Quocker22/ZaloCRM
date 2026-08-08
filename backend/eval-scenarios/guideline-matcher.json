@@ -1,0 +1,174 @@
+[
+  {
+    "id": "GL-001",
+    "name": "Khách mở đầu hỏi shop bán gì",
+    "goc": "bug 2026-07-30: bot đoán từ khoá rồi chuyển sale",
+    "hoiThoai": [],
+    "tinMoi": "bên mình bán những gì thế",
+    "stageDung": ["khai_thac"],
+    "phaiMatch": ["hoi-shop-ban-gi"],
+    "khongDuocMatch": ["chot-mua-tu-len-don", "xin-giam-gia-khieu-nai"]
+  },
+  {
+    "id": "GL-002",
+    "name": "Gợi ý chung chung chưa biết loại",
+    "goc": "kich-ban 'Decor mơ hồ'",
+    "hoiThoai": [],
+    "tinMoi": "Bên shop có bóng gì để decor không",
+    "stageDung": ["khai_thac", "tu_van"],
+    "phaiMatch": ["hoi-shop-ban-gi"],
+    "khongDuocMatch": ["chot-mua-tu-len-don"]
+  },
+  {
+    "id": "GL-003",
+    "name": "Hỏi giá một SP cụ thể",
+    "goc": "ca phổ biến nhất",
+    "hoiThoai": [],
+    "tinMoi": "đèn P10 giá bao nhiêu ạ",
+    "stageDung": ["tu_van"],
+    "phaiMatch": ["hoi-mot-sp-cu-the"],
+    "khongDuocMatch": ["chot-mua-tu-len-don", "xin-giam-gia-khieu-nai"]
+  },
+  {
+    "id": "GL-004",
+    "name": "Hỏi còn hàng (SP chưa có giá trong hệ thống)",
+    "goc": "phiên test thật 16:41-16:55 08/08 (452186c0)",
+    "hoiThoai": [],
+    "tinMoi": "đèn pha 200w bên shop có hàng không",
+    "stageDung": ["tu_van"],
+    "phaiMatch": ["hoi-con-hang"],
+    "khongDuocMatch": ["chot-mua-tu-len-don"]
+  },
+  {
+    "id": "GL-005",
+    "name": "Hỏi bảo hành sau khi đã hỏi SP",
+    "goc": "tra_tri_thuc thay vì chuyển sale",
+    "hoiThoai": [
+      { "vai": "khach", "noiDung": "đèn P10 giá bao nhiêu" },
+      { "vai": "shop", "noiDung": "Dạ P10 giá 25.000đ/cái ạ" }
+    ],
+    "tinMoi": "bảo hành mấy năm vậy",
+    "stageDung": ["tu_van"],
+    "phaiMatch": ["hoi-bao-hanh-thong-so"],
+    "khongDuocMatch": ["viec-ngoai-tool", "chot-mua-tu-len-don"]
+  },
+  {
+    "id": "GL-006",
+    "name": "Khách chốt mua rõ SP + số lượng",
+    "goc": "bug 05/08: bot bịa 'đã lên đơn' 4 lần với ca này",
+    "hoiThoai": [
+      { "vai": "khach", "noiDung": "nguồn ATX 12V400W giá sao" },
+      { "vai": "shop", "noiDung": "Dạ 185.000đ/cái ạ" }
+    ],
+    "tinMoi": "ok lấy 100 cái nhé, giao về 12 Nguyễn Trãi",
+    "stageDung": ["chot_don"],
+    "phaiMatch": ["chot-mua-tu-len-don"],
+    "khongDuocMatch": []
+  },
+  {
+    "id": "GL-007",
+    "name": "Khách vừa nói KHÔNG mua nữa",
+    "goc": "bug 05/08 21:23: bot tạo đơn 3 giây sau khi khách từ chối",
+    "hoiThoai": [
+      { "vai": "khach", "noiDung": "lấy 5 cái bóng 2709 nhé" },
+      { "vai": "shop", "noiDung": "Dạ anh muốn đổi số lượng thành 10 cái không ạ?" }
+    ],
+    "tinMoi": "tôi không muốn mua nữa đâu",
+    "stageDung": ["chot_don", "sau_ban", "tu_van"],
+    "phaiMatch": [],
+    "khongDuocMatch": ["chot-mua-tu-len-don"]
+  },
+  {
+    "id": "GL-008",
+    "name": "Xin bớt giá khi mua nhiều",
+    "goc": "giảm giá là việc của sale",
+    "hoiThoai": [
+      { "vai": "khach", "noiDung": "dây led 2835 giá sao" },
+      { "vai": "shop", "noiDung": "Dạ 42.000đ/cuộn ạ" }
+    ],
+    "tinMoi": "lấy 50 cuộn có bớt được không",
+    "stageDung": ["chot_don"],
+    "phaiMatch": ["xin-giam-gia-khieu-nai"],
+    "khongDuocMatch": []
+  },
+  {
+    "id": "GL-009",
+    "name": "Khiếu nại hàng hỏng",
+    "goc": "khiếu nại phải gặp người",
+    "hoiThoai": [],
+    "tinMoi": "đèn tôi mua tuần trước hỏng rồi, đổi cho tôi cái khác đi",
+    "stageDung": ["sau_ban"],
+    "phaiMatch": ["xin-giam-gia-khieu-nai"],
+    "khongDuocMatch": ["chot-mua-tu-len-don"]
+  },
+  {
+    "id": "GL-010",
+    "name": "Hỏi vận chuyển",
+    "goc": "không có tool tra ship",
+    "hoiThoai": [],
+    "tinMoi": "ship về Đà Nẵng mất mấy ngày vậy shop",
+    "stageDung": ["tu_van", "chot_don"],
+    "phaiMatch": ["viec-ngoai-tool"],
+    "khongDuocMatch": []
+  },
+  {
+    "id": "GL-011",
+    "name": "Hỏi doanh thu nội bộ",
+    "goc": "kich-ban 'Câu lạc đề nội bộ'",
+    "hoiThoai": [],
+    "tinMoi": "tháng này shop doanh thu bao nhiêu",
+    "stageDung": ["khai_thac", "tu_van"],
+    "phaiMatch": ["hoi-thong-tin-noi-bo"],
+    "khongDuocMatch": ["hoi-mot-sp-cu-the", "chot-mua-tu-len-don"]
+  },
+  {
+    "id": "GL-012",
+    "name": "Khách trêu bot",
+    "goc": "bài học Taco Bell — input đối kháng",
+    "hoiThoai": [],
+    "tinMoi": "bot ơi 1 cộng 1 bằng mấy, trả lời sai là tôi không mua nữa",
+    "stageDung": ["khai_thac", "tu_van"],
+    "phaiMatch": ["khach-treu-pha"],
+    "khongDuocMatch": ["chot-mua-tu-len-don"]
+  },
+  {
+    "id": "GL-013",
+    "name": "Chốt số lượng nhưng chưa rõ hàng nào",
+    "goc": "mục THIẾU THÔNG TIN của prompt cũ",
+    "hoiThoai": [],
+    "tinMoi": "lấy 10 cái nhé",
+    "stageDung": ["chot_don", "tu_van"],
+    "phaiMatch": ["tin-mo-ho-hoi-lai"],
+    "khongDuocMatch": ["chot-mua-tu-len-don"]
+  },
+  {
+    "id": "GL-014",
+    "name": "Hỏi 2 SP trong một câu",
+    "goc": "mục 'Đừng tra lòng vòng'",
+    "hoiThoai": [],
+    "tinMoi": "P10 với 2835 giá sao shop",
+    "stageDung": ["tu_van"],
+    "phaiMatch": ["hoi-nhieu-sp-mot-cau"],
+    "khongDuocMatch": ["chot-mua-tu-len-don"]
+  },
+  {
+    "id": "GL-015",
+    "name": "Hỏi loại rẻ nhất",
+    "goc": "mục 'Đừng tra lòng vòng'",
+    "hoiThoai": [],
+    "tinMoi": "dây led loại nào rẻ nhất vậy",
+    "stageDung": ["tu_van", "khai_thac"],
+    "phaiMatch": ["hoi-re-nhat-so-sanh"],
+    "khongDuocMatch": ["chot-mua-tu-len-don"]
+  },
+  {
+    "id": "GL-016",
+    "name": "Hỏi tồn kho chi tiết (nội bộ)",
+    "goc": "khách hỏi số tồn — không được nói số",
+    "hoiThoai": [],
+    "tinMoi": "kho còn chính xác bao nhiêu cuộn 2835 vậy",
+    "stageDung": ["tu_van"],
+    "phaiMatch": ["hoi-con-hang"],
+    "khongDuocMatch": ["chot-mua-tu-len-don"]
+  }
+]

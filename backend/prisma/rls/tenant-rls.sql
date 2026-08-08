@@ -597,3 +597,19 @@ DROP POLICY IF EXISTS tenant_isolation ON "knowledge_chunks";
 CREATE POLICY tenant_isolation ON "knowledge_chunks"
   USING ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on')
   WITH CHECK ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on');
+
+-- ai_guidelines
+ALTER TABLE "ai_guidelines" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "ai_guidelines" FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON "ai_guidelines";
+CREATE POLICY tenant_isolation ON "ai_guidelines"
+  USING ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on');
+
+-- guideline_match_logs
+ALTER TABLE "guideline_match_logs" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "guideline_match_logs" FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON "guideline_match_logs";
+CREATE POLICY tenant_isolation ON "guideline_match_logs"
+  USING ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on');

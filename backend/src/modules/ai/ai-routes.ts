@@ -18,6 +18,7 @@ import { listProviderModels, invalidateModelCache } from './providers/list-model
 import { logger } from '../../shared/utils/logger.js';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { registerKnowledgeRoutes } from './knowledge/knowledge-routes.js';
+import { registerGuidelineRoutes } from './agent/guideline-routes.js';
 
 async function assertConversationReadAccess(request: FastifyRequest, reply: FastifyReply, conversationId: string) {
   const user = request.user!;
@@ -87,6 +88,11 @@ export async function aiRoutes(app: FastifyInstance) {
 
   // RAG knowledge base 2026-06-28 — ingest/list/delete tài liệu KB (auth qua authMiddleware ở trên).
   registerKnowledgeRoutes(app);
+
+  // ── Guideline engine 2026-08-08 (docs/THIET-KE-GUIDELINE-ENGINE.md) ──────
+  // CRUD tối thiểu để vận hành rule mà không cần deploy. Không có DELETE:
+  // tắt rule = enabled=false — giữ lịch sử vì ghiChu là tri thức về bug cũ.
+  registerGuidelineRoutes(app);
 
   /* Danh sách provider (cả 5) + baseUrl + trạng thái key per-org. */
   app.get('/api/v1/ai/providers', async (request: FastifyRequest, reply: FastifyReply) => {

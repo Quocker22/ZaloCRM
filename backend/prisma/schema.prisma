@@ -1705,6 +1705,10 @@ model AiConfig {
   embedProvider                String   @default("local") @map("embed_provider")
   embedModel                   String   @default("bge-m3") @map("embed_model")
   embedBaseUrl                 String   @default("http://localhost:11434/v1") @map("embed_base_url")
+  // Guideline engine 2026-08-08: 'off' = prompt tĩnh như cũ; 'shadow' = matcher
+  // chạy + ghi log nhưng prompt gửi đi vẫn là prompt cũ; 'on' = prompt động.
+  // Xem docs/THIET-KE-GUIDELINE-ENGINE.md §6 — bật theo org, rollback 1 UPDATE.
+  guidelineEngineMode          String   @default("off") @map("guideline_engine_mode")
   createdAt                    DateTime @default(now()) @map("created_at")
   updatedAt                    DateTime @updatedAt @map("updated_at")
 
@@ -4232,4 +4236,63 @@ model AnhSanPham {
 
   @@unique([orgId, ten])
   @@map("anh_san_pham")
+}
+
+// ── Guideline engine 2026-08-08 ─────────────────────────────────────────────
+// Rule nghiệp vụ của agent là DỮ LIỆU, không phải prompt văn xuôi.
+// Thiết kế + lý do: docs/THIET-KE-GUIDELINE-ENGINE.md
+model AiGuideline {
+  id        String   @id @default(cuid())
+  orgId     String   @map("org_id")
+  /// Slug người đọc được ('chot-mua-tu-len-don') — khoá idempotent cho seed,
+  /// và để log/analytics tra ra rule mà không cần cuid.
+  ten       String
+  /// 'khach' | 'nhanvien' — cùng phân vai với ToolCallLog.vai.
+  vai       String
+  /// Điều kiện, tiếng Việt tự nhiên — matcher LLM đọc cái này.
+  condition String   @db.Text
+  /// Việc phải làm khi condition đúng — CHỈ dòng này vào prompt khi match.
+  action    String   @db.Text
+  /// 'bat_buoc' → luôn nạp, bỏ qua matcher (an toàn/tiền bạc). 'thuong' → khi match.
+  mucDo     String   @default("thuong") @map("muc_do")
+  /// Tool chỉ được đăng ký vào registry khi guideline này active.
+  tools     String[] @default([])
+  /// 'khai_thac' | 'tu_van' | 'chot_don' | 'sau_ban' | null = mọi giai đoạn.
+  /// Bản đầu CHỈ dùng cho sắp xếp + analytics, không lọc cứng.
+  stage     String?
+  /// Nhỏ đứng trước trong prompt — thứ tự ổn định để giữ prompt cache.
+  uuTien    Int      @default(100) @map("uu_tien")
+  /// Điều kiện cấu hình để guideline được NẠP (khác condition — matcher xét theo
+  /// lượt, cái này xét theo phiên): null = luôn; 'tu_chot_don' = chỉ khi org bật
+  /// cho khách tự chốt; 'khong_tu_chot_don' = chỉ khi KHÔNG bật.
+  yeuCau    String?  @map("yeu_cau")
+  enabled   Boolean  @default(true)
+  /// Vì sao rule tồn tại — link bug/commit. Tri thức từng nằm trong comment code.
+  ghiChu    String?  @map("ghi_chu") @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([orgId, ten])
+  @@index([orgId, vai, enabled])
+  @@map("ai_guidelines")
+}
+
+/// Nhật ký mỗi lượt matcher chạy — soát "matcher trượt" như ToolCallLog soát tool.
+model GuidelineMatchLog {
+  id             String   @id @default(cuid())
+  orgId          String   @map("org_id")
+  conversationId String?  @map("conversation_id")
+  vai            String
+  /// Tin khách đưa vào matcher, cắt 500 ký tự — đủ chẩn đoán, không phình DB.
+  message        String   @db.Text
+  stage          String
+  matchedIds     String[] @map("matched_ids")
+  durationMs     Int      @map("duration_ms")
+  /// true = matcher lỗi, đã nạp toàn bộ guideline (fallback).
+  fallback       Boolean  @default(false)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([orgId, createdAt])
+  @@index([conversationId])
+  @@map("guideline_match_logs")
 }

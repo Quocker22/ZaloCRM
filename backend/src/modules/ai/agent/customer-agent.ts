@@ -41,6 +41,8 @@ import {
 } from '../odoo/tools/tra-tri-thuc.js';
 import { findImageForReply } from '../knowledge/product-image.js';
 import { laYDinhDung } from './y-dinh-dung.js';
+import { matchGuidelines, type KetQuaMatch } from './guideline-matcher.js';
+import { lapPromptKhach, tinhToolChoPhep, type GuidelineActive } from './guideline-prompt.js';
 
 export interface CustomerAgentDeps {
   odoo: OdooClient;
@@ -58,6 +60,34 @@ export interface CustomerAgentDeps {
   ghiLog?: (log: ToolCallLog) => Promise<void> | void;
   /** Tra tài liệu kỹ thuật. Không truyền thì tool `tra_tri_thuc` không đăng ký. */
   timDoanTriThuc?: (cauHoi: string, soDoan: number) => Promise<Array<{ content: string; score?: number }>>;
+  /**
+   * Guideline engine (docs/THIET-KE-GUIDELINE-ENGINE.md). Không truyền = 'off'
+   * — prompt tĩnh, đúng hành vi cũ từng byte.
+   *
+   * 'shadow': matcher chạy + ghi log để soát, nhưng prompt/registry KHÔNG đổi.
+   * 'on'    : prompt lắp từ guideline active; tool bị gate theo guideline.
+   */
+  guidelineEngine?: {
+    mode: 'shadow' | 'on';
+    guidelines: GuidelineNap[];
+    /** Ghi GuidelineMatchLog. Lỗi bị nuốt — quan trắc không được phá nghiệp vụ. */
+    ghiMatchLog?: (log: {
+      message: string;
+      stage: string;
+      matchedIds: string[];
+      durationMs: number;
+      fallback: boolean;
+    }) => void | Promise<void>;
+  };
+}
+
+/** Guideline nạp từ DB (đã lọc enabled + yeuCau ở caller — xem locTheoPhien). */
+export interface GuidelineNap extends Omit<GuidelineActive, 'id'> {
+  /** Slug người đọc được — dùng làm id trong matcher và trong match log. */
+  ten: string;
+  condition: string;
+  stage?: string | null;
+  yeuCau?: string | null;
 }
 
 export interface CustomerAgentInput {
@@ -121,16 +151,28 @@ export function buildCustomerRegistry(deps: {
   };
   /** Tra tài liệu kỹ thuật. Không truyền thì tool không đăng ký. */
   timDoanTriThuc?: (cauHoi: string, soDoan: number) => Promise<Array<{ content: string; score?: number }>>;
+  /**
+   * Guideline engine mode 'on': chỉ tool trong bộ này được đăng ký. Không
+   * truyền = không gate (hành vi cũ). Tầng chặn NẰM DƯỚI prompt: matcher không
+   * match guideline chốt đơn thì tool ghi không tồn tại trong registry — model
+   * không gọi nổi, kể cả bị prompt injection dụ. Các hàng rào cũ (laYDinhDung,
+   * trần tiền, idempotency) vẫn chặn tiếp ở executor, không thay nhau.
+   */
+  toolChoPhep?: ReadonlySet<string>;
 }): ToolRegistry {
   const { odoo } = deps;
-  const r = new ToolRegistry()
-    // Trả lời được "bên bạn bán gì" — câu mở đầu phổ biến nhất của khách buôn.
-    // Thiếu tool này thì bot phải đoán từ khoá rồi chuyển sale (bug 2026-07-30).
-    .register({
+  const duocPhep = (ten: string) => !deps.toolChoPhep || deps.toolChoPhep.has(ten);
+  const r = new ToolRegistry();
+  // Trả lời được "bên bạn bán gì" — câu mở đầu phổ biến nhất của khách buôn.
+  // Thiếu tool này thì bot phải đoán từ khoá rồi chuyển sale (bug 2026-07-30).
+  if (duocPhep('tra_danh_muc')) {
+    r.register({
       definition: traDanhMucDefinition,
       run: async (input) =>
         dinhDangDanhMuc(await traDanhMuc({ odoo }, input as { tu_khoa?: string })),
-    })
+    });
+  }
+  r
     .register({
       definition: traSanPhamDefinition,
       run: async (input) => {
@@ -153,7 +195,8 @@ export function buildCustomerRegistry(deps: {
 
   // Khách CŨNG được hỏi bảo hành / thông số — tri thức kỹ thuật không nhạy cảm
   // như giá vốn hay công nợ. Tool tự chặn câu hỏi về TIỀN ở tầng code.
-  if (deps.timDoanTriThuc) {
+  // (tra_tri_thuc thuộc TOOL_NEN nên không bị gate — vẫn cần timDoanTriThuc.)
+  if (deps.timDoanTriThuc && duocPhep('tra_tri_thuc')) {
     r.register({
       definition: traTriThucDefinition,
       run: async (input) =>
@@ -163,10 +206,11 @@ export function buildCustomerRegistry(deps: {
     });
   }
 
-  // Hai tool GHI — chỉ đăng ký khi được bật rõ ràng. Không bật thì registry
-  // giữ nguyên như cũ: khách không chạm được vào việc ghi Odoo.
+  // Hai tool GHI — chỉ đăng ký khi được bật rõ ràng VÀ (nếu có gate) guideline
+  // chốt đơn đang active. Không bật thì registry giữ nguyên như cũ: khách
+  // không chạm được vào việc ghi Odoo.
   const chot = deps.choKhachChotDon;
-  if (chot) {
+  if (chot && duocPhep('tao_don_nhap') && duocPhep('tao_khach_hang')) {
     // Tên khách gần nhất — dùng làm nội dung chuyển khoản trên QR. Bám theo
     // tool tạo khách vì đó là nơi duy nhất biết tên thật.
     let tenKhachGanNhat = '';
@@ -337,6 +381,40 @@ export async function chayTuVanKhach(
   deps: CustomerAgentDeps,
   input: CustomerAgentInput,
 ): Promise<CustomerAgentResult> {
+  // GUIDELINE ENGINE: matcher chạy TRƯỚC khi dựng registry — kết quả match
+  // quyết định cả prompt lẫn bộ tool. Matcher hỏng → match.fallback=true →
+  // nạp hết = đúng hành vi prompt tĩnh, không tệ hơn hôm nay.
+  const engine = deps.guidelineEngine;
+  let match: KetQuaMatch | undefined;
+  if (engine && engine.guidelines.length > 0) {
+    const t0 = Date.now();
+    match = await matchGuidelines(
+      {
+        generate: deps.generate,
+        // Chỉ đưa rule 'thuong' vào matcher — 'bat_buoc' luôn nạp, hỏi tốn token.
+        guidelines: engine.guidelines
+          .filter((g) => g.mucDo === 'thuong')
+          .map((g) => ({ id: g.ten, condition: g.condition, stage: g.stage })),
+      },
+      { message: input.message, history: input.history ?? [] },
+    );
+    try {
+      await engine.ghiMatchLog?.({
+        message: input.message.slice(0, 500),
+        stage: match.stage,
+        matchedIds: match.matchedIds,
+        durationMs: Date.now() - t0,
+        fallback: match.fallback,
+      });
+    } catch {
+      /* quan trắc lỗi thì bỏ qua — không phá lượt trả lời */
+    }
+  }
+  const dungPromptDong = engine?.mode === 'on' && match !== undefined;
+  const guidelineActive = (engine?.guidelines ?? []).map((g) => ({
+    id: g.ten, action: g.action, mucDo: g.mucDo, tools: g.tools, uuTien: g.uuTien,
+  }));
+
   const registry = buildCustomerRegistry({
     odoo: deps.odoo,
     ghiNhanChuyenSale: deps.ghiNhanChuyenSale,
@@ -345,13 +423,16 @@ export async function chayTuVanKhach(
       ...deps.choKhachChotDon,
       nhanDon: (d) => { donVuaTao = d; },
     },
+    toolChoPhep: dungPromptDong ? tinhToolChoPhep(match!, guidelineActive) : undefined,
   });
 
   const log: ToolCallLog[] = [];
   let donVuaTao: { donId: number; maDon: string; tongTien: number; tenKhach: string } | undefined;
 
   const kq = await runAgent({
-    system: buildCustomerSystemPrompt(input.bizName, Boolean(deps.choKhachChotDon)),
+    system: dungPromptDong
+      ? lapPromptKhach(input.bizName, match!, guidelineActive)
+      : buildCustomerSystemPrompt(input.bizName, Boolean(deps.choKhachChotDon)),
     userMessage: ghepLichSu(input.history, input.message),
     tools: registry.definitions(),
     // Khách nói "thôi không lấy nữa" → KHOÁ tool ghi. Cùng hàng rào với luồng
