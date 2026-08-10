@@ -53,7 +53,7 @@ const input = (over: Record<string, unknown> = {}) => ({
 });
 
 describe('buildStaffRegistry', () => {
-  it('đăng ký đủ 15 tool (thêm sua_don 07/08; bỏ chuyen_sale khỏi NV)', () => {
+  it('đăng ký đủ 18 tool (thêm 3 tool Odoo tổng quát 10/08)', () => {
     const r = buildStaffRegistry({
       odoo: fakeOdoo(),
       conversationId: 'c',
@@ -66,7 +66,12 @@ describe('buildStaffRegistry', () => {
       'bao_cao_linh_hoat',
       'bao_cao_tong_quan',
       'canh_bao_ton_kho',
+      // 3 tool tổng quát (10/08): làm được việc chưa có tool riêng, thay vì
+      // cứ mỗi nghiệp vụ mới lại thêm một tool.
+      'doc_odoo',
       'don_cho_xac_nhan',
+      'kham_pha_odoo',
+      'lam_odoo',
       'sua_chiet_khau',
       'sua_don',
       'tao_don_nhap',
@@ -80,7 +85,7 @@ describe('buildStaffRegistry', () => {
     ]);
   });
 
-  it('bốn tool GHI: sua_chiet_khau, sua_don, tao_don_nhap, tao_khach_hang', () => {
+  it('năm tool GHI (thêm lam_odoo 10/08 — tool ghi tự do có phanh)', () => {
     const r = buildStaffRegistry({
       odoo: fakeOdoo(),
       conversationId: 'c',
@@ -90,8 +95,9 @@ describe('buildStaffRegistry', () => {
 
     const ghi = r.definitions().filter((d) => d.mutates).map((d) => d.name);
     // sua_chiet_khau thêm 2026-08-01; tao_khach_hang 2026-08-04; sua_don 2026-08-07
-    // (đổi SL/thêm hàng vào đơn cũ thay vì tạo đơn mới).
-    expect(ghi.sort()).toEqual(['sua_chiet_khau', 'sua_don', 'tao_don_nhap', 'tao_khach_hang']);
+    // (đổi SL/thêm hàng vào đơn cũ thay vì tạo đơn mới); lam_odoo 2026-08-10
+    // (ghi tự do có phanh xoá/hàng loạt — xem tong-quat/an-toan.ts).
+    expect(ghi.sort()).toEqual(['lam_odoo', 'sua_chiet_khau', 'sua_don', 'tao_don_nhap', 'tao_khach_hang']);
   });
 });
 
@@ -131,11 +137,11 @@ describe('chayLenhNhanVien — chạy vòng lặp', () => {
     expect(msg).toContain('tra giá P10');
   });
 
-  it('gửi đủ 15 tool cho LLM (thêm sua_don 07/08)', async () => {
+  it('gửi đủ 18 tool cho LLM (thêm 3 tool tổng quát 10/08)', async () => {
     const generate = fakeLLM([turnXong('ok')]);
     await chayLenhNhanVien(deps({ generate }), input());
 
-    expect(generate.mock.calls[0][0].tools).toHaveLength(15);
+    expect(generate.mock.calls[0][0].tools).toHaveLength(18);
   });
 
   it('system prompt là prompt NHÂN VIÊN, không phải prompt khách', async () => {

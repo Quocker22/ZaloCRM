@@ -4296,3 +4296,27 @@ model GuidelineMatchLog {
   @@index([conversationId])
   @@map("guideline_match_logs")
 }
+
+/// Thao tác Odoo đã khai sẵn — tầng "việc quen" của tool tổng quát.
+/// Thêm việc mới = INSERT một dòng, KHÔNG sửa code, không deploy.
+/// Spec: docs/superpowers/specs/2026-08-10-tool-odoo-tong-quat-design.md
+model ThaoTacOdoo {
+  id      String  @id @default(cuid())
+  orgId   String  @map("org_id")
+  /// Tên việc theo cách nhân viên nói: "xác nhận đơn", "thu tiền".
+  ten     String
+  /// Mô tả + ví dụ câu nói — vào prompt để model biết khi nào dùng.
+  moTa    String  @map("mo_ta") @db.Text
+  bang    String
+  /// 'tao' | 'sua' | 'goi_nut'
+  viec    String
+  /// Method Odoo khi viec='goi_nut' (action_confirm, action_post…).
+  nut     String?
+  enabled Boolean @default(true)
+  /// Vì sao có việc này — link yêu cầu/bug. Bắt buộc ghi khi thêm.
+  ghiChu  String? @map("ghi_chu") @db.Text
+
+  @@unique([orgId, ten])
+  @@index([orgId, enabled])
+  @@map("thao_tac_odoo")
+}

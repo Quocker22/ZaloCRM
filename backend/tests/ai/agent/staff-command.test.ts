@@ -213,7 +213,10 @@ describe('buildStaffSystemPrompt', () => {
     // thay vì tạo đơn mới) — 1 dòng chỉ dẫn dùng tool.
     // 2.820 → 2.900 (07/08 khuya): tool xuat_hoa_don (hoá đơn KẾ TOÁN vào sổ) —
     // 1 dòng phân vai với gui_hoa_don (ảnh), tránh model gọi nhầm tool ghi ERP.
-    expect(buildStaffSystemPrompt(BIZ_THAT).length).toBeLessThan(2900);
+    // 2.900 → 3.100 (10/08): 3 tool Odoo tổng quát (doc_odoo/lam_odoo/
+    // kham_pha_odoo) — 2 dòng, đổi lại KHÔNG phải thêm dòng prompt cho từng
+    // nghiệp vụ mới nữa. Đây là khoản đầu tư giảm phình về sau.
+    expect(buildStaffSystemPrompt(BIZ_THAT).length).toBeLessThan(3100);
   });
 });
 

@@ -629,3 +629,11 @@ DROP POLICY IF EXISTS tenant_isolation ON "anh_san_pham";
 CREATE POLICY tenant_isolation ON "anh_san_pham"
   USING ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on')
   WITH CHECK ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on');
+
+-- thao_tac_odoo (việc quen của tool Odoo tổng quát — spec 2026-08-10)
+ALTER TABLE "thao_tac_odoo" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "thao_tac_odoo" FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON "thao_tac_odoo";
+CREATE POLICY tenant_isolation ON "thao_tac_odoo"
+  USING ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on');

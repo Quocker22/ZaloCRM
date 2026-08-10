@@ -96,6 +96,9 @@ import {
   xuatExcel, tenFileBaoCao, NGUONG_DINH_KEM, type BangExcel, type TepBaoCao,
 } from '../odoo/xuat-excel.js';
 import { bangRaAnh } from '../odoo/anh-bang.js';
+import { docOdoo, docOdooDefinition, dinhDangDoc } from '../odoo/tong-quat/doc.js';
+import { lamOdoo, lamOdooDefinition, dinhDangLam } from '../odoo/tong-quat/lam.js';
+import { khamPhaOdoo, khamPhaOdooDefinition, dinhDangKhamPha } from '../odoo/tong-quat/kham-pha.js';
 
 /** Bản ghi 1 lần gọi tool — cho quan trắc. */
 export interface ToolCallLog {
@@ -484,6 +487,25 @@ export function buildStaffRegistry(deps: {
         ),
     });
   }
+
+  // ── BA TOOL ODOO TỔNG QUÁT (spec 2026-08-10) ─────────────────────────────
+  // Thay cho việc viết tool riêng từng nghiệp vụ. CHỈ registry nhân viên —
+  // khách điều khiển được câu chữ nên sẽ điều khiển được lệnh Odoo.
+  // 18 tool cũ vẫn giữ: chúng nhanh hơn và có hàng rào riêng (verify tên khách,
+  // idempotency, chặn giá ảo). Ba tool này để làm việc CHƯA có tool.
+  r
+    .register({
+      definition: docOdooDefinition,
+      run: async (input) => dinhDangDoc(await docOdoo({ odoo }, input as never)),
+    })
+    .register({
+      definition: khamPhaOdooDefinition,
+      run: async (input) => dinhDangKhamPha(await khamPhaOdoo({ odoo }, input as never)),
+    })
+    .register({
+      definition: lamOdooDefinition,
+      run: async (input) => dinhDangLam(await lamOdoo({ odoo }, input as never)),
+    });
 
   // XUẤT HOÁ ĐƠN KẾ TOÁN (account.move, vào sổ). CHỈ nhân viên: đây là tool
   // ghi ERP nặng nhất của bot. Có anhClient thì render ảnh hoá đơn gửi kèm
