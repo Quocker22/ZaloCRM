@@ -97,6 +97,8 @@ export interface BaoCaoLinhHoatInput {
 export interface DongBaoCao {
   nhan: string;
   giaTri: number;
+  /** Chỉ tiêu phụ khi `do` ghép nhiều (vd vừa số lượng vừa tiền). */
+  phu?: Array<{ key: string; giaTri: number }>;
 }
 
 export type KetQuaLinhHoat =
@@ -127,11 +129,21 @@ export async function baoCaoLinhHoat(
   }
   const ch = CAU_HINH[bang];
 
-  const doKey = input.do ?? '';
+  // `do` nhận NHIỀU chỉ tiêu, phân tách bằng dấu phẩy: "so_luong,tong_tien".
+  //
+  // Bug thật 20:08 10/08: nhân viên hỏi "chi tiết từng sản phẩm", bot chọn
+  // do=so_luong nên bảng chỉ có số lượng — thiếu tiền, tức thiếu đúng thứ
+  // người ta cần nhất khi xem công nợ. Chỉ tiêu ĐẦU là chính (dùng để sắp
+  // xếp và tính tổng), các chỉ tiêu sau hiện thêm ở mỗi dòng.
+  const doKeys = (input.do ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+  const doKey = doKeys[0] ?? '';
   const doField = (ch.do as Record<string, string>)[doKey];
   if (!doField) {
     return loi(`do='${input.do}' không hợp lệ với bang='${bang}'. Chọn: ${Object.keys(ch.do).join(', ')}.`);
   }
+  const doPhu = doKeys.slice(1)
+    .map((k) => ({ key: k, field: (ch.do as Record<string, string>)[k] }))
+    .filter((x): x is { key: string; field: string } => Boolean(x.field) && x.field !== '__count');
 
   const nhomKey = input.nhom_theo ?? '';
   const nhomField = (ch.nhom as Record<string, string>)[nhomKey];
@@ -182,6 +194,7 @@ export async function baoCaoLinhHoat(
   const laCount = doField === '__count';
   const fieldGoc = doField.split(':')[0];
   const fields = laCount ? [] : [`${fieldGoc}:${doField.includes(':') ? doField.split(':')[1] : 'sum'}`];
+  for (const p of doPhu) fields.push(`${p.field.split(':')[0]}:sum`);
 
   try {
     const nhom = await deps.odoo.execute<Array<Record<string, unknown>>>(
@@ -198,7 +211,10 @@ export async function baoCaoLinhHoat(
       const giaTri = laCount
         ? Number(g[`${tenNhomGoc}_count`] ?? g.__count ?? 0)
         : Number(g[fieldGoc] ?? 0);
-      return { nhan, giaTri };
+      const phu = doPhu
+        .map((p) => ({ key: p.key, giaTri: Number(g[p.field.split(':')[0]] ?? 0) }))
+        .filter((x) => x.giaTri !== 0);
+      return { nhan, giaTri, ...(phu.length > 0 ? { phu } : {}) };
     });
 
     danhSach.sort((a, b) => (input.sap_xep === 'tang' ? a.giaTri - b.giaTri : b.giaTri - a.giaTri));
@@ -231,7 +247,11 @@ export function dinhDangLinhHoat(kq: KetQuaLinhHoat, daDinhKem = false): string 
     return `Không có dữ liệu cho báo cáo (${kq.moTa}). Kỳ này thật sự trống — đừng đoán số.`;
   }
   const hien = kq.danhSach.slice(0, daDinhKem ? 5 : NGUONG_DINH_KEM);
-  const dong = hien.map((d) => `- ${d.nhan}: ${d.giaTri.toLocaleString('vi-VN')}`).join('\n');
+  const dong = hien.map((d) => {
+    // Chỉ tiêu phụ in ngay sau chính: "- SP X: 120 · tong_tien 15.120.000"
+    const them = (d.phu ?? []).map((p) => ` · ${p.key} ${p.giaTri.toLocaleString('vi-VN')}`).join('');
+    return `- ${d.nhan}: ${d.giaTri.toLocaleString('vi-VN')}${them}`;
+  }).join('\n');
   return (
     `Báo cáo (${kq.moTa}) — TỔNG: ${kq.tong.toLocaleString('vi-VN')}\n` +
     dong +
@@ -247,13 +267,15 @@ export const baoCaoLinhHoatDefinition: ToolDefinition = {
     '"doanh thu theo từng nhân viên tuần trước" (bang=don_hang, do=tong_tien, nhom_theo=nhan_vien), ' +
     '"mỗi tháng thêm bao nhiêu khách mới" (bang=khach_hang, do=so_khach, nhom_theo=thang). ' +
     'Hễ hỏi "AI/CÁI GÌ nhiều nhất, theo từng X" mà không có tool chuyên → dùng tool NÀY, đừng bỏ cuộc. ' +
+    'Hỏi "CHI TIẾT từng sản phẩm" thì đo CẢ HAI: do="so_luong,tong_tien" — bảng chỉ có ' +
+    'số lượng mà thiếu tiền là thiếu đúng thứ nhân viên cần. ' +
     'KHÔNG dùng khi đã có tool chuyên: doanh thu tổng kỳ (bao_cao_tong_quan), top SẢN PHẨM (top_san_pham), ' +
     'tồn sắp hết (canh_bao_ton_kho), công nợ (xuat_cong_no), đơn chờ (don_cho_xac_nhan).',
   inputSchema: {
     type: 'object',
     properties: {
       bang: { type: 'string', enum: ['don_hang', 'dong_don', 'khach_hang', 'ton_kho'], description: 'Nguồn dữ liệu. don_hang=đơn bán; dong_don=từng dòng sản phẩm trong đơn; khach_hang=danh bạ khách; ton_kho=tồn hiện tại.' },
-      do: { type: 'string', enum: ['tong_tien', 'so_luong', 'so_don', 'so_khach'], description: 'Đo gì. don_hang: tong_tien/so_don/so_khach · dong_don: so_luong/tong_tien · khach_hang: so_khach · ton_kho: so_luong.' },
+      do: { type: 'string', description: 'Đo gì. don_hang: tong_tien/so_don/so_khach · dong_don: so_luong/tong_tien · khach_hang: so_khach · ton_kho: so_luong. GHÉP NHIỀU bằng dấu phẩy khi nhân viên hỏi "chi tiết": "so_luong,tong_tien".' },
       nhom_theo: { type: 'string', enum: ['nhan_vien', 'khach', 'san_pham', 'ngay', 'thang'], description: 'Nhóm kết quả theo gì. san_pham chỉ với dong_don/ton_kho.' },
       tu_ngay: { type: 'string', description: 'YYYY-MM-DD' },
       den_ngay: { type: 'string', description: 'YYYY-MM-DD' },
