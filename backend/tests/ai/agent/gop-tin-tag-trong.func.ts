@@ -84,3 +84,28 @@ describe('gopTinTruocKhiTag — tag trống nuốt tin liền trước của cù
     expect(kq).not.toContain('tin 6');
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RỦI RO của phép nuốt ngược: làm LẠI việc đã làm.
+//
+// Trong chat 1-1 nhân viên KHÔNG cần tag, nên tin "lên đơn..." được xử lý ngay.
+// Nếu sau đó họ tag trống, mà ta lại nuốt ngược tin đó thì bot lên đơn LẦN HAI.
+// Ranh giới "dừng ở tin của bot" xử lý được ca này: bot đã trả lời thì tin của
+// nó nằm giữa, chặn phép nuốt. Ca dưới khoá hành vi đó lại.
+describe('không làm lại việc đã xử lý', () => {
+  it('bot đã trả lời tin đó rồi → tag trống KHÔNG nuốt lại (tránh lên đơn 2 lần)', () => {
+    const kq = gopTinTruocKhiTag(NV, [
+      { senderUid: NV, senderType: 'contact', content: 'lên đơn cho anh Thức 10 cái nguồn NB' },
+      { senderUid: null, senderType: 'self', content: 'Đơn S13850 đã tạo ạ' },
+    ]);
+    expect(kq).toBeNull();
+  });
+
+  it('bot CHƯA trả lời (tin bị bỏ qua vì quên tag) → nuốt lại, đúng ca 21:04', () => {
+    const kq = gopTinTruocKhiTag(NV, [
+      { senderUid: null, senderType: 'self', content: 'Chào anh/chị, em hỗ trợ gì được ạ?' },
+      { senderUid: NV, senderType: 'contact', content: 'lên đơn cho anh Thức 10 cái nguồn NB' },
+    ]);
+    expect(kq).toBe('lên đơn cho anh Thức 10 cái nguồn NB');
+  });
+});
