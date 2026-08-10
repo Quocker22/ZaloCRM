@@ -55,8 +55,28 @@ export function tranTienKhach(): number {
   return Number(process.env.AI_AGENT_TRAN_TIEN_KHACH ?? 20_000_000);
 }
 
-/** Số tin lịch sử nạp vào ngữ cảnh — đủ để hiểu "cái đó", không phình prompt. */
-export const SO_TIN_LICH_SU = 10;
+/**
+ * Số tin lịch sử nạp vào ngữ cảnh.
+ *
+ * 10 → 50 (10/08, anh Quốc chốt): 10 tin quá ngắn — bot quên việc đang dở chỉ
+ * sau vài lượt, nhân viên phải nhắc lại từ đầu. Model 1 triệu token thì 50 tin
+ * (~8k token) không đáng gì về chỗ chứa, và ~15.000đ/tháng vẫn trong ngân sách.
+ *
+ * KHÔNG lấy "hết" dù cửa sổ cho phép: bug thật 20:06 10/08 là bot bốc mã
+ * KH001409 của khách CŨ trong lịch sử rồi tra công nợ nhầm người — CHỈ với 10
+ * tin. Lịch sử càng dài, cơ hội bốc nhầm càng nhiều. Nâng dần và đo, đừng nhảy
+ * thẳng lên "toàn bộ" rồi không biết bug mới từ đâu ra.
+ *
+ * Chỉnh bằng env AI_AGENT_SO_TIN_LICH_SU — không cần deploy khi muốn thử ngưỡng
+ * khác. Trần 200 để một hội thoại dài bất thường không nuốt hết ngữ cảnh.
+ */
+export function soTinLichSu(env: NodeJS.ProcessEnv = process.env): number {
+  const n = Number(env.AI_AGENT_SO_TIN_LICH_SU ?? 50);
+  return Number.isFinite(n) && n > 0 ? Math.min(n, 200) : 50;
+}
+
+/** @deprecated Dùng soTinLichSu() — giữ tên cũ cho code/test chưa đổi. */
+export const SO_TIN_LICH_SU = 50;
 
 /**
  * Chặn tạo đơn thứ hai trong CÙNG hội thoại nếu cách đơn trước dưới N giây.

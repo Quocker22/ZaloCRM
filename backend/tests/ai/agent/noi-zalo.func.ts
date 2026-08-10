@@ -6,7 +6,7 @@
 // phải là hành động có chủ đích, không phải hiệu ứng phụ của một lần deploy.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { batLuongNhanVien, batLuongKhach, duCauHinh, seqTuMessageId, batKhachTuChotDon, duongDanChat } from '../../../src/modules/ai/agent/noi-zalo.js';
-import { odooUrlCongKhai } from '../../../src/modules/ai/agent/noi-zalo/cong-tac.js';
+import { odooUrlCongKhai, soTinLichSu } from '../../../src/modules/ai/agent/noi-zalo/cong-tac.js';
 import { sinhKhoaDon, tachKhoaDon } from '../../../src/modules/ai/odoo/idempotency.js';
 
 const DU = {
@@ -173,5 +173,24 @@ describe('odooUrlCongKhai — link cho NGƯỜI bấm, không phải hostname Do
     delete process.env.ODOO_PUBLIC_URL;
 
     expect(odooUrlCongKhai()).toBe('http://incokit_nginx_prod');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Số tin lịch sử: 10 → 50 (10/08). Nâng dần + đo, KHÔNG lấy "hết" — bug 20:06
+// cho thấy lịch sử càng dài càng dễ bốc nhầm mã khách cũ.
+describe('soTinLichSu — nâng dần có kiểm soát', () => {
+  it('mặc định 50', () => {
+    expect(soTinLichSu({} as NodeJS.ProcessEnv)).toBe(50);
+  });
+  it('chỉnh được bằng env, không cần deploy', () => {
+    expect(soTinLichSu({ AI_AGENT_SO_TIN_LICH_SU: '100' } as NodeJS.ProcessEnv)).toBe(100);
+  });
+  it('trần 200 — hội thoại dài bất thường không nuốt hết ngữ cảnh', () => {
+    expect(soTinLichSu({ AI_AGENT_SO_TIN_LICH_SU: '99999' } as NodeJS.ProcessEnv)).toBe(200);
+  });
+  it('giá trị rác → về mặc định', () => {
+    expect(soTinLichSu({ AI_AGENT_SO_TIN_LICH_SU: 'abc' } as NodeJS.ProcessEnv)).toBe(50);
+    expect(soTinLichSu({ AI_AGENT_SO_TIN_LICH_SU: '0' } as NodeJS.ProcessEnv)).toBe(50);
   });
 });
