@@ -116,11 +116,24 @@ export function khoeDaGhi(traLoi: string): boolean {
  */
 export function khoeDaGuiAnh(traLoi: string): boolean {
   const t = boDau(String(traLoi ?? ''));
-  return [
-    'gui anh', 'gui lai anh', 'gui hinh', 'gui lai hinh', 'gui hoa don',
-    'gui lai hoa don', 'gui anh hoa don', 'gui anh don', 'gui anh don hang',
-    'da gui anh', 'da gui hoa don', 'da gui hinh',
-  ].some((c) => t.includes(c));
+
+  // CHỦ NGỮ phải là BOT. Bug thật 23:38:44 10/08: khách gửi ảnh sản phẩm hỏi
+  // "shop có cái này không", bot đọc ảnh đúng nhưng câu trả lời có chữ "gửi
+  // ảnh" → hàng rào chặn, văng nguyên thông báo NỘI BỘ ra cho khách.
+  //
+  // Cụm "gui anh" trần khớp cả khi bot XIN khách gửi ("anh gửi ảnh giúp em") —
+  // nghĩa ngược hẳn. Trước 10/08 bot chưa đọc được ảnh nên hiếm khi nói câu
+  // này; giờ đọc được thì đụng liên tục.
+  //
+  // Chỉ chặn khi có "em/mình/shop" (hoặc "đã") ĐỨNG NGAY TRƯỚC động từ gửi.
+  // "anh/chị/bạn gửi" là bảo người khác gửi → cho qua.
+  const CHU_NGU_BOT = '(?:em|minh|shop|ben em|da)';
+  const DO_GUI = '(?:anh|hinh|hoa don)';
+  const re = new RegExp(
+    `\\b${CHU_NGU_BOT}\\s+(?:da\\s+|se\\s+|dang\\s+)?gui\\s+(?:lai\\s+)?${DO_GUI}`,
+    'i',
+  );
+  return re.test(t);
 }
 
 /** Câu tool trả về khi bị chặn — nói cho model biết vì sao và phải làm gì. */

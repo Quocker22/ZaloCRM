@@ -88,3 +88,39 @@ describe('wiring máy gom đơn trong xuLyTinNhanVien', () => {
     expect(vi.mocked(guiTin).mock.calls.some((c) => String(c[1]).includes('Bot gặp lỗi'))).toBe(true);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// KHÔNG rò thông báo NỘI BỘ ra cho khách.
+//
+// Bug thật 23:38:44 10/08: khách gửi ảnh sản phẩm hỏi "bên shop có sản phẩm
+// này không". Hàng rào chống-hứa-lèo chặn câu trả lời, và luồng nhân viên dán
+// nguyên `r.lyDo` — văn bản kỹ thuật viết cho lập trình viên — vào tin gửi đi:
+//   "Bot chưa xử lý xong (Model nói đã gửi ảnh ("...") nhưng KHÔNG có ảnh hoá
+//    đơn nào được tạo. Muốn gửi ảnh phải gọi tool gui_hoa_don để render ảnh
+//    thật; chặn câu bịa để nhân viên khỏi tin nhầm.)"
+// Nhóm bán hàng có cả khách ngồi trong đó.
+describe('dở dang — báo người thật, KHÔNG lộ nội tình kỹ thuật', () => {
+  it('không dán lý do kỹ thuật vào tin nhắn, nhưng vẫn báo', async () => {
+    vi.mocked(chayLenhNhanVien).mockResolvedValueOnce({
+      trangThai: 'chua_hoan_tat',
+      lyDo: 'Model nói đã gửi ảnh ("...") nhưng KHÔNG có ảnh hoá đơn nào được tạo. '
+        + 'Muốn gửi ảnh phải gọi tool gui_hoa_don để render ảnh thật.',
+      log: [],
+      usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+    } as never);
+    vi.mocked(xuLyGomDon).mockResolvedValueOnce(false);
+
+    await xuLyTinNhanVien({
+      orgId: 'o1', bizName: 'LEDNELIA', conversationId: 'c-loro', messageId: 'm-loro',
+      content: '@bot bên shop có sản phẩm này không', senderUid: 'uid-nv', isSelf: true,
+    } as never);
+
+    const daGui = vi.mocked(guiTin).mock.calls.map((c) => String(c[1])).join('\n');
+    // Vẫn phải nhắn gì đó — im lặng thì nhân viên không biết mà xử.
+    expect(daGui.length).toBeGreaterThan(0);
+    // Nhưng tuyệt đối không lộ tên tool, chữ "Model", hay hướng dẫn kỹ thuật.
+    expect(daGui).not.toContain('gui_hoa_don');
+    expect(daGui).not.toContain('Model nói');
+    expect(daGui).not.toMatch(/render|tool\b/i);
+  });
+});

@@ -184,3 +184,44 @@ describe('registry.executor(chanToolGhi) — hàng rào thật ở tầng thực
     expect(kq.content, 'phải nhắc xử lý đơn đã lỡ tạo').toContain('mã đơn');
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Bug thật 23:38:44 10/08: khách gửi ẢNH sản phẩm hỏi "bên shop có cái này
+// không". Bot đọc ảnh ra "nguồn 24V600WY" — ĐÚNG — nhưng câu trả lời chứa chữ
+// "gửi ảnh", thế là hàng rào chống-hứa-lèo chặn và văng nguyên thông báo NỘI
+// BỘ ra cho khách: "Bot chưa xử lý xong (Model nói đã gửi ảnh...)".
+//
+// Gốc: hàng rào khớp cụm "gui anh" ở BẤT KỲ đâu trong câu, nên chặn cả khi bot
+// XIN khách gửi ảnh — nghĩa hoàn toàn ngược. Trước 10/08 bot chưa đọc được ảnh
+// nên hiếm khi nói "gửi ảnh"; giờ đọc được thì đụng liên tục.
+//
+// Luật đúng: chỉ chặn khi BOT tự nhận MÌNH gửi ("em gửi ảnh", "đã gửi ảnh"),
+// KHÔNG chặn khi bot bảo người khác gửi ("anh gửi ảnh giúp em").
+describe('khoeDaGuiAnh — chỉ chặn khi BOT tự nhận mình gửi', () => {
+  const chan = [
+    'Em gửi lại ảnh hoá đơn DNH36805 nhé',
+    'Dạ em đã gửi ảnh hoá đơn rồi ạ',
+    'Em gửi hình đơn hàng cho anh nhé',
+    'em đã gửi hoá đơn qua zalo rồi ạ',
+    'Em gửi lại hoá đơn cho anh nha',
+  ];
+  for (const c of chan) {
+    it(`CHẶN: ${JSON.stringify(c)}`, () => expect(khoeDaGuiAnh(c)).toBe(true));
+  }
+
+  const choQua = [
+    // Ca thật gây bug 23:38.
+    'Đã tìm thấy nguồn 24V600WY. Nhưng tôi cần xác nhận với nhân viên trước khi trả lời khách gửi ảnh này',
+    // Bot XIN khách gửi ảnh — nghĩa ngược hẳn.
+    'Anh/chị gửi ảnh sản phẩm giúp em nhé',
+    'Dạ shop có sản phẩm này ạ. Anh gửi ảnh rõ hơn giúp em',
+    'Anh gửi lại ảnh giúp em với ạ',
+    'Chị chụp gửi hình cái tem giúp em nhé',
+    // Nói về ảnh mà không hứa gửi.
+    'Ảnh anh gửi là nguồn NB 12V300W ạ',
+    'Em xem ảnh rồi, đây là loại 24V600W',
+  ];
+  for (const c of choQua) {
+    it(`CHO QUA: ${JSON.stringify(c.slice(0, 45))}`, () => expect(khoeDaGuiAnh(c)).toBe(false));
+  }
+});

@@ -313,8 +313,19 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
         }
       }
     } else {
-      // Dở dang: báo nhân viên tự xử, KHÔNG im lặng để họ còn biết mà làm.
-      await guiTin(dich, `Bot chưa xử lý xong (${r.lyDo}). Anh/chị xử lý giúp nhé.`, false);
+      // Dở dang: báo để nhân viên tự xử, KHÔNG im lặng.
+      //
+      // Nhưng KHÔNG dán `r.lyDo` vào tin nhắn (sửa 10/08): đó là văn bản kỹ
+      // thuật viết cho lập trình viên. Bug 23:38:44 — khách hỏi "bên shop có
+      // sản phẩm này không", nhận về nguyên câu 'Bot chưa xử lý xong (Model
+      // nói đã gửi ảnh ("...") nhưng KHÔNG có ảnh hoá đơn nào được tạo. Muốn
+      // gửi ảnh phải gọi tool gui_hoa_don...)'. Nhóm bán hàng có cả khách.
+      // Lý do đầy đủ vẫn nằm trong log — grep '[agent/nv] dở dang' là ra.
+      logger.warn(
+        { conversationId: ctx.conversationId, lyDo: r.lyDo },
+        '[agent/nv] dở dang — đã báo nhân viên',
+      );
+      await guiTin(dich, 'Dạ khoản này em chưa xử lý được, anh/chị xem giúp em với ạ.', false);
     }
 
     moc.xong(t0, {
