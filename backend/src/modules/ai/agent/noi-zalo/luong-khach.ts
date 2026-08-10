@@ -14,7 +14,7 @@ import { timAnhSanPhamTheoReply, taiAnhVeTam } from '../../knowledge/anh-san-pha
 import { chayTuVanKhach } from '../customer-agent.js';
 import { napGuidelineKhach, type PrismaGuideline } from '../guideline-store.js';
 import { coTagBot } from '../staff-command.js';
-import { chiCoEmoji } from './luong-media.js';
+import { chiCoEmoji } from './chi-co-emoji.js';
 import { laBucTuc } from './cam-xuc.js';
 import { taoGhiLog, type PrismaGhiLog } from '../ghi-log-tool.js';
 import { batLuongKhach, batKhachTuChotDon, duCauHinh, tranTienKhach, chanDonLienKeGiay } from './cong-tac.js';

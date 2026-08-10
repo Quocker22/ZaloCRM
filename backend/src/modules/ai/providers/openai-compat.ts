@@ -389,3 +389,56 @@ function docPhanHoi(raw: unknown): AgentTurn {
       : undefined,
   };
 }
+
+/**
+ * NHÌN ẢNH — gửi một ảnh + lời dặn, nhận mô tả bằng chữ.
+ *
+ * Tách khỏi `generateWithOpenaiCompatTools` vì việc này khác hẳn: không tool,
+ * không vòng lặp, và dùng MODEL KHÁC (model chat của prod không nhìn được ảnh
+ * — đo thật 10/08: OpenRouter trả 404 "No endpoints found that support image
+ * input" cho deepseek-v4-flash).
+ *
+ * Ảnh đi bằng data: URI thay vì link: link media của Zalo/MinIO nằm sau mạng
+ * nội bộ, OpenRouter không với tới được.
+ */
+export async function nhinAnhOpenaiCompat(args: {
+  /** URL ĐẦY ĐỦ tới /chat/completions — dùng chung duongDanChat() với luồng chat. */
+  url: string;
+  apiKey: string;
+  model: string;
+  loiDan: string;
+  anhBase64: string;
+  kieuAnh: string;
+  maxTokens?: number;
+  timeoutMs?: number;
+}): Promise<string> {
+  const res = await fetch(args.url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${args.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: args.model,
+      max_tokens: args.maxTokens ?? 500,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text: args.loiDan },
+          {
+            type: 'image_url',
+            image_url: { url: `data:${args.kieuAnh};base64,${args.anhBase64}` },
+          },
+        ],
+      }],
+    }),
+    signal: AbortSignal.timeout(args.timeoutMs ?? 45_000),
+  });
+
+  const j = (await docJson(res)) as {
+    error?: { message?: string };
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+  if (j.error) throw new Error(`nhìn ảnh lỗi: ${j.error.message ?? 'không rõ'}`);
+  return String(j.choices?.[0]?.message?.content ?? '').trim();
+}

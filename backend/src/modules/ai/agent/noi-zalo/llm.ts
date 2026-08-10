@@ -52,3 +52,22 @@ export async function dungGenerate(orgId: string): Promise<ToolAwareGenerate | n
       ...a,
     });
 }
+
+/**
+ * Cấu hình LLM thô của một tổ chức — cho việc gọi provider KHÔNG qua
+ * `ToolAwareGenerate` (hiện là nhìn ảnh: cần gửi content block, không cần tool).
+ *
+ * Dùng chung nguồn với `dungGenerate` để đổi provider một lần là cả hai theo.
+ * Trả URL ĐẦY ĐỦ (đã qua duongDanChat) — caller không tự ghép, tránh /v1 đôi.
+ */
+export async function layCauHinhLlm(
+  orgId: string,
+): Promise<{ url: string; apiKey: string; model: string } | null> {
+  const cfg = await prisma.aiConfig.findUnique({ where: { orgId } });
+  if (!cfg) return null;
+  const apiKey = await getProviderApiKey(orgId, cfg.provider);
+  if (!apiKey) return null;
+  const baseUrl = await getProviderBaseUrl(orgId, cfg.provider);
+  if (!baseUrl) return null;
+  return { url: duongDanChat(cfg.provider, baseUrl), apiKey, model: cfg.model };
+}

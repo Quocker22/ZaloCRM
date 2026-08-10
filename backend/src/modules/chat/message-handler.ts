@@ -742,6 +742,12 @@ export async function handleIncomingMessage(
             conversationId: conversation.id,
             messageId: message.id,
             laNhom,
+            // ẢNH giấu URL trong content (JSON zca-js) — thiếu nó thì không
+            // đọc được ảnh, chỉ báo người như trước (10/08).
+            content: message.content ?? '',
+            senderUid: msg.senderUid,
+            isSelf: msg.isSelf,
+            daTagBot,
           },
           message.contentType,
         ).catch((err) => logger.warn({ err }, '[agent] luồng media lỗi (bỏ qua)'));

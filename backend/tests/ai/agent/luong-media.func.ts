@@ -15,7 +15,8 @@ vi.mock('../../../src/modules/ai/agent/noi-zalo/gui-zalo.js', () => ({
 }));
 
 import { timDich, guiTin } from '../../../src/modules/ai/agent/noi-zalo/gui-zalo.js';
-import { xuLyTinMedia, chiCoEmoji } from '../../../src/modules/ai/agent/noi-zalo/luong-media.js';
+import {xuLyTinMedia} from '../../../src/modules/ai/agent/noi-zalo/luong-media.js';
+import { chiCoEmoji } from '../../../src/modules/ai/agent/noi-zalo/chi-co-emoji.js';
 import { xoaLichSuBao } from '../../../src/modules/ai/agent/noi-zalo/bao-nhan-vien.js';
 import { logger } from '../../../src/shared/utils/logger.js';
 
@@ -97,5 +98,58 @@ describe('xuLyTinMedia — ảnh/voice: giữ chân + báo người', () => {
 
   it('loại lạ (vd "location") → trả false, để pipeline cũ tự xử', async () => {
     expect(await xuLyTinMedia(CTX, 'location')).toBe(false);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ĐỌC ẢNH (10/08) — anh Quốc: "làm bot đọc được ảnh… chỉ đọc ảnh rồi lấy
+// thông tin xử lý thôi". Ảnh → chữ → luồng thường, nên mọi nghiệp vụ sẵn có
+// (gom đơn, tra khách, tool Odoo) dùng được với ảnh mà không viết lại đường nào.
+//
+// Ranh giới quan trọng: đọc HỎNG thì phải rơi xuống đường báo người, TUYỆT ĐỐI
+// không im lặng — im lặng với ảnh chuyển khoản là mất tiền thật.
+describe('đọc ảnh — chuyển thành chữ rồi đưa vào luồng thường', () => {
+  const ANH = JSON.stringify({
+    title: 'lên đơn cái này cho anh Thức',
+    href: 'http://media/abc.jpg',
+    thumb: 'http://media/abc-thumb.jpg',
+  });
+
+  it('không có content → không có URL → vẫn báo người như cũ (không im lặng)', async () => {
+    const kq = await xuLyTinMedia(CTX, 'image');
+    expect(kq).toBe(true);
+    expect(guiTin).toHaveBeenCalled();
+  });
+
+  it('content JSON hỏng → báo người, KHÔNG ném lỗi', async () => {
+    const kq = await xuLyTinMedia({ ...CTX, content: '{hỏng' }, 'image');
+    expect(kq).toBe(true);
+    expect(guiTin).toHaveBeenCalled();
+  });
+
+  it('sticker vẫn bỏ qua — không tốn tiền đọc ảnh cho cái nhãn dán', async () => {
+    const kq = await xuLyTinMedia({ ...CTX, content: ANH }, 'sticker');
+    expect(kq).toBe(true);
+    expect(guiTin).not.toHaveBeenCalled();
+  });
+
+  it('voice/video vẫn đi đường báo người — chưa đọc được', async () => {
+    await xuLyTinMedia({ ...CTX, content: ANH }, 'voice');
+    expect(guiTin).toHaveBeenCalled();
+  });
+
+  it('ẢNH TRONG NHÓM: đọc (anh Quốc chốt "mọi ảnh trong nhóm đều đọc")', async () => {
+    // Trước 10/08 nhóm bị chặn ngay dòng đầu. Giờ ảnh phải đi tiếp vào nhánh
+    // đọc; đọc hỏng (không mock model) thì KHÔNG báo người trong nhóm — giữ
+    // chân giữa nhóm đông người vừa ồn vừa vô nghĩa.
+    const kq = await xuLyTinMedia({ ...CTX, content: ANH, laNhom: true }, 'image');
+    expect(kq).toBe(false);
+    expect(guiTin).not.toHaveBeenCalled();
+  });
+
+  it('voice trong NHÓM vẫn không giữ chân', async () => {
+    const kq = await xuLyTinMedia({ ...CTX, laNhom: true }, 'voice');
+    expect(kq).toBe(false);
+    expect(guiTin).not.toHaveBeenCalled();
   });
 });
