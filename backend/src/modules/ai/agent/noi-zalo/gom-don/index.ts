@@ -345,8 +345,30 @@ export async function xuLyGomDon(
 
   let phien = await docPhien(deps.prisma, input.conversationId);
   const laLenhSua = NHAN_LENH_SUA_DON.test(cauChon);
-  const laLenhLen = NHAN_LENH_LEN_DON.test(cauChon);
-  if (!phien && !laLenhLen && !laLenhSua) return false;
+  const regexLen = NHAN_LENH_LEN_DON.test(cauChon);
+
+  // ── CỬA VÀO: regex CHỈ là lối tắt, LLM mới là người quyết ──────────────────
+  //
+  // Bug thật 22:09 10/08: "lên cho anh Huấn khách mới 10 nguồn NB nhé" — regex
+  // đòi "lên"+"đơn" dính nhau nên trượt, máy không chạy, rơi xuống LLM tự do
+  // và mất luôn luật "giá NV báo thắng giá hệ thống" → bot hỏi vặn giá 170k.
+  //
+  // Anh Quốc: "sao lòng vòng thế nhỉ????, có mỗi việc lên đơn". Đúng — vá
+  // regex từng chữ ("lên đơn", "lên cho", "bán cho"…) thì thiếu mãi. LLM giỏi
+  // hiểu câu chữ, code giỏi giữ luật; để mỗi bên làm việc của mình.
+  //
+  // Regex khớp → vào thẳng, KHỎI tốn lượt LLM cho ca thường gặp nhất.
+  // Regex trượt và chưa có phiên → HỎI LLM một lượt: "đây có phải lệnh lên đơn
+  // không". Nó nói không thì nhường agent thường như cũ.
+  let trich: KetQuaTrich = {};
+  let daHoiLlm = false;
+  if (!phien && !regexLen && !laLenhSua) {
+    trich = await trichSlot(deps.generate, input.cau, null);
+    daHoiLlm = true;
+    if (!trich.lenDon) return false;
+  }
+
+  const laLenhLen = regexLen || trich.lenDon === true;
 
   // ĐƯỜNG THOÁT 1 — lệnh LÊN ĐƠN MỚI đè phiên đang gom (spec 10/08).
   //
@@ -363,8 +385,8 @@ export async function xuLyGomDon(
 
   // 1. Map lựa chọn bằng CODE trước — "1a"/mã KH/SĐT không tốn lượt LLM nào.
   const daChon = phien ? apDungChon(phien, cauChon) : false;
-  let trich: KetQuaTrich = {};
-  if (!daChon) trich = await trichSlot(deps.generate, input.cau, phien);
+  // Đã hỏi LLM ở cửa vào thì DÙNG LẠI kết quả — đừng gọi lần hai cho cùng câu.
+  if (!daChon && !daHoiLlm) trich = await trichSlot(deps.generate, input.cau, phien);
 
   if (trich.huy && phien) {
     await xoaPhien(deps.prisma, input.conversationId);

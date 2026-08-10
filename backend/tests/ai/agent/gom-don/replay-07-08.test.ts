@@ -172,10 +172,20 @@ describe('replay chat 21:07 07/08 — lên đơn anh Hưng 10 cái nguồn NB', 
     expect(m.odoo.execute).not.toHaveBeenCalled();
   });
 
-  it('không phải lệnh lên đơn và không có phiên → máy từ chối ngay, không gọi LLM', async () => {
+  // ĐỔI LUẬT 10/08: trước đây máy từ chối NGAY khi regex không khớp, không tốn
+  // lượt LLM nào. Nhưng chính đó làm bot bỏ sót "lên cho anh Huấn khách mới 10
+  // nguồn NB nhé" (bug 22:09) — regex đòi "lên"+"đơn" dính nhau.
+  //
+  // Giờ regex trượt thì HỎI LLM một lượt rồi mới quyết. Đánh đổi: mỗi câu
+  // không-phải-lên-đơn tốn thêm ~1 lượt trích slot (~1k token, rẻ hơn nhiều so
+  // với để nhân viên phải gõ lại đúng cú pháp). Máy VẪN nhường đúng — chỉ là
+  // biết nhường sau khi hỏi, thay vì đoán mò bằng chữ.
+  it('không phải lệnh lên đơn và không có phiên → máy NHƯỜNG (sau khi hỏi LLM)', async () => {
     const m = dungMay();
     expect(await m.goi('doanh thu tháng này bao nhiêu?')).toBe(false);
-    expect(m.soLanGoi()).toBe(0);
+    // Có hỏi LLM đúng MỘT lượt — không hỏi hai lần cho cùng một câu.
+    expect(m.soLanGoi()).toBe(1);
+    // Nhường thì tuyệt đối không nhắn gì, để agent thường trả lời.
     expect(m.tinGui).toHaveLength(0);
   });
 });

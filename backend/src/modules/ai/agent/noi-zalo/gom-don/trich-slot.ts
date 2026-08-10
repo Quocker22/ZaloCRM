@@ -21,6 +21,15 @@ export interface KetQuaTrich {
   xacNhan?: boolean;
   /** Câu không liên quan đơn hàng (digression) — máy nhường agent thường. */
   ngoaiLe?: boolean;
+  /**
+   * LÊN ĐƠN MỚI — cửa vào máy gom đơn, do LLM quyết (10/08).
+   *
+   * Trước đây dùng regex đoán chữ ("lên"+"đơn" dính nhau). Bug 22:09: "lên cho
+   * anh Huấn khách mới 10 nguồn NB nhé" trượt regex → máy không chạy, mất luôn
+   * luật giá NV báo. Vá regex từng chữ thì thiếu mãi; LLM giỏi hiểu câu chữ,
+   * code giỏi giữ luật — để mỗi bên làm việc của mình.
+   */
+  lenDon?: boolean;
   /** SỬA đơn đã có (spec 08/08) thay vì lên đơn mới. */
   sua?: boolean;
   /** Mã đơn NV nhắc ("sửa đơn S13820") — dạng S + số. */
@@ -63,6 +72,15 @@ const ghiSlotDefinition: ToolDefinition = {
           sdt: { type: 'string', description: 'Số điện thoại nếu có' },
           diaChi: { type: 'string', description: 'Địa chỉ nếu có' },
         },
+      },
+      lenDon: {
+        type: 'boolean',
+        description:
+          'true khi nhân viên muốn LÊN ĐƠN MỚI cho khách — bất kể họ dùng chữ gì: ' +
+          '"lên đơn cho anh A", "lên cho anh A 10 cái X", "bán cho chị B 5 cuộn", ' +
+          '"lấy cho anh C 3 cái". Dấu hiệu: có KHÁCH + có HÀNG. ' +
+          'KHÔNG phải lên đơn: xuất hoá đơn, báo cáo, doanh số, tồn kho, công nợ, ' +
+          'sửa đơn đã có (dùng sua=true), hỏi giá đơn thuần.',
       },
       sua: { type: 'boolean', description: 'true khi nhân viên SỬA đơn đã có (thêm hàng/đổi số lượng), không phải lên đơn mới' },
       maDon: { type: 'string', description: 'Mã đơn nhân viên nhắc, dạng S13820' },
@@ -117,6 +135,7 @@ export function lamSachTrich(raw: Record<string, unknown>): KetQuaTrich {
       ...(typeof o.diaChi === 'string' && o.diaChi.trim() ? { diaChi: o.diaChi.trim() } : {}),
     };
   }
+  if (raw.lenDon === true) kq.lenDon = true;
   if (raw.sua === true) kq.sua = true;
   if (typeof raw.maDon === 'string' && /^S\d+$/i.test(raw.maDon.trim())) {
     kq.maDon = raw.maDon.trim().toUpperCase();
@@ -146,6 +165,9 @@ export async function trichSlot(
   const system = [
     'Bạn trích thông tin ĐƠN HÀNG từ MỘT câu của nhân viên bán hàng (tiếng Việt,',
     'có thể viết tắt: "10c" = 10 cái). LUÔN gọi tool ghi_slot, không trả lời text.',
+    'Câu bảo LÊN ĐƠN MỚI cho khách → lenDon=true, DÙ dùng chữ gì: "lên đơn cho',
+    'anh A", "lên cho anh A 10 cái X", "bán cho chị B 5 cuộn", "lấy cho anh C 3',
+    'cái", "xuất cho anh D 2 thùng". Dấu hiệu: có KHÁCH + có HÀNG (hoặc số lượng).',
     'Câu SỬA đơn đã có ("sửa đơn thêm 5 cáp", "đổi thành 100 cái", "thêm X vào',
     'đơn") → sua=true; có nhắc mã đơn (S13820) thì điền maDon.',
     'Nhân viên nói KHÁCH MỚI ("khách mới", "khách này chưa có") hoặc đưa tên +',
