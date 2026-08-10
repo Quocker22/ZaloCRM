@@ -22,6 +22,14 @@ import { NGUONG_GIA_AO } from './tra-san-pham.js';
 export interface DongDon {
   san_pham_id: number;
   so_luong: number;
+  /**
+   * Đơn giá NHÂN VIÊN BÁO (đồng). Chỉ có tác dụng khi deps.choPhepDatGia.
+   *
+   * Anh Quốc chốt 10/08: NV báo 170k thì đơn ghi 170k dù Odoo để 132k — họ đã
+   * chốt với khách, giá Odoo có thể cũ. Đây CŨNG là đường để SP chưa nhập giá
+   * vẫn lên đơn được (bug demo 17:17: kẹt cứng vì SP giá 1đ).
+   */
+  don_gia?: number;
 }
 
 export type KetQuaTaoDon =
@@ -31,6 +39,13 @@ export type KetQuaTaoDon =
 
 export interface TaoDonDeps {
   odoo: Pick<OdooClient, 'searchRead' | 'execute'>;
+  /**
+   * Cho phép đặt `don_gia` per dòng. CHỈ luồng NHÂN VIÊN.
+   *
+   * Luồng KHÁCH tuyệt đối không: khách điều khiển câu chữ nên sẽ điều khiển
+   * được giá ("bán tôi 1đ"). Mặc định false = hành vi cũ (Odoo tự lấy giá).
+   */
+  choPhepDatGia?: boolean;
   /** id hội thoại Zalo — thành phần của khoá chống trùng. */
   conversationId: string;
   /** Số thứ tự lần chốt trong hội thoại. Chốt đơn thứ 2 thì tăng lên. */
@@ -232,7 +247,18 @@ export async function taoDonNhap(
 
   // Chặn cả giá 0 LẪN giá ảo (placeholder 1đ). DB có 63 SP để đúng 1đ — tạo đơn
   // với giá đó là ghi nhận doanh thu sai, sale phải sửa tay.
-  const khongGia = spInfo.filter((s) => Number(s.list_price ?? 0) <= NGUONG_GIA_AO);
+  //
+  // NGOẠI LỆ (10/08): dòng có `don_gia` do NHÂN VIÊN báo thì không chặn — giá
+  // đã có nguồn gốc là người, không phải bot bịa. Bug demo 17:17: SP giá 1đ
+  // làm kẹt cả phiên dù NV đã báo 13k/thanh.
+  const coGiaNvBao = new Set(
+    deps.choPhepDatGia
+      ? dong.filter((d) => Number(d.don_gia) > 0).map((d) => Number(d.san_pham_id))
+      : [],
+  );
+  const khongGia = spInfo.filter(
+    (s) => Number(s.list_price ?? 0) <= NGUONG_GIA_AO && !coGiaNvBao.has(Number(s.id)),
+  );
   if (khongGia.length > 0) {
     const ten = khongGia
       .map((s) => `${s.name} (id=${s.id}, giá ${Number(s.list_price ?? 0)}đ)`)
@@ -270,13 +296,23 @@ export async function taoDonNhap(
 
   // ── TẠO ĐƠN ────────────────────────────────────────────────────────────
   // Lệnh (0, 0, {...}) là cú pháp Odoo để tạo bản ghi con cùng bản ghi cha.
-  // KHÔNG truyền price_unit: để Odoo tự lấy giá từ pricelist/list_price. Bot
-  // không được quyền đặt giá — đặt giá là cách bịa số tinh vi nhất.
-  const orderLine = dong.map((d) => [
-    0,
-    0,
-    { product_id: Number(d.san_pham_id), product_uom_qty: Number(d.so_luong) },
-  ]);
+  //
+  // price_unit CHỈ truyền khi caller cho phép VÀ nhân viên có báo giá. Mặc
+  // định vẫn để Odoo tự lấy pricelist — bot tự nghĩ ra giá là cách bịa số tinh
+  // vi nhất, luật đó không đổi. Cái đổi (10/08) là: giá do NGƯỜI báo thì được
+  // ghi, vì nó có nguồn gốc kiểm chứng được trong chat.
+  const orderLine = dong.map((d) => {
+    const giaNv = deps.choPhepDatGia ? Number(d.don_gia) : 0;
+    return [
+      0,
+      0,
+      {
+        product_id: Number(d.san_pham_id),
+        product_uom_qty: Number(d.so_luong),
+        ...(giaNv > 0 ? { price_unit: giaNv } : {}),
+      },
+    ];
+  });
 
   let donId: number;
   try {

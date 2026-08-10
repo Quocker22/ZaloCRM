@@ -125,3 +125,43 @@ describe('buocTiepTheo — chế sua', () => {
     expect(buocTiepTheo(p)).toEqual({ loai: 'hoi_thieu', thieu: 'sp' });
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GỠ KẸT + GIÁ NV BÁO (spec 2026-08-10, từ demo nhóm 17:00-17:23).
+// Bug gốc: phiên dính SP giá 1đ, 5 lệnh liên tiếp đều trả một câu lỗi cũ —
+// kể cả "lên đơn cho anh Hoàng" (khách khác hẳn).
+describe('buocTiepTheo — SP chưa có giá', () => {
+  const khach = { id: 7, ten: 'Anh Vấn Đà Nẵng', ma: 'KH000027', dienThoai: '0934786998' };
+  const spThat = { id: 1037, ten: 'Nguồn NB Ngoài Trời 12V400W (cái)', gia: 132000 };
+  const spAo = { id: 1922, ten: 'Led thanh tỏa Lixin 220V Ngoài Trời Màu Trắng', gia: 1 };
+
+  it('dòng chốt SP giá ảo mà NV chưa báo giá → hoi_gia, KHÔNG cho tạo đơn', () => {
+    const p: PhienGom = {
+      khachTuKhoa: 'Vấn', khachDaChot: khach,
+      dong: [
+        { tuKhoa: 'nguồn NB', sl: 10, daChot: spThat },
+        { tuKhoa: 'led tỏa', sl: 300, daChot: spAo },
+      ],
+    };
+    expect(buocTiepTheo(p)).toEqual({ loai: 'hoi_gia', sp: [spAo.ten] });
+  });
+
+  it('SP giá ảo NHƯNG NV đã báo giá → cho qua, tóm tắt chốt bình thường', () => {
+    const p: PhienGom = {
+      khachTuKhoa: 'Vấn', khachDaChot: khach,
+      dong: [
+        { tuKhoa: 'nguồn NB', sl: 10, daChot: spThat, donGia: 170000 },
+        { tuKhoa: 'led tỏa', sl: 300, daChot: spAo, donGia: 13000 },
+      ],
+    };
+    expect(buocTiepTheo(p)).toEqual({ loai: 'tom_tat_cho_chot' });
+  });
+
+  it('bỏ dòng SP giá ảo ra → phần còn lại chốt được ngay', () => {
+    const p: PhienGom = {
+      khachTuKhoa: 'Vấn', khachDaChot: khach,
+      dong: [{ tuKhoa: 'nguồn NB', sl: 10, daChot: spThat }],
+    };
+    expect(buocTiepTheo(p)).toEqual({ loai: 'tom_tat_cho_chot' });
+  });
+});

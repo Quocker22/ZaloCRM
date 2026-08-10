@@ -12,6 +12,14 @@ import type { SanPham } from '../../../odoo/tools/tra-san-pham.js';
 export interface DongGom {
   tuKhoa: string;
   sl: number | null;
+  /**
+   * Đơn giá NHÂN VIÊN BÁO trong câu ("10 cái NB x 170k" → 170000).
+   *
+   * Anh Quốc chốt 10/08: giá NV báo THẮNG giá hệ thống — họ đã chốt với khách
+   * rồi, giá Odoo có thể cũ. Cũng là đường để SP chưa nhập giá vẫn lên đơn
+   * được (bug demo 17:17: kẹt cứng vì SP giá 1đ).
+   */
+  donGia?: number;
   daChot?: Pick<SanPham, 'id' | 'ten' | 'gia'>;
   /** >1 kết quả tra — chờ NV chọn. */
   ungVien?: SanPham[];
@@ -47,6 +55,8 @@ export interface PhienGom {
   donUngVien?: DonSua[];
   /** Tra rồi không có đơn nháp nào sửa được. */
   donKhongThay?: boolean;
+  /** Số lần tạo đơn thất bại liên tiếp — 2 lần thì bỏ phiên (chống kẹt 10/08). */
+  soLanLoi?: number;
 }
 
 /**
@@ -59,6 +69,8 @@ export type HanhDong =
   | { loai: 'hoi_chon' }
   | { loai: 'hoi_chon_don' }
   | { loai: 'hoi_thieu'; thieu: 'khach' | 'sp' | 'sl' }
+  /** SP chưa có giá trong Odoo và NV cũng chưa báo giá — hỏi ngay, đừng để kẹt. */
+  | { loai: 'hoi_gia'; sp: string[] }
   | { loai: 'khong_thay'; khach?: string; sp: string[] }
   | { loai: 'khong_thay_don' }
   | { loai: 'tom_tat_cho_chot' }

@@ -12,7 +12,9 @@ import type { PhienGom } from './kieu.js';
 export interface KetQuaTrich {
   /** Tên/mã khách — ĐÃ bỏ xưng hô (anh/chị/em). */
   khach?: string;
-  dong?: Array<{ sp: string; sl?: number }>;
+  dong?: Array<{ sp: string; sl?: number; gia?: number }>;
+  /** SP nhân viên muốn BỎ khỏi đơn đang gom ("bỏ 300 thanh led tỏa"). */
+  boDong?: string[];
   huy?: boolean;
   xacNhan?: boolean;
   /** Câu không liên quan đơn hàng (digression) — máy nhường agent thường. */
@@ -40,9 +42,14 @@ const ghiSlotDefinition: ToolDefinition = {
           properties: {
             sp: { type: 'string', description: 'Tên/từ khoá sản phẩm' },
             sl: { type: 'number', description: 'Số lượng nếu câu có nói' },
+            gia: { type: 'number', description: 'Đơn giá nhân viên báo, ĐỔI RA ĐỒNG: "170k"→170000, "13k/thanh"→13000, "1tr2"→1200000' },
           },
           required: ['sp'],
         },
+      },
+      boDong: {
+        type: 'array', items: { type: 'string' },
+        description: 'Tên/từ khoá SP nhân viên muốn BỎ khỏi đơn: "bỏ 300 thanh led tỏa", "không lấy cáp nữa"',
       },
       sua: { type: 'boolean', description: 'true khi nhân viên SỬA đơn đã có (thêm hàng/đổi số lượng), không phải lên đơn mới' },
       maDon: { type: 'string', description: 'Mã đơn nhân viên nhắc, dạng S13820' },
@@ -53,7 +60,7 @@ const ghiSlotDefinition: ToolDefinition = {
   },
 };
 
-const SL_TOI_DA = 100_000;
+const SL_TOI_DA = 1_000_000_000; // đủ cho cả số lượng lẫn đơn giá (đồng)
 
 function nguyenDuong(x: unknown): number | undefined {
   const n = Number(x);
@@ -70,9 +77,19 @@ export function lamSachTrich(raw: Record<string, unknown>): KetQuaTrich {
       .filter((d) => typeof d.sp === 'string' && (d.sp as string).trim())
       .map((d) => {
         const sl = nguyenDuong(d.sl);
-        return { sp: (d.sp as string).trim(), ...(sl !== undefined ? { sl } : {}) };
+        const gia = nguyenDuong(d.gia);
+        return {
+          sp: (d.sp as string).trim(),
+          ...(sl !== undefined ? { sl } : {}),
+          ...(gia !== undefined ? { gia } : {}),
+        };
       });
     if (dong.length > 0) kq.dong = dong;
+  }
+  if (Array.isArray(raw.boDong)) {
+    const bo = raw.boDong.filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+      .map((x) => x.trim());
+    if (bo.length > 0) kq.boDong = bo;
   }
   if (raw.sua === true) kq.sua = true;
   if (typeof raw.maDon === 'string' && /^S\d+$/i.test(raw.maDon.trim())) {
@@ -105,6 +122,9 @@ export async function trichSlot(
     'có thể viết tắt: "10c" = 10 cái). LUÔN gọi tool ghi_slot, không trả lời text.',
     'Câu SỬA đơn đã có ("sửa đơn thêm 5 cáp", "đổi thành 100 cái", "thêm X vào',
     'đơn") → sua=true; có nhắc mã đơn (S13820) thì điền maDon.',
+    'GIÁ nhân viên báo ("x 170k", "13k/thanh", "giá 1tr2") → điền gia, ĐỔI RA',
+    'ĐỒNG (170k=170000). Câu BỎ hàng ("bỏ 300 thanh led tỏa", "không lấy cáp',
+    'nữa", "bỏ X ra") → điền boDong, KHÔNG điền dong.',
     'Chỉ trích cái CÓ trong câu — không đoán, không bịa. Bỏ xưng hô (anh/chị/em/bác)',
     'khỏi tên khách. Câu chỉ có số lượng ("10 cái") → điền sl cho món ĐANG THIẾU',
     'trong phần "đang gom". Câu không liên quan đơn (hỏi tồn kho, báo cáo, chào',

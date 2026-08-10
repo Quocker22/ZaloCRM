@@ -7,6 +7,7 @@
 // "Slot đã có không bao giờ hỏi lại" nằm ngay trong cấu trúc: câu hỏi SL chỉ
 // sinh ra khi thật sự có dòng sl == null — không phụ thuộc model nhớ hay quên.
 import type { PhienGom, HanhDong } from './kieu.js';
+import { NGUONG_GIA_AO } from '../../../odoo/tools/tra-san-pham.js';
 
 export function buocTiepTheo(p: PhienGom): HanhDong {
   // Chế SỬA (spec 08/08): đích là ĐƠN chứ không phải khách — khách đã nằm sẵn
@@ -60,6 +61,16 @@ export function buocTiepTheo(p: PhienGom): HanhDong {
   if (!laSua && !p.khachDaChot) return { loai: 'hoi_thieu', thieu: 'khach' };
   if (p.dong.length === 0) return { loai: 'hoi_thieu', thieu: 'sp' };
   if (p.dong.some((d) => d.sl == null)) return { loai: 'hoi_thieu', thieu: 'sl' };
+
+  // 4b. SP chưa có giá thật trong Odoo mà NV cũng chưa báo giá → HỎI NGAY.
+  //
+  // Bug demo 17:17-17:23 10/08: SP giá 1đ lọt vào phiên, tới lúc tạo đơn tool
+  // mới chặn — và phiên dính cứng ở đó, 5 lệnh sau đều trả một câu lỗi cũ.
+  // Chặn ở đây thì nhân viên biết ngay và có đường xử (báo giá hoặc bỏ ra).
+  const thieuGia = p.dong
+    .filter((d) => d.daChot && d.daChot.gia <= NGUONG_GIA_AO && !d.donGia)
+    .map((d) => d.daChot!.ten);
+  if (thieuGia.length > 0) return { loai: 'hoi_gia', sp: thieuGia };
 
   // 5. Đủ hết.
   //    Chế SỬA: ghi thẳng — không cổng chốt (anh Quốc chốt 08/08: "rõ ràng thì

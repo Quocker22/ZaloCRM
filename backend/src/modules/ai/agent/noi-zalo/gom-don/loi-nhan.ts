@@ -6,6 +6,8 @@ import type { PhienGom, HanhDong } from './kieu.js';
 
 const tien = (n: number) => `${n.toLocaleString('vi-VN')}đ`;
 const chuCai = (i: number) => String.fromCharCode(97 + i);
+/** Dưới ngưỡng này coi là 'chưa có giá' — khớp NGUONG_GIA_AO của tra-san-pham. */
+const NGUONG_AO = 10;
 
 function danhSachChon(p: PhienGom): string {
   const phan: string[] = [];
@@ -21,7 +23,8 @@ function danhSachChon(p: PhienGom): string {
     if (!d.ungVien?.length) continue;
     phan.push(
       `"${d.tuKhoa}" có ${d.ungVien.length} loại:`,
-      ...d.ungVien.map((s, i) => `${chuCai(i)}) ${s.ten} · ${tien(s.gia)}`),
+      ...d.ungVien.map((s, i) =>
+        `${chuCai(i)}) ${s.ten} · ${s.gia > NGUONG_AO ? tien(s.gia) : 'chưa có giá'}`),
     );
   }
   const canSo = Boolean(p.khachUngVien?.length);
@@ -32,10 +35,19 @@ function danhSachChon(p: PhienGom): string {
 }
 
 function tomTat(p: PhienGom): string {
+  // Giá NV báo THẮNG giá hệ thống (10/08) — nhưng phải NÓI RÕ khi lệch, để NV
+  // tự kiểm chứ không âm thầm ghi số khác cái họ nghĩ.
+  const giaCua = (d: PhienGom['dong'][number]) => d.donGia ?? d.daChot?.gia ?? 0;
   const dong = p.dong
     .filter((d) => d.daChot && d.sl != null)
-    .map((d) => `${d.sl} × ${d.daChot!.ten} = ${tien((d.sl ?? 0) * d.daChot!.gia)}`);
-  const tong = p.dong.reduce((t, d) => t + (d.daChot && d.sl != null ? d.sl * d.daChot.gia : 0), 0);
+    .map((d) => {
+      const g = giaCua(d);
+      const lech = d.donGia && d.daChot && d.donGia !== d.daChot.gia && d.daChot.gia > NGUONG_AO
+        ? ` (giá anh/chị báo ${tien(d.donGia)}, hệ thống ${tien(d.daChot.gia)})`
+        : d.donGia ? ` (giá anh/chị báo ${tien(d.donGia)})` : '';
+      return `${d.sl} × ${d.daChot!.ten} = ${tien((d.sl ?? 0) * g)}${lech}`;
+    });
+  const tong = p.dong.reduce((t, d) => t + (d.daChot && d.sl != null ? d.sl * giaCua(d) : 0), 0);
   return [
     `Đơn cho ${p.khachDaChot?.ten}${p.khachDaChot?.ma ? ` (${p.khachDaChot.ma})` : ''}:`,
     ...dong,
@@ -81,6 +93,12 @@ export function renderLoiNhan(hd: HanhDong, p: PhienGom): string {
     case 'hoi_chon_don': return danhSachDon(p);
     case 'tom_tat_cho_chot': return tomTat(p);
     case 'hoi_thieu': return hoiThieu(hd.thieu, p);
+    case 'hoi_gia':
+      return (
+        `Sản phẩm ${hd.sp.map((x) => `"${x}"`).join(', ')} chưa có giá trong hệ thống ạ. ` +
+        'Anh/chị báo giá giúp em (vd: 13k/thanh), hoặc nhắn "bỏ ' +
+        `${hd.sp[0]?.split(' ').slice(0, 3).join(' ') ?? 'món này'}" để em lên đơn phần còn lại.`
+      );
     case 'khong_thay': return khongThay(hd);
     case 'khong_thay_don':
       return 'Em không thấy đơn nháp nào trong cuộc này để sửa ạ. Anh/chị cho em mã đơn (vd S13820), hoặc mình lên đơn mới nhé?';

@@ -71,14 +71,26 @@ function dapSlot(p: PhienGom, trich: KetQuaTrich): boolean {
       doi = true;
     }
   }
+  // BỎ DÒNG (spec 10/08) — chạy TRƯỚC khi thêm: "bỏ 300 thanh led tỏa rồi lên
+  // đơn" vừa bỏ vừa nhắc tên món, không xử trước thì nó lại được thêm vào.
+  for (const bo of trich.boDong ?? []) {
+    const truoc = p.dong.length;
+    p.dong = p.dong.filter((x) =>
+      !(boDau(x.tuKhoa).includes(boDau(bo)) || boDau(bo).includes(boDau(x.tuKhoa))
+        || (x.daChot && boDau(x.daChot.ten).includes(boDau(bo)))));
+    if (p.dong.length !== truoc) doi = true;
+  }
   for (const d of trich.dong ?? []) {
+    // Món vừa bị bỏ trong CHÍNH câu này thì đừng thêm lại.
+    if ((trich.boDong ?? []).some((b) => boDau(d.sp).includes(boDau(b)) || boDau(b).includes(boDau(d.sp)))) continue;
     const cu = p.dong.find(
       (x) => boDau(x.tuKhoa) === boDau(d.sp) || (x.daChot && boDau(x.daChot.ten).includes(boDau(d.sp))),
     );
     if (cu) {
       if (d.sl != null && cu.sl !== d.sl) { cu.sl = d.sl; doi = true; }
+      if (d.gia != null && cu.donGia !== d.gia) { cu.donGia = d.gia; doi = true; }
     } else {
-      p.dong.push({ tuKhoa: d.sp, sl: d.sl ?? null });
+      p.dong.push({ tuKhoa: d.sp, sl: d.sl ?? null, ...(d.gia != null ? { donGia: d.gia } : {}) });
       doi = true;
     }
   }
@@ -181,10 +193,15 @@ async function taoDonVaBaoGia(
 ): Promise<'xong' | 'loi'> {
   const dong = p.dong
     .filter((d) => d.daChot && d.sl != null)
-    .map((d) => ({ san_pham_id: d.daChot!.id, so_luong: d.sl! }));
+    .map((d) => ({
+      san_pham_id: d.daChot!.id,
+      so_luong: d.sl!,
+      // Giá NV báo thắng giá hệ thống (anh Quốc chốt 10/08).
+      ...(d.donGia ? { don_gia: d.donGia } : {}),
+    }));
   const t0 = Date.now();
   const kq = await taoDonNhap(
-    { odoo: deps.odoo, conversationId: input.conversationId, seq: input.seq },
+    { odoo: deps.odoo, conversationId: input.conversationId, seq: input.seq, choPhepDatGia: true },
     { khach_hang_id: p.khachDaChot!.id, dong, y_dinh: 'moi', ten_khach: p.khachDaChot!.ten },
   );
   deps.ghiLog({
@@ -290,7 +307,21 @@ export async function xuLyGomDon(
 
   let phien = await docPhien(deps.prisma, input.conversationId);
   const laLenhSua = NHAN_LENH_SUA_DON.test(cauChon);
-  if (!phien && !NHAN_LENH_LEN_DON.test(cauChon) && !laLenhSua) return false;
+  const laLenhLen = NHAN_LENH_LEN_DON.test(cauChon);
+  if (!phien && !laLenhLen && !laLenhSua) return false;
+
+  // ĐƯỜNG THOÁT 1 — lệnh LÊN ĐƠN MỚI đè phiên đang gom (spec 10/08).
+  //
+  // Bug demo 17:22 10/08: phiên dính SP giá 1đ, nhân viên gõ "lên đơn cho anh
+  // Hoàng 10 cái nguồn NB" — khách KHÁC HẲN — mà bot vẫn trả đơn anh Vấn kèm
+  // đúng câu lỗi cũ. Nói "lên đơn cho <người khác>" là bắt đầu việc mới, không
+  // phải nói tiếp việc cũ. Phiên cũ bỏ đi, báo cho nhân viên biết.
+  let daBoPhienCu = false;
+  if (phien && laLenhLen && phien.che !== 'sua') {
+    await xoaPhien(deps.prisma, input.conversationId);
+    phien = null;
+    daBoPhienCu = true;
+  }
 
   // 1. Map lựa chọn bằng CODE trước — "1a"/mã KH/SĐT không tốn lượt LLM nào.
   const daChon = phien ? apDungChon(phien, cauChon) : false;
@@ -351,13 +382,27 @@ export async function xuLyGomDon(
       return true;
     }
     const kq = await taoDonVaBaoGia(deps, phien, input);
-    if (kq === 'xong') await xoaPhien(deps.prisma, input.conversationId);
-    else await luuPhien(deps.prisma, { orgId: input.orgId, conversationId: input.conversationId, phien });
+    if (kq === 'xong') {
+      await xoaPhien(deps.prisma, input.conversationId);
+      return true;
+    }
+    // ĐƯỜNG THOÁT 3 — tạo đơn LỖI hai lần liên tiếp thì bỏ phiên.
+    // Bug demo 10/08: lỗi lặp 5 lần liền, nhân viên gõ gì cũng ra một câu.
+    phien.soLanLoi = (phien.soLanLoi ?? 0) + 1;
+    if (phien.soLanLoi >= 2) {
+      await xoaPhien(deps.prisma, input.conversationId);
+      await deps.guiTin(
+        'Em bỏ đơn đang gom rồi ạ — nó bị kẹt. Anh/chị lên lại từ đầu giúp em nhé.',
+      );
+      return true;
+    }
+    await luuPhien(deps.prisma, { orgId: input.orgId, conversationId: input.conversationId, phien });
     return true;
   }
 
   // 3. Hành động nói: render template, cập nhật cờ, lưu phiên.
-  await deps.guiTin(renderLoiNhan(hd, phien));
+  const loiBao = daBoPhienCu ? 'Em bỏ đơn đang gom dở nhé.\n' : '';
+  await deps.guiTin(loiBao + renderLoiNhan(hd, phien));
   phien.daHoiChot = hd.loai === 'tom_tat_cho_chot';
   if (hd.loai === 'khong_thay') {
     // Đã báo không thấy — dọn phần hỏng để NV gõ lại từ khoá khác.

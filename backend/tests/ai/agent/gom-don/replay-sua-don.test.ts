@@ -214,3 +214,109 @@ describe('ranh giới — không giẫm luồng lên đơn', () => {
     expect(m.log.map((l) => l.toolName)).not.toContain('sua_don');
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// REPLAY DEMO NHÓM 17:00-17:23 10/08 — phiên kẹt vì SP giá 1đ.
+// Bug gốc: 5 lệnh liên tiếp (kể cả "lên đơn cho anh Hoàng" — khách khác hẳn)
+// đều trả ĐÚNG MỘT câu lỗi cũ về Led thanh tỏa.
+describe('replay 10/08 — gỡ phiên kẹt vì SP chưa có giá', () => {
+  function mayGiaAo() {
+    const nho = { id: 1037, name: 'Nguồn NB Ngoài Trời 12V400W (cái)', default_code: false, list_price: 132000, uom_id: [1, 'Cái'] };
+    const ao = { id: 1922, name: 'Led thanh tỏa Lixin 220V Ngoài Trời Màu Trắng', default_code: false, list_price: 1, uom_id: [1, 'Thanh'] };
+    const partners = [{ id: 27, name: 'Anh Vấn Đà Nẵng', ref: 'KH000027', phone: '0934786998', mobile: false, incokit_receivable_balance: 0 }];
+    const searchRead = vi.fn(async (model: string, domain: unknown[]) => {
+      if (model === 'res.partner') return partners;
+      if (model === 'product.product') {
+        const tu = (domain as unknown[])
+          .filter((d): d is [string,string,string] => Array.isArray(d) && d[0]==='name' && d[1]==='ilike')
+          .map((d) => String(d[2]).toLowerCase());
+        const gia = (domain as unknown[]).find((d): d is [string,string,number] => Array.isArray(d) && d[0]==='list_price');
+        return [nho, ao].filter((p) => {
+          if (gia) {
+            const [, op, ng] = gia;
+            if (op === '>' && !(p.list_price > Number(ng))) return false;
+            if (op === '<=' && !(p.list_price <= Number(ng))) return false;
+          }
+          return tu.length === 0 || tu.every((t) => p.name.toLowerCase().includes(t));
+        });
+      }
+      if (model === 'sale.order') {
+        // Đơn vừa tạo: taoDonNhap đọc lại để xác nhận state='draft'.
+        const coId = (domain as unknown[]).some((d) => Array.isArray(d) && d[0] === 'id');
+        return coId ? [{ id: 999, name: 'S13900', amount_total: 3600000, state: 'draft' }] : [];
+      }
+      return [];
+    });
+    const execute = vi.fn(async () => 999);
+    const db = fakeDb();
+    const tinGui: string[] = [];
+    const g: ToolAwareGenerate = async (a) => {
+      const nd = String(a.messages[0].content);
+      const input = /Câu nhân viên: "chốt"/.test(nd)
+        ? { xacNhan: true }
+        : nd.includes('10 cái nguồn NB 12V400W x 170k') && nd.includes('300 thanh led tỏa')
+        ? { khach: 'Vấn', dong: [
+            { sp: 'nguồn NB 12V400W', sl: 10, gia: 170000 },
+            { sp: 'led thanh tỏa Lixin', sl: 300, gia: 13000 }] }
+        : nd.includes('10 cái nguồn NB 12V400W') && nd.includes('300 thanh led tỏa')
+          ? { khach: 'Vấn', dong: [
+              { sp: 'nguồn NB 12V400W', sl: 10 },
+              { sp: 'led thanh tỏa Lixin', sl: 300 }] }
+          : nd.includes('bỏ 300 thanh led tỏa')
+            ? { boDong: ['led thanh tỏa'] }
+            : nd.includes('lên đơn cho anh Hoàng')
+              ? { khach: 'Hoàng', dong: [{ sp: 'nguồn NB 12V400W', sl: 10 }] }
+              : { ngoaiLe: true };
+      return { text: '', stopReason: 'tool_use', raw: null,
+        usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+        toolCalls: [{ id: 't1', name: 'ghi_slot', input }] };
+    };
+    const deps: GomDonDeps = {
+      prisma: db as never, odoo: { searchRead, execute } as never, generate: g,
+      anhClient: null, odooUrl: 'https://odoo.example.com',
+      guiTin: async (t) => { tinGui.push(t); },
+      guiAnhHoaDon: async () => {}, ghiLog: () => {},
+    };
+    return {
+      goi: (cau: string) => xuLyGomDon(deps, { orgId: 'o1', conversationId: 'c1', seq: 1, cau }),
+      tinGui, execute, db,
+    };
+  }
+
+  it('SP giá 1đ + NV KHÔNG báo giá → hỏi giá NGAY, không tạo đơn hỏng', async () => {
+    const m = mayGiaAo();
+    await m.goi('lên đơn cho anh Vấn 10 cái nguồn NB 12V400W, 300 thanh led tỏa Lixin');
+    expect(m.tinGui[0]).toContain('chưa có giá');
+    expect(m.tinGui[0]).toContain('Led thanh tỏa');
+    expect(m.execute).not.toHaveBeenCalled();
+  });
+
+  it('NV báo giá → SP giá 1đ VẪN lên đơn được, đơn ghi giá NV báo', async () => {
+    const m = mayGiaAo();
+    await m.goi('lên đơn cho anh Vấn 10 cái nguồn NB 12V400W x 170k, 300 thanh led tỏa Lixin 13k/thanh');
+    expect(m.tinGui[0]).toContain('1.700.000đ');        // 10 × 170k, KHÔNG phải 132k
+    expect(m.tinGui[0]).toContain('giá anh/chị báo');
+    await m.goi('chốt');
+    const payload = (m.execute.mock.calls[0][2] as Array<Record<string, unknown>>)[0];
+    const lines = payload.order_line as Array<[number, number, Record<string, unknown>]>;
+    expect(lines.map((l) => l[2].price_unit)).toEqual([170000, 13000]);
+  });
+
+  it('"bỏ 300 thanh led tỏa" → dòng biến mất, phần còn lại chốt được', async () => {
+    const m = mayGiaAo();
+    await m.goi('lên đơn cho anh Vấn 10 cái nguồn NB 12V400W, 300 thanh led tỏa Lixin');
+    await m.goi('bỏ 300 thanh led tỏa');
+    const cuoi = m.tinGui[m.tinGui.length - 1];
+    expect(cuoi).not.toContain('Led thanh tỏa');
+    expect(cuoi).toContain('Nguồn NB Ngoài Trời 12V400W');
+  });
+
+  it('phiên kẹt + "lên đơn cho anh Hoàng" → PHIÊN MỚI, không lặp lỗi cũ', async () => {
+    const m = mayGiaAo();
+    await m.goi('lên đơn cho anh Vấn 10 cái nguồn NB 12V400W, 300 thanh led tỏa Lixin');
+    await m.goi('lên đơn cho anh Hoàng 10 cái nguồn NB 12V400W');
+    const cuoi = m.tinGui[m.tinGui.length - 1];
+    expect(cuoi).not.toContain('Led thanh tỏa');   // KHÔNG dính SP của phiên cũ
+    expect(cuoi.toLowerCase()).toContain('bỏ đơn đang gom');
+  });
+});
