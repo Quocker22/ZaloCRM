@@ -320,3 +320,37 @@ describe('replay 10/08 — gỡ phiên kẹt vì SP chưa có giá', () => {
     expect(cuoi.toLowerCase()).toContain('bỏ đơn đang gom');
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Bug thật 17:41 10/08: "sửa lại đơn thêm 300 × Led thanh tỏa giá 300đ" →
+// hoá đơn ghi 1đ/thanh (giá Odoo) thay vì giá NV báo. Fix giá 17:39 chỉ áp
+// cho TẠO đơn, đường SỬA đơn bỏ mất donGia.
+describe('sửa đơn — giá NV báo phải theo xuống tool', () => {
+  it('"thêm 300 led tỏa giá 300đ" → suaDon nhận don_gia=300', async () => {
+    const odoo = fakeOdoo();
+    const db = fakeDb();
+    const tinGui: string[] = [];
+    const g: ToolAwareGenerate = async (a) => {
+      const nd = String(a.messages[0].content);
+      const input = nd.includes('giá 300đ')
+        ? { sua: true, dong: [{ sp: 'cáp 16 sợi nhỏ', sl: 300, gia: 300 }] }
+        : { ngoaiLe: true };
+      return { text: '', stopReason: 'tool_use', raw: null, usage,
+        toolCalls: [{ id: 't1', name: 'ghi_slot', input }] };
+    };
+    const deps: GomDonDeps = {
+      prisma: db as never, odoo: odoo as never, generate: g,
+      anhClient: null, odooUrl: 'https://odoo.example.com',
+      guiTin: async (t) => { tinGui.push(t); },
+      guiAnhHoaDon: async () => {}, ghiLog: () => {},
+    };
+    await xuLyGomDon(deps, { orgId: 'o1', conversationId: 'c1', seq: 1,
+      cau: 'sửa lại đơn thêm 300 cáp 16 sợi nhỏ giá 300đ' });
+
+    // Dòng ghi vào Odoo phải mang price_unit = 300
+    const ghiDong = odoo.execute.mock.calls.filter((c) => c[0] === 'sale.order.line');
+    expect(ghiDong.length).toBeGreaterThan(0);
+    const payload = (ghiDong[0][2] as Array<Record<string, unknown>>)[0];
+    expect(payload.price_unit).toBe(300);
+  });
+});

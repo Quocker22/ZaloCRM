@@ -14,9 +14,24 @@ import type { ToolDefinition } from '../../agent/types.js';
 
 const STATE_SUA_DUOC = ['draft', 'sent'] as const;
 
+/**
+ * price_unit chỉ gửi khi NHÂN VIÊN có báo giá. Không báo → để Odoo tự lấy
+ * pricelist như cũ (bot không tự nghĩ ra giá — luật đó không đổi).
+ */
+function giaNeuCo(d: DongSua): { price_unit?: number } {
+  const g = Number(d.don_gia);
+  return g > 0 ? { price_unit: g } : {};
+}
+
 export interface DongSua {
   san_pham_id: number;
   so_luong: number;
+  /**
+   * Đơn giá NHÂN VIÊN BÁO (đồng). Bug thật 17:41 10/08: NV nói "thêm 300 led
+   * tỏa giá 300đ", hoá đơn ghi 1đ/thanh vì đường SỬA đơn bỏ mất giá — trong
+   * khi đường TẠO đơn đã nhận giá từ 17:39. Hai đường phải cùng luật.
+   */
+  don_gia?: number;
 }
 
 export interface KetQuaSuaDon {
@@ -112,12 +127,13 @@ export async function suaDon(
     const spId = Number(d.san_pham_id);
     const lineId = idTheoSp.get(spId);
     if (lineId) {
-      await deps.odoo.execute('sale.order.line', 'write', [[lineId], { product_uom_qty: Number(d.so_luong) }], {});
+      await deps.odoo.execute('sale.order.line', 'write',
+        [[lineId], { product_uom_qty: Number(d.so_luong), ...giaNeuCo(d) }], {});
       soDoiSL++;
     } else {
       // SP chưa có trong đơn → tạo dòng mới (đổi thành thêm).
       await deps.odoo.execute('sale.order.line', 'create',
-        [{ order_id: donId, product_id: spId, product_uom_qty: Number(d.so_luong) }], {});
+        [{ order_id: donId, product_id: spId, product_uom_qty: Number(d.so_luong), ...giaNeuCo(d) }], {});
       soThem++;
     }
   }
@@ -125,7 +141,7 @@ export async function suaDon(
   // 2) THÊM dòng hàng mới (không kiểm trùng — nhân viên chủ động thêm).
   for (const d of them) {
     await deps.odoo.execute('sale.order.line', 'create',
-      [{ order_id: donId, product_id: Number(d.san_pham_id), product_uom_qty: Number(d.so_luong) }], {});
+      [{ order_id: donId, product_id: Number(d.san_pham_id), product_uom_qty: Number(d.so_luong), ...giaNeuCo(d) }], {});
     soThem++;
   }
 

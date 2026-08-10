@@ -253,7 +253,12 @@ async function suaDonVaBao(deps: GomDonDeps, p: PhienGom): Promise<'xong' | 'loi
   // vào `doi` là đúng cho cả hai ca, khỏi đoán trước đơn đang có gì.
   const doi = p.dong
     .filter((d) => d.daChot && d.sl != null)
-    .map((d) => ({ san_pham_id: d.daChot!.id, so_luong: d.sl! }));
+    .map((d) => ({
+      san_pham_id: d.daChot!.id,
+      so_luong: d.sl!,
+      // Bug 17:41 10/08: quên dòng này nên hoá đơn ghi 1đ/thanh thay vì giá NV báo.
+      ...(d.donGia ? { don_gia: d.donGia } : {}),
+    }));
   const t0 = Date.now();
   const kq = await suaDon({ odoo: deps.odoo }, { don_id: don.id, doi });
   deps.ghiLog({
