@@ -13,6 +13,7 @@
 // toán thủ công, thanh toán treo) và Odoo mới là nguồn đúng.
 
 import type { OdooClient } from '../client.js';
+import { tenKhopKhach } from './tao-don-nhap.js';
 import type { ToolDefinition } from '../../agent/types.js';
 
 /** Số hoá đơn liệt kê tối đa. Tin Zalo dài hơn là không ai đọc. */
@@ -41,6 +42,13 @@ export interface CongNoKhach {
 
 export type KetQuaCongNo =
   | { loai: 'ok'; duLieu: CongNoKhach }
+  /**
+   * Khách tra ra KHÔNG khớp tên nhân viên nhắc — chặn để không báo số liệu
+   * của người khác. Bug thật 20:06 10/08: hỏi công nợ "anh Vấn", model bốc
+   * khach_id của anh Tuấn BG từ danh sách trong lịch sử chat cũ rồi tra theo
+   * id đó; bot báo công nợ nhầm người, nói rành mạch như thật.
+   */
+  | { loai: 'sai_khach'; lyDo: string }
   | { loai: 'khong_thay'; tuKhoa: string }
   | { loai: 'nhieu_khach'; danhSach: Array<{ id: number; ten: string; maKh: string; sdt: string }> };
 
@@ -55,13 +63,26 @@ function boDau(s: string): string {
 
 export async function xuatCongNo(
   deps: XuatCongNoDeps,
-  input: { khach_id?: number; ten?: string; sdt?: string },
+  input: { khach_id?: number; ten?: string; sdt?: string; ten_nhac?: string },
 ): Promise<KetQuaCongNo> {
   const F = ['id', 'name', 'ref', 'phone', 'mobile', 'incokit_receivable_balance'];
   let khach: Record<string, unknown>[] = [];
 
   if (input.khach_id) {
     khach = await deps.odoo.searchRead('res.partner', [['id', '=', input.khach_id]], F, { limit: 1 });
+    // XÁC MINH TÊN khi tra bằng id: id có thể là số model nhặt từ lịch sử chat
+    // chứ không phải người nhân viên đang hỏi (bug 20:06 10/08).
+    const tenNhac = (input.ten_nhac ?? '').trim();
+    const tenThat = String(khach[0]?.name ?? '');
+    if (tenNhac && tenThat && !tenKhopKhach(tenNhac, tenThat)) {
+      return {
+        loai: 'sai_khach',
+        lyDo:
+          `Khách id=${input.khach_id} trong hệ thống là "${tenThat}", KHÔNG khớp tên ` +
+          `"${tenNhac}" nhân viên hỏi. Có thể id lấy nhầm từ danh sách cũ trong lịch sử. ` +
+          'Hãy gọi tra_khach_hang với tên/SĐT đúng để lấy id chính xác.',
+      };
+    }
   } else if (input.sdt?.trim()) {
     const sdt = input.sdt.replace(/\D/g, '');
     khach = await deps.odoo.searchRead(
@@ -150,11 +171,14 @@ export const xuatCongNoDefinition: ToolDefinition = {
     '"công nợ của X", "khách nào còn nợ đơn nào". ' +
     'Dùng tool NÀY thay vì tra_khach_hang khi cần chi tiết từng hoá đơn — ' +
     'tra_khach_hang chỉ có số tổng. ' +
-    'Có SĐT thì ưu tiên sdt (chính xác nhất), không thì dùng ten.',
+    'Có SĐT thì ưu tiên sdt (chính xác nhất), không thì dùng ten. ' +
+    'LUÔN điền ten_nhac = tên khách nhân viên vừa nhắc: tool dùng nó để chặn ' +
+    'tra nhầm người khi id/mã bị lấy nhầm từ lịch sử chat.',
   inputSchema: {
     type: 'object',
     properties: {
-      khach_id: { type: 'integer', description: 'id khách nếu đã biết từ lượt trước' },
+      khach_id: { type: 'integer', description: 'id khách LẤY TỪ tra_khach_hang trong CHÍNH lượt này — KHÔNG lấy từ danh sách cũ trong lịch sử' },
+      ten_nhac: { type: 'string', description: 'Tên khách NHÂN VIÊN vừa nhắc trong câu hỏi. LUÔN điền — dùng để chặn tra nhầm người.' },
       ten: { type: 'string', description: 'Tên khách, khớp gần đúng' },
       sdt: { type: 'string', description: 'Số điện thoại — chính xác hơn tên' },
     },
@@ -173,6 +197,7 @@ function ngay(iso: string): string {
 }
 
 export function dinhDangCongNo(kq: KetQuaCongNo): string {
+  if (kq.loai === 'sai_khach') return kq.lyDo;
   if (kq.loai === 'khong_thay') {
     return (
       `Không tìm thấy khách "${kq.tuKhoa}". Thử lại với tên ngắn hơn hoặc SĐT.`
