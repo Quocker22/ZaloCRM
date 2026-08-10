@@ -17,8 +17,14 @@ export function buocTiepTheo(p: PhienGom): HanhDong {
 
   // 1. Còn từ khoá CHƯA TRA (chưa chốt/ứng viên/không-thấy) → tra hết một lượt,
   //    khách/đơn và mọi dòng SP đi song song — nhập nhằng lộ ra ngay câu hỏi đầu.
+  // Nhân viên nói RÕ "khách mới" → KHÔNG tra khách cũ nữa.
+  //
+  // Bug thật 18:59 10/08: "lên đơn cho anh Tuấn KHÁCH HÀNG MỚI 0909485949 Hóc
+  // môn" — model trích đúng khachMoi, nhưng máy vẫn tra "Tuấn" rồi liệt kê 10
+  // anh Tuấn cũ bắt chọn. Người ta đã nói là khách mới thì tạo luôn, bắt chọn
+  // từ danh sách người khác là phản tác dụng.
   const khachCanTra =
-    !laSua && p.khachTuKhoa && !p.khachDaChot && !p.khachUngVien && !p.khachKhongThay
+    !laSua && !p.khachMoi && p.khachTuKhoa && !p.khachDaChot && !p.khachUngVien && !p.khachKhongThay
       ? p.khachTuKhoa
       : undefined;
   const donCanTra = laSua && !p.donSua && !p.donUngVien && !p.donKhongThay;
@@ -37,10 +43,11 @@ export function buocTiepTheo(p: PhienGom): HanhDong {
   // 2s. Chế sửa: không có đơn nháp nào để sửa → báo ngay, đừng hỏi vòng vo.
   if (laSua && p.donKhongThay) return { loai: 'khong_thay_don' };
 
-  // 2a. Tra không ra khách NHƯNG nhân viên đã cho tên (nói "khách mới" hoặc gửi
-  //     tên + SĐT) → TẠO khách rồi chạy tiếp. Đứng trước nhánh "không thấy":
-  //     bug demo 17:08 10/08 là bot cứ báo không thấy dù NV đã đưa đủ thông tin.
-  if (p.khachKhongThay && p.khachMoi?.ten && !p.khachDaChot) return { loai: 'tao_khach' };
+  // 2a. Có thông tin khách mới mà chưa chốt khách → TẠO. Hai ngả tới đây:
+  //     (a) NV nói thẳng "khách mới" → không tra, tạo luôn (18:59 10/08);
+  //     (b) tra không ra nhưng NV đã cho tên (17:08 10/08).
+  //     Đứng TRƯỚC nhánh "không thấy" để không báo không-thấy khi đã đủ thông tin.
+  if (p.khachMoi?.ten && !p.khachDaChot) return { loai: 'tao_khach' };
 
   // 2. Tra rồi mà không thấy → báo ngay, đừng bắt NV chờ đến cuối mới biết.
   const spKhongThay = p.dong.filter((d) => d.khongThay).map((d) => d.tuKhoa);

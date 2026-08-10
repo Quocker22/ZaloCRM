@@ -198,3 +198,42 @@ describe('buocTiepTheo — khách mới', () => {
     expect(buocTiepTheo(p)).toEqual({ loai: 'tom_tat_cho_chot' });
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Bug thật 18:59 10/08: NV nói "lên đơn cho anh Tuấn KHÁCH HÀNG MỚI 0909485949
+// Hóc môn" — model trích đúng khachMoi{ten,sdt,diaChi} nhưng máy vẫn tra khách
+// cũ trước, ra 10 anh Tuấn rồi bắt chọn. Nói "khách mới" = ĐỪNG tra, tạo luôn.
+describe('buocTiepTheo — nói rõ KHÁCH MỚI thì bỏ qua bước tra', () => {
+  const sp = { id: 3, ten: 'Nguồn NB 12V100W', gia: 78000 };
+
+  it('có khachMoi + CHƯA tra gì → tao_khach NGAY, không tra khách cũ', () => {
+    const p: PhienGom = {
+      khachTuKhoa: 'Tuấn',
+      khachMoi: { ten: 'Tuấn', sdt: '0909485949', diaChi: 'Hóc môn' },
+      dong: [{ tuKhoa: 'nguồn NB', sl: 10, donGia: 170000 }],
+    };
+    // Vẫn phải tra SP (chưa biết loại nào), nhưng KHÔNG tra khách.
+    const hd = buocTiepTheo(p);
+    expect(hd.loai).toBe('tra_cuu');
+    if (hd.loai === 'tra_cuu') {
+      expect(hd.khach).toBeUndefined();
+      expect(hd.sp).toEqual(['nguồn NB']);
+    }
+  });
+
+  it('SP đã rõ + khachMoi → tao_khach luôn', () => {
+    const p: PhienGom = {
+      khachTuKhoa: 'Tuấn',
+      khachMoi: { ten: 'Tuấn', sdt: '0909485949' },
+      dong: [{ tuKhoa: 'nguồn NB', sl: 10, daChot: sp, donGia: 170000 }],
+    };
+    expect(buocTiepTheo(p)).toEqual({ loai: 'tao_khach' });
+  });
+
+  it('KHÔNG nói khách mới → vẫn tra khách như cũ', () => {
+    const p: PhienGom = { khachTuKhoa: 'Tuấn', dong: [{ tuKhoa: 'nguồn NB', sl: 10, daChot: sp }] };
+    const hd = buocTiepTheo(p);
+    expect(hd.loai).toBe('tra_cuu');
+    if (hd.loai === 'tra_cuu') expect(hd.khach).toBe('Tuấn');
+  });
+});
