@@ -11,6 +11,7 @@ import type { ToolAwareGenerate } from '../../types.js';
 import type { ToolCallLog } from '../../staff-agent.js';
 import type { OdooClient } from '../../../odoo/client.js';
 import { traKhachHang, dinhDangKhachHang } from '../../../odoo/tools/tra-khach-hang.js';
+import { taoKhachHang, dinhDangTaoKhach } from '../../../odoo/tools/tao-khach-hang.js';
 import { traSanPham, dinhDangSanPham, boDau } from '../../../odoo/tools/tra-san-pham.js';
 import { taoDonNhap, dinhDangTaoDon } from '../../../odoo/tools/tao-don-nhap.js';
 import { suaDon, dinhDangSuaDon } from '../../../odoo/tools/sua-don.js';
@@ -70,6 +71,12 @@ function dapSlot(p: PhienGom, trich: KetQuaTrich): boolean {
       delete p.khachKhongThay;
       doi = true;
     }
+  }
+  if (trich.khachMoi && !p.khachDaChot) {
+    p.khachMoi = trich.khachMoi;
+    // NV đưa tên khách mới → dùng luôn làm từ khoá tra (biết đâu đã có sẵn).
+    if (!p.khachTuKhoa) p.khachTuKhoa = trich.khachMoi.ten;
+    doi = true;
   }
   // BỎ DÒNG (spec 10/08) — chạy TRƯỚC khi thêm: "bỏ 300 thanh led tỏa rồi lên
   // đơn" vừa bỏ vừa nhắc tên món, không xử trước thì nó lại được thêm vào.
@@ -366,6 +373,31 @@ export async function xuLyGomDon(
       ...(trich.maDon ? { maDon: trich.maDon } : {}),
     });
     hd = buocTiepTheo(phien);
+  }
+
+  // TẠO KHÁCH MỚI (bug 3 demo 10/08) — tra không ra mà NV đã cho tên thì tạo
+  // rồi chạy tiếp NGAY trong lượt này, không bắt nhân viên nhắc lại lần nữa.
+  if (hd.loai === 'tao_khach') {
+    const t0 = Date.now();
+    const km = phien.khachMoi!;
+    const kq = await taoKhachHang(
+      { odoo: deps.odoo },
+      { ten: km.ten, ...(km.sdt ? { dien_thoai: km.sdt } : {}), ...(km.diaChi ? { dia_chi: km.diaChi } : {}) },
+    );
+    deps.ghiLog({
+      toolName: 'tao_khach_hang', input: km, output: dinhDangTaoKhach(kq),
+      thanhCong: kq.trangThai === 'ok', durationMs: Date.now() - t0, iteration: 0,
+    });
+    if (kq.trangThai === 'ok') {
+      phien.khachDaChot = { id: kq.khach.id, ten: kq.khach.ten, ma: kq.khach.ma, dienThoai: km.sdt ?? null };
+      delete phien.khachKhongThay;
+      delete phien.khachMoi;
+      hd = buocTiepTheo(phien);
+    } else {
+      await deps.guiTin(`Em chưa tạo được khách mới: ${kq.lyDo}`);
+      await luuPhien(deps.prisma, { orgId: input.orgId, conversationId: input.conversationId, phien });
+      return true;
+    }
   }
 
   // Chế SỬA: đủ rõ thì ghi THẲNG, không cổng chốt (anh Quốc chốt 08/08).

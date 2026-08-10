@@ -15,6 +15,8 @@ export interface KetQuaTrich {
   dong?: Array<{ sp: string; sl?: number; gia?: number }>;
   /** SP nhân viên muốn BỎ khỏi đơn đang gom ("bỏ 300 thanh led tỏa"). */
   boDong?: string[];
+  /** NV báo đây là KHÁCH MỚI, kèm thông tin để tạo ("khách mới", tên + SĐT). */
+  khachMoi?: { ten: string; sdt?: string; diaChi?: string };
   huy?: boolean;
   xacNhan?: boolean;
   /** Câu không liên quan đơn hàng (digression) — máy nhường agent thường. */
@@ -50,6 +52,16 @@ const ghiSlotDefinition: ToolDefinition = {
       boDong: {
         type: 'array', items: { type: 'string' },
         description: 'Tên/từ khoá SP nhân viên muốn BỎ khỏi đơn: "bỏ 300 thanh led tỏa", "không lấy cáp nữa"',
+      },
+      khachMoi: {
+        type: 'object',
+        description: 'Nhân viên nói KHÁCH MỚI / cho tên + SĐT của khách chưa có trong hệ thống',
+        properties: {
+          ten: { type: 'string', description: 'Tên khách, bỏ xưng hô' },
+          sdt: { type: 'string', description: 'Số điện thoại nếu có' },
+          diaChi: { type: 'string', description: 'Địa chỉ nếu có' },
+        },
+        required: ['ten'],
       },
       sua: { type: 'boolean', description: 'true khi nhân viên SỬA đơn đã có (thêm hàng/đổi số lượng), không phải lên đơn mới' },
       maDon: { type: 'string', description: 'Mã đơn nhân viên nhắc, dạng S13820' },
@@ -91,6 +103,17 @@ export function lamSachTrich(raw: Record<string, unknown>): KetQuaTrich {
       .map((x) => x.trim());
     if (bo.length > 0) kq.boDong = bo;
   }
+  const km = raw.khachMoi;
+  if (typeof km === 'object' && km !== null) {
+    const o = km as Record<string, unknown>;
+    if (typeof o.ten === 'string' && o.ten.trim().length >= 2) {
+      kq.khachMoi = {
+        ten: o.ten.trim(),
+        ...(typeof o.sdt === 'string' && o.sdt.trim() ? { sdt: o.sdt.trim() } : {}),
+        ...(typeof o.diaChi === 'string' && o.diaChi.trim() ? { diaChi: o.diaChi.trim() } : {}),
+      };
+    }
+  }
   if (raw.sua === true) kq.sua = true;
   if (typeof raw.maDon === 'string' && /^S\d+$/i.test(raw.maDon.trim())) {
     kq.maDon = raw.maDon.trim().toUpperCase();
@@ -122,6 +145,8 @@ export async function trichSlot(
     'có thể viết tắt: "10c" = 10 cái). LUÔN gọi tool ghi_slot, không trả lời text.',
     'Câu SỬA đơn đã có ("sửa đơn thêm 5 cáp", "đổi thành 100 cái", "thêm X vào',
     'đơn") → sua=true; có nhắc mã đơn (S13820) thì điền maDon.',
+    'Nhân viên nói KHÁCH MỚI ("khách mới", "khách này chưa có") hoặc đưa tên +',
+    'SĐT của khách chưa có → điền khachMoi {ten, sdt}. Vẫn điền khach như bình thường.',
     'GIÁ nhân viên báo ("x 170k", "13k/thanh", "giá 1tr2") → điền gia, ĐỔI RA',
     'ĐỒNG (170k=170000). Câu BỎ hàng ("bỏ 300 thanh led tỏa", "không lấy cáp',
     'nữa", "bỏ X ra") → điền boDong, KHÔNG điền dong.',

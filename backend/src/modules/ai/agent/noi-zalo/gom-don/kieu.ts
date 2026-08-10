@@ -39,6 +39,12 @@ export interface PhienGom {
   khachDaChot?: Pick<KhachHang, 'id' | 'ten' | 'ma' | 'dienThoai'>;
   khachUngVien?: KhachHang[];
   khachKhongThay?: boolean;
+  /**
+   * Thông tin khách MỚI nhân viên cung cấp khi tra không ra ("khách mới",
+   * kèm tên + SĐT). Bug demo 17:08 10/08: máy chỉ biết TRA, không có đường
+   * TẠO nên bot đáp 'hệ thống chưa cho phép tạo khách mới trong lượt này'.
+   */
+  khachMoi?: { ten: string; sdt?: string; diaChi?: string };
   dong: DongGom[];
   /** Đã hiện tóm tắt, đang chờ NV chốt — chặn tạo đơn khi chưa ai gật. */
   daHoiChot?: boolean;
@@ -73,6 +79,8 @@ export type HanhDong =
   | { loai: 'hoi_gia'; sp: string[] }
   | { loai: 'khong_thay'; khach?: string; sp: string[] }
   | { loai: 'khong_thay_don' }
+  /** Tra không ra khách nhưng NV đã cho tên → tạo khách mới rồi chạy tiếp. */
+  | { loai: 'tao_khach' }
   | { loai: 'tom_tat_cho_chot' }
   | { loai: 'tao_don' }
   /** Chế 'sua': đủ rõ → ghi THẲNG Odoo, KHÔNG hỏi chốt (anh Quốc chốt 08/08). */

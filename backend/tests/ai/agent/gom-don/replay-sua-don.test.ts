@@ -354,3 +354,52 @@ describe('sửa đơn — giá NV báo phải theo xuống tool', () => {
     expect(payload.price_unit).toBe(300);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// KHÁCH MỚI — bug 3 demo 17:08-17:09 10/08: NV nói "khách mới" + tên + SĐT,
+// bot đáp "hệ thống chưa cho phép tạo khách mới trong lượt này".
+describe('replay 10/08 — khách mới trong nhóm', () => {
+  it('tra không ra khách + NV cho tên/SĐT → TẠO khách rồi chạy tiếp ngay', async () => {
+    const spNho = { id: 1051, name: 'cáp 16 sợi nhỏ (cuộn)', default_code: false, list_price: 170000, uom_id: [1, 'Cuộn'] };
+    const execute = vi.fn(async (model: string) => (model === 'res.partner' ? 3200 : 1));
+    const searchRead = vi.fn(async (model: string, domain: unknown[]) => {
+      if (model === 'res.partner') {
+        // Khách mới: tra tên KHÔNG ra; đọc lại theo id (sau create) thì có.
+        const theoId = (domain as unknown[]).some((d) => Array.isArray(d) && d[0] === 'id');
+        return theoId ? [{ id: 3200, name: 'Chiến Tàm Xá', ref: 'KH003200' }] : [];
+      }
+      if (model === 'product.product') {
+        const gia = (domain as unknown[]).find((d): d is [string,string,number] => Array.isArray(d) && d[0]==='list_price');
+        if (gia && gia[1] === '<=') return [];
+        return [spNho];
+      }
+      return [];
+    });
+    const db = fakeDb();
+    const tinGui: string[] = [];
+    const g: ToolAwareGenerate = async (a) => {
+      const nd = String(a.messages[0].content);
+      const input = nd.includes('khách mới')
+        ? { khach: 'Chiến Tàm Xá', khachMoi: { ten: 'Chiến Tàm Xá', sdt: '0969810330' },
+            dong: [{ sp: 'cáp 16 sợi nhỏ', sl: 10 }] }
+        : { ngoaiLe: true };
+      return { text: '', stopReason: 'tool_use', raw: null, usage,
+        toolCalls: [{ id: 't1', name: 'ghi_slot', input }] };
+    };
+    const deps: GomDonDeps = {
+      prisma: db as never, odoo: { searchRead, execute } as never, generate: g,
+      anhClient: null, odooUrl: 'https://odoo.example.com',
+      guiTin: async (t) => { tinGui.push(t); },
+      guiAnhHoaDon: async () => {}, ghiLog: () => {},
+    };
+    await xuLyGomDon(deps, { orgId: 'o1', conversationId: 'c1', seq: 1,
+      cau: 'lên đơn cho khách mới Chiến Tàm Xá sdt 0969810330, 10 cáp 16 sợi nhỏ' });
+
+    // ĐÃ tạo khách trên Odoo
+    expect(execute.mock.calls.some((c) => c[0] === 'res.partner' && c[1] === 'create')).toBe(true);
+    // và chạy TIẾP tới tóm tắt trong CHÍNH lượt này, không bắt nhắc lại
+    expect(tinGui[tinGui.length - 1]).toContain('Chiến Tàm Xá');
+    expect(tinGui[tinGui.length - 1]).toContain('10 × cáp 16 sợi nhỏ');
+    expect(tinGui.join('\n')).not.toContain('chưa cho phép tạo khách mới');
+  });
+});

@@ -37,6 +37,11 @@ export function buocTiepTheo(p: PhienGom): HanhDong {
   // 2s. Chế sửa: không có đơn nháp nào để sửa → báo ngay, đừng hỏi vòng vo.
   if (laSua && p.donKhongThay) return { loai: 'khong_thay_don' };
 
+  // 2a. Tra không ra khách NHƯNG nhân viên đã cho tên (nói "khách mới" hoặc gửi
+  //     tên + SĐT) → TẠO khách rồi chạy tiếp. Đứng trước nhánh "không thấy":
+  //     bug demo 17:08 10/08 là bot cứ báo không thấy dù NV đã đưa đủ thông tin.
+  if (p.khachKhongThay && p.khachMoi?.ten && !p.khachDaChot) return { loai: 'tao_khach' };
+
   // 2. Tra rồi mà không thấy → báo ngay, đừng bắt NV chờ đến cuối mới biết.
   const spKhongThay = p.dong.filter((d) => d.khongThay).map((d) => d.tuKhoa);
   if (p.khachKhongThay || spKhongThay.length > 0) {

@@ -165,3 +165,36 @@ describe('buocTiepTheo — SP chưa có giá', () => {
     expect(buocTiepTheo(p)).toEqual({ loai: 'tom_tat_cho_chot' });
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// KHÁCH MỚI (bug 3 demo 17:08-17:09 10/08): NV nói "khách mới" + cho tên/SĐT,
+// bot đáp "hệ thống chưa cho phép tạo khách mới trong lượt này" — máy gom đơn
+// chỉ biết TRA khách, không có đường tạo.
+describe('buocTiepTheo — khách mới', () => {
+  const sp = { id: 3, ten: 'Nguồn NB 12V100W', gia: 78000 };
+
+  it('tra không thấy khách + NV đã cho tên → tao_khach (không hỏi lại vòng vo)', () => {
+    const p: PhienGom = {
+      khachTuKhoa: 'Chiến Tàm Xá', khachKhongThay: true, khachMoi: { ten: 'Chiến Tàm Xá', sdt: '0969810330' },
+      dong: [{ tuKhoa: 'nguồn NB', sl: 10, daChot: sp }],
+    };
+    expect(buocTiepTheo(p)).toEqual({ loai: 'tao_khach' });
+  });
+
+  it('tra không thấy nhưng CHƯA có thông tin khách mới → vẫn báo không thấy', () => {
+    const p: PhienGom = {
+      khachTuKhoa: 'Chiến Tàm Xá', khachKhongThay: true,
+      dong: [{ tuKhoa: 'nguồn NB', sl: 10, daChot: sp }],
+    };
+    expect(buocTiepTheo(p)).toEqual({ loai: 'khong_thay', khach: 'Chiến Tàm Xá', sp: [] });
+  });
+
+  it('khách đã tạo xong (khachDaChot) → chạy tiếp bình thường', () => {
+    const p: PhienGom = {
+      khachTuKhoa: 'Chiến Tàm Xá',
+      khachDaChot: { id: 99, ten: 'Chiến Tàm Xá', ma: 'KH003200', dienThoai: '0969810330' },
+      dong: [{ tuKhoa: 'nguồn NB', sl: 10, daChot: sp }],
+    };
+    expect(buocTiepTheo(p)).toEqual({ loai: 'tom_tat_cho_chot' });
+  });
+});
