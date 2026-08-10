@@ -17,6 +17,7 @@ import { layOdoo, layAnhClient, timTriThuc, layLichSu, seqTuMessageId, coTinKhac
 import { timDich, guiTin, guiAnh, guiFile, ghiAnhTam } from './gui-zalo.js';
 import { xuLyGomDon } from './gom-don/index.js';
 import { docPhien, type DbPhienGomDon } from './gom-don/phien-store.js';
+import { gopTinTruocKhiTag } from './gop-tin.js';
 import { taoDung, taoMoc, chayCoHanGio } from './dung.js';
 import { laXacNhanNgan } from './cam-xuc.js';
 import type { NgữCanhTin } from './types.js';
@@ -131,6 +132,29 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
 
   const dich = await timDich(ctx.conversationId);
   if (!dich) return dung('không tra được thread', { conversationId: ctx.conversationId });
+
+  // TAG TRỐNG — người ta gọi bot mà không kèm nội dung.
+  //
+  // KHÔNG đáp suông "Dạ em đây": bug 21:04-21:05 10/08 cho thấy câu lệnh nằm
+  // ngay TIN TRƯỚC (nhân viên quên tag ở tin đó rồi tag ở tin sau). Anh Quốc:
+  // "mấy tin trước đó quên tag thì sao???" — nên đọc ngược lịch sử lấy việc
+  // của chính người vừa tag. Không có gì để lấy thì mới hỏi lại.
+  // Đứng SAU timDich vì cần đích để gửi.
+  if (lenh.tagTrong) {
+    const t0Tag = moc.batDau({ noiDung: '(tag trống)' });
+    const lichSuTag = await layLichSu(ctx.conversationId, ctx.messageId);
+    const gop = ctx.senderUid ? gopTinTruocKhiTag(ctx.senderUid, lichSuTag) : null;
+    if (!gop) {
+      await guiTin(dich, 'Dạ em đây, anh/chị cần gì ạ?', false);
+      moc.xong(t0Tag, { nhanh: 'tag-trong', conversationId: ctx.conversationId });
+      return true;
+    }
+    // Có việc bị bỏ sót → xử như thể nhân viên vừa gõ câu đó kèm tag.
+    logger.info(
+      { gop: gop.slice(0, 60) }, '[agent/nv] tag trống — lấy nội dung từ tin trước',
+    );
+    lenh.noiDung = gop;
+  }
 
   const generate = await dungGenerate(ctx.orgId);
   if (!generate) return dung('chưa cấu hình LLM cho tổ chức', { orgId: ctx.orgId });

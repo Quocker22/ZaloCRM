@@ -570,6 +570,12 @@ export async function chayLenhNhanVien(
 
   if (!lenh) return { trangThai: 'khong_phai_lenh' };
 
+  // Tag TRỐNG ("@bot" không kèm gì): từ 10/08 cổng trả object thay vì null để
+  // luồng noi-zalo đáp "Dạ em đây" — nhưng ĐƯỜNG NÀY không có chỗ gửi câu đó,
+  // và chạy tiếp nghĩa là nạp cả prompt + 8 tool vào LLM cho một dấu tag.
+  // Dừng như cũ: caller đi luồng thường.
+  if (lenh.tagTrong) return { trangThai: 'khong_phai_lenh' };
+
   // Hóa đơn model gọi ra — gom ở đây để trả về cho caller đính kèm.
   let hoaDon: KetQuaGuiHoaDon | undefined;
   const tepBaoCao: TepBaoCao[] = [];

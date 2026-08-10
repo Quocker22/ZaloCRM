@@ -149,3 +149,62 @@ describe('dangChoTraLoi — bot đang hỏi thì người được hỏi khỏi 
     expect(lenh?.noiDung).toBe('khách mới');
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Tag TRỐNG (bug thật 21:05:00 10/08): anh Quốc tag "@Tiểu Mã Nelia" rồi không
+// gõ gì thêm — bot IM. Anh hỏi lại: "khi tag là chắc chắn khách cần xử lý rồi
+// thì vẫn phải handle chứ????". Đúng: tag = gọi bot. Im lặng là phản hồi tệ
+// nhất, người gọi không biết bot có nghe không, tưởng bot chết.
+//
+// Nhưng KHÔNG gọi LLM cho tag trống — không có gì để suy nghĩ, và đó là câu
+// tốn ~3k token cho một dấu tag. Trả cờ `tagTrong` để caller đáp câu tất định.
+describe('tag TRỐNG — bot phải lên tiếng, nhưng không gọi LLM', () => {
+  it('chỉ có tag, không nội dung → LÀ lệnh, đánh dấu tagTrong', () => {
+    const lenh = nhanDienLenhNhanVien({
+      content: '@bot', isSelf: false, senderUid: UID_NV, batBuocTag: true,
+    });
+    expect(lenh).not.toBeNull();
+    expect(lenh?.tagTrong).toBe(true);
+    expect(lenh?.noiDung).toBe('');
+  });
+
+  it('tag + khoảng trắng thừa vẫn tính là trống', () => {
+    const lenh = nhanDienLenhNhanVien({
+      content: '@bot   ', isSelf: false, senderUid: UID_NV, batBuocTag: true,
+    });
+    expect(lenh?.tagTrong).toBe(true);
+  });
+
+  it('tag CÓ nội dung → tagTrong không bật, chạy như cũ', () => {
+    const lenh = nhanDienLenhNhanVien({
+      content: '@bot giá P10 bao nhiêu', isSelf: false, senderUid: UID_NV, batBuocTag: true,
+    });
+    expect(lenh?.tagTrong).toBeFalsy();
+    expect(lenh?.noiDung).toBe('giá P10 bao nhiêu');
+  });
+
+  it('KHÔNG tag và không nội dung → vẫn không phải lệnh (không tự dưng nói)', () => {
+    const lenh = nhanDienLenhNhanVien({
+      content: '   ', isSelf: false, senderUid: UID_NV, batBuocTag: true,
+    });
+    expect(lenh).toBeNull();
+  });
+});
+
+describe('tag trống — không rò sang các đường khác', () => {
+  it('luồng khách TRÁNH tin tag trống của nhân viên (khỏi trả lời chồng)', () => {
+    // laLenhNhanVien chỉ cần biết "có phải lệnh không" — tag trống LÀ lệnh,
+    // nên luồng khách phải nhường, đúng như mọi lệnh khác.
+    const lenh = nhanDienLenhNhanVien({
+      content: '@bot', isSelf: false, senderUid: UID_NV, batBuocTag: true,
+    });
+    expect(lenh).not.toBeNull();
+  });
+
+  it('BẢO MẬT: người lạ tag trống → vẫn không phải lệnh', () => {
+    const lenh = nhanDienLenhNhanVien({
+      content: '@bot', isSelf: false, senderUid: 'nguoi-la-9999', batBuocTag: true,
+    });
+    expect(lenh).toBeNull();
+  });
+});

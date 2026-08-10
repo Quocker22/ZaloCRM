@@ -90,9 +90,14 @@ describe('nhanDienLenhNhanVien — HAI cổng code', () => {
     expect(nv('   ')).toBeNull();
   });
 
-  it('CHỈ có tag, không nội dung → null (không có gì để làm)', () => {
-    expect(nv('@bot')).toBeNull();
-    expect(nv('@bot   ')).toBeNull();
+  // ĐỔI LUẬT 10/08: trước đây trả null (bot im). Anh Quốc: "khi tag là chắc
+  // chắn khách cần xử lý rồi thì vẫn phải handle chứ????" — tag là gọi bot,
+  // im lặng không phân biệt được với bot chết. Giờ LÀ lệnh, kèm cờ `tagTrong`
+  // để caller đọc tin trước đó (gopTinTruocKhiTag) thay vì gọi LLM với câu rỗng.
+  it('CHỈ có tag, không nội dung → LÀ lệnh, đánh dấu tagTrong', () => {
+    expect(nv('@bot')?.tagTrong).toBe(true);
+    expect(nv('@bot   ')?.tagTrong).toBe(true);
+    expect(nv('@bot')?.noiDung).toBe('');
   });
 });
 

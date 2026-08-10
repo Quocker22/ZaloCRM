@@ -68,6 +68,14 @@ export interface LenhNhanVien {
   noiDung: string;
   /** Cách gọi đã dùng (ghi log, biết nhân viên quen cú pháp nào). */
   cachGoi: string;
+  /**
+   * Tag nhưng KHÔNG kèm nội dung ("@bot" trống).
+   *
+   * Vẫn là lệnh — tag là gọi bot, im lặng làm người gọi tưởng bot chết (bug
+   * 21:05:00 10/08). Nhưng caller ĐỪNG gọi LLM: không có gì để suy nghĩ, và
+   * một dấu tag không đáng ~3k token. Đáp một câu tất định là đủ.
+   */
+  tagTrong?: true;
 }
 
 /** Bỏ dấu để so khớp khi nhân viên gõ không dấu. */
@@ -184,8 +192,13 @@ export function nhanDienLenhNhanVien(input: {
     .replace(/[^\S\n]{2,}/g, ' ')
     .trim();
 
-  // Chỉ có tag, không có nội dung ("@bot") → không có gì để làm.
-  if (!noiDung) return null;
+  // Chỉ có tag, không có nội dung ("@bot") → VẪN nhận việc.
+  //
+  // Trước đây trả null (im lặng). Anh Quốc 10/08: "khi tag là chắc chắn khách
+  // cần xử lý rồi thì vẫn phải handle chứ????" — đúng, người ta tag là đang
+  // gọi; im lặng là phản hồi tệ nhất vì không phân biệt được với bot chết.
+  // Caller nhìn `tagTrong` để đáp câu tất định, không tốn lượt LLM.
+  if (!noiDung) return { noiDung: '', cachGoi: khop.tag, tagTrong: true };
 
   return { noiDung, cachGoi: khop.tag };
 }
