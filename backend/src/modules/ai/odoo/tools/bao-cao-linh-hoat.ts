@@ -9,6 +9,7 @@
 import type { ToolDefinition } from '../../agent/types.js';
 import type { OdooClient } from '../client.js';
 import { NGUONG_DINH_KEM, type BangExcel } from '../xuat-excel.js';
+import { locChoSoLuong } from '../sp-ky-thuat.js';
 
 /* ── Danh mục đóng ─────────────────────────────────────────────────────── */
 
@@ -216,6 +217,17 @@ export async function baoCaoLinhHoat(
         .filter((x) => x.giaTri !== 0);
       return { nhan, giaTri, ...(phu.length > 0 ? { phu } : {}) };
     });
+
+    // SP KỸ THUẬT (VAT, phí ship) — bỏ khi đo SỐ LƯỢNG, GIỮ khi đo tiền.
+    //
+    // Đo thật trên prod 10/08, kỳ 08/2026: kế toán ghi thuế bằng SP giả
+    // `[SP000070] VAT 8%` đơn giá 1đ, số lượng = số tiền (qty=43.968.000).
+    // Ra ĐÚNG tiền nhưng phá nát báo cáo số lượng:
+    //   kể cả SP kỹ thuật: 131.800.532  ·  hàng THẬT: 488.672  → sai 270 lần.
+    // Bỏ khỏi cột tiền thì lại báo thiếu 131.521.857đ tiền thuế — nên chỉ lọc
+    // khi báo cáo đo số lượng ĐƠN THUẦN. Lọc TRƯỚC khi tính tổng, nếu không
+    // tổng vẫn dính rác.
+    danhSach = locChoSoLuong(danhSach, doKey, (d) => d.nhan);
 
     danhSach.sort((a, b) => (input.sap_xep === 'tang' ? a.giaTri - b.giaTri : b.giaTri - a.giaTri));
     const tong = danhSach.reduce((t, d) => t + d.giaTri, 0);

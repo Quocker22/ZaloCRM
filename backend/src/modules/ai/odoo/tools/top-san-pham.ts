@@ -9,6 +9,7 @@
 import type { ToolDefinition } from '../../agent/types.js';
 import type { OdooClient } from '../client.js';
 import { NGUONG_DINH_KEM, type BangExcel } from '../xuat-excel.js';
+import { laSanPhamKyThuat } from '../sp-ky-thuat.js';
 
 export interface DongTop {
   sanPhamId: number;
@@ -73,10 +74,14 @@ export async function topSanPham(
       { orderby: 'product_uom_qty desc', limit: kieu === 'ban_chay' ? limit : TRAN_DONG, lazy: true },
     );
     // Lớp lọc TÊN dự phòng: shop này để "VAT 8%", "chiết khấu", "phí ship"
-    // thành product thật (không phải type=service) nên domain trên không chặn
-    // hết. Lọc theo từ khoá tên là hàng rào cuối — số vẫn do Odoo cộng, đây
+    // thành product thật (đo 10/08: id 562 `VAT 8%` khai type='product', không
+    // phải 'service') nên domain trên không chặn hết. Số vẫn do Odoo cộng, đây
     // chỉ bỏ dòng rác khỏi danh sách hiển thị.
-    const LA_RAC = /\b(vat|thuế|thue|chiết khấu|chiet khau|phí|phi ship|ship|discount|tax)\b/i;
+    //
+    // Dùng CHUNG `laSanPhamKyThuat` với báo cáo linh hoạt (gộp 10/08): trước
+    // đó mỗi nơi một regex và ĐÃ LỆCH — regex cũ `\bphí\b` không khớp "Phí
+    // vận chuyển" (chữ "phí" dính "vận"), nên phí ship vẫn lọt vào top bán
+    // chạy. Một luật, một chỗ sửa.
     const daBan = nhom
       .filter((g) => Array.isArray(g.product_id))
       .map((g) => ({
@@ -85,7 +90,7 @@ export async function topSanPham(
         soLuong: Number(g.product_uom_qty ?? 0),
         tongTien: Number(g.price_total ?? 0),
       }))
-      .filter((d) => !LA_RAC.test(d.ten));
+      .filter((d) => !laSanPhamKyThuat(d.ten));
 
     if (kieu === 'ban_chay') {
       return { trangThai: 'ok', kieu, danhSach: daBan, ky };
