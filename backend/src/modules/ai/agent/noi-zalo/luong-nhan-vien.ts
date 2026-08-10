@@ -18,6 +18,7 @@ import { timDich, guiTin, guiAnh, guiFile, ghiAnhTam } from './gui-zalo.js';
 import { xuLyGomDon } from './gom-don/index.js';
 import { docPhien, type DbPhienGomDon } from './gom-don/phien-store.js';
 import { gopTinTruocKhiTag } from './gop-tin.js';
+import { thuGiuViec } from './khoa-viec.js';
 import { taoDung, taoMoc, chayCoHanGio } from './dung.js';
 import { laXacNhanNgan } from './cam-xuc.js';
 import type { NgữCanhTin } from './types.js';
@@ -154,6 +155,16 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
       { gop: gop.slice(0, 60) }, '[agent/nv] tag trống — lấy nội dung từ tin trước',
     );
     lenh.noiDung = gop;
+  }
+
+  // KHOÁ VIỆC — chặn hai lượt cùng xử lý MỘT câu lệnh (bug 21:34:22-24 10/08:
+  // tin gốc tự chạy, rồi tag trống nuốt lại đúng câu đó → bot trả lời 2 lần).
+  // Đặt SAU khi đã chốt nội dung cuối (kể cả nội dung gộp từ tag trống) và
+  // TRƯỚC mọi việc tốn tiền. Không giữ được = lượt khác đang làm → im lặng.
+  if (!(await thuGiuViec(ctx.conversationId, lenh.noiDung))) {
+    return dung('việc này lượt khác đang xử lý', {
+      conversationId: ctx.conversationId, noiDung: lenh.noiDung.slice(0, 40),
+    });
   }
 
   const generate = await dungGenerate(ctx.orgId);

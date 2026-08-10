@@ -42,6 +42,7 @@ import { xuLyTinNhanVien } from '../../../../src/modules/ai/agent/noi-zalo/luong
 import { xuLyGomDon } from '../../../../src/modules/ai/agent/noi-zalo/gom-don/index.js';
 import { chayLenhNhanVien } from '../../../../src/modules/ai/agent/staff-agent.js';
 import { guiTin } from '../../../../src/modules/ai/agent/noi-zalo/gui-zalo.js';
+import { _resetKhoaViecChoTest } from '../../../../src/modules/ai/agent/noi-zalo/khoa-viec.js';
 
 const ctx = {
   orgId: 'o1', bizName: 'Shop', conversationId: 'c1', messageId: 'm1',
@@ -58,6 +59,9 @@ beforeEach(() => {
   process.env.ODOO_USERNAME = 'u';
   process.env.ODOO_PASSWORD = 'p';
   vi.clearAllMocks();
+  // Khoá việc (10/08) chặn hai lượt cùng xử một câu — các ca dưới dùng chung
+  // conversationId + câu lệnh nên ca sau bị ca trước khoá. Dọn giữa mỗi ca.
+  _resetKhoaViecChoTest();
 });
 afterEach(() => { process.env = goc; });
 
