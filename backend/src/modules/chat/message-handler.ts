@@ -12,7 +12,7 @@ import { randomUUID } from 'node:crypto';
 import { emitWebhook } from '../api/webhook-service.js';
 import { runAutomationRules } from '../../shared/ee-registry/automation.js';
 import { runAutoReplyForMessage } from '../ai/knowledge/auto-reply-wiring.js';
-import { xuLyTinNhanVien, xuLyTinKhach, xuLyTinMedia, laLenhNhanVien, bocMention } from '../ai/agent/noi-zalo.js';
+import { xuLyTinNhanVien, xuLyTinKhach, xuLyTinMedia, laLenhNhanVien, dangChoTraLoiNv, bocMention } from '../ai/agent/noi-zalo.js';
 import { automationEventBus } from '../../shared/ee-registry/event-bus.js';
 import { applyContactAggregateFromMessage, applyContactInteraction, applyFriendAggregate } from '../contacts/contact-aggregate.js';
 import { followMergedInto } from '../contacts/resolve-contact.js';
@@ -766,10 +766,17 @@ export async function handleIncomingMessage(
         void (async () => {
           // Lệnh nhân viên (@bot) đã do agent nhân viên xử lý ở nhánh trên —
           // luồng khách phải TRÁNH, nếu không khách nhận hai câu trả lời.
+          // `dangChoTraLoi` phải giống hệt giá trị luồng nhân viên tự tính,
+          // nếu không hai cổng lệch: nhân viên nhận câu "khách mới" (nới tag)
+          // mà cổng này tưởng không phải lệnh nên luồng khách cũng xử → hai
+          // câu trả lời cho một tin. Dùng chung `dangChoTraLoiNv`.
+          const choTraLoiNv = await dangChoTraLoiNv({
+            conversationId: conversation.id, senderUid: msg.senderUid, laNhom,
+          });
           if (laLenhNhanVien({
             orgId: account.orgId,
             content: contentSachMention, isSelf: msg.isSelf, senderUid: msg.senderUid,
-            laNhom, daTagBot,
+            laNhom, daTagBot, dangChoTraLoi: choTraLoiNv,
           })) return;
 
           const agentDaTraLoi = await xuLyTinKhach({

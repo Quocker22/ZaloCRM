@@ -50,9 +50,37 @@ function chuanHoaTen(s: string): string {
  * KHÔNG ném khi trùng — trả `daCo: true` để model biết mà dùng tiếp, thay vì
  * coi là lỗi rồi chuyển sale.
  */
+/**
+ * Chìa khoá cho `bo_phanh_trung_ten`. Symbol KHÔNG serialize được qua JSON,
+ * nên input do LLM sinh (luôn là JSON thuần) không thể mang nó — kể cả khi
+ * model tự bịa ra trường `bo_phanh_trung_ten: true` dù schema không khai.
+ *
+ * Vì sao cần: hai registry (customer-agent, staff-agent) ép thẳng
+ * `input as Parameters<typeof taoKhachHang>[1]`, tức mọi trường model bịa ra
+ * đều lọt vào tham số. Ở luồng KHÁCH thì khách điều khiển được câu chữ, nên
+ * một cờ bỏ phanh mà LLM bật được là lỗ hổng thật, không phải giả định.
+ */
+export const CHIA_BO_PHANH: unique symbol = Symbol('bo_phanh_trung_ten');
+
 export async function taoKhachHang(
   deps: TaoKhachDeps,
-  input: { ten: string; dien_thoai?: string; dia_chi?: string },
+  input: {
+    ten: string; dien_thoai?: string; dia_chi?: string;
+    /**
+     * Nhân viên đã nói RÕ "khách mới" — bỏ phanh chặn trùng tên.
+     *
+     * Phanh dưới hợp lý khi LLM tự suy "chắc là người mới"; nhưng khi nhân
+     * viên chủ động khai thì họ đang nói "tôi biết có mấy người trùng tên,
+     * người này KHÁC" (bug 17:08 10/08: 10 anh Chiến, nhân viên bảo khách mới,
+     * bot vẫn từ chối tạo và bắt chọn trong 10 người cũ).
+     *
+     * CHỈ máy gom đơn được đặt cờ này — nó biết chắc câu "khách mới" đến từ
+     * nhân viên. Schema tool KHÔNG khai cờ, nên LLM không tự bật được.
+     */
+    bo_phanh_trung_ten?: boolean;
+    /** Chìa khoá xác thực cờ trên — xem CHIA_BO_PHANH. */
+    [CHIA_BO_PHANH]?: true;
+  },
 ): Promise<KetQuaTaoKhach> {
   const ten = chuanHoaTen(input.ten ?? '');
   if (!ten) return { trangThai: 'loi', lyDo: 'Thiếu tên khách. Hỏi khách tên để lưu đơn.' };
@@ -88,17 +116,22 @@ export async function taoKhachHang(
     }
   }
 
+  // Cờ bỏ phanh CHỈ có hiệu lực khi kèm chìa khoá Symbol — tức caller là CODE
+  // (máy gom đơn), không phải input LLM bịa ra.
+  const boPhanh = input.bo_phanh_trung_ten === true && input[CHIA_BO_PHANH] === true;
+
   // ── Lớp 3: tên CHÍNH XÁC ──────────────────────────────────────────────────
   // Dùng '=' chứ KHÔNG phải 'ilike': đo thật 2026-08-02 khi thử gộp khách trùng,
   // so khớp "chứa" bắt nhầm "Chị Lan" với "Chị Lan (cũ)" — hai người khác nhau.
   const trungTen = await deps.odoo.searchRead<{ id: number; name: string; ref: string | null }>(
     'res.partner', [['name', '=', ten], ['customer_rank', '>', 0]], FIELDS, { limit: 2 },
   );
-  if (trungTen.length === 1) {
+  if (trungTen.length === 1 && !boPhanh) {
     return { trangThai: 'ok', khach: { id: trungTen[0].id, ten: trungTen[0].name, ma: trungTen[0].ref, daCo: true } };
   }
-  if (trungTen.length > 1) {
+  if (trungTen.length > 1 && !boPhanh) {
     // Nhiều người cùng tên y hệt — tạo thêm chỉ tổ rối. Để nhân viên chọn.
+    // Trừ khi nhân viên đã nói rõ "khách mới" (bo_phanh_trung_ten).
     return {
       trangThai: 'loi',
       lyDo: `Có ${trungTen.length} khách tên "${ten}" trong hệ thống. Dùng tra_khach_hang để chọn đúng người, đừng tạo mới.`,

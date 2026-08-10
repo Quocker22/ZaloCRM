@@ -16,7 +16,7 @@ import { dungGenerate } from './llm.js';
 import { layOdoo, layAnhClient, timTriThuc, layLichSu, seqTuMessageId, coTinKhachMoiHon } from './du-lieu.js';
 import { timDich, guiTin, guiAnh, guiFile, ghiAnhTam } from './gui-zalo.js';
 import { xuLyGomDon } from './gom-don/index.js';
-import type { DbPhienGomDon } from './gom-don/phien-store.js';
+import { docPhien, type DbPhienGomDon } from './gom-don/phien-store.js';
 import { taoDung, taoMoc, chayCoHanGio } from './dung.js';
 import { laXacNhanNgan } from './cam-xuc.js';
 import type { NgữCanhTin } from './types.js';
@@ -45,6 +45,15 @@ export function laLenhNhanVien(input: {
   senderUid?: string | null;
   laNhom?: boolean;
   daTagBot?: boolean;
+  /**
+   * Bot đang hỏi chính người này (phiên gom đơn mở, `hoiUid` khớp).
+   *
+   * PHẢI khớp với giá trị `xuLyTinNhanVien` tự tính, nếu không hai cổng lệch
+   * nhau: luồng nhân viên nhận câu "khách mới" mà luồng khách tưởng không phải
+   * lệnh nên cũng xử → khách nhận hai câu trả lời. Caller dùng `dangChoTraLoiNv`
+   * để lấy đúng giá trị đó.
+   */
+  dangChoTraLoi?: boolean;
 }): boolean {
   if (!batLuongNhanVien() || !duCauHinh()) return false;
   return nhanDienLenhNhanVien({
@@ -53,8 +62,32 @@ export function laLenhNhanVien(input: {
     isSelf: input.isSelf,
     senderUid: input.senderUid,
     batBuocTag: input.laNhom === true,
+    dangChoTraLoi: input.dangChoTraLoi,
     laNhanVien: (uid) => laNhanVienSync(input.orgId, uid),
   }) !== null;
+}
+
+/**
+ * "Bot có đang chờ CHÍNH người này trả lời không?" — nguồn sự thật DUY NHẤT
+ * cho cờ `dangChoTraLoi`, dùng chung cho cả cổng nhân viên lẫn cổng tránh của
+ * luồng khách. Hai cổng tính khác nhau thì một tin bị hai luồng cùng xử.
+ *
+ * Chỉ đúng trong NHÓM: chat 1-1 vốn không bắt tag nên không cần nới.
+ */
+export async function dangChoTraLoiNv(input: {
+  conversationId: string;
+  senderUid?: string | null;
+  laNhom?: boolean;
+}): Promise<boolean> {
+  if (input.laNhom !== true || !input.senderUid) return false;
+  try {
+    const phien = await docPhien(prismaPhien, input.conversationId);
+    return Boolean(phien?.hoiUid) && phien?.hoiUid === input.senderUid;
+  } catch (err) {
+    // Lỗi đọc → coi như không có phiên: giữ luật bắt tag chặt như cũ.
+    logger.warn({ err }, '[agent/nv] đọc phiên gom đơn lỗi — giữ luật bắt tag');
+    return false;
+  }
 }
 
 /**
@@ -73,11 +106,21 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
   // — TRỪ trong NHÓM: ở đó nhân viên tán gẫu/nói với khách, coi mọi câu là
   // lệnh thì bot chen vào liên tục (06/08/2026). Mention Zalo thật (@TênBot)
   // được quy đổi thành tag "@bot" vì text mention không chứa chữ đó.
+  // Bot ĐANG HỎI chính người này? Trong nhóm, câu trả lời cho câu bot vừa hỏi
+  // thường không kèm tag ("khách mới", "1", "5 cái") — bắt tag lại thì câu đó
+  // bị vứt và phiên treo (bug 17:07-17:08 10/08). Chỉ nới đúng người mở phiên;
+  // người khác nói chen vẫn phải tag. Đọc lỗi thì coi như không có phiên —
+  // giữ hành vi chặt cũ, không mở toang cổng vì một lỗi DB.
+  const dangChoTraLoi = await dangChoTraLoiNv({
+    conversationId: ctx.conversationId, senderUid: ctx.senderUid, laNhom: ctx.laNhom,
+  });
+
   const lenh = nhanDienLenhNhanVien({
     content: ctx.daTagBot ? `@bot ${ctx.content}` : ctx.content,
     isSelf: ctx.isSelf ?? true,
     senderUid: ctx.senderUid,
     batBuocTag: ctx.laNhom === true,
+    dangChoTraLoi,
     laNhanVien: (uid) => laNhanVienSync(ctx.orgId, uid),
   });
   if (!lenh) {
@@ -116,6 +159,7 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
       {
         orgId: ctx.orgId, conversationId: ctx.conversationId,
         seq: seqTuMessageId(ctx.messageId), cau: lenh.noiDung,
+        senderUid: ctx.senderUid ?? null,
       },
     ));
     if (gomDonNhan) {

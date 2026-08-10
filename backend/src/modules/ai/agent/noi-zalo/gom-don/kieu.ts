@@ -63,6 +63,19 @@ export interface PhienGom {
   donKhongThay?: boolean;
   /** Số lần tạo đơn thất bại liên tiếp — 2 lần thì bỏ phiên (chống kẹt 10/08). */
   soLanLoi?: number;
+  /**
+   * UID Zalo của người ĐANG được bot hỏi (người mở phiên).
+   *
+   * Bug thật 17:07-17:08 10/08 trong nhóm: anh Quyết tag bot "lên đơn cho anh
+   * chiến", bot liệt kê 10 anh Chiến; anh trả lời "khách mới" — KHÔNG tag —
+   * nên cổng batBuocTag vứt câu đó, bot không bao giờ thấy. Phiên treo, nhân
+   * viên tưởng bot lỗi.
+   *
+   * Bot vừa hỏi thì câu kế của CHÍNH người được hỏi là câu trả lời, không cần
+   * tag lại. Người KHÁC trong nhóm nói chen thì vẫn phải tag — nếu không, bot
+   * bốc câu tán gẫu của người ngoài làm câu chọn.
+   */
+  hoiUid?: string | null;
 }
 
 /**

@@ -16,6 +16,13 @@ const chuCai = (i: number) => String.fromCharCode(97 + i); // 0→a, 1→b…
  * thì mới xét khớp một phần ("cái 24V" → SP chứa "24v"). Nhiều hơn 1 → null,
  * KHÔNG chốt bừa — thà hỏi lại còn hơn lên đơn nhầm (bug S13810).
  */
+/**
+ * Câu báo "đây là khách MỚI" — không phải câu chọn trong danh sách.
+ *
+ * Bắt cả biến thể có dấu/không dấu và câu dài hơn ("anh này khách mới nhé").
+ */
+const LA_KHACH_MOI = /\bkhach(\s+hang)?\s+moi\b/;
+
 function khopDuyNhat<T>(ds: T[] | undefined, manh: string[], ten: (x: T) => string): T | null {
   if (!ds || manh.length === 0) return null;
   const du = ds.filter((x) => manh.every((m) => boDau(ten(x)).includes(m)));
@@ -97,6 +104,14 @@ export function apDungChon(p: PhienGom, cauTho: string): boolean {
   // câu nói thường — dò mảnh trên đó từng chốt NHẦM khách: "xuất hóa đơn LUÔN
   // giúp tôi nhé" có chữ "hoà" khớp địa chỉ "hiệp hoà, Bắc giang" của đúng một
   // ứng viên → đơn S13814 sai người (bug thật 23:16 07/08).
+  // "khách mới" KHÔNG phải câu chọn — nó là lệnh "đừng chọn ai cả, tạo người
+  // mới". Bug thật 17:08 10/08: bot hỏi chọn trong 10 anh Chiến, nhân viên đáp
+  // "khách mới"; câu 2 chữ lọt guard 4 từ rồi bị đem đi dò mảnh tên. Ở đây tên
+  // ứng viên không chứa "moi" nên chỉ trơ ra (bot lặp lại danh sách), nhưng
+  // khách thật tên "Mới"/"Khánh" là chốt nhầm luôn — cùng họ lỗi S13814.
+  // Trả nguyên trạng để LLM trích ra `khachMoi` và máy đi nhánh tạo khách.
+  if (LA_KHACH_MOI.test(boDau(cau))) return map;
+
   const manh = boDau(cau)
     .split(/\s+/)
     .filter((t) => t.length >= 2);

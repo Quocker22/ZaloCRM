@@ -95,3 +95,57 @@ describe('coTagBot — gate nhóm của luồng khách', () => {
     'không tag: "%s"', (c) => expect(coTagBot(c)).toBe(false),
   );
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Bug thật 17:07-17:08 10/08 (nhóm): anh Quyết tag bot "lên đơn cho anh chiến",
+// bot liệt kê 10 anh Chiến và hỏi chọn. Anh trả lời "khách mới" — KHÔNG tag —
+// nên cổng batBuocTag vứt câu đó. Bot không bao giờ thấy câu trả lời, phiên
+// treo, nhân viên tưởng bot hỏng.
+//
+// Bot vừa hỏi thì câu kế của CHÍNH người được hỏi là câu trả lời. Nhưng đây
+// nới lỏng ranh giới nên phải chặt: chỉ đúng người, chỉ khi phiên còn mở.
+const UID_NV2 = '9111111111111111111';
+
+describe('dangChoTraLoi — bot đang hỏi thì người được hỏi khỏi tag lại', () => {
+  it('bot đang hỏi, ĐÚNG người trả lời không tag → LÀ lệnh (bug 17:08 10/08)', () => {
+    const lenh = nhanDienLenhNhanVien({
+      content: 'khách mới', isSelf: false, senderUid: UID_NV,
+      batBuocTag: true, dangChoTraLoi: true,
+    });
+    expect(lenh).not.toBeNull();
+    expect(lenh?.noiDung).toBe('khách mới');
+  });
+
+  it('bot đang hỏi NGƯỜI KHÁC → người này nói chen vẫn phải tag', () => {
+    process.env.AI_AGENT_UID_NHANVIEN = `${UID_NV},${UID_NV2}`;
+    const lenh = nhanDienLenhNhanVien({
+      content: 'ừ đúng rồi', isSelf: false, senderUid: UID_NV2,
+      batBuocTag: true, dangChoTraLoi: false,
+    });
+    expect(lenh).toBeNull();
+  });
+
+  it('KHÔNG có phiên đang hỏi → nhóm vẫn bắt buộc tag, hành vi cũ giữ nguyên', () => {
+    const lenh = nhanDienLenhNhanVien({
+      content: 'giá P10 bao nhiêu', isSelf: false, senderUid: UID_NV,
+      batBuocTag: true, dangChoTraLoi: false,
+    });
+    expect(lenh).toBeNull();
+  });
+
+  it('BẢO MẬT: người LẠ (không phải nhân viên) không được nới, kể cả khi bot đang hỏi', () => {
+    const lenh = nhanDienLenhNhanVien({
+      content: 'khách mới', isSelf: false, senderUid: '5555555555555555555',
+      batBuocTag: true, dangChoTraLoi: true,
+    });
+    expect(lenh).toBeNull();
+  });
+
+  it('có tag thì vẫn chạy như cũ, tag bị bóc khỏi nội dung', () => {
+    const lenh = nhanDienLenhNhanVien({
+      content: '@bot khách mới', isSelf: false, senderUid: UID_NV,
+      batBuocTag: true, dangChoTraLoi: true,
+    });
+    expect(lenh?.noiDung).toBe('khách mới');
+  });
+});

@@ -55,13 +55,14 @@ const ghiSlotDefinition: ToolDefinition = {
       },
       khachMoi: {
         type: 'object',
-        description: 'Nhân viên nói KHÁCH MỚI / cho tên + SĐT của khách chưa có trong hệ thống',
+        description:
+          'Nhân viên nói KHÁCH MỚI. Điền cả khi câu chỉ có đúng chữ "khách mới" ' +
+          'mà KHÔNG kèm tên — lúc đó bỏ trống ten, máy tự lấy tên đã nhắc trước đó.',
         properties: {
-          ten: { type: 'string', description: 'Tên khách, bỏ xưng hô' },
+          ten: { type: 'string', description: 'Tên khách nếu câu có nói, bỏ xưng hô' },
           sdt: { type: 'string', description: 'Số điện thoại nếu có' },
           diaChi: { type: 'string', description: 'Địa chỉ nếu có' },
         },
-        required: ['ten'],
       },
       sua: { type: 'boolean', description: 'true khi nhân viên SỬA đơn đã có (thêm hàng/đổi số lượng), không phải lên đơn mới' },
       maDon: { type: 'string', description: 'Mã đơn nhân viên nhắc, dạng S13820' },
@@ -106,13 +107,15 @@ export function lamSachTrich(raw: Record<string, unknown>): KetQuaTrich {
   const km = raw.khachMoi;
   if (typeof km === 'object' && km !== null) {
     const o = km as Record<string, unknown>;
-    if (typeof o.ten === 'string' && o.ten.trim().length >= 2) {
-      kq.khachMoi = {
-        ten: o.ten.trim(),
-        ...(typeof o.sdt === 'string' && o.sdt.trim() ? { sdt: o.sdt.trim() } : {}),
-        ...(typeof o.diaChi === 'string' && o.diaChi.trim() ? { diaChi: o.diaChi.trim() } : {}),
-      };
-    }
+    const ten = typeof o.ten === 'string' && o.ten.trim().length >= 2 ? o.ten.trim() : '';
+    // Tên RỖNG vẫn nhận: nhân viên hay chỉ đáp "khách mới" khi bot đang hỏi
+    // chọn (bug 17:08 10/08). Tên lấy từ phiên ở dapSlot — nó biết `khachTuKhoa`
+    // của lượt trước, chỗ này thì không.
+    kq.khachMoi = {
+      ten,
+      ...(typeof o.sdt === 'string' && o.sdt.trim() ? { sdt: o.sdt.trim() } : {}),
+      ...(typeof o.diaChi === 'string' && o.diaChi.trim() ? { diaChi: o.diaChi.trim() } : {}),
+    };
   }
   if (raw.sua === true) kq.sua = true;
   if (typeof raw.maDon === 'string' && /^S\d+$/i.test(raw.maDon.trim())) {

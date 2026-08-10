@@ -7,7 +7,7 @@
 // trùng bằng code, không phải bằng prompt.
 import { describe, it, expect, vi } from 'vitest';
 import {
-  taoKhachHang, dinhDangTaoKhach, taoKhachHangDefinition, TIEN_TO_REF,
+  taoKhachHang, dinhDangTaoKhach, taoKhachHangDefinition, TIEN_TO_REF, CHIA_BO_PHANH,
 } from '../../../src/modules/ai/odoo/tools/tao-khach-hang.js';
 
 const CU = { id: 42, name: 'Chị Yến Tân Mai', ref: 'zalo:u123' };
@@ -164,5 +164,66 @@ describe('Định nghĩa tool', () => {
 
   it('chỉ TÊN là bắt buộc — khách Zalo thường không cho SĐT ngay', () => {
     expect(taoKhachHangDefinition.inputSchema.required).toEqual(['ten']);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// bo_phanh_trung_ten — nhân viên nói rõ "khách mới" thì được tạo dù trùng tên.
+//
+// Bug 17:08 10/08: 10 khách tên "Chiến", nhân viên bảo "khách mới", bot vẫn
+// từ chối tạo và bắt chọn lại trong 10 người cũ → phiên treo.
+//
+// NHƯNG cờ này là lỗ hổng nếu LLM bật được: hai registry ép thẳng
+// `input as Parameters<...>[1]`, nên mọi trường model bịa ra đều lọt vào tham
+// số — kể cả trường schema không khai. Ở luồng KHÁCH thì khách điều khiển được
+// câu chữ. Vì vậy cờ chỉ có hiệu lực khi kèm chìa khoá Symbol (không serialize
+// qua JSON nên input LLM không thể mang).
+describe('bo_phanh_trung_ten — chỉ CODE bật được, LLM thì không', () => {
+  const BA_CHIEN = [
+    { id: 1, name: 'Anh Chiến', ref: 'KH003138' },
+    { id: 2, name: 'Anh Chiến', ref: 'KH003139' },
+  ];
+
+  it('KHÔNG có cờ: trùng tên → từ chối tạo (hành vi cũ giữ nguyên)', async () => {
+    const odoo = odooGia([BA_CHIEN]);
+    const kq = await taoKhachHang({ odoo }, { ten: 'Anh Chiến' });
+    expect(kq.trangThai).toBe('loi');
+    expect(odoo.execute).not.toHaveBeenCalled();
+  });
+
+  it('cờ + CHÌA KHOÁ (máy gom đơn gọi) → tạo thật', async () => {
+    const odoo = odooGia([BA_CHIEN]);
+    const kq = await taoKhachHang(
+      { odoo },
+      { ten: 'Anh Chiến', bo_phanh_trung_ten: true, [CHIA_BO_PHANH]: true },
+    );
+    expect(kq.trangThai).toBe('ok');
+    expect(odoo.execute).toHaveBeenCalled();
+  });
+
+  it('BẢO MẬT: cờ KHÔNG kèm chìa khoá (LLM bịa) → vẫn bị chặn', async () => {
+    const odoo = odooGia([BA_CHIEN]);
+    // Đúng hình dạng input đi qua registry: JSON thuần, không Symbol nào.
+    const inputLLM = JSON.parse('{"ten":"Anh Chiến","bo_phanh_trung_ten":true}');
+    const kq = await taoKhachHang({ odoo }, inputLLM);
+    expect(kq.trangThai).toBe('loi');
+    expect(odoo.execute).not.toHaveBeenCalled();
+  });
+
+  it('BẢO MẬT: schema tool KHÔNG khai cờ — model không thấy để bịa', () => {
+    const props = taoKhachHangDefinition.inputSchema.properties as Record<string, unknown>;
+    expect(props.bo_phanh_trung_ten).toBeUndefined();
+    expect(JSON.stringify(taoKhachHangDefinition)).not.toContain('bo_phanh');
+  });
+
+  it('trùng tên DUY NHẤT 1 người + cờ hợp lệ → vẫn tạo mới, không dính người cũ', async () => {
+    const odoo = odooGia([[BA_CHIEN[0]]]);
+    const kq = await taoKhachHang(
+      { odoo },
+      { ten: 'Anh Chiến', bo_phanh_trung_ten: true, [CHIA_BO_PHANH]: true },
+    );
+    expect(kq.trangThai).toBe('ok');
+    if (kq.trangThai === 'ok') expect(kq.khach.daCo).not.toBe(true);
+    expect(odoo.execute).toHaveBeenCalled();
   });
 });

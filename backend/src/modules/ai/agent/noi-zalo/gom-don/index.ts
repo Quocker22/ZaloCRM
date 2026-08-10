@@ -11,7 +11,7 @@ import type { ToolAwareGenerate } from '../../types.js';
 import type { ToolCallLog } from '../../staff-agent.js';
 import type { OdooClient } from '../../../odoo/client.js';
 import { traKhachHang, dinhDangKhachHang } from '../../../odoo/tools/tra-khach-hang.js';
-import { taoKhachHang, dinhDangTaoKhach } from '../../../odoo/tools/tao-khach-hang.js';
+import { taoKhachHang, dinhDangTaoKhach, CHIA_BO_PHANH } from '../../../odoo/tools/tao-khach-hang.js';
 import { traSanPham, dinhDangSanPham, boDau } from '../../../odoo/tools/tra-san-pham.js';
 import { taoDonNhap, dinhDangTaoDon } from '../../../odoo/tools/tao-don-nhap.js';
 import { suaDon, dinhDangSuaDon } from '../../../odoo/tools/sua-don.js';
@@ -73,10 +73,20 @@ function dapSlot(p: PhienGom, trich: KetQuaTrich): boolean {
     }
   }
   if (trich.khachMoi && !p.khachDaChot) {
-    p.khachMoi = trich.khachMoi;
-    // NV đưa tên khách mới → dùng luôn làm từ khoá tra (biết đâu đã có sẵn).
-    if (!p.khachTuKhoa) p.khachTuKhoa = trich.khachMoi.ten;
-    doi = true;
+    // "khách mới" TRỐNG (không kèm tên): lấy tên đã nhắc ở lượt trước. Bug thật
+    // 17:08 10/08 — bot hỏi chọn trong 10 anh Chiến, nhân viên đáp đúng hai chữ
+    // "khách mới"; bắt gõ lại tên là vô lý vì họ vừa nói xong ở lượt trên.
+    const ten = trich.khachMoi.ten || p.khachTuKhoa || '';
+    if (ten) {
+      p.khachMoi = { ...trich.khachMoi, ten };
+      // Đã chốt là khách MỚI thì danh sách ứng viên cũ vô nghĩa — giữ lại thì
+      // buoc-tiep-theo còn thấy `khachUngVien` và hỏi chọn tiếp.
+      delete p.khachUngVien;
+      delete p.khachKhongThay;
+      // NV đưa tên khách mới → dùng luôn làm từ khoá tra (biết đâu đã có sẵn).
+      if (!p.khachTuKhoa) p.khachTuKhoa = ten;
+      doi = true;
+    }
   }
   // BỎ DÒNG (spec 10/08) — chạy TRƯỚC khi thêm: "bỏ 300 thanh led tỏa rồi lên
   // đơn" vừa bỏ vừa nhắc tên món, không xử trước thì nó lại được thêm vào.
@@ -311,11 +321,27 @@ async function suaDonVaBao(deps: GomDonDeps, p: PhienGom): Promise<'xong' | 'loi
  */
 export async function xuLyGomDon(
   deps: GomDonDeps,
-  input: { orgId: string; conversationId: string; seq: number; cau: string },
+  input: {
+    orgId: string; conversationId: string; seq: number; cau: string;
+    /**
+     * UID Zalo người gửi — ghi vào `phien.hoiUid` để lượt sau nhận ra "người
+     * này đang được bot hỏi", khỏi bắt tag lại trong nhóm (bug 17:08 10/08).
+     */
+    senderUid?: string | null;
+  },
 ): Promise<boolean> {
   // Câu để MAP/nhận lệnh là phần đuôi sau khối quote; câu đầy đủ (kèm quote)
   // chỉ dành cho LLM trích slot — nó cần ngữ cảnh "cái này".
   const cauChon = boQuote(input.cau);
+
+  // MỘT cửa ghi phiên. Mọi đường ghi đều qua đây nên `hoiUid` không thể sót ở
+  // một nhánh — bài học từ 3 lần vá một đường quên các đường còn lại.
+  const ghiPhien = async (p: PhienGom): Promise<void> => {
+    p.hoiUid = input.senderUid ?? null;
+    await luuPhien(deps.prisma, {
+      orgId: input.orgId, conversationId: input.conversationId, phien: p,
+    });
+  };
 
   let phien = await docPhien(deps.prisma, input.conversationId);
   const laLenhSua = NHAN_LENH_SUA_DON.test(cauChon);
@@ -382,7 +408,16 @@ export async function xuLyGomDon(
     const km = phien.khachMoi!;
     const kq = await taoKhachHang(
       { odoo: deps.odoo },
-      { ten: km.ten, ...(km.sdt ? { dien_thoai: km.sdt } : {}), ...(km.diaChi ? { dia_chi: km.diaChi } : {}) },
+      {
+        ten: km.ten,
+        ...(km.sdt ? { dien_thoai: km.sdt } : {}),
+        ...(km.diaChi ? { dia_chi: km.diaChi } : {}),
+        // Tới nhánh này nghĩa là NHÂN VIÊN đã nói rõ "khách mới" — bỏ phanh
+        // chặn trùng tên, nếu không bot từ chối tạo rồi bắt chọn lại trong
+        // danh sách người cũ, đúng vòng lặp của bug 17:08 10/08.
+        bo_phanh_trung_ten: true,
+        [CHIA_BO_PHANH]: true as const,
+      },
     );
     deps.ghiLog({
       toolName: 'tao_khach_hang', input: km, output: dinhDangTaoKhach(kq),
@@ -395,7 +430,7 @@ export async function xuLyGomDon(
       hd = buocTiepTheo(phien);
     } else {
       await deps.guiTin(`Em chưa tạo được khách mới: ${kq.lyDo}`);
-      await luuPhien(deps.prisma, { orgId: input.orgId, conversationId: input.conversationId, phien });
+      await ghiPhien(phien);
       return true;
     }
   }
@@ -404,7 +439,7 @@ export async function xuLyGomDon(
   if (hd.loai === 'sua_don') {
     const kq = await suaDonVaBao(deps, phien);
     if (kq === 'xong') await xoaPhien(deps.prisma, input.conversationId);
-    else await luuPhien(deps.prisma, { orgId: input.orgId, conversationId: input.conversationId, phien });
+    else await ghiPhien(phien);
     return true;
   }
 
@@ -415,7 +450,7 @@ export async function xuLyGomDon(
       // Đủ slot nhưng NV chưa gật (câu là bổ sung thông tin) → nhắc lại tóm tắt.
       await deps.guiTin(renderLoiNhan({ loai: 'tom_tat_cho_chot' }, phien));
       phien.daHoiChot = true;
-      await luuPhien(deps.prisma, { orgId: input.orgId, conversationId: input.conversationId, phien });
+      await ghiPhien(phien);
       return true;
     }
     const kq = await taoDonVaBaoGia(deps, phien, input);
@@ -433,7 +468,7 @@ export async function xuLyGomDon(
       );
       return true;
     }
-    await luuPhien(deps.prisma, { orgId: input.orgId, conversationId: input.conversationId, phien });
+    await ghiPhien(phien);
     return true;
   }
 
@@ -446,6 +481,6 @@ export async function xuLyGomDon(
     if (phien.khachKhongThay) { phien.khachTuKhoa = null; delete phien.khachKhongThay; }
     phien.dong = phien.dong.filter((d) => !d.khongThay);
   }
-  await luuPhien(deps.prisma, { orgId: input.orgId, conversationId: input.conversationId, phien });
+  await ghiPhien(phien);
   return true;
 }

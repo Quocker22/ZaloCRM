@@ -124,6 +124,20 @@ export function nhanDienLenhNhanVien(input: {
    */
   batBuocTag?: boolean;
   /**
+   * Bot ĐANG HỎI chính người gửi này và chờ họ trả lời — nới `batBuocTag`.
+   *
+   * Bug thật 17:07-17:08 10/08 (nhóm): nhân viên tag bot "lên đơn cho anh
+   * chiến", bot liệt kê 10 anh Chiến rồi hỏi chọn. Nhân viên trả lời "khách
+   * mới" — không tag — nên `batBuocTag` vứt câu đó. Bot không bao giờ thấy câu
+   * trả lời của chính câu nó vừa hỏi; phiên treo, nhân viên tưởng bot hỏng.
+   *
+   * Caller CHỈ được đặt `true` khi có phiên gom đơn còn hạn VÀ `phien.hoiUid`
+   * khớp UID người gửi. Không nới cho người khác trong nhóm: bot sẽ bốc câu
+   * tán gẫu của người ngoài làm câu chọn. Cổng 1 (bảo mật) vẫn áp nguyên —
+   * người lạ không thành nhân viên chỉ vì bot đang hỏi ai đó.
+   */
+  dangChoTraLoi?: boolean;
+  /**
    * Hàm kiểm "UID này có phải nhân viên không" — do caller bind sẵn orgId
    * (agent-operator-service.laNhanVienSync). Không truyền → chỉ dùng env, để
    * test cũ và luồng không có orgId vẫn chạy. Thay cho `env` đọc trực tiếp:
@@ -152,7 +166,11 @@ export function nhanDienLenhNhanVien(input: {
   // UID khai báo thì BỎ QUA cổng này (anh chốt 2026-08-04): nick cá nhân nhân
   // viên chỉ dùng để sai bot, bắt gõ `@bot` mỗi lần là phiền vô ích.
   // NGOẠI LỆ: trong nhóm (`batBuocTag`) thì UID cũng phải tag — xem chú thích trên.
-  if (!khop && (!uidKhai || input.batBuocTag)) return null;
+  // NGOẠI LỆ CỦA NGOẠI LỆ: bot vừa hỏi CHÍNH người này và đang chờ trả lời
+  // (`dangChoTraLoi`) — câu kế của họ là câu trả lời, bắt tag lại là vô lý và
+  // làm treo phiên (bug 17:08 10/08).
+  const batTag = input.batBuocTag === true && input.dangChoTraLoi !== true;
+  if (!khop && (!uidKhai || batTag)) return null;
 
   // Không tag (UID khai báo) → dùng nguyên câu.
   if (!khop) return { noiDung: goc, cachGoi: '' };

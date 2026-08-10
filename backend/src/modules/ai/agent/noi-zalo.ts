@@ -25,7 +25,7 @@ export {
 export { duongDanChat } from './noi-zalo/llm.js';
 export { seqTuMessageId } from './noi-zalo/du-lieu.js';
 export type { NgữCanhTin } from './noi-zalo/types.js';
-export { laLenhNhanVien, xuLyTinNhanVien } from './noi-zalo/luong-nhan-vien.js';
+export { laLenhNhanVien, dangChoTraLoiNv, xuLyTinNhanVien } from './noi-zalo/luong-nhan-vien.js';
 export { xuLyTinKhach } from './noi-zalo/luong-khach.js';
 export { xuLyTinMedia, chiCoEmoji } from './noi-zalo/luong-media.js';
 export { bocMention } from './noi-zalo/boc-mention.js';
