@@ -5,17 +5,21 @@ import { describe, it, expect, vi } from 'vitest';
 import { khamPhaOdoo, khamPhaOdooDefinition, dinhDangKhamPha }
   from '../../../../src/modules/ai/odoo/tong-quat/kham-pha.js';
 
-const fake = (rows: unknown[]) => ({
+/** `rows` cho searchRead (tim_bang); `cot` cho fields_get (hoi=cot). */
+const fake = (rows: unknown[], cot?: Record<string, { string: string; type: string }>) => ({
   searchRead: vi.fn(async () => rows),
-  execute: vi.fn(async () => rows),
+  execute: vi.fn(async () => cot ?? rows),
 });
 
 describe('khamPhaOdoo', () => {
-  it('hỏi cột → đọc ir.model.fields, BỎ cột cấm khỏi kết quả', async () => {
-    const odoo = fake([
-      { name: 'list_price', field_description: 'Giá bán', ttype: 'float' },
-      { name: 'standard_price', field_description: 'Giá vốn', ttype: 'float' },
-    ]);
+  // Dùng fields_get (method trên chính model) chứ KHÔNG đọc ir.model.fields:
+  // bot_zalo không có quyền đọc bảng đó — bug thật 19:01 10/08 làm tool khám
+  // phá vô dụng, bot mù và mò tới hết hạn 90s.
+  it('hỏi cột → fields_get, BỎ cột cấm khỏi kết quả', async () => {
+    const odoo = fake([], {
+      list_price: { string: 'Giá bán', type: 'float' },
+      standard_price: { string: 'Giá vốn', type: 'float' },
+    });
     const kq = await khamPhaOdoo({ odoo } as never, { bang: 'product.product', hoi: 'cot' });
     const text = dinhDangKhamPha(kq);
     expect(text).toContain('list_price');

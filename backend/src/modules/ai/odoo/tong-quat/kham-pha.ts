@@ -68,21 +68,22 @@ export async function khamPhaOdoo(
       };
     }
 
-    // hoi === 'cot'
-    const rows = await deps.odoo.searchRead<{ name: string; field_description: string; ttype: string }>(
-      'ir.model.fields',
-      [['model', '=', bang]],
-      ['name', 'field_description', 'ttype'],
-      { limit: 200 },
+    // hoi === 'cot' — DÙNG fields_get, KHÔNG đọc ir.model.fields.
+    //
+    // Bug thật 19:01 10/08: user bot_zalo không có quyền đọc ir.model.fields
+    // ("Liên hệ với quản trị viên của bạn") nên tool khám phá vô dụng — bot mù,
+    // mò 10 lần rồi hết hạn 90s. fields_get là method trên chính model nên
+    // quyền bán hàng thường là đủ (đo thật: sale.order.line trả 80 cột).
+    const f = await deps.odoo.execute<Record<string, { string?: string; type?: string }>>(
+      bang, 'fields_get', [], { attributes: ['string', 'type'] },
     );
-    // Cột giá vốn/biên lợi nhuận không được LỘ RA ngay từ khâu khám phá —
-    // model không biết nó tồn tại thì không xin đọc.
-    const sach = rows.filter((r) => !laCotCam(r.name));
-    return {
-      trangThai: 'ok',
-      hoi: 'cot',
-      dong: sach.map((r) => `${r.name} (${r.ttype}) — ${r.field_description}`),
-    };
+    const dong = Object.entries(f ?? {})
+      // Cột giá vốn/biên lợi nhuận không được LỘ RA ngay từ khâu khám phá —
+      // model không biết nó tồn tại thì không xin đọc.
+      .filter(([ten]) => !laCotCam(ten))
+      .map(([ten, mo]) => `${ten} (${mo?.type ?? '?'}) — ${mo?.string ?? ''}`)
+      .sort();
+    return { trangThai: 'ok', hoi: 'cot', dong };
   } catch (err) {
     return { trangThai: 'loi', lyDo: err instanceof Error ? err.message : String(err) };
   }

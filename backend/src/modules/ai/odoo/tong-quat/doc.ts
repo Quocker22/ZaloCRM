@@ -64,11 +64,17 @@ export async function docOdoo(deps: DocOdooDeps, input: DocOdooInput): Promise<K
   try {
     // ── Có nhóm → read_group: mọi báo cáo tổng hợp đi đường này ──
     if (input.nhom_theo && input.nhom_theo.length > 0) {
+      // Tham số 2 của read_group là các cột CẦN CỘNG (+ cột nhóm), KHÔNG phải
+      // `cot`. Bug thật 19:03 10/08: model truyền cả `cot` lẫn `do` → Odoo ném
+      // "too many values to unpack" và bot mò tiếp cho tới khi hết 90s.
+      // Cột nhóm dạng "date:month" phải bỏ phần ":month" khi khai trong fields.
       const doDac = input.do ?? [];
+      const truongNhom = input.nhom_theo.map((n) => n.split(':')[0]);
+      const fields = [...new Set([...doDac, ...truongNhom])];
       const dong = await deps.odoo.execute<Array<Record<string, unknown>>>(
         bang,
         'read_group',
-        [input.loc ?? [], [...doDac, ...input.nhom_theo], input.nhom_theo],
+        [input.loc ?? [], fields, input.nhom_theo],
         { lazy: false, limit: gioiHan, ...(input.sap_xep ? { orderby: input.sap_xep } : {}) },
       );
       const ds = Array.isArray(dong) ? dong : [];
@@ -120,7 +126,8 @@ export const docOdooDefinition: ToolDefinition = {
     'ĐỌC bất cứ dữ liệu nào trong Odoo — dùng khi không có tool báo cáo sẵn cho câu hỏi. ' +
     'GỌI KHI nhân viên hỏi số liệu tổ hợp: "doanh số theo từng sản phẩm của khách X", ' +
     '"khách nào mua nhiều nhất quý 2", "đơn nào chưa giao tháng này". ' +
-    'Có nhom_theo → báo cáo gộp (read_group); không có → danh sách bản ghi. ' +
+    'Có nhom_theo → báo cáo gộp: chỉ điền do (cột cần cộng), ĐỪNG điền cot. '
+    + 'Không có nhom_theo → danh sách bản ghi, điền cot. ' +
     'Không rõ tên bảng/cột thì gọi kham_pha_odoo trước. ' +
     'KHÔNG đọc được giá vốn/biên lợi nhuận — đó là thông tin nội bộ.',
   inputSchema: {
