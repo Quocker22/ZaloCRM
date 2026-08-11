@@ -248,3 +248,45 @@ describe('dinhDangKhachHang — hướng dẫn model làm gì tiếp', () => {
     expect(dinhDangKhachHang(kq)).not.toContain('nợ');
   });
 });
+
+describe('traKhachHang — dấu cắt khi danh sách chạm trần', () => {
+  // Bug thật 16:15 11/08: "lên đơn cho Anh long led" → tra "Long" ra đúng 10
+  // người (trần limit), "Anh Long Led" nằm ngoài trang đầu nhưng KHÔNG có dấu
+  // hiệu nào cho biết danh sách bị cắt. Nhân viên nhìn 10 người tưởng là tất
+  // cả — anti-pattern "cắt im lặng làm agent nói dối".
+  const nhieuKh = (n: number) =>
+    Array.from({ length: n }, (_, i) => kh({ id: 100 + i, name: `Anh Long ${i}` }));
+
+  it('kết quả chạm trần → conNua=true, danh sách vẫn đúng 10 người', async () => {
+    const kq = await traKhachHang({ odoo: fakeOdoo(nhieuKh(11)) }, { ten: 'Long' });
+
+    expect(kq.trangThai).toBe('nhieu_ket_qua');
+    if (kq.trangThai === 'nhieu_ket_qua') {
+      expect(kq.danhSach).toHaveLength(10);
+      expect(kq.conNua).toBe(true);
+    }
+  });
+
+  it('dưới trần → conNua không bật', async () => {
+    const kq = await traKhachHang({ odoo: fakeOdoo(nhieuKh(3)) }, { ten: 'Long' });
+
+    expect(kq.trangThai).toBe('nhieu_ket_qua');
+    if (kq.trangThai === 'nhieu_ket_qua') {
+      expect(kq.conNua).toBeFalsy();
+    }
+  });
+
+  it('dinhDangKhachHang nói RÕ danh sách bị cắt + cách thu hẹp', async () => {
+    const kq = await traKhachHang({ odoo: fakeOdoo(nhieuKh(11)) }, { ten: 'Long' });
+
+    const text = dinhDangKhachHang(kq);
+    expect(text).toMatch(/còn.*(khác|nữa)|chưa đủ|bị cắt/i);
+    expect(text).toMatch(/thu hẹp|đầy đủ hơn|SĐT/i);
+  });
+
+  it('không chạm trần → KHÔNG có câu cảnh báo cắt', async () => {
+    const kq = await traKhachHang({ odoo: fakeOdoo(nhieuKh(2)) }, { ten: 'Long' });
+
+    expect(dinhDangKhachHang(kq)).not.toMatch(/bị cắt|chưa đủ/i);
+  });
+});

@@ -65,3 +65,25 @@ describe('trichSlot', () => {
     expect(await trichSlot(g, 'x', null)).toEqual({ ngoaiLe: true });
   });
 });
+
+describe('prompt trích slot — tên khách chứa từ ngành hàng', () => {
+  // Bug thật 16:15 11/08: "lên đơn cho Anh long led" → model coi "led" là từ
+  // ngành hàng, trích khach="Long" → tra sai người cả 2 lượt. Khách buôn ngành
+  // đèn tên kiểu "Long Led", "Hùng Đèn" là chuyện thường — prompt phải dặn rõ
+  // "bỏ xưng hô" KHÔNG có nghĩa là bỏ biệt danh.
+  it('system prompt dặn GIỮ từ ngành hàng trong tên, có ví dụ Long Led', async () => {
+    let systemNhan = '';
+    const g: ToolAwareGenerate = async (a) => {
+      systemNhan = a.system;
+      return {
+        text: '', stopReason: 'tool_use', raw: null,
+        toolCalls: [{ id: 't', name: 'ghi_slot', input: { ngoaiLe: true } }],
+      };
+    };
+
+    await trichSlot(g, 'lên đơn cho Anh long led nhé', null);
+
+    expect(systemNhan).toContain('Long Led');
+    expect(systemNhan.toLowerCase()).toMatch(/giữ nguyên|không bỏ/);
+  });
+});

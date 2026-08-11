@@ -25,7 +25,17 @@ export interface KhachHang {
 export type KetQuaTimKhach =
   | { trangThai: 'tim_thay'; khach: KhachHang }
   | { trangThai: 'khong_thay'; sdtDaTra: string[] }
-  | { trangThai: 'nhieu_ket_qua'; danhSach: KhachHang[] };
+  | {
+      trangThai: 'nhieu_ket_qua';
+      danhSach: KhachHang[];
+      /**
+       * Danh sách CHẠM TRẦN — ngoài kia còn khách trùng nữa không hiển thị.
+       * Bug thật 16:15 11/08: tra "Long" ra đúng 10 người, "Anh Long Led" nằm
+       * ngoài trang đầu, không dấu hiệu gì → nhân viên tưởng 10 người là tất cả.
+       * Cắt im lặng là cắt nói dối — phải nói rõ để người/model thu hẹp từ khoá.
+       */
+      conNua?: boolean;
+    };
 
 export interface TraKhachHangDeps {
   odoo: Pick<OdooClient, 'searchRead'>;
@@ -100,14 +110,17 @@ export async function traKhachHang(
       : [...Array(tu.length - 1).fill('&'), ...tu.map((t) => ['name', 'ilike', t])];
   }
 
+  // Xin TRẦN + 1: phần tử thứ 11 không hiển thị, chỉ để BIẾT danh sách bị cắt.
+  const TRAN = 10;
   const rows = await deps.odoo.searchRead<Record<string, unknown>>(
     'res.partner',
     ['&', ['customer_rank', '>', 0], ...dieuKien],
     ['id', 'name', 'ref', 'phone', 'mobile', 'incokit_receivable_balance'],
-    { limit: 10 },
+    { limit: TRAN + 1 },
   );
+  const conNua = rows.length > TRAN;
 
-  const danhSach: KhachHang[] = rows.map((r) => ({
+  const danhSach: KhachHang[] = rows.slice(0, TRAN).map((r) => ({
     id: Number(r.id),
     ten: String(r.name ?? ''),
     ma: r.ref ? String(r.ref) : null,
@@ -118,7 +131,7 @@ export async function traKhachHang(
   if (danhSach.length === 0) return { trangThai: 'khong_thay', sdtDaTra: bienThe };
   if (danhSach.length === 1) return { trangThai: 'tim_thay', khach: danhSach[0] };
 
-  return { trangThai: 'nhieu_ket_qua', danhSach };
+  return { trangThai: 'nhieu_ket_qua', danhSach, ...(conNua ? { conNua } : {}) };
 }
 
 
@@ -163,8 +176,15 @@ export function dinhDangKhachHang(kq: KetQuaTimKhach): string {
     const ds = kq.danhSach
       .map((k) => `- id=${k.id} | ${k.ten}${k.ma ? ` [${k.ma}]` : ''} | ${k.dienThoai ?? 'không có SĐT'}`)
       .join('\n');
+    // Danh sách chạm trần: nói RÕ là chưa đủ. Cắt im lặng thì model (và nhân
+    // viên đọc lại) coi 10 người này là tất cả và kết luận sai "không có khách
+    // đó trong hệ thống" — bug thật 16:15 11/08 với khách "Anh Long Led".
+    const canhBaoCat = kq.conNua
+      ? '\nCHÚ Ý: danh sách BỊ CẮT — còn khách trùng khác chưa hiển thị. ' +
+        'Nếu không thấy đúng người, TRA LẠI với tên đầy đủ hơn (thêm chữ) hoặc SĐT để thu hẹp.'
+      : '';
     return (
-      `Tìm thấy ${kq.danhSach.length} khách khớp:\n${ds}\n` +
+      `Tìm thấy ${kq.danhSach.length} khách khớp:\n${ds}${canhBaoCat}\n` +
       'KHÔNG tự chọn, KHÔNG tự nhặt id từ danh sách này. Khi nhân viên chọn, họ thường gõ MÃ KH ' +
       '(vd KH001017) hoặc SĐT — hãy TRA LẠI bằng `ma` (mã KH) hoặc `sdt` để ra đúng một người rồi mới dùng id đó. ' +
       'Không có mã/SĐT → liệt kê danh sách này cho nhân viên chọn, hoặc dùng chuyen_sale.'

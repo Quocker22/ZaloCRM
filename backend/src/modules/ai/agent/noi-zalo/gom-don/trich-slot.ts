@@ -49,7 +49,13 @@ const ghiSlotDefinition: ToolDefinition = {
   inputSchema: {
     type: 'object',
     properties: {
-      khach: { type: 'string', description: 'Tên hoặc mã khách, BỎ xưng hô: "anh Hưng"→"Hưng"' },
+      khach: {
+        type: 'string',
+        description:
+          'Tên hoặc mã khách, BỎ xưng hô: "anh Hưng"→"Hưng". NHƯNG giữ nguyên ' +
+          'biệt danh/từ ngành hàng dính với tên: "anh Long Led"→"Long Led", ' +
+          '"chị Hoa Đèn"→"Hoa Đèn" — đó là MỘT PHẦN TÊN khách, không phải tên hàng.',
+      },
       dong: {
         type: 'array',
         description: 'Các dòng hàng nhắc trong câu',
@@ -190,7 +196,10 @@ export async function trichSlot(
     'ĐỒNG (170k=170000). Câu BỎ hàng ("bỏ 300 thanh led tỏa", "không lấy cáp',
     'nữa", "bỏ X ra") → điền boDong, KHÔNG điền dong.',
     'Chỉ trích cái CÓ trong câu — không đoán, không bịa. Bỏ xưng hô (anh/chị/em/bác)',
-    'khỏi tên khách. Câu chỉ có số lượng ("10 cái") → điền sl cho món ĐANG THIẾU',
+    'khỏi tên khách, nhưng GIỮ NGUYÊN biệt danh chứa từ ngành hàng — khách buôn hay',
+    'tên kiểu "Long Led", "Hoa Đèn": "lên đơn cho anh Long Led" → khach="Long Led",',
+    'KHÔNG cắt còn "Long" (bug thật 16:15 11/08 — tra sai người 2 lượt liền).',
+    'Câu chỉ có số lượng ("10 cái") → điền sl cho món ĐANG THIẾU',
     'trong phần "đang gom". Câu không liên quan đơn (hỏi tồn kho, báo cáo, chào',
     'hỏi…) → ghi_slot với ngoaiLe=true. Câu xin XUẤT/GỬI (lại) HOÁ ĐƠN hay báo',
     'giá ("xuất hoá đơn", "gửi lại hoá đơn") cũng là ngoaiLe=true — "hoá đơn"',
