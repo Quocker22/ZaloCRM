@@ -35,7 +35,19 @@ export function duongDanChat(provider: string, baseUrl: string): string {
  * LLM_TIMEOUT_MS chỉ dành cho model local chậm (qwen qua Ollama vượt 40s);
  * gateway thật thì để provider tự leo thang 12→20→30→40s.
  */
-export async function dungGenerate(orgId: string): Promise<ToolAwareGenerate | null> {
+export async function dungGenerate(
+  orgId: string,
+  /**
+   * MỐC hết hạn tuyệt đối của cả lượt (Date.now() + ngân sách).
+   *
+   * Truyền ở ĐÂY vì đây là chỗ DUY NHẤT dựng hàm gọi model — phủ mọi đường
+   * (máy gom đơn, agent thường, luồng khách) mà không phải sửa từng nơi.
+   *
+   * Không truyền → hành vi cũ (mỗi lần gọi tự đặt hạn riêng), giữ cho test cũ
+   * và các luồng chưa có ngân sách vẫn chạy.
+   */
+  hanChotMs?: number,
+): Promise<ToolAwareGenerate | null> {
   const cfg = await prisma.aiConfig.findUnique({ where: { orgId } });
   if (!cfg) return null;
   const apiKey = await getProviderApiKey(orgId, cfg.provider);
@@ -49,6 +61,7 @@ export async function dungGenerate(orgId: string): Promise<ToolAwareGenerate | n
       apiKey,
       model: cfg.model,
       ...(process.env.LLM_TIMEOUT_MS ? { timeoutMs: Number(process.env.LLM_TIMEOUT_MS) } : {}),
+      ...(hanChotMs ? { hanChotMs } : {}),
       ...a,
     });
 }

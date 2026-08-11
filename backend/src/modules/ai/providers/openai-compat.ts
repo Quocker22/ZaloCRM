@@ -245,6 +245,18 @@ export async function generateWithOpenaiCompatTools(args: {
    * khoảng đó; nhân viên chờ thêm vài giây vẫn hơn nhận lỗi.
    */
   soLanThuLai?: number;
+  /**
+   * MỐC hết hạn tuyệt đối (Date.now() + ngân sách) của cả lượt agent.
+   *
+   * Bug thật lặp đi lặp lại (chẩn đoán 11/08): hạn tổng của lượt là 90s, nhưng
+   * riêng vòng lặp thử-lại ở đây được phép chạy 12+20+30+40s cộng nghỉ
+   * 1+2+4s = 109s. Một mắt xích dài hơn cả sợi dây → chỉ cần gateway chậm MỘT
+   * lần trong 8 vòng agent là cả lượt chết, bất kể nhân viên hỏi gì.
+   *
+   * Có mốc này thì mỗi lần gọi chỉ được chờ trong phần CÒN LẠI, và hết ngân
+   * sách thì dừng thử lại luôn thay vì chờ vô ích rồi bị tầng trên cắt.
+   */
+  hanChotMs?: number;
 }): Promise<AgentTurn> {
   const tokenParam = args.tokenParam ?? 'max_tokens';
   const toiDa = args.soLanThuLai ?? 3;
@@ -292,7 +304,13 @@ export async function generateWithOpenaiCompatTools(args: {
       // Backoff luỹ tiến 1s → 2s → 4s + jitter.
       // Jitter quan trọng khi nhiều lượt chạy song song: không có nó thì tất cả
       // cùng thử lại một thời điểm và lại bị chặn tiếp.
-      await nghi(1000 * 2 ** (lan - 1) + Math.floor(Math.random() * 500));
+      const cho = 1000 * 2 ** (lan - 1) + Math.floor(Math.random() * 500);
+      // Nghỉ backoff mà hết luôn ngân sách thì vô nghĩa — dừng, trả lỗi cuối
+      // để caller còn kịp soạn câu trả lời từ dữ liệu đã tra.
+      if (args.hanChotMs && Date.now() + cho >= args.hanChotMs - 1_000) {
+        throw loiCuoi ?? new Error('hết ngân sách thời gian khi chờ thử lại');
+      }
+      await nghi(cho);
     }
 
     const controller = new AbortController();
@@ -301,7 +319,15 @@ export async function generateWithOpenaiCompatTools(args: {
     // Vì sao không để cố định: đo thực tế 120 ca, lượt bình thường 3-8s. Gateway
     // kẹt quá 12s gần như chắc chắn hỏng — cắt sớm rồi thử lại nhanh hơn nhiều so
     // với chờ hết 25s. Nhưng lần thử sau phải nới rộng, phòng khi mạng thật sự chậm.
-    const hanCho = args.timeoutMs ?? [12_000, 20_000, 30_000, 40_000][Math.min(lan, 3)];
+    const hanMongMuon = args.timeoutMs ?? [12_000, 20_000, 30_000, 40_000][Math.min(lan, 3)];
+    // Không lần gọi nào được vượt phần còn lại của ngân sách lượt (11/08).
+    const hanCho = args.hanChotMs
+      ? Math.min(hanMongMuon, Math.max(args.hanChotMs - Date.now(), 0))
+      : hanMongMuon;
+    // Còn quá ít thì gọi cũng không kịp — dừng, để caller trả cái đang có.
+    if (args.hanChotMs && hanCho < 1_000) {
+      throw loiCuoi ?? new Error('hết ngân sách thời gian trước khi gọi model');
+    }
     const timeout = setTimeout(() => controller.abort(), hanCho);
 
     try {

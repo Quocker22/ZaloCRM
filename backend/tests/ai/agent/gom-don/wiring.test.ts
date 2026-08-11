@@ -82,10 +82,21 @@ describe('wiring máy gom đơn trong xuLyTinNhanVien', () => {
     expect(vi.mocked(guiTin).mock.calls.some((c) => c[1] === 'từ agent thường')).toBe(true);
   });
 
-  it('máy NÉM lỗi → nhân viên vẫn được báo, không im lặng', async () => {
+  // ĐỔI CÂU BÁO 11/08: trước đây dán "Bot gặp lỗi (<thông báo kỹ thuật>)" —
+  // nhân viên đọc "lượt agent quá hạn 90000ms" thì làm được gì? Anh Quốc: "bỏ
+  // cái báo lỗi đó đi được không". Vẫn PHẢI nhắn (im lặng là họ ngồi chờ mãi),
+  // nhưng bằng câu người đọc được, và lý do kỹ thuật ở lại trong log.
+  it('máy NÉM lỗi → nhân viên vẫn được báo, nhưng KHÔNG lộ chữ kỹ thuật', async () => {
     vi.mocked(xuLyGomDon).mockRejectedValueOnce(new Error('nổ thử'));
     expect(await xuLyTinNhanVien(ctx)).toBe(true);
-    expect(vi.mocked(guiTin).mock.calls.some((c) => String(c[1]).includes('Bot gặp lỗi'))).toBe(true);
+
+    const daGui = vi.mocked(guiTin).mock.calls.map((c) => String(c[1])).join('\n');
+    // Không im lặng.
+    expect(daGui.trim().length).toBeGreaterThan(0);
+    // Không lộ nội tình: tên lỗi, chữ "Bot gặp lỗi", số ms.
+    expect(daGui).not.toContain('nổ thử');
+    expect(daGui).not.toContain('Bot gặp lỗi');
+    expect(daGui).not.toMatch(/\d+ms|quá hạn/i);
   });
 });
 

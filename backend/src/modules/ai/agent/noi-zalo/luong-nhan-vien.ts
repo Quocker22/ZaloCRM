@@ -12,6 +12,8 @@ import { nhanDienLenhNhanVien, coTagBot } from '../staff-command.js';
 import { laNhanVienSync } from '../agent-operator-service.js';
 import { taoGhiLog, type PrismaGhiLog } from '../ghi-log-tool.js';
 import { batLuongNhanVien, duCauHinh, chanDonLienKeGiay, odooUrlCongKhai } from './cong-tac.js';
+import { hanGioLuot } from './dung.js';
+import { tomTatDoDang } from './ngan-sach.js';
 import { dungGenerate } from './llm.js';
 import { layOdoo, layAnhClient, timTriThuc, layLichSu, seqTuMessageId, coTinKhachMoiHon } from './du-lieu.js';
 import { timDich, guiTin, guiAnh, guiFile, ghiAnhTam } from './gui-zalo.js';
@@ -167,14 +169,30 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
     });
   }
 
-  const generate = await dungGenerate(ctx.orgId);
+  // NGÂN SÁCH THỜI GIAN cho cả lượt (11/08). Mọi lần gọi model bên dưới chỉ
+  // được chờ trong phần còn lại — trước đây một vòng thử-lại được phép chạy
+  // 109s trong khi hạn tổng chỉ 90s, nên chỉ cần gateway chậm một lần là cả
+  // lượt chết kèm câu "Bot gặp lỗi (quá hạn 90000ms)".
+  const hanChot = Date.now() + hanGioLuot();
+  const generate = await dungGenerate(ctx.orgId, hanChot);
   if (!generate) return dung('chưa cấu hình LLM cho tổ chức', { orgId: ctx.orgId });
 
   const t0 = moc.batDau({ noiDung: lenh.noiDung.slice(0, 50) });
-  const ghiDb = taoGhiLog({
+  const ghiDbGoc = taoGhiLog({
     prisma: prismaLog, orgId: ctx.orgId, vai: 'nhanvien', conversationId: ctx.conversationId,
     onError: (err) => logger.warn({ err }, '[agent/nv] ghi log tool lỗi'),
   });
+  // Giữ lại kết quả tool để nếu hết giờ còn có cái mà trả lời (11/08) — thay
+  // vì vứt hết rồi báo "Bot gặp lỗi".
+  const daTra: Array<{ toolName: string; output: string; thanhCong: boolean }> = [];
+  const ghiDb = (l: Parameters<typeof ghiDbGoc>[0]): void => {
+    daTra.push({
+      toolName: l.toolName,
+      output: typeof l.output === 'string' ? l.output : JSON.stringify(l.output ?? ''),
+      thanhCong: l.thanhCong,
+    });
+    ghiDbGoc(l);
+  };
 
   try {
     // MÁY GOM ĐƠN (spec 07/08) — đứng TRƯỚC agent thường: lệnh "lên đơn" và
@@ -341,8 +359,21 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
     // câu trả lời không bao giờ tới (bug thật 05/08: lượt treo, log dừng ở
     // "BẮT ĐẦU xử lý", nhân viên không hay biết gì).
     try {
-      const loi = err instanceof Error ? err.message.slice(0, 120) : String(err).slice(0, 120);
-      await guiTin(dich, `Bot gặp lỗi (${loi}). Anh/chị xử lý giúp nhé.`, false);
+      // KHÔNG dán thông báo kỹ thuật ra nữa (anh Quốc 11/08: "bỏ cái báo lỗi
+      // đó đi được không"). Nhân viên đọc "quá hạn 90000ms" thì làm được gì?
+      // Lý do đầy đủ đã nằm trong log ở dòng trên.
+      //
+      // Có dữ liệu tool đã tra được thì TRẢ LỜI bằng nó — bot thường đã biết
+      // công nợ, đã tra xong khách, chỉ thiếu bước soạn câu cuối. Vứt hết rồi
+      // báo lỗi là phí đúng thứ nhân viên đang cần.
+      const doDang = tomTatDoDang(daTra);
+      await guiTin(
+        dich,
+        doDang
+          ? `${doDang}\n\n(Em mới tra được tới đây thôi ạ, anh/chị cần thêm gì nhắn em nhé.)`
+          : 'Dạ em chưa xử lý kịp, anh/chị nhắn lại giúp em với ạ.',
+        false,
+      );
     } catch (e2) {
       logger.warn({ err: e2 }, '[agent/nv] báo lỗi cho nhân viên cũng thất bại');
     }
