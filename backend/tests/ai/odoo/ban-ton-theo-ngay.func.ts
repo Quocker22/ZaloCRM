@@ -17,6 +17,7 @@
 //   3. Mô tả tool nói được cho model biết nó làm được việc này — bài học
 //      `canh_bao_ton_kho`: tool có sẵn mà bot vẫn đáp "em không có công cụ".
 import { describe, it, expect, vi } from 'vitest';
+import { ngayVietNam } from '../../../src/modules/ai/odoo/ky-thoi-gian.js';
 import {
   baoCaoBanTon, dinhDangBanTon, bangBanTon, baoCaoBanTonDefinition,
 } from '../../../src/modules/ai/odoo/tools/bao-cao-ban-ton.js';
@@ -56,7 +57,10 @@ describe('CA THẬT 17:58 11/08 — "hôm nay bán được bao nhiêu mã và c
     const kq = await baoCaoBanTon({ odoo: o }, {});
 
     expect(kq.trangThai).toBe('ok');
-    const homNay = new Date().toISOString().slice(0, 10);
+    // Dùng ĐÚNG hàm code dùng: giờ VIỆT NAM, không phải UTC.
+    // Bug test 00:02 ngày 12/08: test tự tính `toISOString()` ra giờ UTC nên
+    // từ 0h đến 7h sáng giờ VN thì lệch một ngày, test đỏ oan.
+    const homNay = ngayVietNam();
     // Cả hai đầu kỳ phải là HÔM NAY. Rơi về "30 ngày gần nhất" như top_san_pham
     // là trả lời câu khác: kho sẽ đi đếm mã của cả tháng.
     const domain = JSON.stringify(o.execute.mock.calls[0]![2]);
@@ -234,7 +238,7 @@ describe('KHOẢNG NGÀY — "hôm qua", "tuần này", "từ ngày… đến ng
 
     const domain = JSON.stringify(o.execute.mock.calls[0]![2]);
     expect(domain).not.toContain('hôm qua');
-    expect(domain).toContain(new Date().toISOString().slice(0, 10));
+    expect(domain).toContain(ngayVietNam());
   });
 });
 
