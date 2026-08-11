@@ -37,7 +37,7 @@
 import type { OdooClient } from '../client.js';
 import type { ToolDefinition } from '../../agent/types.js';
 import { sinhKhoaDon } from '../idempotency.js';
-import { dieuKienKhongDau } from '../tim-khong-dau.js';
+import { dieuKienKhongDau, locKhopBoDau, coDauTiengViet, boDau } from '../tim-khong-dau.js';
 import { xepHangKhach } from './tra-khach-hang.js';
 
 /**
@@ -419,14 +419,36 @@ export async function traNhaCungCap(
     : [dieuKienKhongDau('name', ten)];
 
   const TRAN = 10;
-  const rows = await deps.odoo.searchRead<Record<string, unknown>>(
+  // Tra theo TÊN thì xin dư (gấp 5) để còn chỗ mà LỌC BỎ DẤU ngay dưới —
+  // xem chú thích cùng chỗ trong tra-khach-hang.ts (ca 01:12 12/08).
+  const soDong = ma ? TRAN + 1 : (TRAN + 1) * 5;
+  let rows = await deps.odoo.searchRead<Record<string, unknown>>(
     'res.partner',
     ['&', ['supplier_rank', '>', 0], ...dieuKien],
     ['id', 'name', 'ref'],
-    { limit: TRAN + 1 },
+    { limit: soDong },
   );
-  const conNua = rows.length > TRAN;
-  const danhSach: NhaCungCap[] = rows.slice(0, TRAN).map((r) => ({
+
+  // DỰ PHÒNG gõ CÓ DẤU mà DB lưu KHÔNG DẤU — y hệt bên khách hàng. Chỉ chạy
+  // khi đã rỗng sạch, nên không nới bừa. Không có nhánh này thì luật tôn-trọng-
+  // dấu lại dựng lại đúng bug 23:15 11/08 ("không tìm được nhà cung cấp").
+  let tenLoc = ten;
+  if (!ma && rows.length === 0 && coDauTiengViet(ten)) {
+    tenLoc = boDau(ten);
+    rows = await deps.odoo.searchRead<Record<string, unknown>>(
+      'res.partner',
+      ['&', ['supplier_rank', '>', 0], dieuKienKhongDau('name', tenLoc)],
+      ['id', 'name', 'ref'],
+      { limit: soDong },
+    );
+  }
+
+  // LỌC BỎ DẤU CHÍNH XÁC (sửa 12/08): mẫu `_` ở tầng DB khớp ký tự bất kỳ nên
+  // "tr_ng q__c" ôm cả tên chỉ tình cờ cùng khung chữ. Cùng lỗi đã cho ra 10
+  // "anh Vấn" sai bên khách hàng lúc 01:12 — NCC dùng chung mẫu nên chung bệnh.
+  const rowsLoc = ma ? rows : locKhopBoDau(tenLoc, rows, (r) => String(r.name ?? ''));
+  const conNua = rowsLoc.length > TRAN;
+  const danhSach: NhaCungCap[] = rowsLoc.slice(0, TRAN).map((r) => ({
     id: Number(r.id),
     ten: String(r.name ?? ''),
     ma: r.ref ? String(r.ref) : null,

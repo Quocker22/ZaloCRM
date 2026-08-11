@@ -8,7 +8,9 @@
 
 import type { OdooClient } from '../client.js';
 import type { ToolDefinition } from '../../agent/types.js';
-import { dieuKienKhongDau, mauKhongDau } from '../tim-khong-dau.js';
+import {
+  dieuKienKhongDau, mauKhongDau, locKhopBoDau, boDau as boDauChung,
+} from '../tim-khong-dau.js';
 
 /**
  * Field ĐƯỢC PHÉP đọc. Danh sách trắng, không phải danh sách đen.
@@ -34,14 +36,14 @@ export interface SanPham {
  * Bỏ dấu tiếng Việt + hạ chữ thường, để so khớp tên gần đúng.
  * Odoo core name_search KHÔNG hiểu tiếng Việt không dấu — khách gõ "den led"
  * sẽ không khớp "Đèn LED". Chuẩn hoá phía client là cách rẻ nhất để vá.
+ *
+ * Dùng lại bản trong tim-khong-dau.ts (12/08) thay vì chép luật lần hai: hai
+ * bản bỏ dấu lệch nhau thì tầng tra và tầng lọc sẽ bất đồng về "chữ này có dấu
+ * hay không", và bug loại đó không lộ ra cho tới khi ra đơn sai. `.trim()` giữ
+ * nguyên vì các chỗ gọi cũ đang dựa vào.
  */
 export function boDau(s: string): string {
-  return s
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/đ/g, 'd')
-    .trim();
+  return boDauChung(s).trim();
 }
 
 /**
@@ -146,15 +148,25 @@ function laSoDem(t: string): boolean {
   return /^\d+$/.test(t);
 }
 
-export function domainTimKiem(ten: string): unknown[] {
+/**
+ * Tập TỪ KHOÁ THẬT SỰ đem đi tra — sau khi bỏ từ đệm và giữ số đếm.
+ *
+ * Tách riêng (12/08) để tầng LỌC BỎ DẤU ở JS dùng ĐÚNG tập từ mà tầng DB đã
+ * dùng. Lệch tập là loại oan: DB bỏ chữ "đèn" rồi tìm đúng "Led dây COB", còn
+ * JS lại đòi tên phải chứa cả "đèn" nên vứt luôn SP đó.
+ */
+export function tuKhoaTraSp(ten: string): string[] {
   // Giữ token số dù 1 ký tự ("3", "4") — xem laSoDem().
   const moiTu = ten.trim().split(/\s+/).filter((t) => t.length >= 2 || laSoDem(t));
   // TU_DEM không được phép loại số đếm.
   const tu = moiTu.filter((t) => laSoDem(t) || !TU_DEM.has(boDau(t)));
-
   // Query TOÀN từ đệm ("đèn led", "bóng") → không bỏ được từ nào, dùng lại tất cả.
   // Kết quả sẽ rộng, nhưng có kết quả vẫn hơn trả rỗng.
-  const dung = tu.length > 0 ? tu : moiTu;
+  return tu.length > 0 ? tu : moiTu;
+}
+
+export function domainTimKiem(ten: string): unknown[] {
+  const dung = tuKhoaTraSp(ten);
 
   // MẪU KHÔNG DẤU cho `name` (sửa 11/08) — `ilike` prod KHÔNG bỏ dấu, đo thật:
   //   ['name','ilike','Nguồn'] -> 5 kq  ·  ['name','ilike','Nguon'] -> 0 kq
@@ -247,10 +259,15 @@ export async function traSanPham(
     // Giữ số đếm ở đây nữa — nới rộng mà mất chữ "3" thì SP "4 bóng" lọt vào.
     const tu = ten.trim().split(/\s+/).filter((t) => t.length >= 2 || laSoDem(t));
     if (tu.length >= 2) {
+      // Ở ĐÂY thì nới dấu CẢ khi nhân viên gõ có dấu (khác luật chung 12/08).
+      // Đây là ĐƯỜNG CỨU CUỐI, chỉ chạy sau khi đòi-đủ-từ đã trả rỗng sạch:
+      // giữ nguyên dấu tới tận đây là bỏ nốt cơ hội bắt được SP mà DB lỡ lưu
+      // không dấu, rồi đáp "không tìm thấy" trong khi hàng có thật. Luật tôn
+      // trọng dấu để KHỎI TRẢ NGƯỜI SAI, không phải để trả về tay trắng.
       const bg = [
         ...domainGoc,
         ...Array(tu.length - 1).fill('|'),
-        ...tu.map((t) => ['name', 'ilike', t]),
+        ...tu.map((t) => ['name', 'ilike', mauKhongDau(boDau(t))]),
       ];
       // Cũng ưu tiên-giá-tại-DB như trên: nới rộng mà vẫn trả toàn hàng trống giá
       // thì việc nới rộng thành vô nghĩa.
@@ -300,7 +317,20 @@ export async function traSanPham(
     }
   }
 
-  const sach = rowsFinal.map(locFieldCam);
+  // LỌC BỎ DẤU CHÍNH XÁC (sửa 12/08, ca "anh Vấn" 01:12) — mẫu `_` ở tầng DB
+  // khớp ký tự BẤT KỲ nên "van" → "v_n" lôi cả "Vinh", "Vốn". Bên SP cũng vậy:
+  // "nguon" → "ng__n" ôm luôn những tên chỉ tình cờ cùng khung chữ. So bỏ dấu
+  // ĐÚNG chữ ở JS, trên vài chục dòng DB đã trả về.
+  //
+  // KHÔNG áp cho nhánh NỚI RỘNG (daNoiRong): nhánh đó CỐ Ý rộng — nó chạy khi
+  // đòi-đủ-từ đã trả rỗng, lọc lại là quay về rỗng, mất luôn đường cứu.
+  // So trên CẢ `name` LẪN `default_code`: domain cho phép khớp qua mã SP
+  // ("Nb12v100w"), chỉ soi `name` là loại oan chính SP tìm bằng mã.
+  const rowsLoc = daNoiRong
+    ? rowsFinal
+    : locKhopBoDau(tuKhoaTraSp(ten), rowsFinal, (r) => `${r.name ?? ''} ${r.default_code ?? ''}`);
+
+  const sach = rowsLoc.map(locFieldCam);
 
   // Lọc theo mã model nếu query có mã — chống trả nhầm SP khác dòng.
   //

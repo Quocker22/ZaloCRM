@@ -37,7 +37,7 @@
 
 import type { OdooClient } from '../client.js';
 import { tenKhopKhach } from './tao-don-nhap.js';
-import { dieuKienKhongDau } from '../tim-khong-dau.js';
+import { dieuKienKhongDau, locKhopBoDau } from '../tim-khong-dau.js';
 import type { ToolDefinition } from '../../agent/types.js';
 
 /** Số hoá đơn liệt kê tối đa. Tin Zalo dài hơn là không ai đọc. */
@@ -132,8 +132,15 @@ export async function xuatCongNo(
       // gõ không dấu ra 0 kết quả, bot báo "không có khách này" — sai sự thật.
       // Bước khớp chính xác (bỏ dấu) ngay dưới vẫn lọc lại, nên tra rộng an toàn.
       [['customer_rank', '>', 0], dieuKienKhongDau('name', input.ten.trim())],
-      F, { limit: KHACH_TOI_DA + 1 },
+      // Xin dư để còn chỗ mà LỌC BỎ DẤU ngay dưới (sửa 12/08) — mẫu `_` lôi về
+      // cả tên chỉ tình cờ cùng khung chữ, cắt trước khi lọc là vứt nhầm người.
+      F, { limit: (KHACH_TOI_DA + 1) * 5 },
     );
+
+    // LỌC BỎ DẤU CHÍNH XÁC (sửa 12/08, ca "anh Vấn" 01:12): mẫu `_` ở tầng DB
+    // khớp ký tự BẤT KỲ nên "van" → "v_n" ôm cả "Vinh", "Vốn" — hỏi công nợ
+    // "anh Vấn" mà trả về danh sách toàn người khác thì cũng vô dụng y hệt.
+    khach = locKhopBoDau(input.ten.trim(), khach, (k) => String(k.name ?? ''));
 
     // Nhiều kết quả → thử khớp CHÍNH XÁC tên (bỏ dấu) để tự chọn.
     //

@@ -241,6 +241,22 @@ describe('traNhaCungCap — tra NCC', () => {
     expect(domain).toContain('supplier_rank');
   });
 
+  it('gõ CÓ DẤU mà DB lưu KHÔNG DẤU → dự phòng nới, vẫn tìm ra NCC', async () => {
+    // Luật 12/08 tôn trọng dấu, nhưng phải có đường lùi: dữ liệu NCC prod cũng
+    // lẫn lộn dấu. Không có nhánh này thì lại dựng lại đúng bug 23:15 11/08
+    // ("ủa sao không tìm được nhà Cung cấp").
+    const odoo = {
+      searchRead: vi.fn()
+        .mockResolvedValueOnce([])                                             // 'quốc' nguyên văn: rỗng
+        .mockResolvedValueOnce([{ id: 314, name: 'Trung Quoc', ref: 'NCC000001' }]),
+    };
+    const kq = await traNhaCungCap({ odoo }, { ten: 'Trung Quốc' });
+
+    expect(odoo.searchRead).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(odoo.searchRead.mock.calls[1][1])).toContain('tr_ng q__c');
+    expect(kq.trangThai).toBe('tim_thay');
+  });
+
   it('nhiều NCC khớp → HỎI CHỌN, không tự nhặt', async () => {
     // Ca thật trên prod: "Trung Quốc" ra đúng 2 NCC (id=314 và id=21).
     const odoo = fakeOdoo({ ncc: [NCC_TQ, NCC_TQ_2] });
@@ -272,23 +288,19 @@ describe('traNhaCungCap — tra NCC', () => {
     expect(s.toLowerCase()).toContain('không được tự tạo');
   });
 
-  it('gõ CÓ DẤU hay KHÔNG DẤU đều ra CÙNG một truy vấn', async () => {
-    // ĐẢO Ý so với bản 11/08 sáng: hồi đó luật là "giữ nguyên dấu, đừng bỏ" vì
-    // ilike 'quoc' → 0 kq. Nhưng luật đó bắt nhân viên phải gõ đúng dấu mới
-    // dùng được bot — chính là ca hỏng 23:15 ("trung quoc" → không thấy NCC nào).
-    //
-    // Cách mới: KHÔNG bỏ dấu để tra thẳng (vẫn 0 kq), mà biến từ khoá thành MẪU
-    // LIKE dùng '_' cho nguyên âm → "tr_ng q__c", khớp được cả hai kiểu gõ mà
-    // vẫn lọc ở tầng DB. Xem tim-khong-dau.ts.
+  it('gõ KHÔNG DẤU thì NỚI, gõ CÓ DẤU thì TÔN TRỌNG DẤU', async () => {
+    // Bản 11/08 ép hai kiểu gõ về CÙNG một truy vấn — nghe gọn nhưng hỏng ở ca
+    // 01:12 12/08 ("anh Vấn" ra 10 người Văn/Vạn/Vân, không ai tên Vấn). Nay
+    // tách đôi: người gõ dấu là đã nói rõ họ tìm ai, đừng nới hộ. Xem
+    // tim-khong-dau.ts. NCC dùng CHUNG hàm nên chung luật.
     const coDau = fakeOdoo();
     await traNhaCungCap({ odoo: coDau }, { ten: 'Trung Quốc' });
     const khongDau = fakeOdoo();
     await traNhaCungCap({ odoo: khongDau }, { ten: 'trung quoc' });
 
-    const dCoDau = JSON.stringify(coDau.searchRead.mock.calls[0][1]);
-    expect(dCoDau).toContain('tr_ng q__c');
-    // Hai kiểu gõ phải quy về ĐÚNG một truy vấn — đó là cả điểm của bản vá.
-    expect(JSON.stringify(khongDau.searchRead.mock.calls[0][1])).toBe(dCoDau);
+    // "Quốc" có dấu → giữ nguyên; "Trung" tự nó không dấu → vẫn được nới.
+    expect(JSON.stringify(coDau.searchRead.mock.calls[0][1])).toContain('tr_ng quốc');
+    expect(JSON.stringify(khongDau.searchRead.mock.calls[0][1])).toContain('tr_ng q__c');
   });
 
   it('BỎ TIỀN TỐ "nhà cung cấp" trước khi tra (ca thật 23:16:15)', async () => {
@@ -298,8 +310,8 @@ describe('traNhaCungCap — tra NCC', () => {
     await traNhaCungCap({ odoo }, { ten: 'Nhà cung cấp Trung Quốc' });
 
     const d = JSON.stringify(odoo.searchRead.mock.calls[0][1]);
-    expect(d).toContain('tr_ng q__c');
-    expect(d).not.toContain('nh_ c_ng c_p');
+    expect(d).toContain('tr_ng quốc');
+    expect(d).not.toContain('nhà cung cấp');
   });
 
   it('gõ MÃ NCC vào ô tên → tra theo ref, ra đúng một NCC (ca thật 23:16:53)', async () => {

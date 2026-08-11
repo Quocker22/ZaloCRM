@@ -50,6 +50,45 @@ const sp = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
+describe('LỌC BỎ DẤU sau khi DB trả về — ca "anh Vấn" 01:12 12/08', () => {
+  // Mẫu `_` ở tầng DB khớp ký tự BẤT KỲ nên nó lôi về cả SP chỉ tình cờ cùng
+  // khung chữ. Bên khách hàng lỗi này cho ra 10 "anh Vấn" toàn người sai; bên
+  // SP thì cho ra hàng loạt SP sai loại. Tầng lọc JS cắt phần rác đó.
+
+  it('"nguon NB" giữ đúng SP Nguồn, bỏ SP chỉ trùng khung chữ', async () => {
+    const odoo = fakeOdoo([
+      sp({ id: 1, name: 'Nguồn NB 12V 100W', default_code: 'NB12V100W' }),
+      sp({ id: 2, name: 'Ngăn NB nhựa', default_code: 'NN01' }),   // "ng_n" cũng khớp mẫu
+    ]);
+    const ds = await traSanPham({ odoo }, { ten: 'nguon NB' });
+    const ten = ds.map((s) => s.ten);
+
+    expect(ten).toContain('Nguồn NB 12V 100W');
+    expect(ten).not.toContain('Ngăn NB nhựa');
+  });
+
+  it('gõ CÓ DẤU "Nguồn" thì KHÔNG kéo về "Ngăn"/"Ngòn"', async () => {
+    const odoo = fakeOdoo([
+      sp({ id: 1, name: 'Nguồn ATX 12V400W' }),
+      sp({ id: 2, name: 'Ngăn kéo phụ kiện' }),
+    ]);
+    const ds = await traSanPham({ odoo }, { ten: 'Nguồn' });
+    const ten = ds.map((s) => s.ten);
+
+    expect(ten).toContain('Nguồn ATX 12V400W');
+    expect(ten).not.toContain('Ngăn kéo phụ kiện');
+  });
+
+  it('KHÔNG loại oan SP tìm bằng MÃ (default_code), mã vốn không có dấu', async () => {
+    // Domain cho phép khớp qua `default_code`; lọc mà chỉ soi `name` là vứt
+    // luôn SP mà nhân viên vừa gõ đúng mã.
+    const odoo = fakeOdoo([sp({ id: 1, name: 'Màn hình LED ngoài trời', default_code: 'P10FO' })]);
+    const ds = await traSanPham({ odoo }, { ten: 'P10FO' });
+
+    expect(ds).toHaveLength(1);
+  });
+});
+
 describe('boDau', () => {
   it('bỏ dấu tiếng Việt để khớp khi khách gõ không dấu', () => {
     expect(boDau('Đèn LED Ngoài Trời')).toBe('den led ngoai troi');
@@ -145,13 +184,15 @@ describe('domainTimKiem — TÁCH TỪ KHOÁ', () => {
 
     // Phải có ilike riêng cho từng từ trên `name`.
     //
-    // Từ 11/08 mỗi từ đi dưới dạng MẪU KHÔNG DẤU ("xanh" → "x_nh") vì `ilike`
-    // của Postgres prod không bỏ dấu (xem tim-khong-dau.ts). Điều test khoá vẫn
-    // là TÁCH TỪNG TỪ chứ không tra nguyên cụm.
+    // Từ 11/08 từ KHÔNG DẤU đi dưới dạng mẫu nới ("xanh" → "x_nh") vì `ilike`
+    // của Postgres prod không bỏ dấu. Từ 12/08 từ CÓ DẤU thì giữ nguyên văn
+    // ("ngọc" → "ngọc") — nới dấu người ta đã gõ là ra hàng loạt SP sai, đúng
+    // bệnh ca "anh Vấn" 01:12 (xem tim-khong-dau.ts). Điều test khoá vẫn là
+    // TÁCH TỪNG TỪ chứ không tra nguyên cụm.
     expect(s).toContain('"c_b"');
     expect(s).toContain('"24v"');
     expect(s).toContain('"x_nh"');
-    expect(s).toContain('"ng_c"');
+    expect(s).toContain('"ngọc"');
 
     // `name` KHÔNG được khớp nguyên chuỗi (đó chính là bug cũ).
     // `default_code` thì CÓ — mã SP không tách từ, gõ mã là gõ đủ.

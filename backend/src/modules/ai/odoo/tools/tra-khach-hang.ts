@@ -13,7 +13,7 @@
 import type { OdooClient } from '../client.js';
 import type { ToolDefinition } from '../../agent/types.js';
 import { normalizeVnPhone } from '../../../../shared/phone/normalize-vn-phone.js';
-import { dieuKienKhongDau } from '../tim-khong-dau.js';
+import { dieuKienKhongDau, locKhopBoDau, coDauTiengViet, boDau } from '../tim-khong-dau.js';
 
 export interface KhachHang {
   id: number;
@@ -248,15 +248,64 @@ export async function traKhachHang(
 
   // Xin TRẦN + 1: phần tử thứ 11 không hiển thị, chỉ để BIẾT danh sách bị cắt.
   const TRAN = 10;
-  const rows = await deps.odoo.searchRead<Record<string, unknown>>(
+  // TRA THEO TÊN thì XIN DƯ (gấp 5) vì còn phải LỌC BỎ DẤU ở JS ngay dưới.
+  // Ca 01:12 12/08: mẫu "v_n" trả 10 người Văn/Vạn/Vân trước rồi mới tới "Anh
+  // Vấn Đà Nẵng" — chỉ xin 11 dòng là người đúng nằm ngoài, lọc xong còn 0 và
+  // ta lại phải nhả nguyên 10 dòng rác ra cho nhân viên. Xin dư thì phần rác
+  // bị lọc còn chỗ cho người đúng lọt vào. Nhánh mã KH/SĐT không cần: khoá
+  // chính xác, không có rác để lọc.
+  const traTheoTen = Boolean(ten && !ma && !sdt);
+  const FIELDS = ['id', 'name', 'ref', 'phone', 'mobile', 'incokit_receivable_balance'];
+  const soDong = traTheoTen ? (TRAN + 1) * 5 : TRAN + 1;
+  let rows = await deps.odoo.searchRead<Record<string, unknown>>(
     'res.partner',
     ['&', ['customer_rank', '>', 0], ...dieuKien],
-    ['id', 'name', 'ref', 'phone', 'mobile', 'incokit_receivable_balance'],
-    { limit: TRAN + 1 },
+    FIELDS,
+    { limit: soDong },
   );
-  const conNua = rows.length > TRAN;
 
-  const danhSach: KhachHang[] = rows.slice(0, TRAN).map((r) => ({
+  // DỰ PHÒNG cho chiều NGƯỢC LẠI: gõ CÓ DẤU nhưng DB lưu KHÔNG DẤU.
+  //
+  // Luật mới tôn trọng dấu nên "Nguồn" đi xuống DB nguyên văn — trúng nếu DB
+  // cũng lưu có dấu. Nhưng dữ liệu prod lẫn lộn: có bản ghi gõ vội không dấu
+  // ("Anh Thuc Nam Dinh"). Ca đó tra nguyên văn ra 0 dòng, và im lặng trả
+  // "không tìm thấy" khi DB CÓ người là đúng bug 23:15 11/08 mà bản vá
+  // không-dấu sinh ra để chữa — không được để nó quay lại từ cửa sau.
+  //
+  // Chỉ chạy khi đã RỖNG SẠCH nên không nới bừa: có kết quả đúng dấu thì
+  // không bao giờ tới đây.
+  // `tenLoc` là từ khoá dùng cho tầng lọc JS: bình thường bằng chính `ten`,
+  // nhưng sau khi rơi vào dự phòng thì phải HẠ VỀ BỎ DẤU — lọc bằng "Nguồn"
+  // có dấu sẽ cắt sạch đúng những dòng "Nguon" mà dự phòng vừa tìm được.
+  let tenLoc = ten;
+  if (traTheoTen && rows.length === 0 && coDauTiengViet(ten)) {
+    tenLoc = boDau(ten);
+    const tuNoi = tenLoc.split(/\s+/).filter((t) => t.length >= 2);
+    const dieuKienNoi = tuNoi.length <= 1
+      ? [dieuKienKhongDau('name', tenLoc)]
+      : [...Array(tuNoi.length - 1).fill('&'), ...tuNoi.map((t) => dieuKienKhongDau('name', t))];
+    rows = await deps.odoo.searchRead<Record<string, unknown>>(
+      'res.partner',
+      ['&', ['customer_rank', '>', 0], ...dieuKienNoi],
+      FIELDS,
+      { limit: soDong },
+    );
+  }
+  // LỌC LẠI Ở ĐÂY khi tra theo TÊN (sửa 12/08, ca 01:12 "anh Vấn").
+  //
+  // Mẫu `_` ở tầng DB khớp ký tự BẤT KỲ nên "van" → "v_n" lôi về cả "Vinh",
+  // "Vốn" — không chữ nào là biến thể dấu của "van". Ca thật: tra "Vấn" ra 10
+  // người (Văn, Vạn, Vân, Nguyễn Văn Đại, Phan Văn Trị...) trong khi Odoo có
+  // ĐÚNG 1 "Anh Vấn Đà Nẵng [KH000027]". locKhopBoDau so bỏ dấu ĐÚNG chữ.
+  //
+  // Lọc TRƯỚC khi cắt trần: cắt trước thì 10 dòng rác chiếm hết chỗ và người
+  // đúng — vốn nằm ở dòng thứ 11 — bị vứt đi trước khi kịp được xét.
+  const rowsLoc = traTheoTen
+    ? locKhopBoDau(tenLoc, rows, (r) => String(r.name ?? ''))
+    : rows;
+  const conNua = rowsLoc.length > TRAN;
+
+  const danhSach: KhachHang[] = rowsLoc.slice(0, TRAN).map((r) => ({
     id: Number(r.id),
     ten: String(r.name ?? ''),
     ma: r.ref ? String(r.ref) : null,

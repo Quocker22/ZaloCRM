@@ -7,7 +7,11 @@
 //   SP    ['name','ilike','Nguon']-> 0 kq (có dấu 'Nguồn' -> 5 kq)
 //   NCC   ['name','ilike','trung quoc'] -> 0 kq (có dấu -> 2 kq)
 import { describe, it, expect } from 'vitest';
-import { mauKhongDau, dieuKienKhongDau } from '../../../src/modules/ai/odoo/tim-khong-dau.js';
+//
+// SỬA 12/08 — ca hỏng 01:12: nới dấu cho MỌI từ khoá là quá tay. NV gõ "Vấn"
+// (đủ dấu) mà bot trả 10 người Văn/Vạn/Vân, KHÔNG ai tên Vấn, trong khi Odoo
+// có đúng 1 người. Luật mới: CÓ DẤU thì tra đúng dấu, KHÔNG DẤU mới nới.
+import { mauKhongDau, dieuKienKhongDau, coDauTiengViet, khopBoDau } from '../../../src/modules/ai/odoo/tim-khong-dau.js';
 
 /** `ilike` của Postgres: `_` = 1 ký tự bất kỳ, `%` = chuỗi bất kỳ, bỏ qua hoa/thường. */
 function ilike(mau: string, giaTri: string): boolean {
@@ -24,10 +28,20 @@ function ilike(mau: string, giaTri: string): boolean {
 const khop = (tuKhoa: string, ten: string) => ilike(`%${mauKhongDau(tuKhoa)}%`, ten);
 
 describe('mauKhongDau — gõ kiểu nào cũng khớp', () => {
-  it('gõ CÓ DẤU và KHÔNG DẤU cho ra CÙNG một mẫu', () => {
-    // Đây là tính chất cốt lõi: hai kiểu gõ phải quy về một truy vấn.
-    expect(mauKhongDau('Trung Quốc')).toBe(mauKhongDau('trung quoc'));
-    expect(mauKhongDau('Nguồn')).toBe(mauKhongDau('nguon'));
+  it('hai kiểu gõ ra HAI mẫu KHÁC NHAU — và đó mới là đúng', () => {
+    // Bản 11/08 ép hai kiểu gõ về CÙNG một mẫu. Nghe thì gọn, nhưng đó chính là
+    // chỗ hỏng ca 01:12 12/08: quy "Vấn" về mẫu của "van" là vứt bỏ dấu người ta
+    // vừa gõ, rồi trả về 10 người Văn/Vạn/Vân. Gõ dấu và không gõ dấu là HAI ý
+    // định khác nhau, phải ra hai truy vấn khác nhau.
+    // "Trung" tự nó KHÔNG mang dấu nên vẫn được nới (bắt cả "Trùng"); chỉ
+    // "Quốc" — chữ người ta thật sự bỏ công gõ dấu — mới được giữ nguyên văn.
+    expect(mauKhongDau('Trung Quốc')).toBe('tr_ng quốc');
+    expect(mauKhongDau('trung quoc')).toBe('tr_ng q__c');
+    expect(mauKhongDau('Nguồn')).toBe('nguồn');
+    expect(mauKhongDau('nguon')).toBe('ng__n');
+    // Cả hai kiểu gõ VẪN phải tìm ra cùng một người/SP — chỉ bằng hai đường khác.
+    expect(khop('Trung Quốc', 'Trung Quốc')).toBe(true);
+    expect(khop('trung quoc', 'Trung Quốc')).toBe(true);
   });
 
   it('khớp được tên CÓ DẤU thật trên prod dù gõ không dấu', () => {
@@ -76,6 +90,67 @@ describe('mauKhongDau — gõ kiểu nào cũng khớp', () => {
     expect(khop('led', 'Anh Long Led')).toBe(true);
     expect(khop('led', 'Anh Hùng - QC Đa Hình Hạ Long')).toBe(false);
     expect(khop('led', 'Anh Long Biên')).toBe(false);
+  });
+
+  it('coDauTiengViet phân biệt được hai kiểu gõ', () => {
+    // Đây là cái công tắc của toàn bộ luật mới, nên khoá riêng.
+    expect(coDauTiengViet('Vấn')).toBe(true);
+    expect(coDauTiengViet('Thức')).toBe(true);
+    expect(coDauTiengViet('Trung Quốc')).toBe(true);
+    expect(coDauTiengViet('Nguồn')).toBe(true);
+    expect(coDauTiengViet('đỏ')).toBe(true);        // 'đ' cũng là dấu
+    expect(coDauTiengViet('van')).toBe(false);
+    expect(coDauTiengViet('trung quoc')).toBe(false);
+    expect(coDauTiengViet('Led F5 12V')).toBe(false);
+  });
+
+  it('GÕ CÓ DẤU thì TÔN TRỌNG DẤU — ca thật 01:12 ngày 12/08', () => {
+    // Ca hỏng: NV gõ "@bot lên đơn cho anh Vấn ...". Odoo có ĐÚNG 1 khách tên
+    // chứa "Vấn" (Anh Vấn Đà Nẵng [KH000027]), nhưng bot liệt kê 10 người và
+    // KHÔNG ai tên Vấn: Văn, Vạn, Vân... Anh Quốc: "trong DB có 1 anh vấn thôi
+    // mà ????? càng làm càng sai à".
+    //
+    // Gốc rễ: mẫu nới áp cho MỌI từ khoá, kể cả từ đã gõ đủ dấu. "Vấn" → "v_n"
+    // khớp luôn Văn/Vạn/Vân/Vin/Von. Người gõ dấu là gõ có chủ đích PHÂN BIỆT —
+    // nới dấu của họ là xoá đúng cái thông tin họ vừa cung cấp.
+    expect(mauKhongDau('Vấn')).toBe('vấn');
+    expect(khop('Vấn', 'Anh Vấn Đà Nẵng')).toBe(true);
+    expect(khop('Vấn', 'ANh Văn')).toBe(false);
+    expect(khop('Vấn', 'A Hòa - Vạn Phúc - Hà Đông')).toBe(false);
+    expect(khop('Vấn', 'Chị Vân Hải Phòng')).toBe(false);
+  });
+
+  it('GÕ KHÔNG DẤU vẫn nới như bản vá gốc — không phá 11/08', () => {
+    // Nửa còn lại của luật: không dấu thì mới nới, vì người gõ không dấu đang
+    // NHỜ hệ thống đoán hộ dấu.
+    expect(khop('van', 'Anh Vấn Đà Nẵng')).toBe(true);
+    expect(khop('thuc', 'Anh Thức CNC')).toBe(true);
+    expect(khop('nguon', 'Nguồn ATX Trong Nhà 12V400W Pro (cái)')).toBe(true);
+    expect(khop('trung quoc', 'Trung Quốc')).toBe(true);
+  });
+
+  it('CÓ DẤU chỉ ở MỘT TỪ thì chỉ từ đó được tôn trọng', () => {
+    // Nhân viên hay gõ nửa vời: "Nguồn NB" (từ đầu có dấu, từ sau không).
+    // Luật xét TỪNG TỪ, không xét cả cụm — nếu xét cả cụm thì một chữ có dấu
+    // sẽ khoá cứng luôn những từ người ta cố tình gõ không dấu.
+    expect(mauKhongDau('Nguồn nb')).toBe('nguồn nb');
+    expect(mauKhongDau('nguon NB')).toBe('ng__n nb');
+  });
+
+  it('MẪU KHÔNG DẤU chỉ khớp BIẾN THỂ DẤU của chính nguyên âm đó', () => {
+    // Đánh đổi cũ: "van" → "v_n" khớp cả "vin", "von", "vun" — những chữ KHÔNG
+    // phải biến thể dấu của "van". Ca 01:12 12/08 lộ ra là nới thế quá tay.
+    // Nay lọc lại ở TypeScript: mẫu `_` vẫn đi xuống DB (rẻ, không kéo bảng),
+    // nhưng kết quả về phải qua khopBoDau() — so bỏ dấu ĐÚNG chữ.
+    expect(khopBoDau('van', 'Anh Vấn Đà Nẵng')).toBe(true);
+    expect(khopBoDau('van', 'ANh Văn')).toBe(true);       // Văn cũng là biến thể của "van" — đúng
+    expect(khopBoDau('van', 'Chú Vinh')).toBe(false);     // "vin" KHÔNG phải biến thể dấu của "van"
+    expect(khopBoDau('van', 'Anh Vốn')).toBe(false);
+    expect(khopBoDau('thuc', 'Anh Thức CNC')).toBe(true);
+    expect(khopBoDau('thuc', 'Anh Thắc')).toBe(false);
+    // Từ khoá CÓ DẤU: so đúng dấu, không hạ chuẩn về bỏ dấu.
+    expect(khopBoDau('Vấn', 'Anh Vấn Đà Nẵng')).toBe(true);
+    expect(khopBoDau('Vấn', 'ANh Văn')).toBe(false);
   });
 
   it("'d' đầu từ VẪN thay được (vì 'đ'), giữa/cuối từ thì không", () => {

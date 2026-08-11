@@ -78,6 +78,102 @@ describe('traKhachHang — ba trạng thái', () => {
   });
 });
 
+describe('traKhachHang — CA THẬT 01:12 ngày 12/08 "anh Vấn"', () => {
+  // NV: "@bot lên đơn cho anh Vấn 10 cái Led F5 12V Không Main Màu Đỏ giá 100k".
+  // Bot đáp 'Có 10 khách tên "Vấn"' rồi liệt kê ANh Văn, A Hòa - Vạn Phúc,
+  // A Nguyễn Văn Đại, A tuấn 1385 Phan Văn Trị... KHÔNG một ai tên Vấn.
+  // Anh Quốc: "trong DB có 1 anh vấn thôi mà ????? càng làm càng sai à".
+  //
+  // Đo prod cùng lúc: ilike 'Vấn' nguyên văn ra ĐÚNG 1 người.
+  // Đây là 10 dòng mà mẫu "v_n" của bản 11/08 lôi về, cộng người ĐÚNG ở cuối —
+  // đúng tình huống người cần tìm nằm ngoài trang đầu.
+  const raoRac = [
+    kh({ id: 1, name: 'ANh Văn', ref: 'KH000101' }),
+    kh({ id: 2, name: 'A Hòa - Vạn Phúc - Hà Đông', ref: 'KH000102' }),
+    kh({ id: 3, name: 'A Linh - Gửi hàng về Văn phòng Anh huy Hải Dương', ref: 'KH000103' }),
+    kh({ id: 4, name: 'A Nguyễn Văn Đại- Quảng Ninh', ref: 'KH000104' }),
+    kh({ id: 5, name: 'A tuấn, 1385 Phan Văn Trị', ref: 'KH000105' }),
+    kh({ id: 6, name: 'Chị Vân Hải Phòng', ref: 'KH000106' }),
+    kh({ id: 7, name: 'Chú Vinh Nam Định', ref: 'KH000107' }),
+    kh({ id: 8, name: 'Anh Vốn Thanh Hoá', ref: 'KH000108' }),
+    kh({ id: 9, name: 'A Vụn Hà Nam', ref: 'KH000109' }),
+    kh({ id: 10, name: 'Cô Vân Anh', ref: 'KH000110' }),
+    kh({ id: 27, name: 'Anh Vấn Đà Nẵng', ref: 'KH000027', phone: '0934.786.998' }),
+  ];
+
+  it('gõ "Vấn" CÓ DẤU → ra ĐÚNG anh Vấn, KHÔNG kèm Văn/Vạn/Vân', async () => {
+    const kq = await traKhachHang({ odoo: fakeOdoo(raoRac) }, { ten: 'Vấn' });
+
+    // Lọc bỏ dấu chính xác cắt sạch 10 người kia → còn đúng 1 → tim_thay.
+    expect(kq.trangThai).toBe('tim_thay');
+    if (kq.trangThai === 'tim_thay') {
+      expect(kq.khach.ten).toBe('Anh Vấn Đà Nẵng');
+      expect(kq.khach.ma).toBe('KH000027');
+    }
+  });
+
+  it('gõ "van" KHÔNG DẤU → vẫn tìm được anh Vấn (không phá bản vá 11/08)', async () => {
+    const kq = await traKhachHang({ odoo: fakeOdoo(raoRac) }, { ten: 'van' });
+
+    // Không dấu thì được nới — "Vấn", "Văn", "Vạn" đều là biến thể dấu hợp lệ
+    // của "van" nên đều được giữ. Nhưng "Vinh"/"Vốn"/"Vụn" thì KHÔNG.
+    expect(kq.trangThai).toBe('nhieu_ket_qua');
+    if (kq.trangThai === 'nhieu_ket_qua') {
+      const ten = kq.danhSach.map((k) => k.ten);
+      expect(ten).toContain('Anh Vấn Đà Nẵng');
+      expect(ten).toContain('ANh Văn');
+      expect(ten).not.toContain('Chú Vinh Nam Định');
+      expect(ten).not.toContain('Anh Vốn Thanh Hoá');
+      expect(ten).not.toContain('A Vụn Hà Nam');
+    }
+  });
+
+  it('truy vấn DB gõ có dấu là NGUYÊN VĂN, không nới', async () => {
+    const odoo = fakeOdoo([]);
+    await traKhachHang({ odoo }, { ten: 'Vấn' });
+
+    const d = JSON.stringify(odoo.searchRead.mock.calls[0][1]);
+    expect(d).toContain('"vấn"');
+    expect(d).not.toContain('"v_n"');
+  });
+
+  it('gõ CÓ DẤU mà DB lưu KHÔNG DẤU → dự phòng nới, vẫn tìm ra', async () => {
+    // Chiều ngược của bản sửa: dữ liệu prod lẫn lộn, có bản ghi gõ vội không
+    // dấu ("Anh Thuc Nam Dinh"). Tôn trọng dấu mà không có đường lùi thì lại
+    // trả "không tìm thấy" khi DB CÓ người — đúng bug 23:15 11/08 quay lại.
+    const odoo = {
+      searchRead: vi.fn()
+        .mockResolvedValueOnce([])                                            // tra 'thức' nguyên văn: rỗng
+        .mockResolvedValueOnce([kh({ id: 5, name: 'Anh Thuc Nam Dinh' })]),   // dự phòng 'th_c': trúng
+    };
+    const kq = await traKhachHang({ odoo }, { ten: 'Thức' });
+
+    expect(odoo.searchRead).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(odoo.searchRead.mock.calls[0][1])).toContain('"thức"');
+    expect(JSON.stringify(odoo.searchRead.mock.calls[1][1])).toContain('"th_c"');
+    expect(kq.trangThai).toBe('tim_thay');
+  });
+
+  it('gõ CÓ DẤU mà tra RA rồi thì KHÔNG gọi dự phòng', async () => {
+    // Dự phòng chỉ được chạy khi đã rỗng sạch — có kết quả đúng dấu mà vẫn nới
+    // là nới bừa, quay về đúng cái bug 10-người-sai.
+    const odoo = fakeOdoo([kh({ name: 'Anh Vấn Đà Nẵng' })]);
+    await traKhachHang({ odoo }, { ten: 'Vấn' });
+
+    expect(odoo.searchRead).toHaveBeenCalledTimes(1);
+  });
+
+  it('xin DƯ dòng khi tra theo tên — người đúng hay nằm ngoài trang đầu', async () => {
+    // Ca 01:12: 10 dòng rác đứng trước "Anh Vấn Đà Nẵng". Chỉ xin 11 dòng thì
+    // lọc xong còn 0 và ta lại phải nhả nguyên 10 dòng rác cho nhân viên.
+    const odoo = fakeOdoo([]);
+    await traKhachHang({ odoo }, { ten: 'van' });
+
+    const opts = odoo.searchRead.mock.calls[0][3] as { limit: number };
+    expect(opts.limit).toBeGreaterThan(11);
+  });
+});
+
 describe('traKhachHang — TRA THEO TÊN', () => {
   // Bug thật 2026-07-29: nhân viên gõ "anh qc hoàng sơn mua 50 ..." — không có
   // SĐT. Tool chỉ nhận sdt nên bot phải chuyển sale, dù khách CÓ trong DB.
@@ -94,15 +190,17 @@ describe('traKhachHang — TRA THEO TÊN', () => {
     const odoo = fakeOdoo([]);
     await traKhachHang({ odoo }, { ten: 'hoàng sơn nam' });
 
-    // Từ 11/08 mỗi từ được tra bằng MẪU KHÔNG DẤU ("hoàng" → "h__ng") vì `ilike`
-    // của Postgres prod không bỏ dấu — xem tim-khong-dau.ts. Việc test khoá vẫn
-    // y nguyên: TÁCH TỪNG TỪ, không tra nguyên cụm.
+    // Từ 11/08 từ KHÔNG DẤU được tra bằng mẫu nới ("nam" → "n_m") vì `ilike`
+    // của Postgres prod không bỏ dấu. Từ 12/08 thì từ CÓ DẤU được giữ nguyên
+    // văn ("hoàng" → "hoàng") — người gõ dấu là đã chỉ đích danh, nới ra là ra
+    // 10 người sai như ca "anh Vấn" 01:12. Xem tim-khong-dau.ts.
+    // Việc test khoá vẫn y nguyên: TÁCH TỪNG TỪ, không tra nguyên cụm.
     const d = JSON.stringify(odoo.searchRead.mock.calls[0][1]);
-    expect(d).toContain('"h__ng"');
-    expect(d).toContain('"s_n"');
-    expect(d).toContain('"n_m"');
-    // Nguyên cụm (dù ở dạng mẫu) KHÔNG được xuất hiện — đó là bug cũ.
-    expect(d).not.toContain('"h__ng s_n n_m"');
+    expect(d).toContain('"hoàng"');
+    expect(d).toContain('"sơn"');
+    expect(d).toContain('"n_m"');   // "nam" gõ không dấu → vẫn được nới
+    // Nguyên cụm KHÔNG được xuất hiện — đó là bug cũ.
+    expect(d).not.toContain('"hoàng sơn n_m"');
   });
 
   it('có CẢ sdt lẫn ten → ưu tiên sdt (chính xác hơn)', async () => {
