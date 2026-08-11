@@ -731,10 +731,20 @@ export async function handleIncomingMessage(
         message: { id: message.id, content: message.content, contentType: message.contentType, senderType: message.senderType },
       });
 
-      // TIN KHÔNG PHẢI CHỮ từ khách (ảnh/voice/video/file): agent không đọc
-      // được nhưng KHÔNG được im lặng — ảnh khách gửi thường là ảnh CHUYỂN
-      // KHOẢN hoặc ảnh sản phẩm cần báo giá (06/08/2026). Sticker/gif thì bỏ
-      // qua có chủ đích. Xem noi-zalo/luong-media.ts.
+      // TIN KHÔNG PHẢI CHỮ (ảnh/voice/video/file). Ảnh thì bot ĐỌC được từ
+      // 10/08 (doc-anh.ts); voice/video/file thì chưa, nhưng KHÔNG được im
+      // lặng — ảnh gửi vào thường là ảnh CHUYỂN KHOẢN hoặc ảnh sản phẩm cần
+      // báo giá (06/08/2026). Sticker/gif bỏ qua có chủ đích.
+      //
+      // VÌ SAO KHỐI NÀY NẰM TRONG `if (!msg.isSelf)` — đã kiểm chứng 11/08,
+      // KHÔNG phải thiếu sót:
+      //   - Nhân viên nhắn từ nick Zalo CÁ NHÂN → `sender_type='contact'`
+      //     (đo thật: 94/94 tin tag bot trong 3 ngày đều là 'contact'), nên
+      //     ảnh họ gửi VẪN đọc được bình thường.
+      //   - `isSelf=true` là nick SHOP, mà 72/72 ảnh 'self' 3 ngày qua đều do
+      //     chính BOT gửi đi (báo giá, hoá đơn — title rỗng). Đọc lại ảnh mình
+      //     vừa gửi là tự nói chuyện với mình và đốt tiền model.
+      // Ai định nới khối này ra ngoài `!msg.isSelf` thì đọc đoạn trên trước.
       if (message.contentType !== 'text') {
         void xuLyTinMedia(
           {
