@@ -84,6 +84,9 @@ import {
   suaDon, suaDonDefinition, dinhDangSuaDon,
 } from '../odoo/tools/sua-don.js';
 import {
+  suaVat, suaVatDefinition, dinhDangVat,
+} from '../odoo/tools/sua-vat.js';
+import {
   xuatCongNo, xuatCongNoDefinition, dinhDangCongNo,
 } from '../odoo/tools/xuat-cong-no.js';
 import {
@@ -506,6 +509,35 @@ export function buildStaffRegistry(deps: {
         dinhDangChietKhau(
           await suaChietKhau({ odoo }, input as { don_id?: number; ma_don?: string; phan_tram: number }),
         ),
+    })
+    // VAT cho đơn ĐÃ LÊN (11/08). Ca hỏng 20:38→20:41 nhóm Test-AI: NV nói
+    // "sửa lại thêm VAT 8%" cho đơn S13829 đã tạo, bot hỏi vòng quanh 4 lần
+    // trong 3 phút rồi đề nghị NHÂN GIÁ LÊN 1.08. Nguyên nhân: máy gom đơn hết
+    // cầm lái khi đơn đã lên, mà agent tự do lại không có tool VAT nào —
+    // chiết khấu thì có `sua_chiet_khau` nên làm được ngay. Tool này lấp đúng
+    // khoảng trống đó. Gửi lại ảnh hoá đơn sau khi sửa vì TỔNG ĐÃ ĐỔI.
+    .register({
+      definition: suaVatDefinition,
+      run: async (input) => {
+        const kq = await suaVat({ odoo }, input as { don_id?: number; ma_don?: string; phan_tram: number });
+        if (kq.ok && deps.anhClient && deps.odooUrl) {
+          try {
+            const hd = await guiHoaDon(
+              { odoo, anhClient: deps.anhClient, odooUrl: deps.odooUrl },
+              { don_id: kq.donId },
+            );
+            if (hd) deps.nhanHoaDon?.(hd);
+            if (hd && !hd.anh) {
+              logger.warn({ donId: kq.donId, loiAnh: hd.loiAnh },
+                '[staff-agent] sửa VAT: render ảnh THẤT BẠI — thuế đã gắn, ảnh chưa gửi');
+            }
+          } catch (err) {
+            logger.warn({ err: (err as Error)?.message, donId: kq.donId },
+              '[staff-agent] sửa VAT: gửi ảnh lỗi — thuế đã gắn, ảnh chưa gửi');
+          }
+        }
+        return dinhDangVat(kq);
+      },
     })
     // SỬA ĐƠN (07/08): đổi SL / thêm dòng vào đơn nháp cũ. Sau khi sửa xong, tự
     // gửi lại ảnh hoá đơn (giống auto-invoice sau tạo) để nhân viên thấy đơn mới.

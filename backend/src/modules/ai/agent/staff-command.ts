@@ -255,7 +255,14 @@ export function buildStaffSystemPrompt(bizName: string): string {
     'doanh thu kỳ → `bao_cao_tong_quan` · nhân viên/chi nhánh/lãi → `bao_cao_ban_hang`',
     'sắp hết → `canh_bao_ton_kho` · công nợ → `xuat_cong_no` · đơn chờ duyệt →',
     '`don_cho_xac_nhan` · bán chạy/hàng ế → `top_san_pham`',
+    // Kiểm kho từng phần (anh Quyết 11/08): "bán bao nhiêu mã, tồn bao nhiêu".
+    'bán ra + tồn theo ngày (kiểm kho) → `bao_cao_ban_ton`',
     'bảo hành/thông số → `tra_tri_thuc` · chiết khấu → `sua_chiet_khau`',
+    // Ca hỏng 20:38→20:41 11/08 (đơn S13829): NV nói "sửa lại thêm VAT 8%", bot
+    // hỏi vòng 4 lần trong 3 phút rồi đề nghị NHÂN GIÁ LÊN 1.08 — sai giá đã
+    // chốt với khách mà amount_tax vẫn 0. Hai vế đều phải nằm trong prompt:
+    // "gọi tool ngay" (chống hỏi vòng) và "cấm nhân giá" (chống ghi sai giá).
+    'VAT/hoá đơn đỏ → `sua_vat` NGAY, đừng hỏi lại; CẤM nhân giá dòng để cộng thuế.',
     'Câu tổ hợp khác ("khách mua trên X tháng này") → `bao_cao_linh_hoat`.',
     'KHÔNG tool nào hợp → `doc_odoo` (mọi số liệu) · `lam_odoo` (xác nhận đơn,',
     'kho, thanh toán, sửa SP/khách). Chưa chắc bảng/cột → `kham_pha_odoo` trước.',

@@ -229,7 +229,14 @@ describe('buildStaffSystemPrompt', () => {
     //     chuyen_sale không có trong registry nhân viên và không báo cho ai.
     // ĐÃ NÉN TRƯỚC KHI NỚI: bản đầu +553 ký tự, gộp còn +218 (5 dòng → 5 dòng
     // ngắn hơn, sự tích dồn hết vào comment). Ký tự tĩnh rẻ 4x nhờ implicit cache.
-    expect(buildStaffSystemPrompt(BIZ_THAT).length).toBeLessThan(3350);
+    // 3.350 → 3.500 (11/08 tối): 1 dòng định tuyến `sua_vat` cho ca hỏng
+    // 20:38→20:41 nhóm Test-AI. NV nói "sửa lại thêm VAT 8%" cho đơn S13829 đã
+    // lên; bot hỏi vòng 4 lần trong 3 phút rồi đề nghị NHÂN GIÁ LÊN 1.08 — làm
+    // vậy Odoo ghi giá bán 237.600đ thay vì 220.000đ (sai giá đã chốt với
+    // khách) mà `amount_tax` vẫn 0. Dòng prompt gánh HAI việc trong 79 ký tự:
+    // "gọi tool NGAY" (chống hỏi vòng) và "CẤM nhân giá" (chống ghi sai giá) —
+    // đã nén từ 2 dòng/135 ký tự xuống 1 dòng, sự tích dồn hết vào comment.
+    expect(buildStaffSystemPrompt(BIZ_THAT).length).toBeLessThan(3500);
   });
 });
 

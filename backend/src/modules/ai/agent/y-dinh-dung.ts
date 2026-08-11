@@ -74,7 +74,7 @@ export function laYDinhDung(noiDung: string): boolean {
 }
 
 /** Tool GHI vào Odoo — thứ bị chặn khi người dùng bảo dừng. */
-export const TOOL_GHI = ['tao_don_nhap', 'tao_khach_hang', 'gui_hoa_don', 'sua_chiet_khau', 'sua_don'];
+export const TOOL_GHI = ['tao_don_nhap', 'tao_khach_hang', 'gui_hoa_don', 'sua_chiet_khau', 'sua_don', 'sua_vat'];
 
 /** Tên tool này có ghi vào Odoo không (chịu được tiền tố `default_api.`). */
 export function laToolGhi(tenTool: string): boolean {
