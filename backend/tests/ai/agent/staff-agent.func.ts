@@ -53,7 +53,7 @@ const input = (over: Record<string, unknown> = {}) => ({
 });
 
 describe('buildStaffRegistry', () => {
-  it('đăng ký đủ 20 tool (10/08: +3 tool tổng quát · 11/08: +sua_vat, +bao_cao_ban_ton)', () => {
+  it('đăng ký đủ 22 tool (11/08: +tao_don_mua, +tra_nha_cung_cap — ca 22:09 nhập hàng)', () => {
     const r = buildStaffRegistry({
       odoo: fakeOdoo(),
       conversationId: 'c',
@@ -80,18 +80,24 @@ describe('buildStaffRegistry', () => {
       // VAT cho đơn ĐÃ LÊN (11/08) — ca hỏng 20:38→20:41 nhóm Test-AI: bot hỏi
       // vòng 4 lần vì agent tự do không có tool VAT nào. CHỈ luồng nhân viên.
       'sua_vat',
+      // PHIẾU NHẬP HÀNG (11/08) — ca thật 22:09-22:11: bot đáp "chưa có tool
+      // tạo phiếu nhập hàng ... nằm ngoài phạm vi em hỗ trợ" dù quyền ghi
+      // purchase.order vốn đã có (đo prod: create=true, 5 đơn mua thật).
+      'tao_don_mua',
       'tao_don_nhap',
       'tao_khach_hang',
       'top_san_pham',
       'tra_danh_muc',
       'tra_khach_hang',
+      // Tra NCC (supplier_rank>0) — KHÁC tra_khach_hang (customer_rank>0).
+      'tra_nha_cung_cap',
       'tra_san_pham',
       'tra_ton_kho',
       'xuat_cong_no',
     ]);
   });
 
-  it('sáu tool GHI (thêm sua_vat 11/08 — VAT cho đơn đã lên)', () => {
+  it('bảy tool GHI (thêm tao_don_mua 11/08 — phiếu nhập hàng)', () => {
     const r = buildStaffRegistry({
       odoo: fakeOdoo(),
       conversationId: 'c',
@@ -104,9 +110,28 @@ describe('buildStaffRegistry', () => {
     // (đổi SL/thêm hàng vào đơn cũ thay vì tạo đơn mới); lam_odoo 2026-08-10
     // (ghi tự do có phanh xoá/hàng loạt — xem tong-quat/an-toan.ts).
     // sua_vat 2026-08-11 (thêm/bỏ VAT cho đơn đã lên — ca hỏng 20:38→20:41).
+    // tao_don_mua 2026-08-11 (phiếu nhập hàng — ca thật 22:09-22:11). Ghi vào
+    // purchase.order, CHỈ trạng thái nháp. `tra_nha_cung_cap` KHÔNG có ở đây:
+    // nó chỉ ĐỌC res.partner.
     expect(ghi.sort()).toEqual([
-      'lam_odoo', 'sua_chiet_khau', 'sua_don', 'sua_vat', 'tao_don_nhap', 'tao_khach_hang',
+      'lam_odoo', 'sua_chiet_khau', 'sua_don', 'sua_vat',
+      'tao_don_mua', 'tao_don_nhap', 'tao_khach_hang',
     ]);
+  });
+
+  // LUỒNG KHÁCH TUYỆT ĐỐI KHÔNG ĐƯỢC CÓ (yêu cầu 11/08): khách tạo được đơn
+  // MUA là tự đặt hàng bằng tiền công ty — vô lý và nguy hiểm. Ranh giới này
+  // là CODE (hai file registry tách hẳn), test ở đây chỉ khoá lại.
+  it('luồng KHÁCH không có tao_don_mua / tra_nha_cung_cap, kể cả khi bật chốt đơn', async () => {
+    const { buildCustomerRegistry } = await import('../../../src/modules/ai/agent/customer-agent.js');
+    const r = buildCustomerRegistry({
+      odoo: fakeOdoo(),
+      ghiNhanChuyenSale: async () => {},
+      choKhachChotDon: { conversationId: 'c', seq: 1, tranTien: 20_000_000 },
+    });
+
+    expect(r.has('tao_don_mua')).toBe(false);
+    expect(r.has('tra_nha_cung_cap')).toBe(false);
   });
 });
 
@@ -146,11 +171,11 @@ describe('chayLenhNhanVien — chạy vòng lặp', () => {
     expect(msg).toContain('tra giá P10');
   });
 
-  it('gửi đủ 20 tool cho LLM (10/08: +3 tool tổng quát · 11/08: +sua_vat, +bao_cao_ban_ton)', async () => {
+  it('gửi đủ 22 tool cho LLM (11/08: +tao_don_mua, +tra_nha_cung_cap)', async () => {
     const generate = fakeLLM([turnXong('ok')]);
     await chayLenhNhanVien(deps({ generate }), input());
 
-    expect(generate.mock.calls[0][0].tools).toHaveLength(20);
+    expect(generate.mock.calls[0][0].tools).toHaveLength(22);
   });
 
   it('system prompt là prompt NHÂN VIÊN, không phải prompt khách', async () => {

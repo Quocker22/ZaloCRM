@@ -51,6 +51,11 @@ import {
 import {
   taoDonNhap, taoDonNhapDefinition, dinhDangTaoDon,
 } from '../odoo/tools/tao-don-nhap.js';
+// PHIẾU NHẬP HÀNG (11/08) — CHỈ registry NHÂN VIÊN, xem chú thích chỗ đăng ký.
+import {
+  taoDonMua, taoDonMuaDefinition, dinhDangTaoDonMua,
+  traNhaCungCap, traNhaCungCapDefinition, dinhDangNhaCungCap,
+} from '../odoo/tools/tao-don-mua.js';
 import {
   chuyenSale, chuyenSaleDefinition, dinhDangChuyenSale,
   type YeuCauChuyenSale,
@@ -504,6 +509,45 @@ export function buildStaffRegistry(deps: {
         }
         return dinhDangTaoDon(kq, true);
       },
+    })
+    // ── PHIẾU NHẬP HÀNG / ĐƠN MUA (11/08/2026) ───────────────────────────
+    //
+    // Ca thật 22:09-22:11 nhóm Test-AI — bot từ chối việc nó LÀM ĐƯỢC:
+    //   NV : "@bot rồi tạo phiếu nhập hàng giúp tôi luôn"
+    //   Bot: "em hiện chỉ có tool lên đơn BÁN và quản lý tồn, chưa có tool tạo
+    //         phiếu nhập hàng (mua hàng) — em không thể tạo phiếu nhập kho được ạ."
+    //   NV : "1 đơn hàng của hàng cung cấp trung quốc, 2 Màn hình LED: P10 full
+    //         out: 10.000 tấm..."   (13 dòng hàng)
+    //   Bot: "tính năng này nằm ngoài phạm vi em hỗ trợ"
+    //
+    // Bot nói SAI. Đo quyền trên prod cùng ngày bằng chính tài khoản bot_zalo:
+    //   purchase.order write=true create=true · purchase.order.line write=true
+    //   create=true · stock.picking write=true
+    // và 5 đơn mua thật P04517-P04521 đang chạy, 4 đơn của NCC "Trung Quốc"
+    // (id=314) — đúng nhà cung cấp nhân viên nhắc. `lam_odoo` cũng chưa bao giờ
+    // cấm bảng này. Thiếu là thiếu TOOL CÓ TÊN, không thiếu quyền — cùng một
+    // lỗi với `canh_bao_ton_kho` và `gui_tai_lieu` (có sẵn mà bot bảo "em không
+    // có công cụ").
+    //
+    // CHỈ registry NHÂN VIÊN, TUYỆT ĐỐI không cho luồng khách: khách tạo được
+    // đơn mua là tự đặt hàng bằng tiền công ty. Luồng khách nằm ở
+    // customer-agent.ts và không import file này.
+    .register({
+      definition: traNhaCungCapDefinition,
+      run: async (input) =>
+        dinhDangNhaCungCap(
+          await traNhaCungCap({ odoo }, input as { ten?: string; ma?: string }),
+        ),
+    })
+    .register({
+      definition: taoDonMuaDefinition,
+      run: async (input) =>
+        dinhDangTaoDonMua(
+          await taoDonMua(
+            { odoo, conversationId: deps.conversationId, seq: deps.seq },
+            input as Parameters<typeof taoDonMua>[1],
+          ),
+        ),
     })
     // Tool GHI sửa đơn — chỉ đơn nháp, ranh giới nằm trong code không phải prompt.
     .register({

@@ -14,6 +14,10 @@ import { traKhachHang, dinhDangKhachHang } from '../../../odoo/tools/tra-khach-h
 import { taoKhachHang, dinhDangTaoKhach, CHIA_BO_PHANH } from '../../../odoo/tools/tao-khach-hang.js';
 import { traSanPham, dinhDangSanPham, boDau } from '../../../odoo/tools/tra-san-pham.js';
 import { taoDonNhap, dinhDangTaoDon } from '../../../odoo/tools/tao-don-nhap.js';
+// PHIẾU NHẬP HÀNG (11/08) — ca thật 22:09-22:11: bot đáp "chưa có tool tạo
+// phiếu nhập hàng ... nằm ngoài phạm vi em hỗ trợ" dù quyền ghi purchase.order
+// vốn đã có (đo prod: create=true/write=true, 5 đơn mua thật đang chạy).
+import { taoDonMua, dinhDangTaoDonMua, traNhaCungCap, dinhDangNhaCungCap } from '../../../odoo/tools/tao-don-mua.js';
 import { suaDon, dinhDangSuaDon } from '../../../odoo/tools/sua-don.js';
 // VAT: tra id account.tax theo % nhân viên nói. KHÔNG phải tool cho model —
 // máy gom đơn gọi thẳng hàm, nên nó không có mặt trong registry (xem chú thích
@@ -21,7 +25,7 @@ import { suaDon, dinhDangSuaDon } from '../../../odoo/tools/sua-don.js';
 import { traThueBan } from '../../../odoo/tools/tra-thue.js';
 import { guiHoaDon } from '../../../odoo/tools/gui-hoa-don.js';
 import { IDEMPOTENCY_PREFIX } from '../../../odoo/idempotency.js';
-import { linkXuLyDon, type HoaDonAnhClient, type AnhHoaDon } from '../../../odoo/hoa-don-anh.js';
+import { linkXuLyDon, linkXuLyDonMua, type HoaDonAnhClient, type AnhHoaDon } from '../../../odoo/hoa-don-anh.js';
 import { laXacNhanNgan } from '../cam-xuc.js';
 import { KHO, type PhienGom, type HanhDong, type DonSua } from './kieu.js';
 import { buocTiepTheo } from './buoc-tiep-theo.js';
@@ -32,6 +36,22 @@ import { docPhien, luuPhien, xoaPhien, type DbPhienGomDon } from './phien-store.
 
 /** "lên/tạo/đặt + đơn/hàng" ở đầu từ — 'sửa đơn'/'báo cáo đơn' KHÔNG kích máy. */
 const NHAN_LENH_LEN_DON = /(?:^|\s)(?:lên|len|tạo|tao|đặt|dat)\s+(?:đơn|don|hàng|hang)\b/i;
+
+/**
+ * Lệnh NHẬP HÀNG / ĐƠN MUA (11/08) — cửa vào chế 'nhap'.
+ *
+ * Bắt đúng câu thật của ca 22:09: "rồi tạo phiếu nhập hàng giúp tôi luôn", và
+ * các cách nói cùng nghĩa: "phiếu nhập", "nhập hàng", "đơn mua", "đặt hàng NCC".
+ *
+ * PHẢI đứng TRƯỚC `NHAN_LENH_LEN_DON` khi kiểm, vì hai regex CHỒNG NHAU:
+ * "tạo phiếu nhập hàng" khớp cả `tạo\s+hàng`? không — nhưng "nhập hàng" thì
+ * `NHAN_LENH_LEN_DON` không bắt, còn "tạo đơn mua" thì CÓ ("tạo đơn"). Thứ tự
+ * kiểm quyết định câu đó thành đơn bán hay đơn mua; nhập hàng thắng.
+ *
+ * Cố ý KHÔNG bắt "nhập kho"/"nhập tồn" một mình: đó có thể là hỏi tồn kho.
+ */
+const NHAN_LENH_NHAP_HANG =
+  /(?:^|\s)(?:phiếu|phieu)\s+(?:nhập|nhap)\b|(?:^|\s)(?:nhập|nhap)\s+(?:hàng|hang|lô|lo)\b|(?:^|\s)(?:đơn|don)\s+(?:mua|nhập|nhap)\b|(?:^|\s)(?:mua|order|đặt|dat)\s+(?:hàng|hang)\s+(?:của|cua|từ|tu)\b/i;
 
 /**
  * Lệnh SỬA đơn (spec 08/08): "sửa đơn…", "thêm 5 cáp vào đơn", "đổi thành 100".
@@ -269,6 +289,39 @@ async function chayTraCuu(
       else p.donKhongThay = true;
     })());
   }
+  // NHÀ CUNG CẤP (chế 'nhap', 11/08) — tra res.partner supplier_rank>0.
+  //
+  // Nhánh RIÊNG chứ không dùng lại nhánh khách: hai tập partner khác nhau và có
+  // tên trùng nhau. Đo prod 11/08: "TRung Quốc" [KH001046] là KHÁCH nằm cạnh
+  // "Trung Quốc" [NCC000001] là NCC (supplier_rank=5). Tra nhầm tập là treo
+  // phiếu nhập vào một khách hàng.
+  //
+  // KHÔNG có nhánh tự chốt như khách (`tuChot`): NCC ít và cố định, mà chốt
+  // nhầm NCC thì công nợ phải trả treo sai người. Nhiều kết quả thì hỏi.
+  if (hd.ncc) {
+    viec.push((async () => {
+      const t0 = Date.now();
+      const kq = await traNhaCungCap({ odoo: deps.odoo }, { ten: hd.ncc });
+      deps.ghiLog({
+        toolName: 'tra_nha_cung_cap', input: { ten: hd.ncc }, output: dinhDangNhaCungCap(kq),
+        thanhCong: true, durationMs: Date.now() - t0, iteration: 0,
+      });
+      if (kq.trangThai === 'tim_thay') {
+        p.khachDaChot = { id: kq.ncc.id, ten: kq.ncc.ten, ma: kq.ncc.ma, dienThoai: null };
+        delete p.khachUngVienConNua;
+      } else if (kq.trangThai === 'nhieu_ket_qua') {
+        // Ép về hình dạng KhachHang để dùng chung `apDungChon` + `renderLoiNhan`.
+        p.khachUngVien = kq.danhSach.map((n) => ({
+          id: n.id, ten: n.ten, ma: n.ma, dienThoai: null, congNo: 0,
+        }));
+        if (kq.conNua) p.khachUngVienConNua = true;
+        else delete p.khachUngVienConNua;
+      } else {
+        p.khachKhongThay = true;
+        delete p.khachUngVienConNua;
+      }
+    })());
+  }
   if (hd.khach) {
     viec.push((async () => {
       const t0 = Date.now();
@@ -432,6 +485,83 @@ async function taoDonVaBaoGia(
 }
 
 /**
+ * Tạo PHIẾU NHẬP HÀNG (đơn mua) rồi báo mã + link cho nhân viên.
+ *
+ * Ca thật 22:09-22:11 ngày 11/08 (nhóm Test-AI) — thứ hàm này sinh ra để sửa:
+ *   NV : "@bot rồi tạo phiếu nhập hàng giúp tôi luôn"
+ *   Bot: "em ... chưa có tool tạo phiếu nhập hàng (mua hàng)"
+ *   NV : "1 đơn hàng của hàng cung cấp trung quốc, 2 Màn hình LED: P10 full
+ *         out: 10.000 tấm..."   (13 dòng hàng)
+ *   Bot: "tính năng này nằm ngoài phạm vi em hỗ trợ"
+ *
+ * KHÔNG gửi ảnh như đơn bán: `guiHoaDon` render báo giá BÁN cho khách. Phiếu
+ * nhập là chứng từ nội bộ với NCC, không có "báo giá" nào để gửi — và phần lớn
+ * dòng chưa có giá nên ảnh sẽ toàn số 0, gây hiểu nhầm hơn là giúp.
+ */
+async function taoPhieuNhapVaBao(
+  deps: GomDonDeps,
+  p: PhienGom,
+  input: { conversationId: string; seq: number },
+  daBoPhienCu = false,
+): Promise<'xong' | 'loi'> {
+  const dong = p.dong
+    .filter((d) => d.daChot && d.sl != null)
+    .map((d) => ({
+      san_pham_id: d.daChot!.id,
+      so_luong: d.sl!,
+      // GIÁ NHẬP, KHÔNG phải giá bán. `d.donGia` là con số nhân viên đọc ra
+      // trong câu — ở chế 'nhap' nó mang nghĩa giá NCC bán cho shop. Không có
+      // thì KHÔNG gửi field, để Odoo ghi 0 và người điền sau (phiếu nháp).
+      // TUYỆT ĐỐI không lấy `d.daChot.gia` (giá bán) làm giá nhập.
+      ...(d.donGia ? { gia_nhap: d.donGia } : {}),
+    }));
+  const t0 = Date.now();
+  const vao = {
+    nha_cung_cap_id: p.khachDaChot!.id,
+    ten_ncc: p.khachDaChot!.ten,
+    dong,
+  };
+  const kq = await taoDonMua(
+    { odoo: deps.odoo, conversationId: input.conversationId, seq: input.seq },
+    vao,
+  );
+  deps.ghiLog({
+    toolName: 'tao_don_mua', input: vao, output: dinhDangTaoDonMua(kq),
+    thanhCong: kq.trangThai !== 'loi', durationMs: Date.now() - t0, iteration: 0,
+  });
+
+  if (kq.trangThai === 'loi') {
+    await deps.guiTin(`Không tạo được phiếu nhập: ${kq.lyDo}`);
+    return 'loi'; // giữ phiên — NV sửa thông tin rồi làm lại được
+  }
+  if (kq.trangThai === 'da_ton_tai') {
+    await deps.guiTin(
+      `Phiếu nhập này đã tạo trước đó rồi: ${kq.maDon}. Link: ${linkXuLyDonMua(deps.odooUrl, kq.donId)}`,
+    );
+    return 'xong';
+  }
+
+  const hang = p.dong
+    .filter((d) => d.daChot && d.sl != null)
+    .map((d) => `- ${d.daChot!.ten} × ${d.sl!.toLocaleString('vi-VN')}` +
+      (d.donGia ? ` × ${d.donGia.toLocaleString('vi-VN')}đ` : ' (chưa có giá nhập)'))
+    .join('\n');
+  // NÓI RÕ số dòng chưa có giá: để trống là quyết định có chủ ý (phiếu nháp,
+  // điền sau) nhưng im lặng về nó thì thành bẫy — kế toán nhận phiếu 0đ mà
+  // không ai biết cần điền.
+  const thieuGia = kq.soDongChuaCoGia > 0
+    ? `\n${kq.soDongChuaCoGia}/${kq.soDong} dòng chưa có giá nhập — anh/chị vào link điền giá giúp em ạ.`
+    : '';
+  await deps.guiTin(
+    `${daBoPhienCu ? 'Em bỏ việc đang làm dở nhé.\n' : ''}` +
+    `Phiếu nhập hàng ${kq.maDon} — NCC ${p.khachDaChot!.ten}:\n${hang}\n` +
+    `Em đã tạo phiếu NHÁP, chưa nhập kho và chưa ghi công nợ.${thieuGia}\n` +
+    `Link kiểm tra rồi bấm Xác nhận: ${linkXuLyDonMua(deps.odooUrl, kq.donId)}`,
+  );
+  return 'xong';
+}
+
+/**
  * Sửa đơn nháp: gọi tool suaDon rồi báo bằng SỐ THẬT (tool đọc lại từ Odoo),
  * kèm ảnh báo giá mới. Không hỏi chốt — mọi nhập nhằng đã chặn ở bước trước.
  */
@@ -528,8 +658,12 @@ export async function xuLyGomDon(
   };
 
   let phien = await docPhien(deps.prisma, input.conversationId);
-  const laLenhSua = NHAN_LENH_SUA_DON.test(cauChon);
-  const regexLen = NHAN_LENH_LEN_DON.test(cauChon);
+  // NHẬP HÀNG kiểm TRƯỚC lên đơn: hai regex chồng nhau ở "tạo đơn mua" —
+  // `NHAN_LENH_LEN_DON` bắt "tạo đơn" nên câu đó sẽ thành đơn BÁN nếu để nó
+  // chạy trước. Ca thật 22:09 ("tạo phiếu nhập hàng") phải ra chế 'nhap'.
+  const regexNhap = NHAN_LENH_NHAP_HANG.test(cauChon);
+  const laLenhSua = !regexNhap && NHAN_LENH_SUA_DON.test(cauChon);
+  const regexLen = !regexNhap && NHAN_LENH_LEN_DON.test(cauChon);
 
   // ── CỬA VÀO: regex CHỈ là lối tắt, LLM mới là người quyết ──────────────────
   //
@@ -546,13 +680,18 @@ export async function xuLyGomDon(
   // không". Nó nói không thì nhường agent thường như cũ.
   let trich: KetQuaTrich = {};
   let daHoiLlm = false;
-  if (!phien && !regexLen && !laLenhSua) {
+  if (!phien && !regexLen && !laLenhSua && !regexNhap) {
     trich = await trichSlot(deps.generate, input.cau, null);
     daHoiLlm = true;
-    if (!trich.lenDon) return false;
+    // Nhận việc khi model thấy ĐƠN BÁN hoặc ĐƠN MUA — cùng một máy, hai chế.
+    if (!trich.lenDon && !trich.nhapHang) return false;
   }
 
-  const laLenhLen = regexLen || trich.lenDon === true;
+  const laLenhNhap = regexNhap || trich.nhapHang === true;
+  // Lệnh nhập hàng KHÔNG đồng thời là lệnh lên đơn: model có thể bật cả hai
+  // (câu "tạo đơn mua" trông giống "tạo đơn"). Nhập hàng thắng — cùng lý do
+  // thứ tự kiểm regex ở trên.
+  const laLenhLen = !laLenhNhap && (regexLen || trich.lenDon === true);
 
   // ĐƯỜNG THOÁT 1 — lệnh LÊN ĐƠN MỚI đè phiên đang gom (spec 10/08).
   //
@@ -560,8 +699,13 @@ export async function xuLyGomDon(
   // Hoàng 10 cái nguồn NB" — khách KHÁC HẲN — mà bot vẫn trả đơn anh Vấn kèm
   // đúng câu lỗi cũ. Nói "lên đơn cho <người khác>" là bắt đầu việc mới, không
   // phải nói tiếp việc cũ. Phiên cũ bỏ đi, báo cho nhân viên biết.
+  //
+  // Lệnh NHẬP HÀNG cũng đè, VÀ đè cả phiên chế khác: đang gom đơn bán dở mà
+  // nhân viên quay sang "tạo phiếu nhập hàng" là đổi hẳn việc — giữ phiên cũ
+  // thì tên NCC rơi vào ô khách của đơn bán, ra đơn sai hoàn toàn.
   let daBoPhienCu = false;
-  if (phien && laLenhLen && phien.che !== 'sua') {
+  const doiChe = phien != null && laLenhNhap && phien.che !== 'nhap';
+  if (phien && ((laLenhLen && phien.che !== 'sua') || doiChe)) {
     await xoaPhien(deps.prisma, input.conversationId);
     phien = null;
     daBoPhienCu = true;
@@ -602,15 +746,19 @@ export async function xuLyGomDon(
   // Luật: câu tự nó mang dấu hiệu lệnh lên đơn (regex) thì "không liên quan đơn
   // hàng" là câu trả lời TỰ MÂU THUẪN — bỏ qua, code cầm lái tiếp. Hàng rào HẸP
   // có chủ ý: chỉ cứu khi regex khớp, câu báo cáo/tồn kho vẫn nhường như cũ.
-  if (!daChon && trich.ngoaiLe && !regexLen && !laLenhSua) return false;
+  if (!daChon && trich.ngoaiLe && !regexLen && !laLenhSua && !regexNhap) return false;
 
   // Chế phiên: câu có dấu hiệu sửa (regex HOẶC model trích sua=true) → 'sua'.
   // Phiên đã mở giữ nguyên chế của nó — đang gom đơn mới mà nói "thêm 5 cáp"
   // là thêm vào đơn ĐANG GOM, không phải sửa đơn cũ.
+  // Chế NHẬP đứng trước chế SỬA: "thêm 2 dòng vào phiếu nhập" khớp cả hai
+  // regex, mà ý nhân viên là nhập hàng.
   phien ??= {
     khachTuKhoa: null,
     dong: [],
-    ...(laLenhSua || trich.sua ? { che: 'sua' as const } : {}),
+    ...(laLenhNhap
+      ? { che: 'nhap' as const }
+      : laLenhSua || trich.sua ? { che: 'sua' as const } : {}),
   };
   const doiNoiDung = dapSlot(phien, trich);
 
@@ -728,6 +876,27 @@ export async function xuLyGomDon(
     const kq = await suaDonVaBao(deps, phien);
     if (kq === 'xong') await xoaPhien(deps.prisma, input.conversationId);
     else await ghiPhien(phien);
+    return true;
+  }
+
+  // PHIẾU NHẬP HÀNG (11/08) — đủ NCC + hàng + SL là GHI THẲNG, không hỏi chốt,
+  // nhất quán với việc bỏ bước chốt của lên đơn (commit 7d568b90).
+  if (hd.loai === 'tao_don_mua') {
+    const kq = await taoPhieuNhapVaBao(deps, phien, input, daBoPhienCu);
+    if (kq === 'xong') {
+      await xoaPhien(deps.prisma, input.conversationId);
+      return true;
+    }
+    // ĐƯỜNG THOÁT 3 — lỗi hai lần liên tiếp thì bỏ phiên (chống kẹt 10/08).
+    phien.soLanLoi = (phien.soLanLoi ?? 0) + 1;
+    if (phien.soLanLoi >= 2) {
+      await xoaPhien(deps.prisma, input.conversationId);
+      await deps.guiTin(
+        'Em bỏ phiếu nhập đang gom rồi ạ — nó bị kẹt. Anh/chị làm lại từ đầu giúp em nhé.',
+      );
+      return true;
+    }
+    await ghiPhien(phien);
     return true;
   }
 

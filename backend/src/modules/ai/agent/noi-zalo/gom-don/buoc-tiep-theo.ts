@@ -16,6 +16,15 @@ export function buocTiepTheo(p: PhienGom): HanhDong {
   // là đã quyết rồi, bắt gật thêm lần nữa chỉ tổ chậm.
   const laSua = p.che === 'sua';
 
+  // Chế NHẬP HÀNG (11/08) — đơn MUA từ nhà cung cấp. Ca thật 22:09-22:11 nhóm
+  // Test-AI: bot đáp "chưa có tool tạo phiếu nhập hàng ... nằm ngoài phạm vi em
+  // hỗ trợ" trong khi quyền ghi purchase.order vốn đã có (đo prod: create=true,
+  // write=true, 5 đơn mua thật P04517-P04521 đang chạy, 4 đơn của NCC Trung Quốc).
+  //
+  // Đi chung bảng trạng thái với lên đơn, KHÔNG dựng máy riêng (anh Quốc: "dựa
+  // vào luồng lên đơn mà làm nhé"). Ô `khach*` mang NHÀ CUNG CẤP ở chế này.
+  const laNhap = p.che === 'nhap';
+
   // 1. Còn từ khoá CHƯA TRA (chưa chốt/ứng viên/không-thấy) → tra hết một lượt,
   //    khách/đơn và mọi dòng SP đi song song — nhập nhằng lộ ra ngay câu hỏi đầu.
   // Nhân viên nói RÕ "khách mới" → KHÔNG tra khách cũ nữa.
@@ -35,7 +44,11 @@ export function buocTiepTheo(p: PhienGom): HanhDong {
   if (khachCanTra || donCanTra || spCanTra.length > 0) {
     return {
       loai: 'tra_cuu',
-      ...(khachCanTra ? { khach: khachCanTra } : {}),
+      // Chế nhập tra NHÀ CUNG CẤP (res.partner supplier_rank>0), chế lên đơn
+      // tra KHÁCH (customer_rank>0). Hai tập gần như rời nhau nhưng có tên
+      // trùng nhau: prod 11/08 có "TRung Quốc" [KH001046] là khách nằm cạnh
+      // "Trung Quốc" [NCC000001] là NCC. Tra nhầm tập là treo đơn sai chỗ.
+      ...(khachCanTra ? (laNhap ? { ncc: khachCanTra } : { khach: khachCanTra }) : {}),
       ...(donCanTra ? { don: true } : {}),
       sp: spCanTra,
     };
@@ -48,7 +61,12 @@ export function buocTiepTheo(p: PhienGom): HanhDong {
   //     (a) NV nói thẳng "khách mới" → không tra, tạo luôn (18:59 10/08);
   //     (b) tra không ra nhưng NV đã cho tên (17:08 10/08).
   //     Đứng TRƯỚC nhánh "không thấy" để không báo không-thấy khi đã đủ thông tin.
-  if (p.khachMoi?.ten && !p.khachDaChot) return { loai: 'tao_khach' };
+  //     CHẾ NHẬP KHÔNG CÓ NHÁNH NÀY. Tạo khách mới là việc bot làm được (tên
+  //     là đủ, tự chống trùng); tạo NHÀ CUNG CẤP thì không — NCC gắn với điều
+  //     khoản thanh toán, công nợ phải trả, mã số thuế. Bài học ca "khách rác
+  //     Long" 11/08: bot tự bịa partner rồi xuất hoá đơn 21 triệu lên đó. Ở
+  //     đây tra không ra thì BÁO người, để kế toán tạo trên Odoo.
+  if (!laNhap && p.khachMoi?.ten && !p.khachDaChot) return { loai: 'tao_khach' };
 
   // 2. Tra rồi mà không thấy → báo ngay, đừng bắt NV chờ đến cuối mới biết.
   const spKhongThay = p.dong.filter((d) => d.khongThay).map((d) => d.tuKhoa);
@@ -71,9 +89,30 @@ export function buocTiepTheo(p: PhienGom): HanhDong {
 
   // 4. Thiếu slot → hỏi đúng MỘT slot. Chế lên đơn: khách trước (quyết định
   //    giá/công nợ), rồi SP, rồi SL. Chế sửa: bỏ qua khách — đơn đã có khách.
-  if (!laSua && !p.khachDaChot) return { loai: 'hoi_thieu', thieu: 'khach' };
+  if (!laSua && !p.khachDaChot) {
+    return { loai: 'hoi_thieu', thieu: laNhap ? 'ncc' : 'khach' };
+  }
   if (p.dong.length === 0) return { loai: 'hoi_thieu', thieu: 'sp' };
   if (p.dong.some((d) => d.sl == null)) return { loai: 'hoi_thieu', thieu: 'sl' };
+
+  // ── CHẾ NHẬP DỪNG Ở ĐÂY: đủ NCC + hàng + SL là GHI ─────────────────────
+  //
+  // Bỏ qua CẢ HAI hàng rào giá bên dưới, có chủ ý — chúng đo bằng `list_price`
+  // (GIÁ BÁN), mà giá bán không nói gì về giá nhập:
+  //
+  //   4b `hoi_gia` — bên bán chặn SP giá 0/1đ vì bán 0đ là mất tiền thật. Bên
+  //      mua thì giá nhập CHƯA CÓ là chuyện thường: ca thật 22:11 nhân viên dán
+  //      13 dòng hàng phần lớn không kèm giá, và chính đơn thật P04520 trên prod
+  //      (263.046.000đ, NCC Trung Quốc) đang có 3 dòng price_unit=0 nằm cạnh 2
+  //      dòng 8.300đ. Bắt hỏi đủ 13 giá là dựng lại bug demo 17:17 10/08 (SP
+  //      giá 1đ làm kẹt cứng cả phiên). Phiếu NHÁP, người điền giá sau trên Odoo.
+  //
+  //   4d `hoi_gia_lech` — so giá NV báo với giá BÁN. Giá nhập thấp hơn giá bán
+  //      vài lần chính là LÃI GỘP, tức trạng thái bình thường của mọi phiếu
+  //      nhập. Áp hàng rào đó vào đây là chặn hỏi vô cớ gần như mọi lượt.
+  //
+  // Không im lặng bù lại: `dinhDangTaoDonMua` báo rõ "N/M dòng CHƯA CÓ GIÁ NHẬP".
+  if (laNhap) return { loai: 'tao_don_mua' };
 
   // 4b. SP chưa có giá thật trong Odoo mà NV cũng chưa báo giá → HỎI NGAY.
   //

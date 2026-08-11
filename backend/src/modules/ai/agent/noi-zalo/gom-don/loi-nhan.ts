@@ -13,7 +13,12 @@ function danhSachChon(p: PhienGom): string {
   const phan: string[] = [];
   if (p.khachUngVien?.length) {
     phan.push(
-      `Có ${p.khachUngVien.length} khách tên "${p.khachTuKhoa}":`,
+      // Chế nhập: ô `khachUngVien` mang NHÀ CUNG CẤP — gọi đúng tên để nhân
+      // viên không tưởng bot đang chọn khách hàng. Ca thật 22:11 11/08: "Trung
+      // Quốc" ra đúng 2 NCC trên prod (NCC000001 và NCC000290).
+      p.che === 'nhap'
+        ? `Có ${p.khachUngVien.length} nhà cung cấp tên "${p.khachTuKhoa}":`
+        : `Có ${p.khachUngVien.length} khách tên "${p.khachTuKhoa}":`,
       ...p.khachUngVien.map(
         (k, i) => `${i + 1}) ${k.ten}${k.ma ? ` · ${k.ma}` : ''}${k.dienThoai ? ` · ${k.dienThoai}` : ''}`,
       ),
@@ -143,24 +148,42 @@ function danhSachDon(p: PhienGom): string {
   ].join('\n');
 }
 
-function hoiThieu(thieu: 'khach' | 'sp' | 'sl', p: PhienGom): string {
+function hoiThieu(thieu: 'khach' | 'sp' | 'sl' | 'ncc', p: PhienGom): string {
   const laSua = p.che === 'sua';
+  const laNhap = p.che === 'nhap';
+  // Chế NHẬP hỏi NHÀ CUNG CẤP (ca thật 22:09 11/08). Nói rõ "nhà cung cấp" chứ
+  // không phải "khách" — nhân viên đọc câu hỏi phải biết bot đang làm việc gì.
+  if (thieu === 'ncc') return 'Phiếu nhập này của nhà cung cấp nào ạ? (tên hoặc mã NCC)';
   if (thieu === 'khach') return 'Đơn này lên cho khách nào ạ? (tên, SĐT hoặc mã KH)';
   if (thieu === 'sp') {
+    if (laNhap) return 'Anh/chị nhập những hàng gì ạ? (tên hàng + số lượng, có giá nhập càng tốt)';
     return laSua
       ? `Đơn ${p.donSua?.ma ?? ''} sửa gì ạ? (tên hàng cần thêm hoặc đổi số lượng)`.replace('  ', ' ')
       : 'Anh/chị cần lên hàng gì ạ? (tên sản phẩm, có số lượng càng tốt)';
   }
   const thieuSl = p.dong.filter((d) => d.sl == null && d.daChot).map((d) => d.daChot!.ten);
   const ten = thieuSl.length > 0 ? thieuSl.join(', ') : p.dong.map((d) => d.tuKhoa).join(', ');
-  return `Anh/chị lấy mấy cái ${ten} ạ?`;
+  return laNhap ? `Anh/chị nhập bao nhiêu ${ten} ạ?` : `Anh/chị lấy mấy cái ${ten} ạ?`;
 }
 
-function khongThay(hd: Extract<HanhDong, { loai: 'khong_thay' }>): string {
+function khongThay(hd: Extract<HanhDong, { loai: 'khong_thay' }>, p: PhienGom): string {
+  const laNhap = p.che === 'nhap';
   const phan: string[] = [];
-  if (hd.khach) phan.push(`Em không tìm thấy khách "${hd.khach}".`);
+  if (hd.khach) {
+    // Chế nhập: KHÔNG rủ tạo mới. Bot tạo được KHÁCH (tên là đủ, tự chống
+    // trùng) nhưng KHÔNG được tạo NHÀ CUNG CẤP — NCC gắn với điều khoản thanh
+    // toán, công nợ phải trả, mã số thuế. Bài học ca "khách rác Long" 11/08.
+    phan.push(
+      laNhap
+        ? `Em không tìm thấy nhà cung cấp "${hd.khach}". Anh/chị gõ lại tên có DẤU đầy đủ hoặc mã NCC giúp em; ` +
+          'nếu NCC chưa có trong hệ thống thì nhờ kế toán tạo trước ạ — em không tự tạo NCC được.'
+        : `Em không tìm thấy khách "${hd.khach}".`,
+    );
+  }
   if (hd.sp.length > 0) phan.push(`Em không tìm thấy sản phẩm: ${hd.sp.map((s) => `"${s}"`).join(', ')}.`);
-  phan.push('Anh/chị gõ lại tên khác (hoặc SĐT/mã KH với khách) giúp em ạ.');
+  if (!laNhap || hd.sp.length > 0) {
+    phan.push('Anh/chị gõ lại tên khác (hoặc SĐT/mã KH với khách) giúp em ạ.');
+  }
   return phan.join(' ');
 }
 
@@ -192,7 +215,7 @@ export function renderLoiNhan(hd: HanhDong, p: PhienGom): string {
           .join('\n') +
         '\nAnh/chị xác nhận giúp em giá đúng là bao nhiêu ạ? (nhắn lại giá, hoặc "đúng rồi" nếu giá đó chuẩn)'
       );
-    case 'khong_thay': return khongThay(hd);
+    case 'khong_thay': return khongThay(hd, p);
     case 'khong_thay_don':
       return 'Em không thấy đơn nháp nào trong cuộc này để sửa ạ. Anh/chị cho em mã đơn (vd S13820), hoặc mình lên đơn mới nhé?';
     default:

@@ -155,8 +155,24 @@ export interface PhienGom {
   /**
    * Thiếu = 'len' — phiên cũ đang nằm trong DB đọc lên vẫn chạy đúng luồng
    * lên đơn, không cần migrate dữ liệu.
+   *
+   * 'nhap' (11/08/2026) = PHIẾU NHẬP HÀNG, đơn MUA từ nhà cung cấp. Ca thật
+   * 22:09-22:11 nhóm Test-AI: bot đáp "chưa có tool tạo phiếu nhập hàng" rồi
+   * "tính năng này nằm ngoài phạm vi em hỗ trợ" — SAI, quyền ghi purchase.order
+   * vốn đã có (đo prod: create=true, write=true, 5 đơn mua thật đang chạy).
+   *
+   * Dùng LẠI máy này thay vì dựng máy mới (anh Quốc: "dựa vào luồng lên đơn mà
+   * làm nhé, tại hiện tại luồng lên đơn khá ok rồi"): nhập hàng là ĐÚNG bài
+   * toán slot-form của lên đơn — thiếu đối tác thì hỏi đối tác, thiếu hàng thì
+   * hỏi hàng, đủ thì ghi. Ca thật trải qua HAI lượt (22:09 nói ý định, 22:11
+   * mới dán 13 dòng hàng) nên phiên gom TTL 15' là thứ bắt buộc phải có.
+   *
+   * `khachTuKhoa`/`khachDaChot`/`khachUngVien` ở chế này mang NHÀ CUNG CẤP.
+   * Dùng chung ô thay vì thêm ô song song: mọi đường thoát kẹt (bỏ dòng, lệnh
+   * mới đè phiên, lỗi 2 lần bỏ phiên), guard chống lặp, và `apDungChon` đều
+   * đọc các ô đó — tách ô là phải nhân đôi cả năm thứ, mỗi cái một chỗ quên.
    */
-  che?: 'len' | 'sua';
+  che?: 'len' | 'sua' | 'nhap';
   /** Đơn đã chốt để sửa. */
   donSua?: DonSua;
   /** Nhiều đơn nháp trong hội thoại → chờ NV chọn. */
@@ -191,10 +207,11 @@ export interface PhienGom {
  * buocTiepTheo để ra hành động nói được).
  */
 export type HanhDong =
-  | { loai: 'tra_cuu'; khach?: string; sp: string[]; don?: boolean }
+  | { loai: 'tra_cuu'; khach?: string; sp: string[]; don?: boolean; ncc?: string }
   | { loai: 'hoi_chon' }
   | { loai: 'hoi_chon_don' }
-  | { loai: 'hoi_thieu'; thieu: 'khach' | 'sp' | 'sl' }
+  /** 'ncc' chỉ có ở chế 'nhap' — hỏi NHÀ CUNG CẤP thay vì khách hàng. */
+  | { loai: 'hoi_thieu'; thieu: 'khach' | 'sp' | 'sl' | 'ncc' }
   /** SP chưa có giá trong Odoo và NV cũng chưa báo giá — hỏi ngay, đừng để kẹt. */
   | { loai: 'hoi_gia'; sp: string[] }
   /**
@@ -220,5 +237,10 @@ export type HanhDong =
    */
   | { loai: 'tom_tat_don' }
   | { loai: 'tao_don' }
+  /**
+   * Chế 'nhap': đủ NCC + hàng + SL → tạo PHIẾU NHẬP thẳng, KHÔNG hỏi chốt.
+   * Nhất quán với việc bỏ bước chốt của lên đơn (11/08, commit 7d568b90).
+   */
+  | { loai: 'tao_don_mua' }
   /** Chế 'sua': đủ rõ → ghi THẲNG Odoo, KHÔNG hỏi chốt (anh Quốc chốt 08/08). */
   | { loai: 'sua_don' };

@@ -256,17 +256,27 @@ export function buildStaffSystemPrompt(bizName: string, bayGio: Date = new Date(
     '`tra_khach_hang` (id khách) → `tra_san_pham` (id + giá) → `tra_ton_kho` (nếu SL lớn)',
     '→ `tao_don_nhap` — ảnh hoá đơn + link tự gửi kèm, KHÔNG cần gọi gì thêm.',
     'SỬA đơn vừa tạo (đổi SL/thêm hàng) → `sua_don` (đừng tạo đơn mới).',
+    // NHẬP HÀNG (11/08) — ca thật 22:09-22:11 nhóm Test-AI: NV nói "tạo phiếu
+    // nhập hàng giúp tôi luôn", bot đáp "chưa có tool tạo phiếu nhập hàng (mua
+    // hàng)" rồi "tính năng này nằm ngoài phạm vi em hỗ trợ". SAI: quyền ghi
+    // purchase.order vốn đã có (đo prod: create=true/write=true, 5 đơn mua thật
+    // P04517-P04521). Model không biết vì prompt chưa từng nhắc chữ "nhập hàng"
+    // (grep "nhap hang|purchase" ra 0 kết quả trước vá) — đúng lỗi đã lặp với
+    // `canh_bao_ton_kho` và `gui_tai_lieu`.
+    'NHẬP hàng/mua hàng/order từ NCC → `tra_nha_cung_cap` → `tao_don_mua` (phiếu',
+    'nháp). Chưa có giá nhập thì để TRỐNG, ĐỪNG lấy giá bán làm giá nhập.',
     '`gui_hoa_don` chỉ dùng khi cần gửi LẠI ẢNH hoá đơn một đơn CŨ.',
     '"XUẤT hoá đơn" (kế toán, vào sổ) → `xuat_hoa_don` — KHÁC gửi ảnh.',
     '',
     'Bước độc lập gọi song song cùng lượt. Nhiều SP → hỏi nhân viên chọn, đừng',
     'tra tồn cả 10 cái. Gọi tool 2 lần y hệt là lãng phí — đổi từ khoá hoặc dừng.',
     '',
-    'Gom thông tin qua nhiều lượt → mỗi câu NHẮC LẠI những gì đã chốt ("Đơn cho',
-    'anh Tuấn, NB 12V100w, 100 cái — còn thiếu X"), đừng quên rồi hỏi lại.',
-    'Liệt kê lựa chọn PHẢI kèm đủ để chọn: khách → tên + SĐT, SP → tên + giá —',
-    'một cột id trần là bắt chọn mù.',
-    'Sau tao_don_nhap: nêu đủ mã đơn, tên khách, SP, số lượng, tổng tiền.',
+    // NÉN 11/08 (−80 ký tự) để trả chỗ cho 2 dòng nhập hàng — nén trước, nới
+    // sau, đúng luật của trần này. Nội dung giữ nguyên cả 3 luật: nhắc lại
+    // slot đã chốt, liệt kê kèm đủ thông tin để chọn, tóm tắt sau khi tạo đơn.
+    'Gom nhiều lượt → mỗi câu NHẮC LẠI đã chốt gì ("Đơn anh Tuấn, NB 12V100w,',
+    '100 cái — thiếu X"). Liệt kê phải đủ để chọn: khách → tên + SĐT, SP → tên',
+    '+ giá; id trần là bắt chọn mù. Sau tao_don_nhap: nêu mã đơn, khách, SP, SL, tổng.',
     '',
     '## Báo cáo',
     '',

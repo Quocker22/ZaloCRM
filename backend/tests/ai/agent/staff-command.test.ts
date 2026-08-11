@@ -299,6 +299,24 @@ describe('buildStaffSystemPrompt', () => {
     // không có giờ/phút, để prefix cache chỉ đổi 1 lần/24h thay vì mỗi lượt.
     expect(buildStaffSystemPrompt(BIZ_THAT).length).toBeLessThan(3600);
   });
+
+  // NHẬP HÀNG (11/08) — ca thật 22:09-22:11 nhóm Test-AI: NV nói "tạo phiếu
+  // nhập hàng giúp tôi luôn", bot đáp "chưa có tool tạo phiếu nhập hàng (mua
+  // hàng)" rồi "tính năng này nằm ngoài phạm vi em hỗ trợ". Quyền ghi
+  // purchase.order vốn đã có; model không biết vì prompt CHƯA TỪNG nhắc chữ
+  // "nhập hàng" — grep "nhap hang|purchase" ra 0 kết quả trước vá.
+  it('có dòng định tuyến NHẬP HÀNG → tao_don_mua', () => {
+    const p = buildStaffSystemPrompt(BIZ_THAT);
+    expect(p).toContain('tao_don_mua');
+    expect(p).toContain('tra_nha_cung_cap');
+    expect(p).toMatch(/NHẬP hàng/i);
+  });
+
+  it('dặn RÕ đừng lấy giá bán làm giá nhập', () => {
+    // Lấy list_price làm giá nhập là sai bản chất VÀ làm sai luôn giá vốn —
+    // mọi báo cáo lãi/lỗ sau đó đều sai mà không ai thấy.
+    expect(buildStaffSystemPrompt(BIZ_THAT)).toContain('ĐỪNG lấy giá bán làm giá nhập');
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

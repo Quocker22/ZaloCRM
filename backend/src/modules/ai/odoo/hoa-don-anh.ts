@@ -188,3 +188,31 @@ export function linkXuLyDon(odooUrl: string, donId: number): string {
     `&action=${ACTION_DON_BAN}&model=sale.order&view_type=form`
   );
 }
+
+/**
+ * Link backend Odoo tới PHIẾU NHẬP HÀNG (đơn mua) — ca thật 22:09-22:11 11/08.
+ *
+ * DẠNG KHÁC đơn bán, có lý do: link đơn bán ghim `action`/`menu_id` lấy từ link
+ * thật anh Quốc gửi. Với đơn mua ta KHÔNG có con số đó — tài khoản bot_zalo bị
+ * chặn đọc `ir.actions.act_window` (đo prod 11/08: faultCode 4 "Liên hệ quản
+ * trị viên để yêu cầu quyền truy cập"), nên đoán bừa một id là ra link mở nhầm
+ * menu.
+ *
+ * Dạng `/odoo/purchase/<id>` là router chuẩn của Odoo 17: không cần biết
+ * action/menu, tự mở đúng form chi tiết kèm nút Xác nhận. Mất phần breadcrumb
+ * so với dạng `/web#...` — chấp nhận được, đổi lại link luôn đúng.
+ *
+ * Vẫn cho ghi đè qua env: bản cài khác có thể cần dạng cũ.
+ */
+export function linkXuLyDonMua(odooUrl: string, donId: number): string {
+  const goc = odooUrl.replace(/\/+$/, '');
+  const action = Number(process.env.ODOO_ACTION_PURCHASE_ORDER ?? 0);
+  const menu = Number(process.env.ODOO_MENU_PURCHASE_ORDER ?? 0);
+  if (action > 0 && menu > 0) {
+    return (
+      `${goc}/web#id=${donId}&cids=1&menu_id=${menu}` +
+      `&action=${action}&model=purchase.order&view_type=form`
+    );
+  }
+  return `${goc}/odoo/purchase/${donId}`;
+}

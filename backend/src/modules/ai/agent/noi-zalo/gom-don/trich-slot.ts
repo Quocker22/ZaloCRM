@@ -63,6 +63,17 @@ export interface KetQuaTrich {
   vat?: number;
   /** SỬA đơn đã có (spec 08/08) thay vì lên đơn mới. */
   sua?: boolean;
+  /**
+   * NHẬP HÀNG — đơn MUA từ nhà cung cấp (11/08), ngược chiều với lên đơn bán.
+   *
+   * Ca thật 22:09 nhóm Test-AI: "@bot rồi tạo phiếu nhập hàng giúp tôi luôn" →
+   * bot đáp "chưa có tool tạo phiếu nhập hàng ... nằm ngoài phạm vi em hỗ trợ",
+   * dù quyền ghi purchase.order vốn đã có.
+   *
+   * Để LLM quyết chứ không chỉ regex, cùng lý do với `lenDon` (bug 22:09 10/08:
+   * "lên cho anh Huấn" trượt regex nên mất luôn luật giá). Regex chỉ là lối tắt.
+   */
+  nhapHang?: boolean;
   /** Mã đơn NV nhắc ("sửa đơn S13820") — dạng S + số. */
   maDon?: string;
 }
@@ -160,6 +171,16 @@ const ghiSlotDefinition: ToolDefinition = {
           'CHÚ Ý: "xuất hoá đơn"/"gửi lại hoá đơn" (xin gửi ảnh hoá đơn) KHÔNG phải VAT.',
       },
       sua: { type: 'boolean', description: 'true khi nhân viên SỬA đơn đã có (thêm hàng/đổi số lượng), không phải lên đơn mới' },
+      nhapHang: {
+        type: 'boolean',
+        description:
+          'true khi nhân viên muốn NHẬP HÀNG / tạo ĐƠN MUA từ NHÀ CUNG CẤP — hàng shop mua VÀO: ' +
+          '"tạo phiếu nhập hàng", "nhập hàng của nhà cung cấp X", "làm đơn mua", ' +
+          '"order hàng Trung Quốc", "đặt hàng bên X về", "nhập lô hàng về". ' +
+          'NGƯỢC CHIỀU với lenDon (bán RA cho khách). Dấu hiệu: có NHÀ CUNG CẤP, ' +
+          'hoặc có chữ nhập/mua/order hàng về. Khi nhapHang=true thì tên trong ô `khach` ' +
+          'là tên NHÀ CUNG CẤP.',
+      },
       maDon: { type: 'string', description: 'Mã đơn nhân viên nhắc, dạng S13820' },
       huy: { type: 'boolean', description: 'true khi nhân viên muốn huỷ đơn đang gom' },
       xacNhan: { type: 'boolean', description: 'true khi nhân viên gật/đồng ý (ok, đúng rồi, giá đó chuẩn)' },
@@ -247,6 +268,8 @@ export function lamSachTrich(raw: Record<string, unknown>): KetQuaTrich {
   if (typeof raw.kho === 'string' && raw.kho.trim()) kq.kho = raw.kho.trim();
   if (raw.lenDon === true) kq.lenDon = true;
   if (raw.sua === true) kq.sua = true;
+  // Nhận cả snake_case: model hay trả `nhap_hang` dù schema khai camelCase.
+  if (raw.nhapHang === true || raw.nhap_hang === true) kq.nhapHang = true;
   if (typeof raw.maDon === 'string' && /^S\d+$/i.test(raw.maDon.trim())) {
     kq.maDon = raw.maDon.trim().toUpperCase();
   }
@@ -280,6 +303,11 @@ export async function trichSlot(
     'cái", "xuất cho anh D 2 thùng". Dấu hiệu: có KHÁCH + có HÀNG (hoặc số lượng).',
     'Câu SỬA đơn đã có ("sửa đơn thêm 5 cáp", "đổi thành 100 cái", "thêm X vào',
     'đơn") → sua=true; có nhắc mã đơn (S13820) thì điền maDon.',
+    'Câu NHẬP HÀNG / ĐƠN MUA từ NHÀ CUNG CẤP (hàng mua VÀO, ngược với bán ra)',
+    '→ nhapHang=true: "tạo phiếu nhập hàng", "nhập hàng của nhà cung cấp",',
+    '"đơn hàng của nhà cung cấp trung quốc", "làm đơn mua", "order hàng Trung',
+    'Quốc", "đặt hàng bên X về". Lúc đó ô khach mang tên NHÀ CUNG CẤP, và giá',
+    'trong câu là GIÁ NHẬP → vẫn điền vào gia như bình thường.',
     'Nhân viên nói KHÁCH MỚI ("khách mới", "khách này chưa có") hoặc đưa tên +',
     'SĐT của khách chưa có → điền khachMoi {ten, sdt}. Vẫn điền khach như bình thường.',
     'GIÁ nhân viên báo ("x 170k", "13k/thanh", "giá 1tr2") → điền gia, ĐỔI RA',
