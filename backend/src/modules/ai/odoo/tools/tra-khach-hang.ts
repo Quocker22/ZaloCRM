@@ -13,7 +13,9 @@
 import type { OdooClient } from '../client.js';
 import type { ToolDefinition } from '../../agent/types.js';
 import { normalizeVnPhone } from '../../../../shared/phone/normalize-vn-phone.js';
-import { dieuKienKhongDau, locKhopBoDau, coDauTiengViet, boDau } from '../tim-khong-dau.js';
+import {
+  dieuKienKhongDau, locKhopBoDau, coDauTiengViet, boDau, traiDeuBienTheDau,
+} from '../tim-khong-dau.js';
 
 export interface KhachHang {
   id: number;
@@ -305,7 +307,7 @@ export async function traKhachHang(
     : rows;
   const conNua = rowsLoc.length > TRAN;
 
-  const danhSach: KhachHang[] = rowsLoc.slice(0, TRAN).map((r) => ({
+  const tatCa: KhachHang[] = rowsLoc.map((r) => ({
     id: Number(r.id),
     ten: String(r.name ?? ''),
     ma: r.ref ? String(r.ref) : null,
@@ -313,8 +315,8 @@ export async function traKhachHang(
     congNo: Number(r.incokit_receivable_balance ?? 0),
   }));
 
-  if (danhSach.length === 0) return { trangThai: 'khong_thay', sdtDaTra: bienThe };
-  if (danhSach.length === 1) return { trangThai: 'tim_thay', khach: danhSach[0] };
+  if (tatCa.length === 0) return { trangThai: 'khong_thay', sdtDaTra: bienThe };
+  if (tatCa.length === 1) return { trangThai: 'tim_thay', khach: tatCa[0] };
 
   // XẾP HẠNG khi tra THEO TÊN (yêu cầu anh Quốc 21:56 11/08).
   //
@@ -322,20 +324,47 @@ export async function traKhachHang(
   // Long" — 8 kết quả mà chỉ 1 là người cần. Xếp hạng đẩy người khớp gần
   // nguyên văn lên đầu; áp đảo hẳn thì báo `tuChot` để caller khỏi bắt chọn.
   //
+  // XẾP TRƯỚC RỒI MỚI CẮT (sửa vòng 2, 12/08) — ĐÂY LÀ THỨ TỰ SỐNG CÒN.
+  //
+  // Đo prod sau vòng 1: tra "van" ra 10 kq + conNua:true nhưng TOÀN Văn/Vạn/Vân,
+  // KHÔNG có "Anh Vấn Đà Nẵng". Cờ conNua báo đúng nên hệ thống không nói dối,
+  // nhưng người nhân viên cần lại không thấy — với họ vẫn là hỏng.
+  //
+  // Gốc rễ: trước đây `slice(0, TRAN)` chạy TRƯỚC xepHangKhach. Odoo trả theo
+  // thứ tự chữ cái nên 10 dòng đầu toàn "Văn"/"Vạn", còn anh Vấn nằm dòng ~11+
+  // trong 55 dòng đã xin về — bị vứt TRƯỚC khi kịp được chấm điểm. Xếp hạng
+  // trên phần rác đã cắt thì có xếp cũng vô ích.
+  //
+  // Nay chấm điểm trên TOÀN BỘ số dòng xin được rồi mới cắt 10 dòng đầu THEO
+  // ĐIỂM. Rẻ hơn hẳn việc nâng trần: vẫn 55 dòng như cũ, chỉ đổi thứ tự việc.
+  //
   // CHỈ áp cho nhánh TÊN: nhánh mã KH/SĐT vốn đã là khoá chính xác, còn danh
-  // sách chạm trần (conNua) thì người đúng có thể đang nằm NGOÀI trang đầu —
+  // sách chạm trần (conNua) thì người đúng có thể đang nằm NGOÀI cả 55 dòng —
   // tự chốt trên dữ liệu thiếu là chốt liều (bug 16:15 11/08 "Anh Long Led").
-  if (ten && !ma && !sdt) {
-    const xep = xepHangKhach(ten, danhSach);
+  if (traTheoTen) {
+    const xep = xepHangKhach(ten, tatCa);
+    // TRẢI ĐỀU BIẾN THỂ DẤU trước khi cắt — bước cuối của bản vá CA 2.
+    //
+    // Xếp-trước-cắt-sau vẫn chưa đủ: diemKhopTen() so BỎ DẤU nên "Văn" và "Vấn"
+    // cùng khớp "van" với ĐIỂM BẰNG NHAU (đo: cả hai 80). Sắp ổn định giữ thứ
+    // tự Odoo, mà "Văn" đông hơn hẳn nên vẫn chiếm sạch 10 chỗ và anh Vấn vẫn
+    // rớt. Không thang điểm nào tách được, vì người gõ "van" thật sự CHƯA NÓI
+    // họ muốn chữ nào — nên cho mỗi biến thể một suất thay vì đoán hộ.
+    const traiDeu = traiDeuBienTheDau(tenLoc, xep.danhSach, (k) => k.ten);
+    const hienThi = traiDeu.slice(0, TRAN);
     return {
       trangThai: 'nhieu_ket_qua',
-      danhSach: xep.danhSach,
+      danhSach: hienThi,
       ...(conNua ? { conNua } : {}),
-      ...(xep.tuChot && !conNua ? { tuChot: xep.tuChot } : {}),
+      // `tuChot` phải là người CÒN NẰM TRONG danh sách hiện ra: chốt một người
+      // mà nhân viên không nhìn thấy thì họ không kiểm được là bot lấy đúng ai.
+      ...(xep.tuChot && !conNua && hienThi.some((k) => k.id === xep.tuChot!.id)
+        ? { tuChot: xep.tuChot }
+        : {}),
     };
   }
 
-  return { trangThai: 'nhieu_ket_qua', danhSach, ...(conNua ? { conNua } : {}) };
+  return { trangThai: 'nhieu_ket_qua', danhSach: tatCa.slice(0, TRAN), ...(conNua ? { conNua } : {}) };
 }
 
 

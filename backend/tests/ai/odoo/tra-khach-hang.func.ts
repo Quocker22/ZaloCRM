@@ -137,6 +137,93 @@ describe('traKhachHang — CA THẬT 01:12 ngày 12/08 "anh Vấn"', () => {
     expect(d).not.toContain('"v_n"');
   });
 
+  it('CA 2 — "van" không dấu: anh Vấn phải LỌT VÀO 10 dòng, và đứng ĐẦU', async () => {
+    // ĐO PROD sau bản sửa vòng 1: "van" -> 10 kq + conNua:true, TOÀN Văn/Vạn/Vân,
+    // KHÔNG có anh Vấn. Cờ conNua báo đúng nên hệ thống không nói dối — nhưng
+    // người nhân viên cần lại không thấy, nên với họ vẫn là hỏng.
+    //
+    // Gốc rễ: xepHangKhach() chấm điểm SAU khi đã slice(0,10). Odoo trả theo thứ
+    // tự chữ cái nên 10 dòng đầu toàn "Văn"/"Vạn"; "Anh Vấn Đà Nẵng" nằm dòng
+    // ~11+, bị vứt TRƯỚC khi kịp được chấm điểm. Xếp hạng trên rác thì có xếp
+    // cũng vô ích.
+    //
+    // Dựng đúng hình dạng đó: 12 người Văn/Vạn/Vân đứng trước, anh Vấn cuối bảng.
+    const nhieuVan = [
+      ...Array.from({ length: 12 }, (_, i) =>
+        kh({ id: 100 + i, name: `ANh Văn ${i + 1}`, ref: `KH0001${i}` })),
+      kh({ id: 27, name: 'Anh Vấn Đà Nẵng', ref: 'KH000027', phone: '0934.786.998' }),
+    ];
+    const kq = await traKhachHang({ odoo: fakeOdoo(nhieuVan) }, { ten: 'van' });
+
+    expect(kq.trangThai).toBe('nhieu_ket_qua');
+    if (kq.trangThai === 'nhieu_ket_qua') {
+      const ten = kq.danhSach.map((k) => k.ten);
+      // Tiêu chí đạt: phải NẰM TRONG 10 dòng hiển thị.
+      expect(ten).toContain('Anh Vấn Đà Nẵng');
+      // Và nằm ở NỬA TRÊN: trải đều cho mỗi biến thể một suất ngay vòng đầu,
+      // nên "Vấn" (chỉ 1 người) phải xuất hiện trong 2 dòng đầu, không thể bị
+      // 12 người "Văn" đẩy xuống đáy.
+      expect(ten.indexOf('Anh Vấn Đà Nẵng')).toBeLessThan(2);
+    }
+  });
+
+  it('CA 2 — mỗi BIẾN THỂ DẤU đều có mặt, không để một chữ chiếm sạch 10 chỗ', async () => {
+    // Bản chất của CA 2: người gõ "van" CHƯA nói họ muốn Vấn hay Văn hay Vạn.
+    // Bot không được đoán hộ, nhưng cũng không được cho một chữ chiếm hết chỗ
+    // rồi để nhân viên tưởng chữ kia không có ai trong hệ thống.
+    const ds = [
+      ...Array.from({ length: 8 }, (_, i) => kh({ id: 300 + i, name: `ANh Văn ${i + 1}` })),
+      ...Array.from({ length: 8 }, (_, i) => kh({ id: 400 + i, name: `A Vạn ${i + 1}` })),
+      kh({ id: 27, name: 'Anh Vấn Đà Nẵng', ref: 'KH000027' }),
+    ];
+    const kq = await traKhachHang({ odoo: fakeOdoo(ds) }, { ten: 'van' });
+
+    expect(kq.trangThai).toBe('nhieu_ket_qua');
+    if (kq.trangThai === 'nhieu_ket_qua') {
+      const ten = kq.danhSach.map((k) => k.ten).join(' | ');
+      expect(ten).toContain('Vấn');
+      expect(ten).toContain('Văn');
+      expect(ten).toContain('Vạn');
+    }
+  });
+
+  it('gõ CÓ DẤU thì KHÔNG trải đều — chỉ còn một biến thể, trải là việc thừa', async () => {
+    // Trải đều chỉ dành cho ca người gõ chưa nói rõ dấu. Gõ "Vấn" thì tầng lọc
+    // đã cắt sạch Văn/Vạn từ trước, không còn gì để trải.
+    const kq = await traKhachHang(
+      { odoo: fakeOdoo([
+        kh({ id: 27, name: 'Anh Vấn Đà Nẵng' }),
+        kh({ id: 28, name: 'Chị Vấn Hà Nội' }),
+        kh({ id: 1, name: 'ANh Văn' }),
+      ]) },
+      { ten: 'Vấn' },
+    );
+
+    expect(kq.trangThai).toBe('nhieu_ket_qua');
+    if (kq.trangThai === 'nhieu_ket_qua') {
+      expect(kq.danhSach.map((k) => k.ten)).toEqual(['Anh Vấn Đà Nẵng', 'Chị Vấn Hà Nội']);
+    }
+  });
+
+  it('CA 2 — cắt 10 dòng phải cắt THEO ĐIỂM, không theo thứ tự Odoo', async () => {
+    // Chốt riêng cơ chế, để lần sau ai đổi thứ tự cắt là test này đỏ ngay:
+    // người khớp sát nằm ở CUỐI danh sách DB trả về vẫn phải lên đầu.
+    const ds = [
+      ...Array.from({ length: 20 }, (_, i) =>
+        kh({ id: 200 + i, name: `Chị Vân ${i + 1}`, ref: `KH0002${i}` })),
+      kh({ id: 99, name: 'Van', ref: 'KH000099' }),   // khớp NGUYÊN VĂN, điểm 100
+    ];
+    const kq = await traKhachHang({ odoo: fakeOdoo(ds) }, { ten: 'van' });
+
+    expect(kq.trangThai).toBe('nhieu_ket_qua');
+    if (kq.trangThai === 'nhieu_ket_qua') {
+      expect(kq.danhSach[0].ten).toBe('Van');
+      expect(kq.danhSach).toHaveLength(10);
+      // Vẫn phải báo còn nữa — 21 người khớp mà chỉ hiện 10.
+      expect(kq.conNua).toBe(true);
+    }
+  });
+
   it('gõ CÓ DẤU mà DB lưu KHÔNG DẤU → dự phòng nới, vẫn tìm ra', async () => {
     // Chiều ngược của bản sửa: dữ liệu prod lẫn lộn, có bản ghi gõ vội không
     // dấu ("Anh Thuc Nam Dinh"). Tôn trọng dấu mà không có đường lùi thì lại

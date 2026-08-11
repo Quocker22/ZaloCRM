@@ -227,6 +227,78 @@ export function locKhopBoDau<T>(
 }
 
 /**
+ * Lấy BIẾN THỂ DẤU mà một cái tên dùng cho từ khoá đã gõ không dấu.
+ *
+ * "van" trong "Anh Vấn Đà Nẵng" → "vấn";  trong "ANh Văn" → "văn".
+ * Không tìm thấy (tên khớp qua chỗ khác) → chuỗi rỗng, coi như một nhóm riêng.
+ *
+ * Dò trên bản NFC để một chữ có dấu đếm là MỘT ký tự, khớp đúng độ dài từ khoá.
+ */
+function bienTheDauCua(tuKhoa: string, ten: string): string {
+  const t = ten.normalize('NFC');
+  const k = boDau(tuKhoa);
+  if (!k) return '';
+  for (let i = 0; i + k.length <= t.length; i++) {
+    const doan = t.slice(i, i + k.length);
+    if (boDau(doan) === k) return doan.toLowerCase();
+  }
+  return '';
+}
+
+/**
+ * TRẢI ĐỀU các BIẾN THỂ DẤU khi danh sách sắp bị cắt.
+ *
+ * VÌ SAO CẦN — đo prod 12/08 sau bản sửa vòng 1: gõ "van" không dấu ra 10 dòng
+ * + cờ "còn nữa", nhưng TOÀN "Văn"/"Vạn"/"Vân", KHÔNG có "Anh Vấn Đà Nẵng".
+ * Cờ báo đúng nên hệ thống không nói dối, nhưng người cần tìm vẫn không hiện ra.
+ *
+ * Vì sao xếp-hạng-theo-điểm KHÔNG cứu được ca này: diemKhopTen() so BỎ DẤU, nên
+ * "Văn" và "Vấn" khớp "van" y hệt nhau — cùng 80 điểm. Sắp ổn định giữ nguyên
+ * thứ tự Odoo (chữ cái), mà "Văn" đông hơn hẳn nên chiếm sạch 10 chỗ. Không có
+ * thang điểm nào tách được hai chữ này, vì người gõ không dấu thật sự CHƯA NÓI
+ * họ muốn chữ nào.
+ *
+ * Nên cách đúng không phải đoán hộ, mà là CHO MỖI BIẾN THỂ MỘT SUẤT: vòng đầu
+ * lấy 1 người của mỗi biến thể dấu (vấn, văn, vạn, vân…), hết vòng mới lấy tiếp
+ * người thứ 2 của từng biến thể. Nhân viên nhìn 10 dòng là thấy đủ MẶT các chữ
+ * có thể, rồi tự chọn — thay vì thấy 10 người cùng một chữ và tưởng không có ai.
+ *
+ * Giữ nguyên thứ tự tương đối trong mỗi nhóm, nên không phá xếp hạng theo điểm
+ * đã chạy trước đó: trong cùng một biến thể, ai điểm cao vẫn đứng trên.
+ *
+ * KHÔNG áp khi từ khoá đã CÓ DẤU: lúc đó chỉ còn đúng một biến thể, trải đều là
+ * việc thừa (và ca "Vấn" có dấu vốn đã ra đúng 1 người).
+ */
+export function traiDeuBienTheDau<T>(
+  tuKhoa: string,
+  ds: T[],
+  layTen: (x: T) => string,
+): T[] {
+  const tu = tuKhoa.trim().split(/\s+/).filter((t) => t.length >= 2);
+  // Chỉ trải theo từ ĐẦU TIÊN đủ dài — đó là từ định danh chính ("van" trong
+  // "van da nang"). Trải theo mọi từ thì số nhóm nổ ra và mất hết ý nghĩa.
+  const tuChinh = tu[0];
+  if (!tuChinh || coDauTiengViet(tuChinh)) return ds;
+
+  const nhom = new Map<string, T[]>();
+  for (const x of ds) {
+    const bt = bienTheDauCua(tuChinh, layTen(x));
+    const cu = nhom.get(bt);
+    if (cu) cu.push(x); else nhom.set(bt, [x]);
+  }
+  // Một nhóm duy nhất → không có gì để trải, trả nguyên (giữ nguyên thứ tự).
+  if (nhom.size <= 1) return ds;
+
+  // Vòng tròn: mỗi vòng lấy 1 phần tử của từng nhóm, theo thứ tự nhóm xuất hiện.
+  const kq: T[] = [];
+  const dsNhom = [...nhom.values()];
+  for (let i = 0; kq.length < ds.length; i++) {
+    for (const g of dsNhom) if (i < g.length) kq.push(g[i]);
+  }
+  return kq;
+}
+
+/**
  * Điều kiện Odoo `ilike` cho một field, theo luật dấu ở trên.
  *
  * Dùng thay cho `['name','ilike', tuKhoa]` ở mọi chỗ tra theo tên người/SP.

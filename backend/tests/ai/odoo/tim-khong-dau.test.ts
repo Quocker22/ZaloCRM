@@ -11,7 +11,9 @@ import { describe, it, expect } from 'vitest';
 // SỬA 12/08 — ca hỏng 01:12: nới dấu cho MỌI từ khoá là quá tay. NV gõ "Vấn"
 // (đủ dấu) mà bot trả 10 người Văn/Vạn/Vân, KHÔNG ai tên Vấn, trong khi Odoo
 // có đúng 1 người. Luật mới: CÓ DẤU thì tra đúng dấu, KHÔNG DẤU mới nới.
-import { mauKhongDau, dieuKienKhongDau, coDauTiengViet, khopBoDau } from '../../../src/modules/ai/odoo/tim-khong-dau.js';
+import {
+  mauKhongDau, dieuKienKhongDau, coDauTiengViet, khopBoDau, traiDeuBienTheDau,
+} from '../../../src/modules/ai/odoo/tim-khong-dau.js';
 
 /** `ilike` của Postgres: `_` = 1 ký tự bất kỳ, `%` = chuỗi bất kỳ, bỏ qua hoa/thường. */
 function ilike(mau: string, giaTri: string): boolean {
@@ -151,6 +153,36 @@ describe('mauKhongDau — gõ kiểu nào cũng khớp', () => {
     // Từ khoá CÓ DẤU: so đúng dấu, không hạ chuẩn về bỏ dấu.
     expect(khopBoDau('Vấn', 'Anh Vấn Đà Nẵng')).toBe(true);
     expect(khopBoDau('Vấn', 'ANh Văn')).toBe(false);
+  });
+
+  it('TRẢI ĐỀU biến thể dấu — không để một chữ chiếm sạch trang đầu', () => {
+    // Đo prod 12/08 sau bản sửa vòng 1: "van" ra 10 dòng + cờ còn-nữa nhưng
+    // TOÀN Văn/Vạn/Vân, không có "Anh Vấn Đà Nẵng". Xếp hạng không cứu được vì
+    // diemKhopTen so BỎ DẤU nên Văn và Vấn bằng điểm nhau — phải cho mỗi biến
+    // thể một suất thay vì để chữ đông hơn chiếm hết.
+    const ds = ['ANh Văn 1', 'ANh Văn 2', 'ANh Văn 3', 'A Vạn 1', 'Anh Vấn Đà Nẵng'];
+    const kq = traiDeuBienTheDau('van', ds, (x) => x);
+
+    // Vòng đầu: mỗi biến thể (văn, vạn, vấn) một suất.
+    expect(kq.slice(0, 3)).toEqual(['ANh Văn 1', 'A Vạn 1', 'Anh Vấn Đà Nẵng']);
+    // Không mất ai — chỉ đổi thứ tự.
+    expect([...kq].sort()).toEqual([...ds].sort());
+  });
+
+  it('trải đều GIỮ NGUYÊN thứ tự trong cùng một biến thể', () => {
+    // Xếp hạng theo điểm đã chạy trước đó; trải đều không được xáo trộn nó.
+    const ds = ['Văn A', 'Văn B', 'Văn C', 'Vấn X'];
+    expect(traiDeuBienTheDau('van', ds, (x) => x)).toEqual(['Văn A', 'Vấn X', 'Văn B', 'Văn C']);
+  });
+
+  it('từ khoá CÓ DẤU thì KHÔNG trải — chỉ còn một biến thể', () => {
+    const ds = ['Anh Vấn Đà Nẵng', 'Chị Vấn Hà Nội'];
+    expect(traiDeuBienTheDau('Vấn', ds, (x) => x)).toEqual(ds);
+  });
+
+  it('chỉ MỘT biến thể thì trả nguyên, không xáo trộn vô cớ', () => {
+    const ds = ['Văn A', 'Văn B', 'Văn C'];
+    expect(traiDeuBienTheDau('van', ds, (x) => x)).toEqual(ds);
   });
 
   it("'d' đầu từ VẪN thay được (vì 'đ'), giữa/cuối từ thì không", () => {

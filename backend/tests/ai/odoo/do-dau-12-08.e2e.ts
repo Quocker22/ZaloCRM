@@ -59,16 +59,19 @@ describe.skipIf(!coDuCauHinh)('ĐO THẬT — tôn trọng dấu (ca 01:12 12/08
     for (const t of ten) expect(t.toLowerCase()).toContain('vấn');
   });
 
-  it('CA 2 — "van" (không dấu) VẪN ra được anh Vấn', async () => {
+  it('CA 2 — "van" (không dấu): anh Vấn phải LỌT VÀO 10 dòng hiển thị', async () => {
+    // Đo prod vòng 1 hỏng đúng ở đây: 10 kq + cờ còn-nữa nhưng TOÀN Văn/Vạn/Vân,
+    // anh Vấn nằm ngoài trang đầu. Cờ báo đúng nhưng người cần vẫn không thấy.
+    // Vá bằng: xếp hạng TRƯỚC khi cắt, rồi TRẢI ĐỀU mỗi biến thể dấu một suất.
     const kq = await traKhachHang({ odoo }, { ten: 'van' });
     const ten = kq.trangThai === 'tim_thay' ? [kq.khach.ten]
       : kq.trangThai === 'nhieu_ket_qua' ? kq.danhSach.map((k) => k.ten) : [];
     in_(`KHÁCH "van"  mẫu=${JSON.stringify(mauKhongDau('van'))}  -> ${kq.trangThai} (${ten.length})`, ten);
 
-    // Bản vá không-dấu 11/08 KHÔNG được phá: người tên "Vấn" phải còn tìm thấy.
-    expect(ten.some((t) => boDau(t).includes('van'))).toBe(true);
-    // Và mọi dòng trả về đều phải là biến thể dấu THẬT của "van" — không "Vinh".
+    // Mọi dòng trả về phải là biến thể dấu THẬT của "van" — không "Vinh"/"Vốn".
     for (const t of ten) expect(boDau(t)).toContain('van');
+    // TIÊU CHÍ CA 2: "Anh Vấn Đà Nẵng" phải nằm trong danh sách hiện ra.
+    expect(ten.some((t) => t.toLowerCase().includes('vấn'))).toBe(true);
   });
 
   it('CA 3 — "thuc" ra Anh Thức', async () => {
