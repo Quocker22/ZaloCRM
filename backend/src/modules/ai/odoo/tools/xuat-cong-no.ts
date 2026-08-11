@@ -37,7 +37,7 @@
 
 import type { OdooClient } from '../client.js';
 import { tenKhopKhach } from './tao-don-nhap.js';
-import { dieuKienKhongDau, locKhopBoDau } from '../tim-khong-dau.js';
+import { dieuKienBienTheDauCum, locKhopBoDau } from '../tim-khong-dau.js';
 import type { ToolDefinition } from '../../agent/types.js';
 
 /** Số hoá đơn liệt kê tối đa. Tin Zalo dài hơn là không ai đọc. */
@@ -131,7 +131,7 @@ export async function xuatCongNo(
       // Mẫu KHÔNG DẤU (11/08): `ilike` prod không bỏ dấu nên "cong no anh Thuc"
       // gõ không dấu ra 0 kết quả, bot báo "không có khách này" — sai sự thật.
       // Bước khớp chính xác (bỏ dấu) ngay dưới vẫn lọc lại, nên tra rộng an toàn.
-      [['customer_rank', '>', 0], dieuKienKhongDau('name', input.ten.trim())],
+      ['&', ['customer_rank', '>', 0], ...dieuKienBienTheDauCum('name', input.ten.trim())],
       // Xin dư để còn chỗ mà LỌC BỎ DẤU ngay dưới (sửa 12/08) — mẫu `_` lôi về
       // cả tên chỉ tình cờ cùng khung chữ, cắt trước khi lọc là vứt nhầm người.
       F, { limit: (KHACH_TOI_DA + 1) * 5 },

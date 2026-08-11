@@ -89,6 +89,28 @@
 // Tầng xếp hạng (xepHangKhach/diemKhopTen trong tra-khach-hang.ts) VẪN GIỮ:
 // nó lo việc chọn ai trong số đã khớp, còn khopBoDau lo việc ai được vào danh
 // sách. Hai việc khác nhau, không thay thế nhau.
+//
+// ══ SỬA LẦN 3 (12/08) — MẪU `_` KHÔNG PHẢI THỦ PHẠM, TRẦN MỚI LÀ ══════════
+//
+// Sau hai vòng trên, đo prod lại: ca "van" VẪN hỏng — 10 dòng toàn Văn/Vạn/Vân,
+// không có "Anh Vấn Đà Nẵng". Đào xuống tầng Odoo mới ra gốc rễ thật:
+//
+//   ilike 'v_n'      -> 60 dòng, trong đó 0 người tên "Vấn"
+//   ilike 'vấn'      -> 1 dòng,  đúng anh Vấn
+//   ilike 'V_n Đà'   -> 1 dòng,  ĐÚNG anh Vấn        ← bằng chứng quyết định
+//
+// Dòng cuối chứng minh `_` KHỚP `ấ` BÌNH THƯỜNG. Mẫu tìm không hỏng, lọc bỏ dấu
+// không hỏng, xếp hạng không hỏng. Thứ hỏng là `v_n` khớp HÀNG TRĂM người, Odoo
+// cắt ở trần ta xin (55-60 dòng), và anh Vấn nằm NGOÀI trần đó. Xếp hạng chạy
+// trên 60 dòng không bao giờ thấy anh ấy — vì anh ấy chưa từng được lấy về.
+//
+// Hai vòng trước đều sửa đúng thứ mình NHÌN THẤY, nhưng thứ hỏng nằm sâu hơn
+// một tầng. Bài học: khi vá xong mà triệu chứng còn nguyên, phải đo lại ở tầng
+// DƯỚI chỗ vừa sửa, đừng vá tiếp ở tầng trên.
+//
+// CHỌN: tra CÓ CHỦ ĐÍCH từng biến thể dấu thay vì một lượt rộng — xem
+// bienTheDau()/dieuKienBienTheDau() bên dưới. Mẫu `_` chỉ còn là đường lùi khi
+// số biến thể vượt trần.
 
 /**
  * NGUYÊN ÂM tiếng Việt — chỉ những chữ này mới thật sự mang dấu.
@@ -224,6 +246,151 @@ export function locKhopBoDau<T>(
   if (tu.length === 0) return ds;
   const loc = ds.filter((x) => tu.every((t) => khopBoDau(t, layTen(x))));
   return loc.length > 0 ? loc : ds;
+}
+
+/**
+ * Bảng dấu tiếng Việt: mỗi nguyên âm không dấu → mọi dạng có dấu của nó.
+ *
+ * Đây là bảng HỮU HẠN và đóng — tiếng Việt không sinh thêm nguyên âm mới.
+ */
+const BANG_DAU: Record<string, string> = {
+  a: 'aàáảãạăằắẳẵặâầấẩẫậ',
+  e: 'eèéẻẽẹêềếểễệ',
+  i: 'iìíỉĩị',
+  o: 'oòóỏõọôồốổỗộơờớởỡợ',
+  u: 'uùúủũụưừứửữự',
+  y: 'yỳýỷỹỵ',
+};
+
+/**
+ * Trần số biến thể sinh ra cho MỘT từ. Quá ngưỡng thì rơi về mẫu `_`.
+ *
+ * Đo thật khi làm — số biến thể theo luật một-dấu-một-nguyên-âm:
+ *   van 18 · thuc 12 · led 12 · trung 12 · son 18 · nguon 29 · quoc 29 · hoang 35
+ * Mọi từ khoá thực tế đều dưới 40, nên ngưỡng này gần như không bao giờ chạm.
+ * Nó chỉ để chặn ca bệnh lý (nhân viên dán cả cụm dài không khoảng trắng).
+ */
+const TRAN_BIEN_THE = 40;
+
+/**
+ * Sinh MỌI BIẾN THỂ DẤU THẬT của một từ gõ không dấu.
+ *
+ *   "van"  → van, vàn, ván, vản, vãn, vạn, văn, vằn, vắn, ..., vân, vấn, vận
+ *   "nb"   → nb              (không có nguyên âm, chỉ chính nó)
+ *   "Vấn"  → vấn            (đã có dấu: người ta nói rõ rồi, không sinh thêm)
+ *
+ * LUẬT SINH — MỘT DẤU TRÊN MỘT NGUYÊN ÂM, không phải tích Descartes.
+ * Tiếng Việt: một từ mang đúng MỘT dấu thanh, rơi trên MỘT nguyên âm. Sinh theo
+ * tích Descartes là sai luật chính tả VÀ nổ số lượng vô ích — "hoang" ra 324 tổ
+ * hợp (phần lớn không tồn tại: "hòàng"), trong khi luật thật chỉ cho 35.
+ *
+ * Có kèm 'đ' khi từ bắt đầu bằng 'd' ("dien" → "điện" bắt được), vì 'đ' chỉ
+ * đứng đầu từ tiếng Việt.
+ */
+/**
+ * Phụ âm cuối HỢP LỆ của âm tiết tiếng Việt (đã bỏ dấu).
+ *
+ * Dùng để KHÔNG sinh biến thể cho chữ không thể là tiếng Việt: "cob" kết thúc
+ * bằng 'b' — không âm tiết tiếng Việt nào làm vậy, nên "còb"/"cób"/"cộb" là 17
+ * điều kiện rác gửi xuống Postgres mỗi lượt. Mã sản phẩm ("COB", "NB", "P10FO")
+ * rơi hết vào diện này, mà mã thì vốn không mang dấu.
+ */
+const PHU_AM_CUOI = new Set(['c', 'ch', 'm', 'n', 'ng', 'nh', 'p', 't']);
+
+/** Chữ cái KHÔNG có trong bảng chữ tiếng Việt — thấy là biết mã, không phải tên. */
+const CHU_NGOAI = /[fjwz]/;
+
+/** Âm tiết này CÓ THỂ mang dấu tiếng Việt không? */
+function coTheMangDau(t: string): boolean {
+  // Lẫn CHỮ SỐ ("p10fo", "12v", "2835") → mã sản phẩm, mã vốn không mang dấu.
+  if (/\d/.test(t)) return false;
+  // Chứa f/j/w/z → không thuộc bảng chữ tiếng Việt.
+  if (CHU_NGOAI.test(t)) return false;
+  const cuoi = t.match(/[a-z]+$/)?.[0] ?? '';
+  // Kết thúc bằng nguyên âm ("ba", "hoa") thì luôn hợp lệ.
+  if (/[aeiouy]$/.test(cuoi)) return true;
+  // Kết thúc bằng phụ âm → phải là phụ âm cuối hợp lệ ("van", "thuc", "long").
+  return PHU_AM_CUOI.has(cuoi.slice(-2)) || PHU_AM_CUOI.has(cuoi.slice(-1));
+}
+
+export function bienTheDau(tu: string): string[] {
+  const t = boDau(tu);
+  // Đã có dấu → người gõ đã chỉ đích danh, không việc gì sinh thêm.
+  if (coDauTiengViet(tu)) return [tu.toLowerCase()];
+  // Không thể là tiếng Việt (mã SP "COB", "P10FO"…) → chỉ chính nó, khỏi sinh
+  // 17 điều kiện rác kiểu "còb"/"cób" gửi xuống Postgres mỗi lượt tra.
+  if (!coTheMangDau(t)) return [t];
+
+  const kq = new Set<string>([t]);
+  for (let i = 0; i < t.length; i++) {
+    const bang = BANG_DAU[t[i]];
+    if (!bang) continue;
+    for (const c of bang) kq.add(t.slice(0, i) + c + t.slice(i + 1));
+  }
+  // 'd' đầu từ có thể là 'đ' — nhân đôi tập hiện có với chữ đầu thay bằng 'đ'.
+  if (t.startsWith('d')) for (const v of [...kq]) kq.add(`đ${v.slice(1)}`);
+  return [...kq];
+}
+
+/**
+ * Điều kiện Odoo cho MỘT từ khoá: OR trên các biến thể dấu THẬT.
+ *
+ * ══ VÌ SAO CÓ HÀM NÀY (sửa vòng 3, 12/08) ══════════════════════════════════
+ *
+ * Hai vòng vá trước đều sửa đúng thứ mình thấy, nhưng thứ hỏng nằm sâu hơn.
+ * Đo prod vòng 3 mới lộ ra gốc rễ thật:
+ *
+ *   ilike 'v_n'     -> 60 dòng, trong đó 0 người tên "Vấn"
+ *   ilike 'vấn'     -> 1 dòng,  đúng anh Vấn
+ *   ilike 'V_n Đà'  -> 1 dòng,  ĐÚNG anh Vấn        ← chốt lại
+ *
+ * Dòng cuối là bằng chứng quyết định: `_` KHỚP `ấ` BÌNH THƯỜNG. Mẫu tìm không
+ * hỏng, xếp hạng không hỏng, trải đều không hỏng. Thứ hỏng là `v_n` khớp HÀNG
+ * TRĂM người, Odoo cắt ở trần ta xin (55-60 dòng), và anh Vấn nằm NGOÀI trần
+ * đó. Xếp hạng chạy trên 60 dòng không bao giờ thấy anh ấy — vì anh ấy chưa
+ * từng được lấy về. Vá ở tầng sắp xếp là vá sai tầng.
+ *
+ * CÁCH CHỮA: tra CÓ CHỦ ĐÍCH thay vì một lượt rộng. Thay `['name','ilike','v_n']`
+ * bằng OR trên các biến thể thật — "vấn" là một nhánh riêng nên nó CHẮC CHẮN
+ * được Odoo xét, không thể bị hàng trăm "Văn" chiếm trần trước.
+ *
+ * Ba cái lợi cùng lúc:
+ *   - Mỗi biến thể có suất, không bị biến thể đông hơn chiếm sạch
+ *   - Không kéo bảng, không nâng trần (vẫn một lượt truy vấn)
+ *   - Khớp CHÍNH XÁC hơn `_`: loại thẳng "vin"/"vốn"/"vụn" ngay từ tầng DB,
+ *     thay vì lôi về rồi mới lọc ở JS
+ *
+ * ĐƯỜNG LÙI: quá TRAN_BIEN_THE biến thể thì domain OR nặng hơn cả cách cũ →
+ * rơi về mẫu `_` (vẫn có tầng lọc JS phía sau đỡ). Thực tế gần như không chạm:
+ * từ khoá thật đo được nhiều nhất là "hoang" 35.
+ */
+export function dieuKienBienTheDau(field: string, tuKhoa: string): unknown[] {
+  const bt = bienTheDau(tuKhoa);
+  if (bt.length > TRAN_BIEN_THE) return [dieuKienKhongDau(field, tuKhoa)];
+  if (bt.length === 1) return [[field, 'ilike', bt[0]]];
+  // Prefix-notation của Odoo: n điều kiện cần n-1 toán tử '|' đứng trước.
+  return [...Array(bt.length - 1).fill('|'), ...bt.map((v) => [field, 'ilike', v])];
+}
+
+/**
+ * Điều kiện cho CẢ CỤM nhiều từ: mỗi từ một khối OR-biến-thể, các khối AND nhau.
+ *
+ * PHẢI TÁCH TỪ, không được sinh biến thể cho cả cụm: số biến thể nhân lên theo
+ * số nguyên âm, nên "hoang son" ra 52 và "a long led" ra 46 — vượt trần rồi rơi
+ * hết về mẫu `_`, tức là mất sạch tác dụng của bản sửa. Tách từ thì mỗi từ chỉ
+ * 12-35 biến thể, nằm gọn dưới trần (đo thật: van 18 · thuc 12 · hoang 35).
+ *
+ * Tách từ cũng đúng về ngữ nghĩa — giống hệt lý do tra-khách/tra-SP vẫn tách:
+ * "qc hoàng sơn" phải khớp được cả khi tên trong DB có thêm chữ chen giữa.
+ *
+ * Từ dưới 2 ký tự bị bỏ (trừ khi cả cụm chỉ có một từ) — chúng khớp quá rộng.
+ */
+export function dieuKienBienTheDauCum(field: string, cum: string): unknown[] {
+  const tu = cum.trim().split(/\s+/).filter((t) => t.length >= 2);
+  const khoi = (tu.length === 0 ? [cum.trim()] : tu)
+    .map((t) => dieuKienBienTheDau(field, t));
+  // Prefix-notation đếm theo SỐ KHỐI, không phải số điều kiện lẻ bên trong.
+  return [...Array(khoi.length - 1).fill('&'), ...khoi.flat()];
 }
 
 /**

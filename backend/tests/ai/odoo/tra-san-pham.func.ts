@@ -184,22 +184,24 @@ describe('domainTimKiem — TÁCH TỪ KHOÁ', () => {
 
     // Phải có ilike riêng cho từng từ trên `name`.
     //
-    // Từ 11/08 từ KHÔNG DẤU đi dưới dạng mẫu nới ("xanh" → "x_nh") vì `ilike`
-    // của Postgres prod không bỏ dấu. Từ 12/08 từ CÓ DẤU thì giữ nguyên văn
-    // ("ngọc" → "ngọc") — nới dấu người ta đã gõ là ra hàng loạt SP sai, đúng
-    // bệnh ca "anh Vấn" 01:12 (xem tim-khong-dau.ts). Điều test khoá vẫn là
-    // TÁCH TỪNG TỪ chứ không tra nguyên cụm.
-    expect(s).toContain('"c_b"');
-    expect(s).toContain('"24v"');
-    expect(s).toContain('"x_nh"');
-    expect(s).toContain('"ngọc"');
+    // Từ vòng 3 (12/08) mỗi từ KHÔNG DẤU nở ra các BIẾN THỂ DẤU THẬT thay cho
+    // mẫu `_` — vì `_` khớp quá rộng nên hàng đúng rớt ngoài trần Odoo trả về
+    // (ca "van" đo prod 12/08, xem tim-khong-dau.ts). Từ CÓ DẤU giữ nguyên văn.
+    // Điều test khoá vẫn là TÁCH TỪNG TỪ chứ không tra nguyên cụm.
+    expect(s).toContain('"cob"');      // mã SP: không nở biến thể (có chữ 'b' cuối)
+    expect(s).toContain('"24v"');      // có chữ số → là mã, không nở
+    expect(s).toContain('"xanh"');
+    expect(s).toContain('"xành"');     // biến thể dấu thật của "xanh"
+    expect(s).toContain('"ngọc"');     // đã có dấu → nguyên văn, không nở
+    expect(s).not.toContain('"x_nh"');
 
     // `name` KHÔNG được khớp nguyên chuỗi (đó chính là bug cũ).
     // `default_code` thì CÓ — mã SP không tách từ, gõ mã là gõ đủ.
     const dieuKienName = d.filter(
       (x) => Array.isArray(x) && (x as unknown[])[0] === 'name',
     );
-    expect(dieuKienName).toHaveLength(4);
+    // 4 từ khoá, mỗi từ một khối OR biến thể → tổng số điều kiện name > 4.
+    expect(dieuKienName.length).toBeGreaterThanOrEqual(4);
     expect(JSON.stringify(dieuKienName)).not.toContain('COB 24v xanh ngọc');
   });
 
@@ -216,11 +218,11 @@ describe('domainTimKiem — TÁCH TỪ KHOÁ', () => {
   });
 
   it('bỏ từ đệm ("màu", "cái", "cuộn") — chúng không phân biệt được SP', () => {
-    // So trên dạng MẪU KHÔNG DẤU ("màu" → "m__", "xanh" → "x_nh") — xem
-    // tim-khong-dau.ts. Việc test khoá không đổi: từ đệm bị loại, từ thật giữ lại.
+    // So trên dạng BIẾN THỂ DẤU (vòng 3, xem tim-khong-dau.ts). Việc test khoá
+    // không đổi: từ đệm bị loại khỏi domain, từ thật giữ lại.
     const d = JSON.stringify(domainTimKiem('COB màu xanh'));
-    expect(d).not.toContain('"m__"');
-    expect(d).toContain('"x_nh"');
+    expect(d).not.toContain('"màu"');
+    expect(d).toContain('"xanh"');
   });
 
   it('mã SP dài vẫn tra được nguyên chuỗi qua default_code', () => {

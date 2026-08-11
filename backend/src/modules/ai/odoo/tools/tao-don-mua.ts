@@ -37,7 +37,9 @@
 import type { OdooClient } from '../client.js';
 import type { ToolDefinition } from '../../agent/types.js';
 import { sinhKhoaDon } from '../idempotency.js';
-import { dieuKienKhongDau, locKhopBoDau, coDauTiengViet, boDau } from '../tim-khong-dau.js';
+import {
+  locKhopBoDau, coDauTiengViet, boDau, dieuKienBienTheDauCum,
+} from '../tim-khong-dau.js';
 import { xepHangKhach } from './tra-khach-hang.js';
 
 /**
@@ -413,10 +415,12 @@ export async function traNhaCungCap(
   const ten = ma ? '' : boTienToNcc(tenTho);
   if (!ten && !ma) return { trangThai: 'khong_thay', tuKhoa: '' };
 
-  // Mã NCC (ref) là khoá chính xác → ưu tiên. Tên thì tra bằng mẫu KHÔNG DẤU.
+  // Mã NCC (ref) là khoá chính xác → ưu tiên. Tên thì tra theo BIẾN THỂ DẤU
+  // THẬT (sửa vòng 3, 12/08): mẫu `_` khớp quá rộng nên người/NCC đúng có thể
+  // rớt ngoài trần Odoo trả về — xem tim-khong-dau.ts, ca "van" đo prod 12/08.
   const dieuKien: unknown[] = ma
     ? [['ref', '=ilike', ma]]
-    : [dieuKienKhongDau('name', ten)];
+    : dieuKienBienTheDauCum('name', ten);
 
   const TRAN = 10;
   // Tra theo TÊN thì xin dư (gấp 5) để còn chỗ mà LỌC BỎ DẤU ngay dưới —
@@ -437,7 +441,7 @@ export async function traNhaCungCap(
     tenLoc = boDau(ten);
     rows = await deps.odoo.searchRead<Record<string, unknown>>(
       'res.partner',
-      ['&', ['supplier_rank', '>', 0], dieuKienKhongDau('name', tenLoc)],
+      ['&', ['supplier_rank', '>', 0], ...dieuKienBienTheDauCum('name', tenLoc)],
       ['id', 'name', 'ref'],
       { limit: soDong },
     );

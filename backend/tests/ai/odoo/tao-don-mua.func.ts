@@ -253,7 +253,11 @@ describe('traNhaCungCap — tra NCC', () => {
     const kq = await traNhaCungCap({ odoo }, { ten: 'Trung Quốc' });
 
     expect(odoo.searchRead).toHaveBeenCalledTimes(2);
-    expect(JSON.stringify(odoo.searchRead.mock.calls[1][1])).toContain('tr_ng q__c');
+    // Lượt 2 (dự phòng): hạ về không dấu rồi nở BIẾN THỂ THẬT — không còn `_`.
+    const d2 = JSON.stringify(odoo.searchRead.mock.calls[1][1]);
+    expect(d2).toContain('"trung"');
+    expect(d2).toContain('"quốc"');
+    expect(d2).not.toContain('q__c');
     expect(kq.trangThai).toBe('tim_thay');
   });
 
@@ -298,9 +302,14 @@ describe('traNhaCungCap — tra NCC', () => {
     const khongDau = fakeOdoo();
     await traNhaCungCap({ odoo: khongDau }, { ten: 'trung quoc' });
 
-    // "Quốc" có dấu → giữ nguyên; "Trung" tự nó không dấu → vẫn được nới.
-    expect(JSON.stringify(coDau.searchRead.mock.calls[0][1])).toContain('tr_ng quốc');
-    expect(JSON.stringify(khongDau.searchRead.mock.calls[0][1])).toContain('tr_ng q__c');
+    // "Quốc" có dấu → giữ nguyên văn, một điều kiện duy nhất.
+    expect(JSON.stringify(coDau.searchRead.mock.calls[0][1])).toContain('"quốc"');
+    // "trung"/"quoc" không dấu → nở ra các BIẾN THỂ DẤU THẬT (từ vòng 3, thay
+    // cho mẫu `_` cũ vốn khớp quá rộng làm hàng đúng rớt ngoài trần Odoo).
+    const dKhongDau = JSON.stringify(khongDau.searchRead.mock.calls[0][1]);
+    expect(dKhongDau).toContain('"quốc"');
+    expect(dKhongDau).toContain('"trung"');
+    expect(dKhongDau).not.toContain('q__c');
   });
 
   it('BỎ TIỀN TỐ "nhà cung cấp" trước khi tra (ca thật 23:16:15)', async () => {
@@ -310,7 +319,7 @@ describe('traNhaCungCap — tra NCC', () => {
     await traNhaCungCap({ odoo }, { ten: 'Nhà cung cấp Trung Quốc' });
 
     const d = JSON.stringify(odoo.searchRead.mock.calls[0][1]);
-    expect(d).toContain('tr_ng quốc');
+    expect(d).toContain('"quốc"');
     expect(d).not.toContain('nhà cung cấp');
   });
 

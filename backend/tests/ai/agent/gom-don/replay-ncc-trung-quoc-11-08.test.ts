@@ -35,6 +35,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { xuLyGomDon, type GomDonDeps } from '../../../../src/modules/ai/agent/noi-zalo/gom-don/index.js';
 import type { ToolAwareGenerate } from '../../../../src/modules/ai/agent/types.js';
+import { khopDomain } from '../../odoo/ilike-gia.js';
 
 const usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
 
@@ -107,7 +108,8 @@ function fakeOdoo() {
         .filter((d) => Array.isArray(d) && d[0] === 'name' && d[1] === 'ilike')
         .map((d) => String(d[2]));
       const khop = tokens.length > 0
-        ? nguon.filter((p) => tokens.every((t) => ilike(`%${t}%`, p.name)))
+        ? nguon.filter((p) => khopDomain(domain as unknown[], (dk) =>
+            dk[0] === 'name' && dk[1] === 'ilike' ? ilike(`%${String(dk[2])}%`, p.name) : true))
         : nguon;
       return khop.slice(0, opts?.limit ?? 10);
     }
@@ -121,7 +123,8 @@ function fakeOdoo() {
         .filter((d) => Array.isArray(d) && d[0] === 'name' && d[1] === 'ilike')
         .map((d) => String(d[2]));
       return tokens.length > 0
-        ? products.filter((p) => tokens.every((t) => ilike(`%${t}%`, p.name)))
+        ? products.filter((p) => khopDomain(domain as unknown[], (dk) =>
+            dk[0] === 'name' && dk[1] === 'ilike' ? ilike(`%${String(dk[2])}%`, p.name) : true))
         : products;
     }
     if (model === 'purchase.order') {

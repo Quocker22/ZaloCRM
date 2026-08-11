@@ -13,6 +13,7 @@ import { describe, it, expect } from 'vitest';
 // có đúng 1 người. Luật mới: CÓ DẤU thì tra đúng dấu, KHÔNG DẤU mới nới.
 import {
   mauKhongDau, dieuKienKhongDau, coDauTiengViet, khopBoDau, traiDeuBienTheDau,
+  bienTheDau, dieuKienBienTheDau,
 } from '../../../src/modules/ai/odoo/tim-khong-dau.js';
 
 /** `ilike` của Postgres: `_` = 1 ký tự bất kỳ, `%` = chuỗi bất kỳ, bỏ qua hoa/thường. */
@@ -153,6 +154,88 @@ describe('mauKhongDau — gõ kiểu nào cũng khớp', () => {
     // Từ khoá CÓ DẤU: so đúng dấu, không hạ chuẩn về bỏ dấu.
     expect(khopBoDau('Vấn', 'Anh Vấn Đà Nẵng')).toBe(true);
     expect(khopBoDau('Vấn', 'ANh Văn')).toBe(false);
+  });
+
+  it('SINH BIẾN THỂ DẤU THẬT của từ khoá không dấu', () => {
+    // Gốc rễ thật của CA 2 (đo prod vòng 3): mẫu `_` KHÔNG hỏng — `ilike 'V_n Đà'`
+    // ra đúng anh Vấn, nên `_` khớp `ấ` bình thường. Thứ hỏng là `v_n` khớp HÀNG
+    // TRĂM người, Odoo cắt ở trần xin về (55-60 dòng), và anh Vấn nằm NGOÀI trần.
+    // Xếp hạng/trải đều chạy trên 60 dòng không bao giờ thấy anh ấy — vì anh ấy
+    // chưa từng được lấy về.
+    //
+    // Cách chữa: tra CÓ CHỦ ĐÍCH từng biến thể dấu thay vì một lượt rộng.
+    const bt = bienTheDau('van');
+    expect(bt).toContain('vấn');
+    expect(bt).toContain('văn');
+    expect(bt).toContain('vạn');
+    expect(bt).toContain('vân');
+    expect(bt).toContain('van');
+    // KHÔNG được sinh những chữ không phải biến thể dấu của "van".
+    expect(bt).not.toContain('vin');
+    expect(bt).not.toContain('von');
+  });
+
+  it('biến thể theo luật MỘT DẤU trên MỘT nguyên âm — không nổ tổ hợp', () => {
+    // Tiếng Việt: một từ mang ĐÚNG MỘT dấu thanh, rơi trên MỘT nguyên âm.
+    // Sinh theo tích Descartes thì "hoang" ra 324 biến thể (vô dụng, quá nhiều
+    // domain OR); theo luật thật chỉ 35. Đo thật khi làm:
+    //   van 18 · thuc 12 · led 12 · trung 12 · nguon 29 · quoc 29 · hoang 35
+    expect(bienTheDau('hoang').length).toBeLessThan(40);
+    expect(bienTheDau('van').length).toBeLessThan(20);
+    // "nb" không có nguyên âm → chỉ chính nó.
+    expect(bienTheDau('nb')).toEqual(['nb']);
+  });
+
+  it('KHÔNG sinh biến thể cho chữ không thể là tiếng Việt (mã SP)', () => {
+    // "cob" kết thúc bằng 'b' — không âm tiết tiếng Việt nào làm vậy. Sinh
+    // "còb"/"cób"/"cộb" là 17 điều kiện RÁC gửi xuống Postgres mỗi lượt tra.
+    // Mã SP ("COB", "P10FO", "NB") vốn không mang dấu nên rơi hết vào diện này.
+    expect(bienTheDau('cob')).toEqual(['cob']);
+    expect(bienTheDau('p10fo')).toEqual(['p10fo']);
+    // Nhưng từ tiếng Việt thật thì vẫn nở đủ — phụ âm cuối hợp lệ.
+    expect(bienTheDau('van').length).toBeGreaterThan(10);   // 'n' hợp lệ
+    expect(bienTheDau('thuc').length).toBeGreaterThan(10);  // 'c' hợp lệ
+    expect(bienTheDau('long').length).toBeGreaterThan(10);  // 'ng' hợp lệ
+    expect(bienTheDau('hoa').length).toBeGreaterThan(10);   // kết thúc nguyên âm
+  });
+
+  it("biến thể có cả 'đ' khi từ bắt đầu bằng 'd'", () => {
+    // "dien" phải bắt được "điện" — 'đ' chỉ ở đầu từ tiếng Việt.
+    const bt = bienTheDau('dien');
+    expect(bt.some((x) => x.startsWith('đ'))).toBe(true);
+  });
+
+  it('từ khoá ĐÃ CÓ DẤU thì không sinh biến thể — người ta đã nói rõ rồi', () => {
+    expect(bienTheDau('Vấn')).toEqual(['vấn']);
+  });
+
+  it('dieuKienBienTheDau: domain OR trên các biến thể THẬT', () => {
+    // Thay một điều kiện rộng `v_n` (khớp hàng trăm người, anh Vấn rớt ngoài
+    // trần) bằng OR các biến thể thật — mỗi biến thể chắc chắn có suất.
+    const d = dieuKienBienTheDau('name', 'van');
+    const s = JSON.stringify(d);
+
+    expect(s).toContain('"vấn"');
+    expect(s).toContain('"văn"');
+    // Prefix-notation của Odoo: n biến thể cần n-1 toán tử '|' đứng trước.
+    const soOr = d.filter((x) => x === '|').length;
+    const soDk = d.filter((x) => Array.isArray(x)).length;
+    expect(soOr).toBe(soDk - 1);
+    // KHÔNG còn dùng mẫu `_` ở nhánh này — đó là cả điểm của bản sửa.
+    expect(s).not.toContain('v_n');
+  });
+
+  it('QUÁ NHIỀU biến thể thì RƠI VỀ mẫu `_` — không nổ domain', () => {
+    // Ngưỡng an toàn: từ khoá dài nhiều nguyên âm sinh ra quá nhiều biến thể thì
+    // domain OR thành nặng hơn cả cách cũ. Lúc đó dùng lại mẫu `_` + lọc JS.
+    const d = dieuKienBienTheDau('name', 'nguyenthiquynhhoa');
+    expect(d.filter((x) => x === '|').length).toBe(0);
+    expect(JSON.stringify(d)).toContain('_');
+  });
+
+  it('từ khoá CÓ DẤU: một điều kiện nguyên văn, không OR', () => {
+    const d = dieuKienBienTheDau('name', 'Vấn');
+    expect(d).toEqual([['name', 'ilike', 'vấn']]);
   });
 
   it('TRẢI ĐỀU biến thể dấu — không để một chữ chiếm sạch trang đầu', () => {

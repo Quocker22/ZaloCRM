@@ -20,7 +20,7 @@ import { OdooClient } from '../../../src/modules/ai/odoo/client.js';
 import { traKhachHang } from '../../../src/modules/ai/odoo/tools/tra-khach-hang.js';
 import { traSanPham } from '../../../src/modules/ai/odoo/tools/tra-san-pham.js';
 import { traNhaCungCap } from '../../../src/modules/ai/odoo/tools/tao-don-mua.js';
-import { mauKhongDau, boDau } from '../../../src/modules/ai/odoo/tim-khong-dau.js';
+import { mauKhongDau, boDau, bienTheDau } from '../../../src/modules/ai/odoo/tim-khong-dau.js';
 
 const { ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_PASSWORD } = process.env;
 const coDuCauHinh = Boolean(ODOO_URL && ODOO_DB && ODOO_USERNAME && ODOO_PASSWORD);
@@ -66,7 +66,8 @@ describe.skipIf(!coDuCauHinh)('ĐO THẬT — tôn trọng dấu (ca 01:12 12/08
     const kq = await traKhachHang({ odoo }, { ten: 'van' });
     const ten = kq.trangThai === 'tim_thay' ? [kq.khach.ten]
       : kq.trangThai === 'nhieu_ket_qua' ? kq.danhSach.map((k) => k.ten) : [];
-    in_(`KHÁCH "van"  mẫu=${JSON.stringify(mauKhongDau('van'))}  -> ${kq.trangThai} (${ten.length})`, ten);
+    const bt = bienTheDau('van');
+    in_(`KHÁCH "van"  ${bt.length} biến thể (${bt.slice(0, 6).join(', ')}…)  -> ${kq.trangThai} (${ten.length})`, ten);
 
     // Mọi dòng trả về phải là biến thể dấu THẬT của "van" — không "Vinh"/"Vốn".
     for (const t of ten) expect(boDau(t)).toContain('van');

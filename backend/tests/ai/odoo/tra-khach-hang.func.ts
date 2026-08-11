@@ -236,8 +236,15 @@ describe('traKhachHang — CA THẬT 01:12 ngày 12/08 "anh Vấn"', () => {
     const kq = await traKhachHang({ odoo }, { ten: 'Thức' });
 
     expect(odoo.searchRead).toHaveBeenCalledTimes(2);
+    // Lượt 1: gõ có dấu → tra NGUYÊN VĂN.
     expect(JSON.stringify(odoo.searchRead.mock.calls[0][1])).toContain('"thức"');
-    expect(JSON.stringify(odoo.searchRead.mock.calls[1][1])).toContain('"th_c"');
+    // Lượt 2 (dự phòng): hạ về không dấu rồi nở ra CÁC BIẾN THỂ THẬT — từ vòng 3
+    // không còn dùng mẫu `_` nữa, vì `_` khớp quá rộng làm người đúng rớt ngoài
+    // trần (xem tim-khong-dau.ts, ca "van" đo prod 12/08).
+    const d2 = JSON.stringify(odoo.searchRead.mock.calls[1][1]);
+    expect(d2).toContain('"thuc"');
+    expect(d2).toContain('"thức"');
+    expect(d2).not.toContain('"th_c"');
     expect(kq.trangThai).toBe('tim_thay');
   });
 
@@ -285,9 +292,13 @@ describe('traKhachHang — TRA THEO TÊN', () => {
     const d = JSON.stringify(odoo.searchRead.mock.calls[0][1]);
     expect(d).toContain('"hoàng"');
     expect(d).toContain('"sơn"');
-    expect(d).toContain('"n_m"');   // "nam" gõ không dấu → vẫn được nới
+    // "nam" gõ không dấu → nở ra các BIẾN THỂ DẤU THẬT (từ vòng 3, thay cho
+    // mẫu `_` cũ vốn khớp quá rộng làm người đúng rớt ngoài trần Odoo).
+    expect(d).toContain('"nam"');
+    expect(d).toContain('"năm"');
+    expect(d).not.toContain('"n_m"');
     // Nguyên cụm KHÔNG được xuất hiện — đó là bug cũ.
-    expect(d).not.toContain('"hoàng sơn n_m"');
+    expect(d).not.toContain('"hoàng sơn nam"');
   });
 
   it('có CẢ sdt lẫn ten → ưu tiên sdt (chính xác hơn)', async () => {

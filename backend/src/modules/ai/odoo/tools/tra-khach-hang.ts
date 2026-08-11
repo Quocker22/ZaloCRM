@@ -14,7 +14,7 @@ import type { OdooClient } from '../client.js';
 import type { ToolDefinition } from '../../agent/types.js';
 import { normalizeVnPhone } from '../../../../shared/phone/normalize-vn-phone.js';
 import {
-  dieuKienKhongDau, locKhopBoDau, coDauTiengViet, boDau, traiDeuBienTheDau,
+  locKhopBoDau, coDauTiengViet, boDau, traiDeuBienTheDau, dieuKienBienTheDauCum,
 } from '../tim-khong-dau.js';
 
 export interface KhachHang {
@@ -236,16 +236,20 @@ export async function traKhachHang(
     // Cùng lý do như tra_san_pham: "qc hoàng sơn" phải khớp được cả khi tên
     // trong DB có thêm chữ ở giữa. Nhân viên gõ tên gần đúng là chuyện bình thường.
     //
-    // MẪU KHÔNG DẤU (sửa 11/08) — `ilike` của Postgres prod KHÔNG bỏ dấu, đo thật:
-    //   ['name','ilike','Thức'] -> 3 kq  ·  ['name','ilike','Thuc'] -> 0 kq
-    //   ['name','ilike','Vân']  -> 5 kq  ·  ['name','ilike','Van']  -> 1 kq (trật cả 5)
-    // Nhân viên gõ điện thoại không dấu là trượt sạch. dieuKienKhongDau() vá bằng
-    // mẫu LIKE `_`, vẫn lọc ở tầng DB. Tra rộng hơn thì đã có xepHangKhach() ngay
-    // dưới chấm điểm lại — cặp "DB lọc thô + JS xếp tinh" này là có chủ ý.
-    const tu = ten.split(/\s+/).filter((t) => t.length >= 2);
-    dieuKien = tu.length <= 1
-      ? [dieuKienKhongDau('name', ten)]
-      : [...Array(tu.length - 1).fill('&'), ...tu.map((t) => dieuKienKhongDau('name', t))];
+    // TRA THEO BIẾN THỂ DẤU THẬT (sửa vòng 3, 12/08) — không dùng mẫu `_` nữa.
+    //
+    // `ilike` của Postgres prod KHÔNG bỏ dấu, nên gõ không dấu là trượt sạch
+    // (đo 11/08: ['name','ilike','Thuc'] -> 0 kq trong khi 'Thức' -> 3 kq).
+    // Bản vá 11/08 dùng mẫu `_`; đo prod 12/08 cho thấy nó hỏng ở ca "van":
+    //
+    //   ilike 'v_n'    -> 60 dòng, 0 người tên "Vấn"   ← anh Vấn NGOÀI trần
+    //   ilike 'vấn'    -> 1 dòng,  đúng anh Vấn
+    //
+    // `v_n` khớp hàng trăm người nên Odoo cắt ở trần ta xin và anh Vấn rớt
+    // ngoài — chưa từng được lấy về thì xếp hạng kiểu gì cũng không thấy.
+    // dieuKienBienTheDau() tra OR trên từng biến thể dấu THẬT ("vấn" là một
+    // nhánh riêng), nên mỗi biến thể chắc chắn được xét. Xem tim-khong-dau.ts.
+    dieuKien = dieuKienBienTheDauCum('name', ten);
   }
 
   // Xin TRẦN + 1: phần tử thứ 11 không hiển thị, chỉ để BIẾT danh sách bị cắt.
@@ -282,10 +286,7 @@ export async function traKhachHang(
   let tenLoc = ten;
   if (traTheoTen && rows.length === 0 && coDauTiengViet(ten)) {
     tenLoc = boDau(ten);
-    const tuNoi = tenLoc.split(/\s+/).filter((t) => t.length >= 2);
-    const dieuKienNoi = tuNoi.length <= 1
-      ? [dieuKienKhongDau('name', tenLoc)]
-      : [...Array(tuNoi.length - 1).fill('&'), ...tuNoi.map((t) => dieuKienKhongDau('name', t))];
+    const dieuKienNoi = dieuKienBienTheDauCum('name', tenLoc);
     rows = await deps.odoo.searchRead<Record<string, unknown>>(
       'res.partner',
       ['&', ['customer_rank', '>', 0], ...dieuKienNoi],

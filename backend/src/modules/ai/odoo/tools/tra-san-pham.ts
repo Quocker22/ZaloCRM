@@ -9,7 +9,8 @@
 import type { OdooClient } from '../client.js';
 import type { ToolDefinition } from '../../agent/types.js';
 import {
-  dieuKienKhongDau, mauKhongDau, locKhopBoDau, boDau as boDauChung,
+  mauKhongDau, locKhopBoDau, boDau as boDauChung,
+  dieuKienBienTheDau, dieuKienBienTheDauCum,
 } from '../tim-khong-dau.js';
 
 /**
@@ -168,29 +169,29 @@ export function tuKhoaTraSp(ten: string): string[] {
 export function domainTimKiem(ten: string): unknown[] {
   const dung = tuKhoaTraSp(ten);
 
-  // MẪU KHÔNG DẤU cho `name` (sửa 11/08) — `ilike` prod KHÔNG bỏ dấu, đo thật:
-  //   ['name','ilike','Nguồn'] -> 5 kq  ·  ['name','ilike','Nguon'] -> 0 kq
-  // Nhân viên gõ "nguon NB" là trượt sạch. Xem tim-khong-dau.ts.
+  // BIẾN THỂ DẤU THẬT cho `name` (sửa vòng 3, 12/08) — `ilike` prod KHÔNG bỏ
+  // dấu, đo thật: ['name','ilike','Nguồn'] -> 5 kq · ['name','ilike','Nguon'] -> 0 kq.
+  // Bản 11/08 vá bằng mẫu `_`, nhưng đo prod 12/08 cho thấy `_` khớp quá rộng
+  // (v_n -> hàng trăm người) nên hàng đúng có thể rớt NGOÀI trần Odoo trả về.
+  // Nay tra OR trên từng biến thể dấu thật. Xem tim-khong-dau.ts.
   //
   // `default_code` GIỮ NGUYÊN `ilike` thường: mã SP là ASCII ("P10FO", "2835"),
   // không có dấu để mà bỏ, và nới thành wildcard chỉ làm mã ngắn khớp bừa.
 
   // Query quá ngắn (1 ký tự) → khớp nguyên chuỗi cho an toàn.
   if (dung.length === 0) {
-    return ['|', dieuKienKhongDau('name', ten), ['default_code', 'ilike', ten]];
+    return ['|', ...dieuKienBienTheDauCum('name', ten), ['default_code', 'ilike', ten]];
   }
 
-  // Một từ: name ilike X OR default_code ilike X
+  // Một từ: (name khớp một trong các biến thể) OR default_code ilike X
   if (dung.length === 1) {
-    return ['|', dieuKienKhongDau('name', dung[0]), ['default_code', 'ilike', dung[0]]];
+    return ['|', ...dieuKienBienTheDau('name', dung[0]), ['default_code', 'ilike', dung[0]]];
   }
 
   // Nhiều từ: (name chứa TẤT CẢ các từ) OR (default_code chứa nguyên chuỗi).
   // default_code là mã, không tách từ — nhân viên gõ mã thì gõ đủ.
-  const theoTen = [
-    ...Array(dung.length - 1).fill('&'),
-    ...dung.map((t) => dieuKienKhongDau('name', t)),
-  ];
+  const khoi = dung.map((t) => dieuKienBienTheDau('name', t));
+  const theoTen = [...Array(khoi.length - 1).fill('&'), ...khoi.flat()];
   return ['|', ...theoTen, ['default_code', 'ilike', ten]];
 }
 

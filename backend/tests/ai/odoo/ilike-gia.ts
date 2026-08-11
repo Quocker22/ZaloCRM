@@ -40,3 +40,38 @@ export function ilike(mau: string, giaTri: string): boolean {
 export function ilikeChua(mau: string, giaTri: string): boolean {
   return ilike(`%${mau}%`, giaTri);
 }
+
+/**
+ * Chấm một dòng theo DOMAIN ODOO dạng PREFIX-NOTATION đầy đủ.
+ *
+ * VÌ SAO CẦN (thêm 12/08): các fake trước đây gom mọi điều kiện `name` rồi
+ * `tokens.every(...)` — tức COI TẤT CẢ LÀ AND. Cách đó đúng khi mỗi từ khoá chỉ
+ * sinh một điều kiện, nhưng từ vòng 3 mỗi từ nở ra một khối OR các biến thể dấu
+ * ("long" → long|lòng|lóng|…). `every` khi đó đòi tên phải chứa ĐỒNG THỜI mọi
+ * biến thể — không ai thoả, nên fake trả rỗng và test đỏ oan trong khi code
+ * thật chạy đúng. Fake sai kiểu này NGUY HIỂM: nó vừa báo động giả, vừa có thể
+ * che mất hồi quy thật ở lần sau.
+ *
+ * Hàm này đọc đúng ngữ pháp Odoo: '&' và '|' là toán tử TIỀN TỐ nhận HAI toán
+ * hạng kế tiếp, '!' nhận một. Thiếu toán tử giữa hai điều kiện liền nhau thì
+ * ngầm hiểu là AND (đúng như Odoo).
+ *
+ * `khop` do caller cung cấp — nó biết cách so từng bộ ba với dòng dữ liệu.
+ */
+export function khopDomain(
+  domain: unknown[],
+  khop: (dieuKien: unknown[]) => boolean,
+): boolean {
+  let i = 0;
+  const doc = (): boolean => {
+    const x = domain[i++];
+    if (x === '&') { const a = doc(); const b = doc(); return a && b; }
+    if (x === '|') { const a = doc(); const b = doc(); return a || b; }
+    if (x === '!') return !doc();
+    return Array.isArray(x) ? khop(x) : true;
+  };
+  // Nhiều mệnh đề nối tiếp không có toán tử → ngầm AND (quy ước của Odoo).
+  let kq = true;
+  while (i < domain.length) kq = doc() && kq;
+  return kq;
+}

@@ -15,7 +15,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { xuLyGomDon, type GomDonDeps } from '../../../../src/modules/ai/agent/noi-zalo/gom-don/index.js';
 import { boDau } from '../../../../src/modules/ai/odoo/tools/tra-san-pham.js';
 import type { ToolAwareGenerate } from '../../../../src/modules/ai/agent/types.js';
-import { ilikeChua } from '../../odoo/ilike-gia.js';
+import { ilikeChua, khopDomain } from '../../odoo/ilike-gia.js';
 
 const usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
 
@@ -73,11 +73,14 @@ function fakeOdoo() {
         const ids = Array.isArray(dkId[2]) ? (dkId[2] as number[]) : [Number(dkId[2])];
         return partners.filter((p) => ids.includes(p.id));
       }
-      const tokens = (domain as unknown[][])
-        .filter((d) => Array.isArray(d) && d[0] === 'name' && d[1] === 'ilike')
-        .map((d) => String(d[2]));
-      const khop = tokens.length > 0
-        ? partners.filter((p) => tokens.every((t) => ilikeChua(t, p.name)))
+      // Đọc ĐÚNG prefix-notation của Odoo (& | !) thay vì gom mọi điều kiện
+      // `name` rồi AND hết: từ 12/08 mỗi từ khoá nở ra một KHỐI OR các biến thể
+      // dấu, AND hết là đòi tên chứa đồng thời long+lòng+lóng — không ai thoả.
+      const coDkTen = (domain as unknown[]).some(
+        (d) => Array.isArray(d) && d[0] === 'name' && d[1] === 'ilike');
+      const khop = coDkTen
+        ? partners.filter((p) => khopDomain(domain as unknown[], (dk) =>
+            dk[0] === 'name' && dk[1] === 'ilike' ? ilikeChua(String(dk[2]), p.name) : true))
         : partners;
       return khop.slice(0, opts?.limit ?? khop.length);
     }
@@ -150,10 +153,19 @@ describe('replay 16:15 11/08 — "Anh Long Led" ngoài trang đầu danh sách',
     expect(await m.goi(CAU_LUOT_1)).toBe(true);
     expect(m.tinGui).toHaveLength(1);
     expect(m.tinGui[0]).toContain('10 khách tên "Long"');
-    expect(m.tinGui[0]).not.toContain('Anh Long Led');
     // Tầng 2: KHÔNG được cắt im lặng — phải nói còn nữa + cách thu hẹp.
     expect(m.tinGui[0]).toMatch(/chưa đủ|còn khách/i);
     expect(m.tinGui[0]).toMatch(/đầy đủ hơn|SĐT/i);
+    // ĐỔI Ý so với bản gốc 11/08 (sửa 12/08): hồi đó test khoá "Anh Long Led
+    // KHÔNG có trong trang đầu" — đúng với hành vi lúc ấy, vì tool cắt 10 dòng
+    // theo thứ tự Odoo TRƯỚC rồi mới xếp hạng, nên người khớp sát nhất đứng
+    // cuối bảng thì rớt.
+    //
+    // Nay tool xếp hạng TRƯỚC rồi mới cắt (vá CA 2 "anh Vấn", xem
+    // tra-khach-hang.ts), nên "Anh Long Led" — khớp sát nhất trong 11 người —
+    // được kéo lên trang đầu. Nhân viên thấy ngay người cần ở lượt 1 thay vì
+    // phải nhắn thêm một lượt nữa. Đây là CẢI THIỆN, nên test khoá chiều mới.
+    expect(m.tinGui[0]).toContain('Anh Long Led');
   });
 
   it('lượt 2 "Anh Long Led": TRA LẠI với tên đầy đủ, chốt đúng người — không lặp danh sách (tầng 3)', async () => {
