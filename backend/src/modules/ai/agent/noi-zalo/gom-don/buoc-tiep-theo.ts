@@ -8,6 +8,7 @@
 // sinh ra khi thật sự có dòng sl == null — không phụ thuộc model nhớ hay quên.
 import type { PhienGom, HanhDong } from './kieu.js';
 import { NGUONG_GIA_AO } from '../../../odoo/tools/tra-san-pham.js';
+import { lechVoLy } from './gia-bat-thuong.js';
 
 /**
  * Các kho ĐÁNG hỏi cho đơn này.
@@ -118,6 +119,27 @@ export function buocTiepTheo(p: PhienGom): HanhDong {
   if (!laSua && p.khoId == null && !p.daHoiKho) {
     const chon = khoNhieuLuaChon(p);
     if (chon.length > 1) return { loai: 'hoi_kho', chon };
+  }
+
+  // 4d. GIÁ LỆCH VÔ LÝ so với hệ thống → hỏi lại trước khi cho chốt.
+  //
+  // Bug thật 10:09:33 11/08 (nhóm Test-AI): nhân viên nói "card thu triết khấu
+  // 8%", model nhét số 8 vào ô ĐƠN GIÁ. Bot in "100 × Card thu BX-V7512 = 800đ
+  // (giá anh/chị báo 8đ, hệ thống 230.000đ)" — tự tay khoe con số lệch 28.750
+  // lần — rồi vẫn hỏi "Em chốt lên đơn nhé?". Đơn 46 triệu còn 800đ, chỉ chờ
+  // một chữ "ok".
+  //
+  // Đứng TRƯỚC cả tóm tắt LẪN tao_don, và KHÔNG nể daHoiChot: cái gật cho tóm
+  // tắt cũ không phải là gật cho con số vô lý này. Chỉ `giaLechDaXacNhan` —
+  // nhân viên trả lời đúng câu hỏi về chính con số đó — mới mở cổng.
+  //
+  // Ngưỡng lấy từ số đo prod, không bịa: xem gia-bat-thuong.ts (5.781 dòng đơn
+  // 2026 — KHÔNG dòng nào lệch dưới 0,1 lần; ca thật này ở 0,0000348 lần).
+  if (!laSua && !p.giaLechDaXacNhan) {
+    const lech = p.dong
+      .filter((d) => !d.tang && d.daChot && lechVoLy(d.donGia, d.daChot.gia))
+      .map((d) => ({ ten: d.daChot!.ten, giaNv: d.donGia!, giaHt: d.daChot!.gia }));
+    if (lech.length > 0) return { loai: 'hoi_gia_lech', lech };
   }
 
   // 5. Đủ hết.

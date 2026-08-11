@@ -103,7 +103,11 @@ export interface DongBaoCao {
 }
 
 export type KetQuaLinhHoat =
-  | { trangThai: 'ok'; danhSach: DongBaoCao[]; tong: number; moTa: string }
+  | {
+      trangThai: 'ok'; danhSach: DongBaoCao[]; tong: number; moTa: string;
+      /** Số nhóm THẬT trước khi cắt — `tong` phủ toàn bộ số này, không chỉ `danhSach`. */
+      tongSoNhom: number;
+    }
   | { trangThai: 'loi'; lyDo: string };
 
 export interface LinhHoatDeps {
@@ -231,6 +235,11 @@ export async function baoCaoLinhHoat(
 
     danhSach.sort((a, b) => (input.sap_xep === 'tang' ? a.giaTri - b.giaTri : b.giaTri - a.giaTri));
     const tong = danhSach.reduce((t, d) => t + d.giaTri, 0);
+    // GIỮ số nhóm THẬT trước khi cắt: `tong` phủ toàn bộ nhóm, còn danh sách
+    // in ra bị cắt (ở đây và cắt lần nữa khi hiển thị). Không nói ra thì người
+    // đọc cộng tay các dòng rồi tưởng TỔNG sai — đúng loại mâu thuẫn của bug
+    // 16:09 11/08 ở xuat-cong-no.ts (tổng một đằng, danh sách một nẻo).
+    const tongSoNhom = danhSach.length;
     danhSach = danhSach.slice(0, gioiHan);
 
     const moTa =
@@ -238,17 +247,24 @@ export async function baoCaoLinhHoat(
       (input.tu_ngay || input.den_ngay ? ` · kỳ ${input.tu_ngay ?? '…'} – ${input.den_ngay ?? '…'}` : ' · toàn bộ thời gian') +
       (input.trang_thai ? ` · trạng thái ${input.trang_thai}` : '');
 
-    return { trangThai: 'ok', danhSach, tong, moTa };
+    return { trangThai: 'ok', danhSach, tong, moTa, tongSoNhom };
   } catch (err) {
     return loi(`Odoo từ chối truy vấn: ${err instanceof Error ? err.message.slice(0, 150) : String(err)}`);
   }
 }
 
 export function bangLinhHoat(kq: Extract<KetQuaLinhHoat, { trangThai: 'ok' }>): BangExcel {
+  // Excel là thứ người ta mở ra tự cộng lại để kiểm — dòng TỔNG mà không bằng
+  // tổng các dòng trên là mất niềm tin vào cả báo cáo. Khi bị cắt thì chèn
+  // một dòng nêu rõ phần chưa liệt kê, để cộng tay vẫn ra đúng TỔNG.
+  const dong: (string | number)[][] = kq.danhSach.map((d) => [d.nhan, d.giaTri]);
+  const daIn = kq.danhSach.reduce((t, d) => t + d.giaTri, 0);
+  const bicat = kq.tongSoNhom - kq.danhSach.length;
+  if (bicat > 0) dong.push([`(${bicat} nhóm còn lại chưa liệt kê)`, kq.tong - daIn]);
   return {
     tieuDe: `Báo cáo: ${kq.moTa}`,
     cot: ['Nhóm', 'Giá trị'],
-    dong: kq.danhSach.map((d) => [d.nhan, d.giaTri]),
+    dong,
     tongCong: ['TỔNG', kq.tong],
   };
 }
@@ -264,9 +280,17 @@ export function dinhDangLinhHoat(kq: KetQuaLinhHoat, daDinhKem = false): string 
     const them = (d.phu ?? []).map((p) => ` · ${p.key} ${p.giaTri.toLocaleString('vi-VN')}`).join('');
     return `- ${d.nhan}: ${d.giaTri.toLocaleString('vi-VN')}${them}`;
   }).join('\n');
+  // NÓI RÕ khi danh sách bị cắt: TỔNG phủ toàn bộ nhóm, các dòng dưới chỉ là
+  // phần đầu. Thiếu câu này thì người đọc cộng tay vài dòng rồi tưởng TỔNG sai
+  // (bài học bug 16:09 11/08 — số tổng mâu thuẫn với danh sách in kèm).
+  const bicat = kq.tongSoNhom - hien.length;
+  const chuThichCat = bicat > 0
+    ? `\n(hiển thị ${hien.length}/${kq.tongSoNhom} nhóm — TỔNG ở trên ĐÃ gồm cả ${bicat} nhóm chưa liệt kê)`
+    : '';
   return (
     `Báo cáo (${kq.moTa}) — TỔNG: ${kq.tong.toLocaleString('vi-VN')}\n` +
     dong +
+    chuThichCat +
     (daDinhKem ? `\n... Đã gửi kèm FILE EXCEL đầy đủ ${kq.danhSach.length} dòng (tải về mở được) và một ảnh xem nhanh. Nói "xem file Excel đính kèm ạ".` : '')
   );
 }

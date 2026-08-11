@@ -45,6 +45,14 @@ export interface KetQuaTrich {
    * hoặc tên; code map sang id qua KHO, không tin số model tự bịa.
    */
   kho?: string;
+  /**
+   * VAT nhân viên yêu cầu, tính bằng PHẦN TRĂM ("có VAT" → 8, "VAT 10%" → 10).
+   *
+   * Anh Quốc chốt 11/08: dùng cơ chế thuế sẵn có của Odoo (account.tax), không
+   * dựng sản phẩm giả. Mặc định 8% vì đo prod: 175/175 đơn có VAT trong
+   * 05-07/2026 đều dùng "VAT 8%" (tax_id=4).
+   */
+  vat?: number;
   /** SỬA đơn đã có (spec 08/08) thay vì lên đơn mới. */
   sua?: boolean;
   /** Mã đơn NV nhắc ("sửa đơn S13820") — dạng S + số. */
@@ -134,6 +142,15 @@ const ghiSlotDefinition: ToolDefinition = {
           '"kho trung tâm"/"kho TT" → "TT"; "kho B"/"kho KB" → "KB". ' +
           'Câu KHÔNG nhắc kho thì bỏ trống — đừng đoán.',
       },
+      vat: {
+        type: 'number',
+        description:
+          'VAT tính bằng PHẦN TRĂM khi nhân viên nói đơn này có thuế: ' +
+          '"có VAT"/"xuất VAT"/"lấy hoá đơn đỏ"/"đơn này có thuế" → 8 (mức mặc định của công ty); ' +
+          '"VAT 10%"/"thuế 10%" → 10; "VAT 5%" → 5. ' +
+          'Câu KHÔNG nhắc VAT/thuế thì BỎ TRỐNG — đừng tự thêm thuế vào đơn. ' +
+          'CHÚ Ý: "xuất hoá đơn"/"gửi lại hoá đơn" (xin gửi ảnh hoá đơn) KHÔNG phải VAT.',
+      },
       sua: { type: 'boolean', description: 'true khi nhân viên SỬA đơn đã có (thêm hàng/đổi số lượng), không phải lên đơn mới' },
       maDon: { type: 'string', description: 'Mã đơn nhân viên nhắc, dạng S13820' },
       huy: { type: 'boolean', description: 'true khi nhân viên muốn huỷ đơn đang gom' },
@@ -144,6 +161,14 @@ const ghiSlotDefinition: ToolDefinition = {
 };
 
 const SL_TOI_DA = 1_000_000_000; // đủ cho cả số lượng lẫn đơn giá (đồng)
+
+/**
+ * Mức VAT khi nhân viên chỉ nói "có VAT" mà không kèm số.
+ *
+ * 8% chứ không phải 10%: đo prod 11/08 — 175 đơn + 143 hoá đơn dùng VAT trong
+ * 05-07/2026 đều là "VAT 8%" (tax_id=4), không đơn nào dùng mức khác.
+ */
+export const VAT_MAC_DINH = 8;
 
 function nguyenDuong(x: unknown): number | undefined {
   const n = Number(x);
@@ -199,6 +224,18 @@ export function lamSachTrich(raw: Record<string, unknown>): KetQuaTrich {
   }
   const ckDon = Number(raw.chietKhauDon);
   if (Number.isFinite(ckDon) && ckDon > 0 && ckDon <= 100) kq.chietKhauDon = ckDon;
+  // VAT: model hay trả true/"true" cho câu "có VAT" (không kèm số) dù schema
+  // khai number — nhận luôn, quy về mức mặc định 8% của công ty (đo prod:
+  // 175/175 đơn có VAT trong 05-07/2026 đều là "VAT 8%", tax_id=4).
+  //
+  // Số phải trong (0, 100]: model bịa "150%" hay số âm thì BỎ hẳn, đừng đoán
+  // sang 8% — sai thuế là sai sổ sách, thà không có rồi nhân viên thấy thiếu.
+  if (raw.vat === true || raw.vat === 'true') {
+    kq.vat = VAT_MAC_DINH;
+  } else if (raw.vat != null && raw.vat !== false) {
+    const v = Number(raw.vat);
+    if (Number.isFinite(v) && v > 0 && v <= 100) kq.vat = v;
+  }
   if (typeof raw.kho === 'string' && raw.kho.trim()) kq.kho = raw.kho.trim();
   if (raw.lenDon === true) kq.lenDon = true;
   if (raw.sua === true) kq.sua = true;
@@ -250,6 +287,11 @@ export async function trichSlot(
     '= HAI dòng: {sp:"ovp k2", sl:10, gia:2300000} và {sp:"ovp k2", sl:1, tang:true}.',
     'KHO nếu câu có nhắc ("kho HCM", "lấy kho Hồ Chí Minh", "kho trung tâm") →',
     'điền kho; câu không nhắc thì bỏ trống, ĐỪNG đoán.',
+    'VAT/THUẾ: câu nói đơn có thuế ("có VAT", "xuất VAT", "thêm vat", "lấy hoá',
+    'đơn đỏ", "đơn này có thuế") → vat=8 (mức mặc định công ty); nói rõ mức',
+    '("VAT 10%", "thuế 10%") → vat=10. Câu không nhắc thuế thì BỎ TRỐNG.',
+    'PHÂN BIỆT: "xuất hoá đơn"/"gửi lại hoá đơn" một mình là xin GỬI ẢNH hoá',
+    'đơn → ngoaiLe=true, KHÔNG phải vat. "Xuất VAT"/"hoá đơn đỏ" mới là thuế.',
     'Chỉ trích cái CÓ trong câu — không đoán, không bịa. Bỏ xưng hô (anh/chị/em/bác)',
     'khỏi tên khách, nhưng GIỮ NGUYÊN biệt danh chứa từ ngành hàng — khách buôn hay',
     'tên kiểu "Long Led", "Hoa Đèn": "lên đơn cho anh Long Led" → khach="Long Led",',

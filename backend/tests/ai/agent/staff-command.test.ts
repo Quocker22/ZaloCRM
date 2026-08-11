@@ -221,7 +221,15 @@ describe('buildStaffSystemPrompt', () => {
     // 2.900 → 3.100 (10/08): 3 tool Odoo tổng quát (doc_odoo/lam_odoo/
     // kham_pha_odoo) — 2 dòng, đổi lại KHÔNG phải thêm dòng prompt cho từng
     // nghiệp vụ mới nữa. Đây là khoản đầu tư giảm phình về sau.
-    expect(buildStaffSystemPrompt(BIZ_THAT).length).toBeLessThan(3100);
+    // 3.100 → 3.350 (11/08): 2 luật, mỗi luật một lỗi thật trong ca 15:06→15:35
+    // ngày 11/08 (nhóm Test-AI, 28 phút cho một đơn 1 lượt):
+    //   - "giá NV báo THẮNG giá hệ thống" — luật đã chốt 10/08 nhưng CHỈ máy gom
+    //     đơn biết; agent tự do không biết nên đòi "giá chính thức" rồi từ chối.
+    //   - "KHÔNG nói đã chuyển sang bộ phận sale" — bot hứa 5 lần trong khi tool
+    //     chuyen_sale không có trong registry nhân viên và không báo cho ai.
+    // ĐÃ NÉN TRƯỚC KHI NỚI: bản đầu +553 ký tự, gộp còn +218 (5 dòng → 5 dòng
+    // ngắn hơn, sự tích dồn hết vào comment). Ký tự tĩnh rẻ 4x nhờ implicit cache.
+    expect(buildStaffSystemPrompt(BIZ_THAT).length).toBeLessThan(3350);
   });
 });
 

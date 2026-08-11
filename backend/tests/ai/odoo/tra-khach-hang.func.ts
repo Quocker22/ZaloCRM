@@ -234,13 +234,19 @@ describe('dinhDangKhachHang — hướng dẫn model làm gì tiếp', () => {
     expect(s).toContain('chuyen_sale');
   });
 
-  it('có công nợ → hiện ra để sale biết trước khi chốt đơn', async () => {
+  it('có công nợ → BÁO CÓ nợ nhưng KHÔNG nêu số, bắt gọi xuat_cong_no', async () => {
+    // Đổi sau bug 16:09 11/08: `incokit_receivable_balance` sai ở 29/40 khách
+    // nợ nhiều nhất trên prod. Nêu số ở đây là model trả lời câu hỏi công nợ
+    // bằng số sai mà không bao giờ gọi xuat_cong_no (nguồn đúng).
     const kq = await traKhachHang(
       { odoo: fakeOdoo([kh({ incokit_receivable_balance: 5000000 })]) },
       { sdt: '0912345678' },
     );
 
-    expect(dinhDangKhachHang(kq)).toContain('5.000.000đ');
+    const s = dinhDangKhachHang(kq);
+    expect(s).toContain('ĐANG CÓ CÔNG NỢ');
+    expect(s).toContain('xuat_cong_no');
+    expect(s).not.toContain('5.000.000đ');
   });
 
   it('không nợ → không nhắc công nợ cho gọn', async () => {

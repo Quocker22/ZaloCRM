@@ -39,8 +39,11 @@ import {
 import {
   traTriThuc, traTriThucDefinition, dinhDangTriThuc,
 } from '../odoo/tools/tra-tri-thuc.js';
+import {
+  guiTaiLieu, guiTaiLieuDefinition, dinhDangGuiTaiLieu, type TaiLieu,
+} from '../odoo/tools/gui-tai-lieu.js';
 import { findImageForReply } from '../knowledge/product-image.js';
-import { laYDinhDung } from './y-dinh-dung.js';
+import { laYDinhDung, khoeDaGuiTaiLieu } from './y-dinh-dung.js';
 import { matchGuidelines, type KetQuaMatch } from './guideline-matcher.js';
 import { lapPromptKhach, tinhToolChoPhep, type GuidelineActive } from './guideline-prompt.js';
 
@@ -60,6 +63,11 @@ export interface CustomerAgentDeps {
   ghiLog?: (log: ToolCallLog) => Promise<void> | void;
   /** Tra tài liệu kỹ thuật. Không truyền thì tool `tra_tri_thuc` không đăng ký. */
   timDoanTriThuc?: (cauHoi: string, soDoan: number) => Promise<Array<{ content: string; score?: number }>>;
+  /**
+   * Kho tài liệu (catalog/datasheet PDF) gửi được cho khách. Không truyền thì
+   * tool `gui_tai_lieu` không đăng ký — khỏi hứa gửi rồi không gửi được.
+   */
+  lietTaiLieu?: () => Promise<TaiLieu[]>;
   /**
    * Guideline engine (docs/THIET-KE-GUIDELINE-ENGINE.md). Không truyền = 'off'
    * — prompt tĩnh, đúng hành vi cũ từng byte.
@@ -113,6 +121,12 @@ export type CustomerAgentResult =
       anhSanPham?: string;
       /** Đơn vừa tạo (chỉ khi bật cho khách tự chốt) — caller gửi QR. */
       don?: { donId: number; maDon: string; tongTien: number; tenKhach: string };
+      /**
+       * File tài liệu bot đã lấy được (tool `gui_tai_lieu`) — caller gửi qua
+       * Zalo sau phần text. File KHÔNG đi qua LLM: nó không đọc được PDF nhị
+       * phân và vài MB base64 nuốt sạch ngữ cảnh.
+       */
+      taiLieu?: Array<{ tieuDe: string; duongDanCucBo: string }>;
     }
   | { trangThai: 'chua_hoan_tat'; lyDo: string; log: ToolCallLog[]; usage: TurnUsage };
 
@@ -151,6 +165,15 @@ export function buildCustomerRegistry(deps: {
   };
   /** Tra tài liệu kỹ thuật. Không truyền thì tool không đăng ký. */
   timDoanTriThuc?: (cauHoi: string, soDoan: number) => Promise<Array<{ content: string; score?: number }>>;
+  /**
+   * Liệt kê tài liệu (catalog/datasheet PDF) gửi được cho khách. Không truyền
+   * thì tool `gui_tai_lieu` không đăng ký. Danh sách trả về ĐÃ qua `locGiaNoiBo`.
+   */
+  lietTaiLieu?: () => Promise<TaiLieu[]>;
+  /** Tải tài liệu về đường dẫn cục bộ. Mặc định dùng `taiTaiLieuVe` của kho. */
+  taiTaiLieu?: (t: TaiLieu) => Promise<string>;
+  /** Nhận file tài liệu đã tải — caller gửi qua Zalo sau phần text. */
+  nhanTaiLieu?: (t: { tieuDe: string; duongDanCucBo: string }) => void;
   /**
    * Guideline engine mode 'on': chỉ tool trong bộ này được đăng ký. Không
    * truyền = không gate (hành vi cũ). Tầng chặn NẰM DƯỚI prompt: matcher không
@@ -203,6 +226,43 @@ export function buildCustomerRegistry(deps: {
         dinhDangTriThuc(
           await traTriThuc({ timDoan: deps.timDoanTriThuc! }, input as { cau_hoi: string }),
         ),
+    });
+  }
+
+  // GỬI FILE TÀI LIỆU cho KHÁCH (11/08/2026) — anh Quốc chốt: "nếu như khách
+  // yêu cầu gửi pdf thì phải gửi luôn nhé".
+  //
+  // VÌ SAO MỞ CHO KHÁCH, cùng lý lẽ đã áp cho `tra_tri_thuc`: datasheet là tài
+  // liệu kỹ thuật CÔNG KHAI của nhà sản xuất — khách mua LED cần xem thông số
+  // trước khi chốt, đó là chuyện bán hàng bình thường. Đã soát nội dung thật
+  // của cả 8 file trên prod (11/08): 0/8 file dính từ khoá giá nội bộ ("agent
+  // price", "vip price", "project price", "giá vốn", "giá nhập", "cost price",
+  // "wholesale price").
+  //
+  // NHƯNG "hôm nay sạch" KHÔNG phải hàng rào — kho file lấy từ bảng `messages`
+  // nên nhân viên gửi "Bang gia dai ly.pdf" vào nhóm là nó tự vào kho. Hàng rào
+  // thật là `locGiaNoiBo` chạy trong `lietKeTaiLieu`, TRƯỚC khi tool nhìn thấy
+  // bất cứ file nào: chỉ .pdf, và loại mọi tên file dính từ khoá giá.
+  //
+  // Đối xứng với `tra_tri_thuc`: cùng chịu gate guideline, cùng tắt khi không
+  // có nguồn dữ liệu.
+  if (deps.lietTaiLieu && duocPhep('gui_tai_lieu')) {
+    const liet = deps.lietTaiLieu;
+    const taiVe = deps.taiTaiLieu ?? (async (t: TaiLieu) => {
+      const { taiTaiLieuVe } = await import('../knowledge/kho-tai-lieu.js');
+      return taiTaiLieuVe(t);
+    });
+    r.register({
+      definition: guiTaiLieuDefinition,
+      run: async (input) => {
+        const kq = await guiTaiLieu({ liet, taiVe }, input as { yeu_cau: string });
+        // File KHÔNG đi qua LLM: nó không đọc được PDF nhị phân, và vài MB
+        // base64 nuốt sạch ngữ cảnh — cùng lý do ảnh hoá đơn đi đường riêng.
+        if (kq.loai === 'da_gui') {
+          deps.nhanTaiLieu?.({ tieuDe: kq.taiLieu.tieuDe, duongDanCucBo: kq.duongDanCucBo });
+        }
+        return dinhDangGuiTaiLieu(kq);
+      },
     });
   }
 
@@ -423,11 +483,14 @@ export async function chayTuVanKhach(
       ...deps.choKhachChotDon,
       nhanDon: (d) => { donVuaTao = d; },
     },
+    lietTaiLieu: deps.lietTaiLieu,
+    nhanTaiLieu: (t) => { taiLieuDaLay.push(t); },
     toolChoPhep: dungPromptDong ? tinhToolChoPhep(match!, guidelineActive) : undefined,
   });
 
   const log: ToolCallLog[] = [];
   let donVuaTao: { donId: number; maDon: string; tongTien: number; tenKhach: string } | undefined;
+  const taiLieuDaLay: Array<{ tieuDe: string; duongDanCucBo: string }> = [];
 
   const kq = await runAgent({
     system: dungPromptDong
@@ -513,7 +576,27 @@ export async function chayTuVanKhach(
   // Tìm ảnh theo NỘI DUNG câu trả lời, không theo câu hỏi: chỉ gửi khi bot đã
   // chốt được ĐÚNG một sản phẩm. `findImageForReply` tự bỏ qua khi không chắc
   // (đòi khớp >=60% token tên + đúng mã model) — thà không gửi còn hơn gửi nhầm.
+  // HÀNG RÀO CHỐNG BỊA GỬI TÀI LIỆU (11/08/2026) — bot không được khoe "em gửi
+  // catalog cho anh rồi" khi KHÔNG có file nào thật sự lấy được.
+  //
+  // Bug 03:17-03:18 ngày 11/08 là chiều NGƯỢC LẠI (bot từ chối dù có file), và
+  // sửa nó bằng cách mở tool `gui_tai_lieu` lại mở ra đúng chiều bịa mà hệ này
+  // đã dính hai lần: khoeDaGhi (05/08 — "đã cập nhật đơn"), khoeDaGuiAnh (07/08
+  // DNH36805 — "em gửi lại ảnh đơn hàng"). Khách xin tài liệu rồi ngồi chờ một
+  // file không bao giờ tới thì tệ hơn hẳn việc nghe "bên em chưa có".
+  if (taiLieuDaLay.length === 0 && khoeDaGuiTaiLieu(traLoi)) {
+    return {
+      trangThai: 'chua_hoan_tat',
+      lyDo: 'Model nói đã gửi tài liệu nhưng KHÔNG gọi gui_tai_lieu — chặn để khỏi lừa khách.',
+      log,
+      usage: kq.usage,
+    };
+  }
+
   const anhSanPham = findImageForReply(traLoi) ?? undefined;
 
-  return { trangThai: 'xong', traLoi, log, usage: kq.usage, anhSanPham, don: donVuaTao };
+  return {
+    trangThai: 'xong', traLoi, log, usage: kq.usage, anhSanPham, don: donVuaTao,
+    ...(taiLieuDaLay.length > 0 ? { taiLieu: taiLieuDaLay } : {}),
+  };
 }

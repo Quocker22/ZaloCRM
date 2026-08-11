@@ -56,7 +56,7 @@ export async function timKhachGoiY(
   const rows = await odoo.searchRead<Record<string, unknown>>(
     'res.partner',
     domain,
-    ['id', 'name', 'ref', 'phone', 'mobile', 'incokit_receivable_balance'],
+    ['id', 'name', 'ref', 'phone', 'mobile', 'credit'],
     { limit: SO_GOI_Y },
   );
 
@@ -67,7 +67,13 @@ export async function timKhachGoiY(
     sdt: String(r.phone || r.mobile || ''),
     // Hiện công nợ ngay trong gợi ý: nhân viên thấy khách đang nợ trước khi
     // lên đơn mới. Đây là API cho NHÂN VIÊN (có JWT), không phải cho khách.
-    congNo: Number(r.incokit_receivable_balance ?? 0),
+    //
+    // DÙNG `credit` (số dư phải thu chuẩn kế toán của Odoo), KHÔNG dùng
+    // `incokit_receivable_balance`: field tự viết đó đo trên prod 11/08 thấy
+    // SAI ở 29/40 khách nợ nhiều nhất — có khách hiện 0 mà thật ra đang nợ
+    // (Led Trường An: field 2,8tr / thật 605tr). Nhân viên nhìn số 0 rồi bán
+    // chịu tiếp cho khách đang nợ nửa tỷ. Xem bug 16:09 11/08 ở xuat-cong-no.ts.
+    congNo: Number(r.credit ?? 0),
   }));
 }
 

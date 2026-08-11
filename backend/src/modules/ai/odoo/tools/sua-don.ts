@@ -11,6 +11,7 @@
 //   - Đọc LẠI tổng từ Odoo sau khi ghi, không suy ra từ phép nhân của mình.
 import type { OdooClient } from '../client.js';
 import type { ToolDefinition } from '../../agent/types.js';
+import { lenhGanThue } from './tao-don-nhap.js';
 
 const STATE_SUA_DUOC = ['draft', 'sent'] as const;
 
@@ -18,9 +19,16 @@ const STATE_SUA_DUOC = ['draft', 'sent'] as const;
  * price_unit chỉ gửi khi NHÂN VIÊN có báo giá. Không báo → để Odoo tự lấy
  * pricelist như cũ (bot không tự nghĩ ra giá — luật đó không đổi).
  */
-function giaNeuCo(d: DongSua): { price_unit?: number; discount?: number } {
+function giaNeuCo(d: DongSua): {
+  price_unit?: number; discount?: number; tax_id?: Array<[number, number, number[]]>;
+} {
+  // VAT (11/08): tính TRƯỚC nhánh tặng — dòng tặng vẫn phải gắn thuế cho hoá
+  // đơn nhất quán (0đ × 8% = 0đ, không đổi tiền). Chỉ giá/chiết khấu mới bị
+  // nhánh tặng nuốt.
+  const thue = lenhGanThue(d.thue_id);
+  const vat = thue ? { tax_id: thue } : {};
   // Dòng TẶNG: giá LUÔN 0, bỏ qua mọi giá/chiết khấu lỡ truyền vào.
-  if (d.tang === true) return { price_unit: 0 };
+  if (d.tang === true) return { price_unit: 0, ...vat };
   const g = Number(d.don_gia);
   // Chiết khấu cùng luật với giá (11/08): chỉ nhận 0-100, ghi bừa là sai tiền
   // thật của khách. "Hai đường phải cùng luật" — bài học bug 17:41 10/08.
@@ -28,6 +36,7 @@ function giaNeuCo(d: DongSua): { price_unit?: number; discount?: number } {
   return {
     ...(g > 0 ? { price_unit: g } : {}),
     ...(Number.isFinite(c) && c > 0 && c <= 100 ? { discount: c } : {}),
+    ...vat,
   };
 }
 
@@ -54,6 +63,18 @@ export interface DongSua {
    * Đây là lần thứ TƯ cùng một bài học — xem comment `don_gia` ở trên.
    */
   tang?: boolean;
+  /**
+   * id dòng thuế VAT (account.tax) — cơ chế thuế sẵn có của Odoo.
+   *
+   * LẦN THỨ NĂM của cùng một bài học (giá 10/08, chiết khấu 11/08, tặng kèm
+   * 11/08): đường TẠO đơn nhận thì đường SỬA cũng phải nhận. Không thì nhân
+   * viên "đơn này xuất VAT nữa em" xong đơn vẫn không thuế, mà hoá đơn đã kế
+   * thừa từ đơn nên sai luôn cả sổ.
+   *
+   * Không truyền = KHÔNG đụng tax_id của đơn đang có: đơn cũ có thể đã gắn
+   * thuế từ lúc tạo, ghi đè im lặng là xoá mất thuế thật.
+   */
+  thue_id?: number;
 }
 
 export interface KetQuaSuaDon {

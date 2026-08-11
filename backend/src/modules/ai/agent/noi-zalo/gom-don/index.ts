@@ -167,7 +167,13 @@ function dapSlot(p: PhienGom, trich: KetQuaTrich): boolean {
     );
     if (cu) {
       if (d.sl != null && cu.sl !== d.sl) { cu.sl = d.sl; doi = true; }
-      if (d.gia != null && cu.donGia !== d.gia) { cu.donGia = d.gia; doi = true; }
+      // Giá MỚI khác giá cũ → cái gật cho giá lệch trước đó hết hiệu lực.
+      // Nhân viên xác nhận "8đ đúng rồi" xong lại báo "2đ" thì phải hỏi lại,
+      // không được mượn cái gật cũ (hàng rào 11/08).
+      if (d.gia != null && cu.donGia !== d.gia) {
+        cu.donGia = d.gia; doi = true;
+        delete p.giaLechDaXacNhan;
+      }
       if (d.chietKhau != null && cu.chietKhau !== d.chietKhau) { cu.chietKhau = d.chietKhau; doi = true; }
     } else {
       p.dong.push({
@@ -350,7 +356,13 @@ async function taoDonVaBaoGia(
     ...(p.khoId != null ? { kho_id: p.khoId } : {}),
   };
   const kq = await taoDonNhap(
-    { odoo: deps.odoo, conversationId: input.conversationId, seq: input.seq, choPhepDatGia: true },
+    {
+      odoo: deps.odoo, conversationId: input.conversationId, seq: input.seq, choPhepDatGia: true,
+      // Nhân viên đã trả lời câu hỏi giá lệch ở máy gom đơn rồi → đừng bắt họ
+      // xác nhận lần thứ hai ở cổng tool. Hỏi hai lần cho cùng một con số là
+      // kiểu bot "điếc" mà hàng rào này sinh ra để tránh.
+      ...(p.giaLechDaXacNhan ? { xacNhanGiaLech: true } : {}),
+    },
     donVao,
   );
   deps.ghiLog({
@@ -535,7 +547,31 @@ export async function xuLyGomDon(
     return true;
   }
   // Digression: câu không liên quan đơn → nhường agent thường, phiên GIỮ NGUYÊN.
-  if (!daChon && trich.ngoaiLe) return false;
+  //
+  // NHƯNG lệnh LÊN ĐƠN RÕ RÀNG thì model KHÔNG có quyền phủ quyết (sửa 11/08).
+  //
+  // Ca thật 15:06→15:35 11/08 (nhóm Test-AI) — 28 phút, 8 lượt nhắc lại cho một
+  // đơn đáng ra xong trong 1 lượt:
+  //
+  //   15:06:59  NV : "lên đơn cho chị phương ali 4 bóng lixin 4000k trung tính
+  //                   trong nhà 500 bóng giá 2800 nhé"
+  //   15:07:29  bot: "Dạ em đã chuyển việc lên đơn ... sang bộ phận sale xử lý ạ"
+  //
+  // Câu đó có ĐỦ khách + SP + SL + giá và KHỚP `NHAN_LENH_LEN_DON`. Cửa vào
+  // (f99b06ac) định là "regex khớp → vào thẳng", nhưng regex chỉ giúp bỏ qua
+  // lượt hỏi `lenDon`; xuống tới đây model vẫn cướp được lượt bằng ngoaiLe=true.
+  // Nó rất dễ trả như vậy: prompt trích slot dạy "hoá đơn là ngoaiLe", còn câu
+  // này thì dài và nhiễu ("4 bóng ... 500 bóng"). Bốn câu "lên đơn ..." trong ca
+  // (15:06, 15:14, 15:20, 15:31) đều khớp regex và đều bị nhường như thế.
+  //
+  // Rơi xuống agent tự do là mất luật "giá NV báo thắng giá hệ thống" → bot quay
+  // ra đòi giá chính thức rồi hứa "đã chuyển sale" 5 lần, dù chính sale đang
+  // ngồi trong nhóm hỏi nó. Máy gom đơn vào cuộc lúc 15:32 thì đơn lên sau 3'.
+  //
+  // Luật: câu tự nó mang dấu hiệu lệnh lên đơn (regex) thì "không liên quan đơn
+  // hàng" là câu trả lời TỰ MÂU THUẪN — bỏ qua, code cầm lái tiếp. Hàng rào HẸP
+  // có chủ ý: chỉ cứu khi regex khớp, câu báo cáo/tồn kho vẫn nhường như cũ.
+  if (!daChon && trich.ngoaiLe && !regexLen && !laLenhSua) return false;
 
   // Chế phiên: câu có dấu hiệu sửa (regex HOẶC model trích sua=true) → 'sua'.
   // Phiên đã mở giữ nguyên chế của nó — đang gom đơn mới mà nói "thêm 5 cáp"
@@ -561,6 +597,21 @@ export async function xuLyGomDon(
       const moi = mapKho(cauChon);
       if (moi != null) phien.khoId = moi;
     }
+  }
+
+  // ĐANG CHỜ TRẢ LỜI GIÁ LỆCH (hàng rào 11/08, bug 10:09:33).
+  //
+  // Máy vừa hỏi "anh/chị báo 8đ nhưng hệ thống 230.000đ — giá đúng là bao
+  // nhiêu?". Hai kiểu trả lời:
+  //   - báo giá MỚI ("230k") → dapSlot ở trên đã ghi đè donGia và xoá cờ; giá
+  //     mới lại đi qua hàng rào một lần nữa, đúng như vậy.
+  //   - khẳng định giá cũ ("đúng rồi", "ok", "giá đó chuẩn") → gật cho CHÍNH
+  //     con số đó, ghi theo họ. Luật 10/08 không đổi: giá NV báo thắng giá hệ
+  //     thống — hàng rào chỉ đòi hỏi lại MỘT lần, không có quyền phủ quyết.
+  //
+  // Bắt cờ TRƯỚC khi gọi buocTiepTheo để nhân viên không phải trả lời hai lượt.
+  if (phien.daHoiGiaLech && !phien.giaLechDaXacNhan && trich.dong?.every((d) => d.gia == null) !== false) {
+    if (trich.xacNhan || laXacNhanNgan(cauChon)) phien.giaLechDaXacNhan = true;
   }
 
   // ĐƯỜNG THOÁT 4 (bug 16:15 11/08): đang chờ chọn khách mà câu không map được
@@ -684,6 +735,8 @@ export async function xuLyGomDon(
   // Đã hỏi kho một lần thì thôi: lượt sau dù NV trả lời trống trơn, máy vẫn đi
   // tiếp bằng kho mặc định thay vì hỏi mãi (291/300 đơn dùng mặc định).
   if (hd.loai === 'hoi_kho') phien.daHoiKho = true;
+  // Đánh dấu vừa hỏi giá lệch: câu kế của NV là câu trả lời cho chính nó.
+  phien.daHoiGiaLech = hd.loai === 'hoi_gia_lech';
   if (hd.loai === 'khong_thay') {
     // Đã báo không thấy — dọn phần hỏng để NV gõ lại từ khoá khác.
     if (phien.khachKhongThay) { phien.khachTuKhoa = null; delete phien.khachKhongThay; }

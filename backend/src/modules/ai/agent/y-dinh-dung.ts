@@ -136,6 +136,103 @@ export function khoeDaGuiAnh(traLoi: string): boolean {
   return re.test(t);
 }
 
+/**
+ * Câu trả lời có KHOE đã/đang GỬI FILE TÀI LIỆU (catalog, datasheet PDF) không?
+ *
+ * VÌ SAO CẦN THÊM, bên cạnh `khoeDaGuiAnh`: từ 11/08/2026 bot gửi được cả FILE
+ * qua tool `gui_tai_lieu`, không chỉ ẢNH hoá đơn. `khoeDaGuiAnh` chỉ soi
+ * "gửi ảnh/hình/hoá đơn", nên câu "em gửi catalog cho anh rồi" lọt thẳng qua.
+ *
+ * Đây là lần thứ BA cùng một dạng bịa: `khoeDaGhi` (05/08 — "đã cập nhật đơn"
+ * khi tool ghi bị chặn), `khoeDaGuiAnh` (07/08 DNH36805 — "em gửi lại ảnh đơn
+ * hàng" khi chạy 0 tool). Mở thêm một đường GỬI mà không mở hàng rào theo là
+ * mời bug đó quay lại lần ba — lần này với file, thứ người ta ngồi chờ.
+ *
+ * BẮT CHẶT theo đúng mẫu `khoeDaGuiAnh`: chỉ chặn khi CHỦ NGỮ là BOT. Bot XIN
+ * người khác gửi ("anh gửi tài liệu qua giúp em") mang nghĩa NGƯỢC — chặn câu
+ * đó thì văng nguyên thông báo NỘI BỘ ra cho khách (bug 23:38:44 10/08).
+ *
+ * KHÔNG bắt "gửi ảnh/hình/hoá đơn": để `khoeDaGuiAnh` lo, hai hàng rào đối
+ * chiếu với hai bằng chứng khác nhau (ảnh hoá đơn vs tool gui_tai_lieu).
+ */
+export function khoeDaGuiTaiLieu(traLoi: string): boolean {
+  const t = boDau(String(traLoi ?? ''));
+  const CHU_NGU_BOT = '(?:em|minh|shop|ben em|da)';
+  const DO_GUI = '(?:tai lieu|catalog(?:ue)?|cattalog|datasheet|file|pdf|ho so)';
+  const re = new RegExp(
+    `\\b${CHU_NGU_BOT}\\s+(?:da\\s+|se\\s+|dang\\s+)?gui\\s+(?:lai\\s+)?(?:\\w+\\s+)?${DO_GUI}`,
+    'i',
+  );
+  if (!re.test(t)) return false;
+
+  // ĐỀ NGHỊ / CÂU HỎI thì cho qua — "anh có cần em gửi catalog không ạ" là bot
+  // XIN PHÉP, chưa gửi gì và cũng không khẳng định đã gửi. Chặn câu này là
+  // chặn đúng hành vi mình MUỐN bot làm (hỏi trước khi gửi khi khớp nhiều
+  // file), và người dùng sẽ nhận nguyên thông báo nội bộ thay vì câu hỏi.
+  //
+  // Cùng lý do đã khiến `khoeDaGuiAnh` phải soi chủ ngữ (bug 23:38:44 10/08):
+  // hàng rào bắt quá rộng còn hại hơn không có hàng rào.
+  //
+  // CHỈ dấu hiệu HỎI thật. KHÔNG dùng "nhé/nha" làm dấu hiệu: đó là từ đệm cho
+  // mềm câu, "em đã gửi tài liệu P10 cho anh NHÉ" vẫn là lời khẳng định đã gửi.
+  const LA_DE_NGHI = /(?:\bco can\b|\bcan khong\b|\bco muon\b|\bmuon khong\b|\bkhong a\b|\bkhong \?|\?)/;
+  return !LA_DE_NGHI.test(t);
+}
+
+/**
+ * Câu trả lời có HỨA "đã chuyển việc sang bộ phận sale" không?
+ *
+ * Ca thật 15:06→15:35 11/08/2026 (nhóm Test-AI) — bot nói câu này NĂM lần:
+ *
+ *   15:07:29  "Dạ em đã chuyển việc lên đơn ... sang bộ phận sale xử lý ạ.
+ *              Sale sẽ xác nhận khách và lên đơn giúp anh/chị ngay."
+ *   15:09:59 / 15:14:50 / 15:16:31 / 15:32:13  — lặp lại y hệt
+ *
+ * HAI cái sai chồng nhau:
+ *   1. Tool `chuyen_sale` KHÔNG nằm trong registry NHÂN VIÊN — bỏ từ 07/08
+ *      (staff-agent.ts): "người đang chat CHÍNH LÀ sale, không có ai để
+ *      chuyển". Nên không tool nào chạy; câu đó model bịa ra 100%.
+ *   2. Kể cả nếu tool chạy (luồng khách), nó chỉ gọi `ghiNhan` → đúng một
+ *      dòng `logger.info` trong luong-nhan-vien.ts. Không gắn tag, không mở
+ *      nhóm handoff, KHÔNG ai nhận được thông báo nào.
+ *
+ * Nhân viên đọc "đã chuyển, sale sẽ xử lý ngay" thì ngồi chờ một người không
+ * bao giờ tới — trong ca này là 28 phút và 8 lượt nhắc lại.
+ *
+ * Đây là hàng rào THỨ TƯ cùng một họ: `khoeDaGhi` (05/08 — "đã cập nhật đơn"
+ * khi tool ghi bị chặn), `khoeDaGuiAnh` (07/08 DNH36805 — "em gửi lại ảnh"
+ * khi chạy 0 tool), `khoeDaGuiTaiLieu` (11/08). Mỗi lần đều cùng bài học:
+ * prompt dặn được nhưng model lờ được, hàng rào phải là code.
+ *
+ * BẮT CHẶT theo đúng mẫu các hàm trên — phải hội đủ BA yếu tố:
+ *   chủ ngữ BOT + động từ CHUYỂN + đích đến là BỘ PHẬN/NGƯỜI (sale, kinh doanh)
+ *
+ * Nhờ vậy các câu sau vẫn qua: "em chuyển đơn sang trạng thái xác nhận" (đích
+ * là trạng thái, không phải người), "em đã chuyển khoản tiền cọc" (chuyển
+ * khoản), "anh/chị liên hệ sale" (không có động từ chuyển của bot). Và câu
+ * ĐÚNG mà ta muốn bot nói — "em không chuyển sang sale được, cho em xin giá" —
+ * cũng không bị chặn vì có phủ định.
+ */
+export function khoeDaChuyenSale(traLoi: string): boolean {
+  const t = boDau(String(traLoi ?? ''));
+
+  // Bot nói nó KHÔNG chuyển được — đó chính là hành vi ĐÚNG, đừng chặn.
+  // Cùng bài học với `khoeDaGuiAnh`: hàng rào bắt quá rộng hại hơn không có.
+  if (/\b(?:khong|ko|chua)\s+(?:the\s+)?chuyen\b/.test(t)) return false;
+  // Hỏi ý, chưa khẳng định đã làm ("có muốn em chuyển cho sale không ạ?").
+  if (/(?:\bco muon\b|\bco can\b|\bmuon khong\b|\bkhong a\b|\?)/.test(t)) return false;
+
+  const CHU_NGU_BOT = '(?:em|minh|shop|ben em|da)';
+  // Đích đến phải là NGƯỜI/BỘ PHẬN. "sang trạng thái", "khoản" không tính.
+  const DICH = '(?:bo phan\\s+)?(?:sale|sales|kinh doanh|ban hang)';
+  const re = new RegExp(
+    // "em đã chuyển (việc lên đơn này) sang/cho (bộ phận) sale"
+    `\\b${CHU_NGU_BOT}\\s+(?:da\\s+|se\\s+|dang\\s+)?chuyen\\s+(?:[\\w\\s]{0,30}?\\s)?(?:sang|cho|qua|toi|den)\\s+${DICH}\\b`,
+    'i',
+  );
+  return re.test(t);
+}
+
 /** Câu tool trả về khi bị chặn — nói cho model biết vì sao và phải làm gì. */
 export function lyDoChan(tenTool: string): string {
   return (

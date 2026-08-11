@@ -92,6 +92,25 @@ export interface PhienGom {
   /** Đã hiện tóm tắt, đang chờ NV chốt — chặn tạo đơn khi chưa ai gật. */
   daHoiChot?: boolean;
   /**
+   * Nhân viên đã XÁC NHẬN lại giá lệch bất thường → thôi hỏi, ghi theo họ.
+   *
+   * Bug thật 10:09:33 11/08: model đọc "triết khấu 8%" rồi nhét số 8 vào ô ĐƠN
+   * GIÁ (hệ thống 230.000đ). Bot in cả hai số cạnh nhau — lệch 28.750 lần —
+   * rồi vẫn hỏi "Em chốt lên đơn nhé?". Gõ "ok" là đơn 800đ vào hệ thống.
+   *
+   * Hỏi lại ĐÚNG MỘT LẦN rồi tin người: luật 10/08 vẫn là "giá NV báo thắng
+   * giá hệ thống". Cờ này là cái gật đó, không phải quyền bỏ qua hàng rào —
+   * nó bị xoá mỗi khi nhân viên báo giá MỚI (xem dapSlot).
+   */
+  giaLechDaXacNhan?: boolean;
+  /**
+   * Máy vừa hỏi về giá lệch → câu kế của nhân viên là CÂU TRẢ LỜI cho nó.
+   *
+   * Cần cờ riêng vì câu đáp thường cụt lủn ("đúng rồi", "ừ", "ok") — không có
+   * ngữ cảnh này thì không phân biệt được nó gật cho GIÁ hay gật chốt cả đơn.
+   */
+  daHoiGiaLech?: boolean;
+  /**
    * Kho xuất hàng NV đã chốt cho đơn này (id trong KHO). Không đặt = để Odoo tự
    * lấy kho mặc định — đúng hành vi 291/300 đơn hiện nay.
    */
@@ -102,6 +121,31 @@ export interface PhienGom {
    * bằng kho mặc định, đừng chặn đơn.
    */
   daHoiKho?: boolean;
+
+  // ── VAT (11/08/2026) ───────────────────────────────────────────────────
+  /**
+   * Phần trăm VAT nhân viên nói ("có VAT" → 8; "VAT 10%" → 10).
+   *
+   * KHÔNG nhắc gì = không đặt = KHÔNG gắn thuế, đúng hành vi hiện tại. Bot tự
+   * thêm thuế vào đơn không ai xin là sửa tiền thật của khách.
+   */
+  vatPhanTram?: number;
+  /**
+   * id account.tax tra được cho `vatPhanTram` (tra động qua traThueBan).
+   *
+   * Đo prod 11/08: "VAT 8%" đang là id=4 — nhưng KHÔNG hard-code, vì id là cấu
+   * hình Odoo chứ không phải hằng số nghiệp vụ.
+   */
+  vatThueId?: number;
+  /**
+   * Tra danh mục account.tax mà KHÔNG có mức % nhân viên nói (vd "VAT 5%":
+   * prod chỉ có 0/4/8/10%).
+   *
+   * Phải nói RÕ trong tóm tắt, tuyệt đối không im lặng lên đơn không thuế —
+   * nhân viên tưởng đơn có VAT mà hoá đơn ra không có là sai sổ sách, lúc phát
+   * hiện thì đã xuất mất rồi.
+   */
+  vatKhongTra?: boolean;
 
   // ── Chế SỬA ĐƠN (spec 2026-08-08) ──────────────────────────────────────
   /**
@@ -149,6 +193,14 @@ export type HanhDong =
   | { loai: 'hoi_thieu'; thieu: 'khach' | 'sp' | 'sl' }
   /** SP chưa có giá trong Odoo và NV cũng chưa báo giá — hỏi ngay, đừng để kẹt. */
   | { loai: 'hoi_gia'; sp: string[] }
+  /**
+   * Giá NV báo lệch VÔ LÝ so với giá hệ thống (ca thật 10:09:33 11/08: 8đ vs
+   * 230.000đ) → hỏi lại ĐÚNG con số đó trước khi cho chốt.
+   *
+   * Hỏi chứ KHÔNG tự sửa và KHÔNG im lặng bỏ qua: số này có thể là model bịa
+   * (ca thật), mà cũng có thể là giá thật nhân viên cố ý — chỉ họ mới biết.
+   */
+  | { loai: 'hoi_gia_lech'; lech: Array<{ ten: string; giaNv: number; giaHt: number }> }
   /**
    * Hàng nằm ở NHIỀU kho mà NV chưa nói lấy kho nào → hỏi MỘT lần.
    * `chon` = các kho thật sự có tồn, không liệt kê kho trống cho có.

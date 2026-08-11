@@ -66,14 +66,41 @@ function tomTat(p: PhienGom): string {
       return `${d.sl} × ${d.daChot!.ten}${ck} = ${tien(thanhTien(d))}${lech}`;
     });
   const tong = p.dong.reduce((t, d) => t + (d.daChot && d.sl != null ? thanhTien(d) : 0), 0);
+  // ── VAT (11/08) ─────────────────────────────────────────────────────────
+  // Nhân viên phải THẤY thuế và tổng SAU thuế ngay ở tin chốt: cùng lý do với
+  // chiết khấu (ca 03:24:35 11/08 — tóm tắt ghi số chưa trừ CK nên NV tưởng bot
+  // bỏ sót, phải nhắc thêm một lượt).
+  //
+  // Số ở đây là ƯỚC LƯỢNG để nhân viên soát; số THẬT do Odoo tính khi tạo đơn
+  // (bot không tự tính tiền — luật cũ). Hai số khớp nhau vì cùng công thức
+  // phần trăm, nhưng nguồn sự thật vẫn là Odoo.
+  const dongVat: string[] = [];
+  let tongCuoi = tong;
+  if (p.vatKhongTra && p.vatPhanTram != null) {
+    // Tra danh mục không ra mức này (prod chỉ có 0/4/8/10%) → BÁO, đừng im lặng
+    // lên đơn không thuế rồi để nhân viên phát hiện sau khi đã xuất hoá đơn.
+    dongVat.push(
+      `⚠ Hệ thống KHÔNG có mức VAT ${p.vatPhanTram}% — em chưa gắn thuế được. ` +
+      'Anh/chị chọn mức khác (8% hoặc 10%) hoặc lên đơn không VAT rồi sửa tay trên Odoo.',
+    );
+  } else if (p.vatPhanTram != null && p.vatThueId != null) {
+    const tienThue = tong * (p.vatPhanTram / 100);
+    tongCuoi = tong + tienThue;
+    dongVat.push(`VAT ${p.vatPhanTram}% = ${tien(Math.round(tienThue))}`);
+  }
   // Kho CHỈ hiện khi nhân viên đã chọn khác mặc định — 291/300 đơn dùng kho TT,
   // in thêm một dòng "Kho: TT" cho mọi đơn là nhiễu thuần tuý.
   const tenKho = p.khoId != null ? KHO.find((k) => k.id === p.khoId)?.ten : undefined;
+  // Có VAT thì phải hiện CẢ tiền hàng LẪN tổng sau thuế — chỉ đưa một số thì
+  // nhân viên không biết con số nào là cái khách phải trả.
+  const dongTong = dongVat.length > 0 && tongCuoi !== tong
+    ? [`Tiền hàng: ${tien(tong)}`, ...dongVat, `Tổng: ${tien(Math.round(tongCuoi))}. Em chốt lên đơn nhé?`]
+    : [...dongVat, `Tổng: ${tien(tong)}. Em chốt lên đơn nhé?`];
   return [
     `Đơn cho ${p.khachDaChot?.ten}${p.khachDaChot?.ma ? ` (${p.khachDaChot.ma})` : ''}:`,
     ...dong,
     ...(tenKho ? [`Kho xuất: ${tenKho}`] : []),
-    `Tổng: ${tien(tong)}. Em chốt lên đơn nhé?`,
+    ...dongTong,
   ].join('\n');
 }
 
@@ -120,6 +147,21 @@ export function renderLoiNhan(hd: HanhDong, p: PhienGom): string {
         `Sản phẩm ${hd.sp.map((x) => `"${x}"`).join(', ')} chưa có giá trong hệ thống ạ. ` +
         'Anh/chị báo giá giúp em (vd: 13k/thanh), hoặc nhắn "bỏ ' +
         `${hd.sp[0]?.split(' ').slice(0, 3).join(' ') ?? 'món này'}" để em lên đơn phần còn lại.`
+      );
+    case 'hoi_gia_lech':
+      // Nêu THẲNG cả hai con số rồi hỏi — không tự sửa, không im lặng bỏ qua.
+      // Ca thật 10:09:33 11/08: bot đã in đúng hai số này ("8đ" vs "230.000đ")
+      // mà vẫn rủ chốt; giờ hai số đó thành CÂU HỎI chứ không phải chú thích.
+      //
+      // Tuyệt đối KHÔNG kèm "Em chốt lên đơn nhé?" trong tin này: hỏi mà vẫn
+      // rủ gật thì nhân viên gõ "ok" là lại đúng cái bug cũ.
+      return (
+        hd.lech
+          .map((x) =>
+            `Anh/chị báo giá ${tien(x.giaNv)} cho "${x.ten}" nhưng hệ thống để ${tien(x.giaHt)} ` +
+            '— lệch nhiều quá ạ.')
+          .join('\n') +
+        '\nAnh/chị xác nhận giúp em giá đúng là bao nhiêu ạ? (nhắn lại giá, hoặc "đúng rồi" nếu giá đó chuẩn)'
       );
     case 'hoi_kho':
       // Hàng nằm nhiều kho — hỏi MỘT lần, kèm đường thoát "kho nào cũng được"

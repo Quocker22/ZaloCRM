@@ -11,7 +11,7 @@
 // Prompt lúc đó bảo "hãy LÀM TIẾP việc đang dở" và model nghe theo. Bài học:
 // prompt là lời khuyên, model lờ được; ranh giới phải là CODE.
 import { describe, it, expect, vi } from 'vitest';
-import { laYDinhDung, laToolGhi, khoeDaGhi, khoeDaGuiAnh, TOOL_GHI } from '../../../src/modules/ai/agent/y-dinh-dung.js';
+import { laYDinhDung, laToolGhi, khoeDaGhi, khoeDaGuiAnh, khoeDaChuyenSale, TOOL_GHI } from '../../../src/modules/ai/agent/y-dinh-dung.js';
 import { ToolRegistry } from '../../../src/modules/ai/agent/registry.js';
 
 describe('laYDinhDung — nhận ra lời dừng/huỷ', () => {
@@ -223,5 +223,53 @@ describe('khoeDaGuiAnh — chỉ chặn khi BOT tự nhận mình gửi', () => 
   ];
   for (const c of choQua) {
     it(`CHO QUA: ${JSON.stringify(c.slice(0, 45))}`, () => expect(khoeDaGuiAnh(c)).toBe(false));
+  }
+});
+
+// HÀNG RÀO THỨ TƯ (11/08/2026): bot không được hứa "đã chuyển sang bộ phận sale".
+//
+// Ca thật 15:06→15:35 11/08 (nhóm Test-AI) — bot nói câu đó FIVE lần:
+//   15:07:29 "Dạ em đã chuyển việc lên đơn ... sang bộ phận sale xử lý ạ"
+//   15:09:59 / 15:14:50 / 15:16:31 / 15:32:13  — y hệt
+//
+// HAI cái sai chồng nhau:
+//   1. Tool `chuyen_sale` KHÔNG có trong registry nhân viên (bỏ từ 07/08,
+//      staff-agent.ts dòng ~458) — nên không tool nào chạy, câu đó bịa 100%.
+//   2. Kể cả khi tool có chạy, nó chỉ gọi `ghiNhan` → một dòng logger.info
+//      (luong-nhan-vien.ts). Không gắn tag, không mở nhóm, KHÔNG ai được báo.
+//
+// Và người đang hỏi CHÍNH LÀ nhân viên sale ngồi trong nhóm. Nhân viên đọc
+// "đã chuyển" thì ngồi chờ một người không bao giờ tới — đúng 28 phút.
+//
+// Cùng họ với khoeDaGhi (05/08) và khoeDaGuiAnh (07/08): bot khoe một hành
+// động KHÔNG xảy ra. Prompt đã dặn (staff-command.ts), nhưng prompt là lời
+// khuyên — hàng rào phải là code.
+describe('khoeDaChuyenSale — chặn lời hứa "đã chuyển sale" (ca 11/08)', () => {
+  const chan = [
+    'Dạ em đã chuyển việc lên đơn này sang bộ phận sale xử lý ạ',
+    'Em đã chuyển sang bộ phận sale rồi ạ',
+    'Việc này em chuyển cho sale xử lý nhé',
+    'em da chuyen sang bo phan sale xu ly a',
+    'Dạ em chuyển sang sale để anh/chị được hỗ trợ nhanh hơn ạ',
+    'Em đã chuyển thông tin cho bộ phận kinh doanh xử lý ạ',
+  ];
+  for (const c of chan) {
+    it(`CHẶN: ${JSON.stringify(c.slice(0, 45))}`, () => expect(khoeDaChuyenSale(c)).toBe(true));
+  }
+
+  const choQua = [
+    // Nói về sale mà KHÔNG hứa chuyển — bot được phép nhắc tới bộ phận.
+    'Đơn này do bạn sale Hương phụ trách ạ',
+    'Anh/chị liên hệ sale để biết thêm ạ',
+    // Bot nói rõ nó KHÔNG chuyển được — đây là hành vi ĐÚNG ta muốn.
+    'Em không chuyển sang sale được ạ, anh/chị cho em xin giá để em lên đơn nhé',
+    // Hỏi ý, chưa khẳng định đã làm.
+    'Anh/chị có muốn em chuyển cho sale không ạ?',
+    // Chuyển thứ KHÁC, không phải chuyển việc cho người.
+    'Em đã chuyển khoản tiền cọc vào đơn rồi ạ',
+    'Em chuyển đơn sang trạng thái xác nhận rồi ạ',
+  ];
+  for (const c of choQua) {
+    it(`CHO QUA: ${JSON.stringify(c.slice(0, 45))}`, () => expect(khoeDaChuyenSale(c)).toBe(false));
   }
 });

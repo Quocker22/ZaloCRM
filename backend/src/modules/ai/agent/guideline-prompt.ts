@@ -23,11 +23,16 @@ export interface GuidelineActive {
 
 /**
  * Tool LUÔN đăng ký bất kể match gì — lối vào (tra SP), lối thoát (chuyển
- * sale), và tri thức kỹ thuật (đọc, vô hại, lượt nào cũng có thể cần).
- * Thiếu lối thoát thì lượt matcher trượt sẽ thành bot câm. Tool GHI thì
- * ngược lại: KHÔNG BAO GIỜ nằm đây — phải có guideline mở.
+ * sale), tri thức kỹ thuật và GỬI TÀI LIỆU (đều chỉ ĐỌC, vô hại, lượt nào
+ * cũng có thể cần). Thiếu lối thoát thì lượt matcher trượt sẽ thành bot câm.
+ * Tool GHI thì ngược lại: KHÔNG BAO GIỜ nằm đây — phải có guideline mở.
+ *
+ * `gui_tai_lieu` vào đây (11/08/2026) vì lý do y hệt `tra_tri_thuc`: khách xin
+ * catalog ở BẤT KỲ lượt nào — lúc mới chào, giữa lúc hỏi giá, sau khi chốt.
+ * Bắt nó phụ thuộc một guideline khớp đúng là tái tạo bug 03:17 cùng ngày
+ * (bot không gửi được file dù file nằm sẵn) mỗi khi matcher trượt.
  */
-export const TOOL_NEN = ['tra_san_pham', 'chuyen_sale', 'tra_tri_thuc'] as const;
+export const TOOL_NEN = ['tra_san_pham', 'chuyen_sale', 'tra_tri_thuc', 'gui_tai_lieu'] as const;
 
 /**
  * Lọc guideline theo cấu hình PHIÊN (khác matcher — matcher xét theo lượt):

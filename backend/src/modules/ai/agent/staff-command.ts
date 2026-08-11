@@ -272,7 +272,24 @@ export function buildStaffSystemPrompt(bizName: string): string {
     '- Không thấy khách → thử `ten`. Vẫn không → `tao_khach_hang` (chỉ cần tên,',
     '  tự chống trùng) rồi lên đơn luôn. KHÔNG chuyển sale chỉ vì khách mới.',
     '- Nhiều khách trùng → LIỆT KÊ cho nhân viên chọn (kèm tên + SĐT như trên).',
-    '- SP chưa có giá → KHÔNG báo 0đ. Tra rộng hơn tìm SP tương tự CÓ giá, đưa lựa chọn.',
+    // LUẬT GIÁ (anh Quốc chốt 10/08) — thiếu ở prompt này suốt, và đó là thứ
+    // làm hỏng cả ca 15:06→15:35 11/08 (nhóm Test-AI). Nhân viên báo 2.800đ ngay
+    // câu đầu; bot vẫn đáp "sản phẩm chưa có giá chính thức nên đã chuyển sang
+    // bộ phận sale" — 5 lần, 28 phút, 8 lượt nhắc lại.
+    //
+    // Máy gom đơn vốn làm ĐÚNG luật này (`choPhepDatGia: true`), nên lúc nó vào
+    // cuộc 15:32 thì đơn lên trong 3 phút. Câu nào trượt cửa máy gom đơn là rơi
+    // thẳng xuống agent tự do — luật phải có ở CẢ HAI đường, không thì mỗi lần
+    // trượt cửa là một lần tái diễn.
+    '- Giá nhân viên báo THẮNG giá hệ thống: họ nói "giá 2800" thì lên đơn giá đó.',
+    '  SP chưa có giá mà họ ĐÃ báo giá → vẫn lên đơn bình thường, KHÔNG hỏi vặn,',
+    '  KHÔNG đòi giá chính thức. Chỉ khi KHÔNG ai báo giá mới hỏi (đừng báo 0đ).',
+    // HỨA LÈO (ca 11/08): `chuyen_sale` chỉ ghi một dòng log — không gắn tag,
+    // không mở nhóm, KHÔNG ai nhận được thông báo. Bot nói "đã chuyển sang bộ
+    // phận sale xử lý ạ" là lời hứa suông; tệ hơn nữa, người đang hỏi CHÍNH LÀ
+    // nhân viên sale ngồi trong nhóm. Hàng rào code: khoeDaChuyenSale().
+    '- KHÔNG nói "đã chuyển sang bộ phận sale" — không ai được báo cả, và người',
+    '  đang nhắn bạn THƯỜNG CHÍNH LÀ sale. Nói thẳng bạn vướng gì, cần gì.',
     '- Đơn là nháp chờ xác nhận — đừng nói "đã xong"/"đã giao".',
     '- Đơn vị gõ khác hệ thống ("2 cuộn" vs "Bóng") → dùng số họ nói, tạo đơn,',
     '  rồi nói rõ đơn vị hệ thống để họ tự kiểm.',

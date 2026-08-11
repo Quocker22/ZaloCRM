@@ -20,7 +20,8 @@ import { taoGhiLog, type PrismaGhiLog } from '../ghi-log-tool.js';
 import { batLuongKhach, batKhachTuChotDon, duCauHinh, tranTienKhach, chanDonLienKeGiay } from './cong-tac.js';
 import { dungGenerate } from './llm.js';
 import { layOdoo, timTriThuc, layLichSu, seqTuMessageId, coTinKhachMoiHon } from './du-lieu.js';
-import { timDich, guiTin, guiAnh, guiHoaDonVaQr } from './gui-zalo.js';
+import { timDich, guiTin, guiAnh, guiFile, guiHoaDonVaQr } from './gui-zalo.js';
+import { khoTaiLieuCuaOrg } from '../../knowledge/kho-tai-lieu.js';
 import { baoNhanVien, CAU_GIU_CHAN } from './bao-nhan-vien.js';
 import { demVaKiemTra, CAU_XIN_PHEP } from './gioi-han.js';
 import { taoDung, taoMoc, chayCoHanGio, hanGioLuot } from './dung.js';
@@ -143,7 +144,14 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
     // Log từng chặng: treo ở đâu thì dòng cuối cùng chỉ thẳng ra chỗ đó.
     logger.info({ soTin: lichSu.length }, '[agent/khach] đã lấy lịch sử');
     const triThuc = await timTriThuc(ctx.orgId);
-    logger.info({ coTriThuc: Boolean(triThuc) }, '[agent/khach] đã dựng tri thức — vào LLM');
+    // Kho FILE tài liệu, tách khỏi tri thức (chữ) — anh Quốc 11/08: "nếu như
+    // khách yêu cầu gửi pdf thì phải gửi luôn nhé". Danh sách đã lọc giá nội bộ
+    // trong `lietKeTaiLieu`, xem kho-tai-lieu.ts.
+    const khoTaiLieu = await khoTaiLieuCuaOrg(ctx.orgId);
+    logger.info(
+      { coTriThuc: Boolean(triThuc), coTaiLieu: Boolean(khoTaiLieu) },
+      '[agent/khach] đã dựng tri thức — vào LLM',
+    );
 
     // GUIDELINE ENGINE (docs/THIET-KE-GUIDELINE-ENGINE.md): mode theo org trong
     // ai_configs — 'off' mặc định. Kho rule lỗi/rỗng → napGuidelineKhach trả
@@ -175,6 +183,7 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
         },
         ghiLog: (l) => { soToolDaChay++; ghiDb(l); },
         timDoanTriThuc: triThuc,
+        lietTaiLieu: khoTaiLieu,
         guidelineEngine: engineMode && guidelines
           ? {
               mode: engineMode,
@@ -285,6 +294,25 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
             logger.warn({ err }, '[agent/khach] gửi ảnh sản phẩm lỗi (bỏ qua)');
           }
         }
+      }
+    }
+
+    // TÀI LIỆU PDF (11/08) — anh Quốc: "nếu như khách yêu cầu gửi pdf thì phải
+    // gửi luôn nhé". Gửi SAU ảnh sản phẩm, TRƯỚC hoá đơn: khách xin tài liệu là
+    // đang tìm hiểu, còn hoá đơn/QR là bước chốt.
+    //
+    // Lỗi từng file không phá câu trả lời, nhưng LOG mức error: câu text đã nói
+    // "đã gửi" (hàng rào cho qua vì tool lấy được file thật), rớt ở đây nghĩa là
+    // khách ngồi chờ một file không tới — chỉ log mới cho biết.
+    for (const tl of r.taiLieu ?? []) {
+      try {
+        await guiFile(dich, tl.duongDanCucBo, '');
+        logger.info({ tieuDe: tl.tieuDe }, '[agent/khach] đã gửi tài liệu');
+      } catch (err) {
+        logger.error(
+          { err, tieuDe: tl.tieuDe, duongDan: tl.duongDanCucBo },
+          '[agent/khach] GỬI TÀI LIỆU RỚT — bot đã báo "đã gửi" nhưng file không tới',
+        );
       }
     }
 

@@ -16,6 +16,7 @@ import { hanGioLuot } from './dung.js';
 import { tomTatDoDang } from './ngan-sach.js';
 import { dungGenerate } from './llm.js';
 import { layOdoo, layAnhClient, timTriThuc, layLichSu, seqTuMessageId, coTinKhachMoiHon } from './du-lieu.js';
+import { khoTaiLieuCuaOrg } from '../../knowledge/kho-tai-lieu.js';
 import { timDich, guiTin, guiAnh, guiFile, ghiAnhTam } from './gui-zalo.js';
 import { xuLyGomDon } from './gom-don/index.js';
 import { docPhien, type DbPhienGomDon } from './gom-don/phien-store.js';
@@ -224,7 +225,13 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
     // Log từng chặng: treo ở đâu thì dòng cuối cùng chỉ thẳng ra chỗ đó.
     logger.info({ soTin: lichSu.length }, '[agent/nv] đã lấy lịch sử');
     const triThuc = await timTriThuc(ctx.orgId);
-    logger.info({ coTriThuc: Boolean(triThuc) }, '[agent/nv] đã dựng tri thức — vào LLM');
+    // Kho FILE tài liệu — tách hẳn khỏi tri thức (chữ). Bug 03:17 11/08 chính
+    // là bot có cái thứ nhất mà không có cái thứ hai, rồi kết luận "chưa có file".
+    const khoTaiLieu = await khoTaiLieuCuaOrg(ctx.orgId);
+    logger.info(
+      { coTriThuc: Boolean(triThuc), coTaiLieu: Boolean(khoTaiLieu) },
+      '[agent/nv] đã dựng tri thức — vào LLM',
+    );
 
     const r = await chayCoHanGio('nv', chayLenhNhanVien(
       {
@@ -241,6 +248,7 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
         // Docker nội bộ (bug thật 06/08: "http://incokit_nginx_prod/web#...").
         odooUrl: odooUrlCongKhai(),
         timDoanTriThuc: triThuc,
+        lietTaiLieu: khoTaiLieu,
       },
       {
         bizName: ctx.bizName,
@@ -328,6 +336,25 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
           else await guiAnh(dich, duongDan, false);
         } catch (err) {
           logger.warn({ err, tenFile: tep.tenFile }, '[agent/nv] gửi ảnh/file báo cáo lỗi (đã có text tóm tắt)');
+        }
+      }
+      // TÀI LIỆU PDF (11/08) — nhân viên xin "gửi cho a dạng tài liệu cattalog"
+      // thì đây là chỗ file thật rời khỏi hệ thống. File đã nằm sẵn trên đĩa
+      // (hoặc trong cache) từ lúc tool chạy, nên ở đây chỉ còn việc gửi.
+      //
+      // Lỗi từng file KHÔNG phá file còn lại, cũng không phá câu text đã gửi.
+      // Nhưng phải LOG rõ: hàng rào `khoeDaGuiTaiLieu` đã cho câu "đã gửi" đi
+      // qua vì tool lấy được file — rớt ở khâu này là bot nói thật mà file vẫn
+      // không tới, và chỉ log mới cho biết điều đó.
+      for (const tl of r.taiLieu ?? []) {
+        try {
+          await guiFile(dich, tl.duongDanCucBo, '');
+          logger.info({ tieuDe: tl.tieuDe }, '[agent/nv] đã gửi tài liệu');
+        } catch (err) {
+          logger.error(
+            { err, tieuDe: tl.tieuDe, duongDan: tl.duongDanCucBo },
+            '[agent/nv] GỬI TÀI LIỆU RỚT — bot đã báo "đã gửi" nhưng file không tới',
+          );
         }
       }
     } else {

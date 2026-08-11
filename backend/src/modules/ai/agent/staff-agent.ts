@@ -8,7 +8,7 @@
 import { runAgent } from './loop.js';
 import { ToolRegistry } from './registry.js';
 import { nhanDienLenhNhanVien, buildStaffSystemPrompt } from './staff-command.js';
-import { laYDinhDung, laToolGhi, khoeDaGhi, khoeDaGuiAnh } from './y-dinh-dung.js';
+import { laYDinhDung, laToolGhi, khoeDaGhi, khoeDaGuiAnh, khoeDaChuyenSale, khoeDaGuiTaiLieu } from './y-dinh-dung.js';
 import { logger } from '../../../shared/utils/logger.js';
 import type { ContextManagementConfig, ToolAwareGenerate, TurnUsage } from './types.js';
 
@@ -58,6 +58,9 @@ import {
 import {
   traTriThuc, traTriThucDefinition, dinhDangTriThuc,
 } from '../odoo/tools/tra-tri-thuc.js';
+import {
+  guiTaiLieu, guiTaiLieuDefinition, dinhDangGuiTaiLieu, type TaiLieu,
+} from '../odoo/tools/gui-tai-lieu.js';
 import {
   baoCaoTongQuan, baoCaoTongQuanDefinition, dinhDangBaoCaoTongQuan,
 } from '../odoo/tools/bao-cao-tong-quan.js';
@@ -133,6 +136,12 @@ export interface StaffAgentDeps {
   odooUrl?: string;
   /** Tra tài liệu kỹ thuật (bảo hành, IP, công suất) — thứ Odoo không có. */
   timDoanTriThuc?: (cauHoi: string, soDoan: number) => Promise<Array<{ content: string; score?: number }>>;
+  /**
+   * Kho tài liệu (catalog/datasheet PDF) gửi được. Không truyền thì tool
+   * `gui_tai_lieu` không đăng ký — khỏi hứa gửi rồi không gửi được (bug 03:17
+   * 11/08).
+   */
+  lietTaiLieu?: () => Promise<TaiLieu[]>;
 }
 
 export interface StaffAgentInput {
@@ -211,6 +220,12 @@ export type StaffAgentResult =
       hoaDon?: KetQuaGuiHoaDon;
       /** File Excel báo cáo dài — caller gửi qua Zalo sau phần text. */
       tepBaoCao?: TepBaoCao[];
+      /**
+       * File tài liệu bot đã lấy được (tool `gui_tai_lieu`) — caller gửi qua
+       * Zalo sau phần text. Đường dẫn CỤC BỘ, vì `zaloOps.sendFile` cần path
+       * chứ không nhận Buffer (xem gui-zalo.ts).
+       */
+      taiLieu?: Array<{ tieuDe: string; duongDanCucBo: string }>;
     }
   | { trangThai: 'chua_hoan_tat'; lyDo: string; log: ToolCallLog[]; usage: TurnUsage };
 
@@ -289,6 +304,16 @@ export function buildStaffRegistry(deps: {
    * bot sẽ không hứa tra tài liệu rồi không tra được.
    */
   timDoanTriThuc?: (cauHoi: string, soDoan: number) => Promise<Array<{ content: string; score?: number }>>;
+  /**
+   * Liệt kê tài liệu (catalog/datasheet PDF) gửi được. KHÔNG truyền thì tool
+   * `gui_tai_lieu` không đăng ký — bot khỏi hứa gửi tài liệu rồi không gửi được,
+   * đúng bug 03:17-03:18 ngày 11/08.
+   */
+  lietTaiLieu?: () => Promise<TaiLieu[]>;
+  /** Tải tài liệu về đường dẫn cục bộ. Mặc định dùng `taiTaiLieuVe` của kho. */
+  taiTaiLieu?: (t: TaiLieu) => Promise<string>;
+  /** Nhận file tài liệu đã tải — caller gửi qua Zalo sau phần text. */
+  nhanTaiLieu?: (t: { tieuDe: string; duongDanCucBo: string }) => void;
 }): ToolRegistry {
   const { odoo } = deps;
   const r = new ToolRegistry()
@@ -488,6 +513,31 @@ export function buildStaffRegistry(deps: {
     });
   }
 
+  // GỬI FILE TÀI LIỆU (11/08/2026) — sửa bug 03:17-03:18 cùng ngày: nhân viên
+  // nói "a muốn e gửi cho a dạng tài liệu cattalog", bot đáp "hiện chưa có sẵn
+  // file" TRONG KHI 8 datasheet PDF nằm sẵn trên đĩa server. Bot có tri thức
+  // (đọc được chữ trong file) nên tưởng mình chỉ có chữ.
+  if (deps.lietTaiLieu) {
+    const liet = deps.lietTaiLieu;
+    const taiVe = deps.taiTaiLieu ?? (async (t: TaiLieu) => {
+      const { taiTaiLieuVe } = await import('../knowledge/kho-tai-lieu.js');
+      return taiTaiLieuVe(t);
+    });
+    r.register({
+      definition: guiTaiLieuDefinition,
+      run: async (input) => {
+        const kq = await guiTaiLieu({ liet, taiVe }, input as { yeu_cau: string });
+        // Đẩy file ra ngoài để caller gửi qua Zalo. File KHÔNG đi qua LLM: nó
+        // không đọc được PDF nhị phân, và vài MB base64 nuốt sạch ngữ cảnh —
+        // cùng lý do ảnh hoá đơn đi đường riêng qua `nhanHoaDon`.
+        if (kq.loai === 'da_gui') {
+          deps.nhanTaiLieu?.({ tieuDe: kq.taiLieu.tieuDe, duongDanCucBo: kq.duongDanCucBo });
+        }
+        return dinhDangGuiTaiLieu(kq);
+      },
+    });
+  }
+
   // ── BA TOOL ODOO TỔNG QUÁT (spec 2026-08-10) ─────────────────────────────
   // Thay cho việc viết tool riêng từng nghiệp vụ. CHỈ registry nhân viên —
   // khách điều khiển được câu chữ nên sẽ điều khiển được lệnh Odoo.
@@ -579,6 +629,7 @@ export async function chayLenhNhanVien(
   // Hóa đơn model gọi ra — gom ở đây để trả về cho caller đính kèm.
   let hoaDon: KetQuaGuiHoaDon | undefined;
   const tepBaoCao: TepBaoCao[] = [];
+  const taiLieuDaLay: Array<{ tieuDe: string; duongDanCucBo: string }> = [];
 
   const registry = buildStaffRegistry({
     zaloUid: deps.zaloUid,
@@ -590,9 +641,13 @@ export async function chayLenhNhanVien(
     anhClient: deps.anhClient,
     odooUrl: deps.odooUrl,
     timDoanTriThuc: deps.timDoanTriThuc,
+    lietTaiLieu: deps.lietTaiLieu,
     // Bot gọi gui_hoa_don nhiều lần thì lấy cái CUỐI — đó là đơn nó đang nói tới.
     nhanHoaDon: (kq) => { hoaDon = kq; },
     nhanTepBaoCao: (tep) => { tepBaoCao.push(tep); },
+    // Tài liệu thì GOM HẾT, khác hoá đơn: nhân viên xin hai datasheet trong một
+    // lượt là chuyện thường, giữ cái cuối thì mất cái đầu.
+    nhanTaiLieu: (t) => { taiLieuDaLay.push(t); },
   });
 
   const log: ToolCallLog[] = [];
@@ -704,6 +759,56 @@ export async function chayLenhNhanVien(
     };
   }
 
+  // HÀNG RÀO CHỐNG HỨA LÈO "ĐÃ CHUYỂN SALE" (11/08/2026) — cùng họ với hai
+  // hàng rào ngay trên.
+  //
+  // Ca thật 15:06→15:35 11/08 (nhóm Test-AI): bot nói "Dạ em đã chuyển việc
+  // lên đơn ... sang bộ phận sale xử lý ạ. Sale sẽ xác nhận khách và lên đơn
+  // giúp anh/chị ngay" — NĂM lần (15:07, 15:09, 15:14, 15:16, 15:32).
+  //
+  // Không một lời nào là thật:
+  //   - `chuyen_sale` KHÔNG có trong registry nhân viên (bỏ từ 07/08, xem chú
+  //     thích chỗ .register bên trên) → không tool nào chạy được.
+  //   - Kể cả luồng khách nơi tool CÓ đăng ký, `ghiNhan` của nó chỉ ghi một
+  //     dòng logger.info — không tag, không mở nhóm, không ai nhận thông báo.
+  //   - Và người đang hỏi CHÍNH LÀ nhân viên sale ngồi trong nhóm.
+  //
+  // Nhân viên tin lời hứa đó nên chờ; kết quả là 28 phút và 8 lượt nhắc lại
+  // cho một đơn đáng ra xong trong 1 lượt. Câu chung chung "em chưa xử lý
+  // được" tuy cụt nhưng thành thật — họ biết ngay là phải tự làm tiếp.
+  //
+  // KHÔNG có ngoại lệ "trừ khi tool chạy": ở luồng nhân viên tool không tồn
+  // tại, nên mọi câu khoe chuyển sale đều là bịa.
+  if (khoeDaChuyenSale(traLoi)) {
+    return {
+      trangThai: 'chua_hoan_tat',
+      lyDo:
+        `Model hứa đã chuyển sale ("${traLoi.slice(0, 80)}") nhưng tool chuyen_sale KHÔNG có ` +
+        'trong registry nhân viên và cũng không gửi thông báo cho ai. Người đang chat CHÍNH LÀ ' +
+        'sale — chặn lời hứa suông để nhân viên khỏi ngồi chờ (ca 11/08: chờ 28 phút).',
+      log,
+      usage: kq.usage,
+    };
+  }
+
+  // HÀNG RÀO CHỐNG BỊA GỬI TÀI LIỆU (11/08/2026) — song sinh với hàng rào ảnh
+  // ngay trên. Bot không được nói "em gửi catalog cho anh rồi" khi tool
+  // `gui_tai_lieu` không hề lấy được file nào.
+  //
+  // Chính việc SỬA bug 03:17 (bot từ chối dù có file) mở ra chiều bịa ngược
+  // lại. Hai lần trước đã dạy: khoeDaGhi (05/08), khoeDaGuiAnh (07/08). Mở
+  // đường gửi mới mà không mở hàng rào theo là mời bug quay lại lần ba.
+  if (taiLieuDaLay.length === 0 && khoeDaGuiTaiLieu(traLoi)) {
+    return {
+      trangThai: 'chua_hoan_tat',
+      lyDo:
+        `Model nói đã gửi tài liệu ("${traLoi.slice(0, 80)}") nhưng KHÔNG file nào được lấy về. ` +
+        'Muốn gửi tài liệu phải gọi tool gui_tai_lieu; chặn câu bịa để nhân viên khỏi ngồi chờ file không tới.',
+      log,
+      usage: kq.usage,
+    };
+  }
+
   return {
     trangThai: 'xong',
     traLoi,
@@ -712,5 +817,6 @@ export async function chayLenhNhanVien(
     usage: kq.usage,
     hoaDon,
     ...(tepBaoCao.length > 0 ? { tepBaoCao } : {}),
+    ...(taiLieuDaLay.length > 0 ? { taiLieu: taiLieuDaLay } : {}),
   };
 }

@@ -5,9 +5,12 @@ import {
   timKhachGoiY, timSanPhamGoiY, KY_TU_TOI_THIEU,
 } from '../../src/modules/ai/goi-y-tra.js';
 
+// `credit` = số dư phải thu chuẩn kế toán Odoo. KHÔNG dùng
+// `incokit_receivable_balance`: field tự viết đó sai ở 29/40 khách nợ nhiều
+// nhất trên prod (bug 16:09 11/08, xem xuat-cong-no.ts).
 const KHACH = [
   { id: 3898, name: 'Quảng Cáo Hoàng Anh', ref: 'KH003159', phone: false, mobile: false,
-    incokit_receivable_balance: 6114000 },
+    credit: 6114000 },
 ];
 const SP_CO_GIA = [
   { id: 715, name: 'Nguồn ATX 12V400W Pro', default_code: '12v400 pro',

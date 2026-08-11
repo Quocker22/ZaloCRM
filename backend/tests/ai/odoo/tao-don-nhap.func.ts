@@ -474,3 +474,83 @@ describe('taoDonNhap — chặn khách sai (bug S13810)', () => {
     if (kq.trangThai === 'loi') expect(kq.lyDo).toContain('tra_khach_hang');
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HÀNG RÀO GIÁ LỆCH BẤT THƯỜNG — cổng CUỐI trước khi ghi Odoo.
+//
+// Bug thật 10:09:33 11/08/2026 (nhóm Test-AI): nhân viên nói "card thu triết
+// khấu 8%", model nhét số 8 vào ô ĐƠN GIÁ (hệ thống 230.000đ) rồi rủ chốt.
+// Máy gom đơn đã có hàng rào hỏi sớm; cổng này bắt cái LỌT QUA — kể cả agent
+// tự do gọi thẳng tool, đường mà máy gom đơn không đứng chắn.
+//
+// Ngưỡng đo từ prod (xem gia-bat-thuong.ts): 5.781 dòng đơn 2026 — KHÔNG dòng
+// nào giá NV thấp hơn 1/10 giá niêm yết. Ca bug ở 0,0000348 lần.
+describe('taoDonNhap — GIÁ LỆCH BẤT THƯỜNG', () => {
+  /** Đúng SP ca thật: hệ thống để 230.000đ. */
+  const CARD = { id: 448, name: 'Card thu BX-V7512 (cái)', list_price: 230000, active: true };
+  const odooCard = () => fakeOdoo({ sp: [CARD] });
+
+  it('CA THẬT: báo 8đ khi hệ thống 230.000đ → CHẶN, không create', async () => {
+    const odoo = odooCard();
+    const kq = await taoDonNhap(
+      { odoo, conversationId: 'c', seq: 0, choPhepDatGia: true },
+      { khach_hang_id: 1441, dong: [{ san_pham_id: 448, so_luong: 100, don_gia: 8 }] },
+    );
+    expect(kq.trangThai).toBe('loi');
+    if (kq.trangThai === 'loi') {
+      // Phải nêu CẢ HAI con số để model hỏi lại người thật cho ra chuyện
+      expect(kq.lyDo).toContain('8đ');
+      expect(kq.lyDo).toContain('230.000đ');
+      expect(kq.lyDo).toContain('HỎI LẠI');
+    }
+    expect(odoo.execute).not.toHaveBeenCalled();
+  });
+
+  it('giảm 20% (184k/230k) → CHO QUA (luật "giá NV báo thắng" 10/08)', async () => {
+    const odoo = odooCard();
+    const kq = await taoDonNhap(
+      { odoo, conversationId: 'c', seq: 0, choPhepDatGia: true },
+      { khach_hang_id: 1441, dong: [{ san_pham_id: 448, so_luong: 100, don_gia: 184000 }] },
+    );
+    expect(kq.trangThai).toBe('da_tao');
+  });
+
+  it('SP chưa có giá (hệ thống 1đ) + NV báo giá → CHO QUA, không phá đường 10/08', async () => {
+    const odoo = fakeOdoo({ sp: [{ id: 9, name: 'Thanh LED tỏa', list_price: 1, active: true }] });
+    const kq = await taoDonNhap(
+      { odoo, conversationId: 'c', seq: 0, choPhepDatGia: true },
+      { khach_hang_id: 1441, dong: [{ san_pham_id: 9, so_luong: 300, don_gia: 13000 }] },
+    );
+    expect(kq.trangThai).toBe('da_tao');
+  });
+
+  it('nhân viên ĐÃ xác nhận lại giá → ghi theo họ, đúng con số họ báo', async () => {
+    const odoo = odooCard();
+    const kq = await taoDonNhap(
+      { odoo, conversationId: 'c', seq: 0, choPhepDatGia: true, xacNhanGiaLech: true },
+      { khach_hang_id: 1441, dong: [{ san_pham_id: 448, so_luong: 100, don_gia: 8 }] },
+    );
+    expect(kq.trangThai).toBe('da_tao');
+    const vals = (odoo.execute.mock.calls.find((c) => c[1] === 'create') as never as [string, string, Array<Record<string, unknown>>])[2][0];
+    const dong0 = (vals.order_line as Array<[number, number, Record<string, unknown>]>)[0][2];
+    expect(dong0.price_unit).toBe(8);
+  });
+
+  it('dòng TẶNG (0đ) không bị coi là giá lệch', async () => {
+    const odoo = odooCard();
+    const kq = await taoDonNhap(
+      { odoo, conversationId: 'c', seq: 0, choPhepDatGia: true },
+      { khach_hang_id: 1441, dong: [{ san_pham_id: 448, so_luong: 1, tang: true }] },
+    );
+    expect(kq.trangThai).toBe('da_tao');
+  });
+
+  it('luồng KHÁCH (choPhepDatGia=false) không đụng hàng rào — giá do Odoo quyết', async () => {
+    const odoo = odooCard();
+    const kq = await taoDonNhap(
+      { odoo, conversationId: 'c', seq: 0 },
+      { khach_hang_id: 1441, dong: [{ san_pham_id: 448, so_luong: 1, don_gia: 8 }] },
+    );
+    expect(kq.trangThai).toBe('da_tao');
+  });
+});

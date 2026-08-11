@@ -142,7 +142,10 @@ describe('tao_don_nhap — KHO', () => {
       const odoo = fakeOdoo();
       await taoDonNhap(deps(odoo), {
         khach_hang_id: 3803, ten_khach: 'Cảnh', kho_id: xau,
-        dong: [{ san_pham_id: 902, so_luong: 1, don_gia: 1000 }],
+        // Giá sát giá hệ thống (SP_OVP 2.400.000đ): test này kiểm KHO, không
+        // kiểm giá. Để 1.000đ thì hàng rào giá lệch bất thường (11/08) chặn
+        // đơn — đúng việc của nó, nhưng làm hỏng phép đo của test kho.
+        dong: [{ san_pham_id: 902, so_luong: 1, don_gia: 2_300_000 }],
       });
       const w = valsTao(odoo).warehouse_id;
       // Chuỗi "3" là số hợp lệ sau ép kiểu — chấp nhận; còn lại phải vắng mặt.

@@ -139,7 +139,8 @@ export async function traKhachHang(
 export const traKhachHangDefinition: ToolDefinition = {
   name: 'tra_khach_hang',
   description:
-    'Tìm khách hàng trong hệ thống theo MÃ KH, SỐ ĐIỆN THOẠI hoặc TÊN. Trả về id, tên, mã KH và công nợ. ' +
+    'Tìm khách hàng trong hệ thống theo MÃ KH, SỐ ĐIỆN THOẠI hoặc TÊN. Trả về id, tên, mã KH. ' +
+    'KHÔNG trả số công nợ — hỏi "khách X nợ bao nhiêu" thì PHẢI gọi xuat_cong_no. ' +
     'GỌI KHI: cần lên đơn cho khách, hoặc cần biết khách đã có trong hệ thống chưa. ' +
     'ƯU TIÊN: có MÃ KH (dạng KH001017, hiện trong [ngoặc] ở danh sách) thì dùng `ma` — ra đúng 1 người. ' +
     'Có SĐT thì dùng sdt; chỉ biết tên thì dùng ten. ' +
@@ -191,6 +192,13 @@ export function dinhDangKhachHang(kq: KetQuaTimKhach): string {
     );
   }
   const k = kq.khach;
-  const no = k.congNo > 0 ? ` | đang nợ ${k.congNo.toLocaleString('vi-VN')}đ` : '';
+  // KHÔNG nêu số nợ ở đây nữa — `incokit_receivable_balance` đo trên prod
+  // 11/08 thấy SAI ở 29/40 khách nợ nhiều nhất (bug 16:09 11/08, xem
+  // xuat-cong-no.ts). Nêu ra là model sẽ trả lời câu hỏi công nợ bằng số sai
+  // mà không bao giờ gọi xuat_cong_no. Chỉ báo CÓ nợ hay không, kèm lệnh
+  // bắt buộc gọi tool đúng để lấy con số.
+  const no = k.congNo !== 0
+    ? ' | ĐANG CÓ CÔNG NỢ — số tiền phải lấy từ tool xuat_cong_no, ĐỪNG đoán'
+    : '';
   return `id=${k.id} | ${k.ten}${k.ma ? ` [${k.ma}]` : ''} | ${k.dienThoai ?? ''}${no}`;
 }

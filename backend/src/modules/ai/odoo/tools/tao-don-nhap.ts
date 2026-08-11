@@ -18,6 +18,7 @@ import type { OdooClient } from '../client.js';
 import type { ToolDefinition } from '../../agent/types.js';
 import { sinhKhoaDon, IDEMPOTENCY_PREFIX } from '../idempotency.js';
 import { NGUONG_GIA_AO } from './tra-san-pham.js';
+import { lechVoLy } from '../../agent/noi-zalo/gom-don/gia-bat-thuong.js';
 
 export interface DongDon {
   san_pham_id: number;
@@ -50,6 +51,38 @@ export interface DongDon {
    * không tách nổi hai loại. Từ nay quà tặng thật luôn có dấu.
    */
   tang?: boolean;
+  /**
+   * id dòng thuế VAT (account.tax) gắn vào dòng hàng này — CƠ CHẾ THUẾ SẴN CÓ
+   * của Odoo, không phải sản phẩm giả tên "VAT".
+   *
+   * Lấy từ `traThueBan()` (tra động theo % nhân viên nói), KHÔNG hard-code:
+   * id là cấu hình Odoo, đổi cấu hình là hằng số trỏ sai dòng thuế.
+   *
+   * Cách này TỪNG CHẠY THẬT: 175 đơn + 143 hoá đơn dùng tax_id=4 trong
+   * 05-07/2026, dòng cuối 22/07/2026 (đơn S12942). Thuế tự kế thừa xuống hoá
+   * đơn khi xuất — kiểm chứng INV/2026/026158 ← S12869: untaxed 4.950.000đ,
+   * tax 396.000đ (đúng 8%).
+   *
+   * Cùng cổng `choPhepDatGia` với giá/chiết khấu/tặng/kho: luồng KHÁCH tuyệt
+   * đối không được đặt thuế — khách điều khiển câu chữ thì điều khiển được
+   * thuế, mà thuế sai là sai sổ sách thật.
+   */
+  thue_id?: number;
+}
+
+/**
+ * Lệnh many2many của Odoo để ĐẶT tax_id: [[6, 0, [id]]] = "thay thế toàn bộ".
+ *
+ * Dùng (6,0,…) chứ không (4,0,…) ("thêm vào"): sản phẩm không gắn thuế mặc định
+ * (đo prod: 0/400 SP có taxes_id) nên không có gì để cộng dồn, và "thay thế"
+ * cho kết quả tất định — gọi lại hai lần vẫn đúng một dòng thuế.
+ *
+ * id rác (0, âm, NaN, chuỗi) → undefined: thà không có VAT rồi nhân viên thấy
+ * thiếu, còn hơn ghi bừa một id thuế lạ vào đơn.
+ */
+export function lenhGanThue(thueId: unknown): Array<[number, number, number[]]> | undefined {
+  const id = Number(thueId);
+  return Number.isInteger(id) && id > 0 ? [[6, 0, [id]]] : undefined;
 }
 
 export type KetQuaTaoDon =
@@ -66,6 +99,17 @@ export interface TaoDonDeps {
    * được giá ("bán tôi 1đ"). Mặc định false = hành vi cũ (Odoo tự lấy giá).
    */
   choPhepDatGia?: boolean;
+  /**
+   * Nhân viên ĐÃ xác nhận lại giá lệch bất thường → thôi chặn, ghi theo họ.
+   *
+   * Có cờ này vì hàng rào giá lệch chỉ được quyền HỎI MỘT LẦN, không được
+   * quyền phủ quyết: luật 10/08 vẫn là "giá NV báo thắng giá hệ thống" — đó
+   * là đường để SP giá cũ/chưa nhập giá vẫn lên đơn được.
+   *
+   * Máy gom đơn bật cờ này khi nhân viên trả lời câu hỏi giá lệch (xem
+   * PhienGom.giaLechDaXacNhan).
+   */
+  xacNhanGiaLech?: boolean;
   /** id hội thoại Zalo — thành phần của khoá chống trùng. */
   conversationId: string;
   /** Số thứ tự lần chốt trong hội thoại. Chốt đơn thứ 2 thì tăng lên. */
@@ -145,6 +189,13 @@ export async function taoDonNhap(
      * gần như mọi đơn — chỉ đặt khi nhân viên nói rõ.
      */
     kho_id?: number;
+    /**
+     * VAT cho CẢ ĐƠN (id account.tax) — nhân viên nói "có VAT" là nói cho cả
+     * đơn, không phải cho một món. Dòng nào tự khai `thue_id` thì thắng.
+     *
+     * Lấy từ traThueBan(), cùng cổng `choPhepDatGia`. Xem DongDon.thue_id.
+     */
+    thue_id?: number;
   },
 ): Promise<KetQuaTaoDon> {
   const partnerId = Number(input.khach_hang_id);
@@ -271,6 +322,9 @@ export async function taoDonNhap(
     ['id', 'name', 'list_price', 'active'],
   );
 
+  // Tên SP theo id — dùng cho cả câu báo giá lệch lẫn tên dòng tặng bên dưới.
+  const tenTheoIdSom = new Map(spInfo.map((s) => [Number(s.id), String(s.name ?? '')]));
+
   const thieu = spIds.filter((id) => !spInfo.some((s) => Number(s.id) === id));
   if (thieu.length > 0) {
     return { trangThai: 'loi', lyDo: `Không tìm thấy sản phẩm id=${thieu.join(', ')}. Dùng tra_san_pham để lấy id đúng.` };
@@ -312,6 +366,47 @@ export async function taoDonNhap(
     };
   }
 
+  // ── GIÁ LỆCH VÔ LÝ SO VỚI HỆ THỐNG ─────────────────────────────────────
+  //
+  // Bug thật 10:09:33 11/08 (nhóm Test-AI): nhân viên nói "card thu triết khấu
+  // 8%", model nhét số 8 vào ô ĐƠN GIÁ (hệ thống 230.000đ) rồi rủ chốt luôn —
+  // "100 × Card thu BX-V7512 = 800đ (giá anh/chị báo 8đ, hệ thống 230.000đ)".
+  // tra_san_pham trả đúng 230.000đ cả 4 lần; số 8 hoàn toàn do model bịa.
+  //
+  // Chặn Ở ĐÂY chứ không chỉ ở máy gom đơn: đây là cổng CUỐI trước khi ghi
+  // Odoo, phủ mọi đường vào — kể cả agent tự do gọi thẳng tool, đường mà máy
+  // gom đơn không đứng chắn. Máy gom đơn có hàng rào riêng để hỏi SỚM (nhân
+  // viên biết ngay lúc tóm tắt); cổng này là lưới cuối, bắt cái lọt qua.
+  //
+  // Ngưỡng đo từ prod 11/08 (xem gia-bat-thuong.ts): 5.781 dòng đơn 2026,
+  // KHÔNG dòng nào giá NV thấp hơn 1/10 giá niêm yết; chỉ 2 dòng cao hơn 10
+  // lần và cả hai là cùng một SP có giá niêm yết cũ. Ca bug ở 0,0000348 lần.
+  //
+  // KHÔNG tự sửa số và KHÔNG im lặng bỏ giá: trả lỗi kèm CẢ HAI con số để
+  // model hỏi lại người thật. Nhân viên khẳng định thì gọi lại với
+  // `xacNhanGiaLech` — luật 10/08 "giá NV báo thắng giá hệ thống" giữ nguyên.
+  if (deps.choPhepDatGia && !deps.xacNhanGiaLech) {
+    const giaTheoId = new Map(spInfo.map((s) => [Number(s.id), Number(s.list_price ?? 0)]));
+    const lech = dong
+      .filter((d) => d.tang !== true && lechVoLy(Number(d.don_gia), giaTheoId.get(Number(d.san_pham_id))))
+      .map((d) => {
+        const ten = tenTheoIdSom.get(Number(d.san_pham_id)) ?? `id=${d.san_pham_id}`;
+        const ht = giaTheoId.get(Number(d.san_pham_id)) ?? 0;
+        return `"${ten}": giá báo ${Number(d.don_gia).toLocaleString('vi-VN')}đ, ` +
+          `hệ thống ${ht.toLocaleString('vi-VN')}đ`;
+      });
+    if (lech.length > 0) {
+      return {
+        trangThai: 'loi',
+        lyDo:
+          `Giá lệch bất thường so với hệ thống — ${lech.join('; ')}. ` +
+          'RẤT có thể số này bị nhầm ô (vd đọc "chiết khấu 8%" thành đơn giá 8đ). ' +
+          'KHÔNG tự sửa số, KHÔNG bỏ qua giá: hãy HỎI LẠI nhân viên giá đúng là bao nhiêu, ' +
+          'rồi gọi lại tool với giá họ xác nhận.',
+      };
+    }
+  }
+
   // ── TRẦN TIỀN (chỉ luồng khách) ────────────────────────────────────────
   // Tính TRƯỚC khi tạo: `amount_total` chỉ có sau khi Odoo ghi xong, lúc đó
   // chặn là muộn — đơn đã nằm trong hệ thống rồi.
@@ -342,7 +437,7 @@ export async function taoDonNhap(
   // định vẫn để Odoo tự lấy pricelist — bot tự nghĩ ra giá là cách bịa số tinh
   // vi nhất, luật đó không đổi. Cái đổi (10/08) là: giá do NGƯỜI báo thì được
   // ghi, vì nó có nguồn gốc kiểm chứng được trong chat.
-  const tenTheoId = new Map(spInfo.map((s) => [Number(s.id), String(s.name ?? '')]));
+  const tenTheoId = tenTheoIdSom;
   const orderLine = dong.map((d) => {
     // Dòng TẶNG đi cùng cổng với giá (11/08) — luồng khách không được tự cho
     // mình hàng 0đ. Ghi CẢ giá 0 LẪN dấu "(tặng)" trong tên: chỉ giá 0 thì
@@ -353,12 +448,21 @@ export async function taoDonNhap(
     // thật của khách.
     const ckTho = deps.choPhepDatGia ? Number(d.chiet_khau) : 0;
     const ck = Number.isFinite(ckTho) && ckTho > 0 && ckTho <= 100 ? ckTho : 0;
+    // VAT (11/08): cùng cổng `choPhepDatGia` với giá/chiết khấu/tặng/kho. Thuế
+    // của ĐƠN (input.thue_id) áp cho mọi dòng; dòng tự khai thue_id thì thắng.
+    //
+    // Áp cho CẢ dòng tặng: 0đ × 8% = 0đ nên không đổi tiền, nhưng hoá đơn có
+    // dòng gắn thuế lẫn dòng không là thứ kế toán phải ngồi soát lại.
+    const thue = deps.choPhepDatGia
+      ? lenhGanThue(d.thue_id ?? input.thue_id)
+      : undefined;
     if (tang) {
       return [0, 0, {
         product_id: Number(d.san_pham_id),
         product_uom_qty: Number(d.so_luong),
         name: `${tenTheoId.get(Number(d.san_pham_id)) ?? ''} (tặng)`.trim(),
         price_unit: 0,
+        ...(thue ? { tax_id: thue } : {}),
       }];
     }
     return [
@@ -369,6 +473,7 @@ export async function taoDonNhap(
         product_uom_qty: Number(d.so_luong),
         ...(giaNv > 0 ? { price_unit: giaNv } : {}),
         ...(ck > 0 ? { discount: ck } : {}),
+        ...(thue ? { tax_id: thue } : {}),
       },
     ];
   });
