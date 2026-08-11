@@ -8,6 +8,22 @@ Viết cho người vận hành đọc: mọi thứ trong sơ đồ là ngôn ng
 phải tên file. Tên file chỉ nằm ở chú thích cuối mỗi sơ đồ, để lập trình viên
 lần ra chỗ sửa. Chi tiết kỹ thuật + lịch sử bug: `docs/KIEN-TRUC-AGENT.md`.
 
+**Đọc cái nào trước:** muốn nắm toàn cảnh trong 5 phút thì đọc sơ đồ 1 rồi
+nhảy sang sơ đồ 5. Bốn sơ đồ đầu tả **cơ chế** (tin đi đường nào, hàng rào
+nào chặn); bốn sơ đồ sau tả **nghiệp vụ** (bot làm được những việc gì cho ai).
+
+| # | Sơ đồ | Trả lời câu hỏi |
+|---|---|---|
+| 1 | Tổng quan | Một tin Zalo vào thì đi đâu, ai xử, trả lời kiểu gì |
+| 2 | Máy gom đơn | Đang lên đơn thì bot hỏi gì tiếp theo, vì sao hỏi vậy |
+| 3 | Các cổng chặn | Hàng rào nào chặn cái gì, chặn ở thời điểm nào |
+| 4 | Ba lớp chống trả lời trùng | Vì sao có tận ba lớp, gộp lại được không |
+| 5 | Bản đồ nghiệp vụ nhân viên | Nhân viên nhờ được bot làm những việc gì (22 việc) |
+| 6 | Luồng khách chi tiết | Khách được hỏi gì, bị chặn gì, khi nào gọi người thật |
+| 7 | Ba công cụ Odoo tổng quát | Phần quyền lực nhất — bot đụng được gì, phanh ở đâu |
+| 8 | Vòng đời một lượt | Vì sao có câu trả lời 2 giây, có câu 60 giây |
+| — | Phụ lục | Công cụ đăng ký rồi mà thực tế chưa ai dùng |
+
 ---
 
 ## Sơ đồ 1 — Tổng quan: tin nhắn đi đâu, ai xử, trả lời thế nào
@@ -267,3 +283,356 @@ khoá bộ nhớ khi Redis lỗi — thà trả lời hai lần còn hơn nuốt
 · Lớp 3 `du-lieu.ts:coTinKhachMoiHon`, gọi sau khi agent chạy xong và chỉ khi
 chưa ghi tool nào · ngoại lệ xác nhận `cam-xuc.ts:laXacNhanNgan`. Test khoá
 ranh giới ba lớp: `tests/ai/agent/chong-tra-loi-trung.func.ts`.
+
+---
+
+## Sơ đồ 5 — Bản đồ nghiệp vụ nhân viên: nhờ được bot làm những việc gì
+
+Sơ đồ 1 gom toàn bộ phần này vào một ô "Agent tự do" — nhìn thì tưởng bot chỉ
+biết lên đơn. Thực tế ô đó **giấu 22 việc**. Đây là bản trải phẳng, nhóm theo
+VIỆC chứ không theo tên công cụ.
+
+Đọc như một thực đơn: nhân viên nói câu bên phải, bot làm việc bên trái. Các
+câu ví dụ đều là **câu thật lấy từ chat prod**, không phải câu bịa cho đẹp.
+
+Ba điều cần nhớ khi đọc:
+
+- **Bot tự chọn việc**, không có menu. Nhân viên nói tiếng người, model tự
+  quyết gọi công cụ nào. Nói mơ hồ thì nó chọn nhầm — đó là lý do các nhóm
+  dưới đây phải tách bạch rõ trong đầu người vận hành.
+- **Một câu có thể chạm nhiều nhóm.** "Lên đơn cho anh Long Led 100 nguồn 5V
+  giá 230k" chạm cả tra hàng, tra khách, rồi mới lên đơn.
+- **Nhóm cuối (thao tác tự do Odoo) là cửa hậu.** Khi không có việc chuyên
+  trách nào vừa, bot tự mò thẳng vào Odoo. Xem sơ đồ 7 cho phần phanh.
+
+```mermaid
+flowchart LR
+    NV["Nhân viên tag bot<br/>trong nhóm Zalo"] --> HUB{"Bot đọc câu,<br/>tự chọn việc"}
+
+    HUB --> A["① TRA CỨU"]
+    HUB --> B["② ĐƠN HÀNG"]
+    HUB --> C["③ KẾ TOÁN"]
+    HUB --> D["④ BÁO CÁO"]
+    HUB --> E["⑤ TỰ DO TRÊN ODOO"]
+
+    A --> A1["Hàng và giá bán<br/>'kiểm tra tồn kho thanh toả lixin 220v'"]
+    A --> A2["Khách trong hệ thống<br/>'anh long led 0964396667 nha'"]
+    A --> A3["Tồn kho từng kho<br/>'12v400w NB xem còn bao nhiêu'"]
+    A --> A4["Nhóm hàng shop bán<br/>'bên mình có những loại nào'"]
+    A --> A5["Thông số kỹ thuật + gửi file PDF<br/>'a muốn e gửi cho a dạng tài liệu cattalog'"]
+
+    B --> B1["Lên đơn nháp<br/>'lên đơn cho led 68 100 bóng rọi trắng 1.5w'"]
+    B --> B2["Sửa đơn nháp: đổi lượng, thêm dòng<br/>'em sửa giá tạm thành giá 2800 nhé'"]
+    B --> B3["Áp chiết khấu cả đơn<br/>'chiết khấu 8% đơn này nhé'"]
+    B --> B4["Đơn nháp còn chờ xác nhận<br/>'còn bao nhiêu đơn chờ'"]
+    B --> B5["Tạo khách mới khi tra không ra"]
+
+    C --> C1["Công nợ một khách + từng hoá đơn nợ<br/>'khách X nợ bao nhiêu'"]
+    C --> C2["XUẤT hoá đơn kế toán, vào sổ lấy số<br/>'lên hoá đơn bán hàng'"]
+    C --> C3["GỬI ẢNH hoá đơn/báo giá, không ghi gì<br/>'gửi đơn cô bình đà nẵng cho chị xem'"]
+
+    D --> D1["Bức tranh chung, so kỳ trước<br/>'xuất doanh thu tháng này'"]
+    D --> D2["Bảng theo ngày/nhân viên/chi nhánh<br/>'doanh số tháng này của cô Bình Đà Nẵng'"]
+    D --> D3["Top bán chạy / hàng ế"]
+    D --> D4["Hàng sắp hết theo tốc độ bán"]
+    D --> D5["Báo cáo tổ hợp tự ghép<br/>'doanh số chi tiết theo từng sản phẩm'"]
+
+    E --> E1["Hỏi Odoo có bảng gì, cột gì, nút gì"]
+    E --> E2["Đọc bất kỳ bảng nào<br/>'hàng nào có tồn kho nhỏ hơn 100'"]
+    E --> E3["Ghi bất kỳ bảng nào: tạo, sửa, bấm nút<br/>-> qua phanh, xem sơ đồ 7"]
+
+    D1 --> X["Bảng dài quá thì<br/>xuất Excel gửi kèm,<br/>bảng ngắn thì vẽ thành ảnh"]
+    D2 --> X
+    D5 --> X
+```
+
+**Vì sao chia đúng 5 nhóm này:** ba nhóm đầu là việc hằng ngày có công cụ
+chuyên trách, làm được thì làm đúng và nhanh. Nhóm báo cáo là nơi bot hay chọn
+nhầm nhất (bốn công cụ báo cáo nhìn na ná nhau) nên mô tả của mỗi cái đều có
+câu "không dùng khi ..." trỏ sang cái đúng. Nhóm 5 là lưới hứng: câu nào không
+vừa 19 công cụ trên thì rơi vào đây thay vì bot bó tay.
+
+**Số liệu dùng thật (đo prod 04/08 → 11/08, 486 lượt gọi công cụ):** tra hàng
+140 lần, tra khách 79, lên đơn 43, báo cáo tổ hợp 19, tra tồn 16, đọc Odoo tự
+do 14, gửi ảnh hoá đơn 14. Đuôi rất mỏng: đơn chờ xác nhận và cảnh báo tồn kho
+mỗi cái **đúng 1 lần**; gửi tài liệu và ghi tự do vào Odoo **chưa từng được
+gọi lần nào**.
+
+**Chú thích cho lập trình viên:** đăng ký 22 công cụ tại `agent/staff-agent.ts`
+(hàm `taoStaffRegistry`); thân từng công cụ ở `odoo/tools/*.ts`; ba công cụ tổng
+quát `odoo/tong-quat/{doc,lam,kham-pha}.ts`; xuất Excel + vẽ bảng thành ảnh
+`odoo/xuat-excel.ts` + `odoo/anh-bang.ts` (ngưỡng đính kèm `NGUONG_DINH_KEM`).
+Lưu ý: `odoo/tools/tra-thue.ts` tồn tại nhưng **không đăng ký ở registry nào** —
+code chết, xem phần cuối tài liệu.
+
+---
+
+## Sơ đồ 6 — Luồng khách chi tiết: bot làm gì, chặn gì, khi nào gọi người
+
+Sơ đồ 1 vẽ luồng khách bằng năm ô. Đây là bản chi tiết, vì luồng khách là nơi
+**ranh giới bảo mật thật sự nằm**: khách gõ được câu chữ tuỳ ý, nên mọi hàng
+rào phải nằm trong code, không phải trong lời dặn model. Khách lèo lái được
+lời dặn; khách không lèo lái được công cụ không tồn tại.
+
+Nguyên tắc gốc: **công cụ nào không đăng ký thì model không gọi nổi**, kể cả
+khi khách dụ khéo đến đâu. Khách có 7 công cụ, nhân viên có 22.
+
+```mermaid
+flowchart TD
+    K["Khách nhắn"] --> C{"Đang bực / chửi /<br/>đòi gặp người?"}
+    C -->|"Có"| SALE["Gọi người thật vào,<br/>bot ngừng hẳn lượt này"]
+    C -->|"Không"| Q{"Khách hỏi gì?"}
+
+    Q -->|"'Bên bạn bán gì'"| T1["Liệt kê nhóm hàng<br/>rồi hỏi khách quan tâm nhóm nào"]
+    Q -->|"Hỏi giá / có bán không"| T2["Tra hàng: tên, mã, giá bán, đơn vị"]
+    Q -->|"Bảo hành, IP, công suất, cách lắp"| T3["Tra tài liệu kỹ thuật"]
+    Q -->|"'Cho xin file PDF / catalog'"| T4["Gửi đúng cái file<br/>(chỉ .pdf, đã lọc tên file<br/>dính từ khoá giá nội bộ)"]
+    Q -->|"Chốt mua"| GATE{"Công tắc<br/>cho khách tự chốt<br/>có bật không?"}
+    Q -->|"Bí, thiếu thông tin,<br/>xin giảm giá ngoài thẩm quyền"| SALE
+
+    GATE -->|"TẮT (mặc định)"| SALE
+    GATE -->|"BẬT"| M{"Đơn quá 20 triệu?"}
+    M -->|"Có"| SALE
+    M -->|"Không"| T5["Tạo khách mới nếu chưa có<br/>+ lên đơn nháp"]
+
+    T1 --> OUT["Trả lời + ảnh sản phẩm"]
+    T2 --> OUT
+    T3 --> OUT
+    T4 --> OUT
+    T5 --> OUT2["Đơn nháp + ảnh hoá đơn + QR<br/>(vẫn phải người xác nhận)"]
+
+    subgraph CAM ["KHÁCH KHÔNG BAO GIỜ CHẠM TỚI"]
+        direction TB
+        X1["Công nợ, doanh thu, báo cáo, top bán chạy"]
+        X2["Chiết khấu, sửa đơn, xuất hoá đơn kế toán"]
+        X3["Tồn kho từng kho, đơn chờ xác nhận"]
+        X4["Đọc / ghi / khám phá Odoo tự do"]
+        X5["Giá vốn, giá nhập, lãi gộp<br/>(nhân viên cũng không được)"]
+    end
+
+    SALE --> Z["Nhắn giữ chân khách<br/>+ báo nhân viên vào tiếp"]
+```
+
+**Bảy công cụ khách được dùng, và vì sao đúng bảy cái này:**
+
+| Công cụ | Vì sao khách được | Đã gọi (04→11/08) |
+|---|---|---|
+| Tra nhóm hàng | "Bên bạn bán gì" là câu mở đầu phổ biến nhất của khách buôn | 3 |
+| Tra sản phẩm | Giá bán là thông tin công khai, và là nguồn giá DUY NHẤT đúng | 44 |
+| Tra tri thức | Thông số kỹ thuật không nhạy cảm; công cụ tự chặn câu hỏi về tiền | 0 |
+| Gửi tài liệu | Datasheet là tài liệu công khai của nhà sản xuất | 0 |
+| Chuyển sale | Đường thoát — luôn tốt hơn đoán bừa | 15 |
+| Tạo khách | Chỉ khi bật công tắc chốt đơn | 13 |
+| Lên đơn nháp | Chỉ khi bật công tắc chốt đơn, và dưới trần tiền | 9 |
+
+**Vì sao 15 công cụ còn lại KHÔNG mở cho khách** — ba lý do khác nhau, đừng
+gộp làm một:
+
+1. **Lộ chuyện nội bộ.** Công nợ, doanh thu, top bán chạy, lương biên lợi
+   nhuận: khách xem được là hỏng quan hệ với chính khách khác.
+2. **Cho khách tự định đoạt tiền của shop.** Chiết khấu, sửa giá, sửa đơn đã
+   lên. Khách gõ "giảm 50% nhé em" mà bot làm thật thì không ai gỡ lại được.
+3. **Quyền quá rộng để trao cho câu chữ người lạ.** Ba công cụ Odoo tổng quát
+   ghi được vào bất kỳ bảng nào — mở cho khách là mở cửa kho.
+
+**Hai hàng rào nữa dễ quên:**
+
+- **Trần tiền 20 triệu** một đơn khách tự chốt. Không phải phòng xa: đo thật
+  04/08, khách gõ "lấy 1000 cuộn" ra đơn 500 triệu, không ai duyệt nổi.
+- **Hết giờ thì khách KHÔNG được nhận dữ liệu dở dang.** Luồng nhân viên hết
+  90 giây vẫn trả những gì đã tra được; luồng khách thì tuyệt đối không, vì
+  dữ liệu thô của công cụ có thể lộ thông tin nội bộ. Khách chỉ nhận câu giữ
+  chân + người thật vào tiếp.
+
+**Chú thích cho lập trình viên:** registry khách `agent/customer-agent.ts`
+(`toolChoPhep` gate theo guideline — không match guideline chốt đơn thì công cụ
+ghi **không được đăng ký**, model không gọi nổi) · công tắc chốt đơn + trần tiền
+`noi-zalo/cong-tac.ts:tranTienKhach` (mặc định 20.000.000, đổi qua
+`AI_AGENT_TRAN_TIEN_KHACH`) · lọc file gửi khách `knowledge/kho-tai-lieu.ts:locGiaNoiBo`
+(chỉ `.pdf` + loại tên file dính "giá vốn/giá nhập/agent price/vip price/…") ·
+nhận diện khách bực `cam-xuc.ts` · cấm dữ liệu dở dang cho khách
+`noi-zalo/ngan-sach.ts:tomTatDoDang` (chỉ dùng ở luồng nhân viên).
+
+---
+
+## Sơ đồ 7 — Ba công cụ Odoo tổng quát và bốn cái phanh
+
+Đây là phần **mạnh nhất và nguy hiểm nhất** của hệ thống. 19 công cụ kia mỗi
+cái làm đúng một việc đã đóng khung sẵn. Ba công cụ này thì không: chúng cho
+bot **đọc bất kỳ bảng nào, ghi bất kỳ bảng nào, bấm bất kỳ nút nào** trong
+Odoo — kể cả những bảng chưa ai nghĩ tới lúc viết code.
+
+Anh Quốc chốt ngày 10/08: bot làm được mọi thao tác, **chỉ hai việc phải xin
+phép** — xoá bất kỳ thứ gì, và lệnh đụng hơn 20 bản ghi.
+
+Lý do phanh nằm trong CODE chứ không phải trong lời dặn: chỉ trong một tuần
+bot đã bịa id khách (đơn S13810 lên nhầm người), lặp câu hỏi vô tận, kẹt phiên
+5 lệnh liền. Với quyền ĐỌC thì mấy lỗi đó gây phiền. Với quyền GHI tự do,
+chúng thành mất dữ liệu thật — **Odoo không có nút hoàn tác, không có thùng
+rác**.
+
+```mermaid
+flowchart TD
+    S["Nhân viên hỏi một câu<br/>không công cụ chuyên nào vừa"] --> B{"Bot có chắc<br/>tên bảng / tên cột không?"}
+
+    B -->|"Không chắc"| KP["KHÁM PHÁ<br/>bảng này có cột gì?<br/>bấm được nút nào?<br/>tìm bảng theo từ khoá"]
+    B -->|"Chắc rồi"| W{"Chỉ xem,<br/>hay phải ghi?"}
+    KP --> W
+
+    W -->|"Chỉ xem"| R["ĐỌC<br/>lọc, gộp nhóm, cộng số, sắp xếp"]
+    W -->|"Phải ghi"| M["GHI<br/>tạo bản ghi / sửa / bấm nút<br/>(xác nhận đơn, vào sổ, duyệt kho)"]
+
+    R --> P3{"Trong danh sách cột<br/>có giá vốn / giá nhập /<br/>lãi gộp không?"}
+    P3 -->|"Có"| CUT["CẮT BỎ cột đó TRƯỚC khi<br/>gọi Odoo, báo lại là không được xem.<br/>Nhân viên hỏi thẳng cũng không cho."]
+    P3 -->|"Không"| P4{"Quá 200 dòng?"}
+    P4 -->|"Có"| TRIM["Cắt còn trong trần,<br/>báo rõ là đã cắt"]
+    P4 -->|"Không"| OKR["Trả bảng số liệu"]
+    CUT --> OKR
+    TRIM --> OKR
+
+    M --> P1{"Lệnh này là XOÁ?"}
+    P1 -->|"Có"| ASK["DỪNG LẠI.<br/>Nói nguyên văn sẽ đụng bao nhiêu bản ghi,<br/>chờ nhân viên gật rồi mới chạy."]
+    P1 -->|"Không"| P2{"Đụng quá 20 bản ghi?"}
+    P2 -->|"Có"| ASK
+    P2 -->|"Không"| GO["Chạy thật, ghi vào Odoo"]
+
+    ASK --> Y{"Nhân viên gật?"}
+    Y -->|"Gật"| GO
+    Y -->|"Im lặng / đổi ý"| STOP["Không làm gì cả"]
+
+    OKR --> OUT["Bot soạn câu trả lời<br/>-> vẫn qua hàng rào chống hứa lèo (sơ đồ 3)"]
+    GO --> OUT
+    STOP --> OUT
+```
+
+**Bốn cái phanh, xếp theo mức độ cứng:**
+
+| Phanh | Chặn cái gì | Cứng đến đâu |
+|---|---|---|
+| **Cột giá vốn** | Mọi cột tên dính `cost`, `margin`, `standard_price`, `purchase_price` | Tuyệt đối. Cắt TRƯỚC khi gọi Odoo. Không có đường xin phép. |
+| **Phanh xoá** | Mọi lệnh xoá, kể cả xoá đúng 1 bản ghi | Phải xin gật. Lý do: Odoo không có thùng rác. |
+| **Phanh hàng loạt** | Lệnh ghi đụng hơn 20 bản ghi | Phải xin gật. |
+| **Trần dòng đọc** | Đọc quá trần thì cắt bớt | Tự cắt, không hỏi. Chống một câu hỏi kéo về cả bảng. |
+
+**Điểm cần để mắt:** phanh xoá và phanh hàng loạt được vượt qua bằng cờ "nhân
+viên đã đồng ý". Cờ đó do **model tự điền** ở lượt gọi thứ hai. Nghĩa là phanh
+chỉ thật sự đứng vững chừng nào model còn trung thực chuyển nguyên văn lời cảnh
+báo cho nhân viên đọc, thay vì tự gật thay họ. Đây là chỗ mỏng nhất trong toàn
+bộ hệ thống phanh — nếu về sau muốn siết, siết ở đây.
+
+**Tin đáng mừng (đo prod 04/08 → 11/08):** công cụ khám phá được gọi 4 lần,
+công cụ đọc 14 lần, công cụ **GHI tự do CHƯA từng được gọi lần nào**. Nghĩa là
+cửa hậu nguy hiểm nhất đang đóng trong thực tế — nó tồn tại như lưới an toàn
+chứ chưa thành đường đi hằng ngày.
+
+**Chú thích cho lập trình viên:** `odoo/tong-quat/kham-pha.ts` (`kham_pha_odoo`),
+`doc.ts` (`doc_odoo`, `MAC_DINH_DONG`/`TRAN_DONG`), `lam.ts` (`lam_odoo`,
+`mutates: true`) · phanh dùng chung `odoo/tong-quat/an-toan.ts`
+(`NGUONG_HANG_LOAT = 20`, `laCotCam`, `locCotCam`, `quyetDinhPhanh`; cờ vượt
+phanh là tham số `xac_nhan`) · spec gốc
+`docs/superpowers/specs/2026-08-10-tool-odoo-tong-quat-design.md`.
+
+---
+
+## Sơ đồ 8 — Vòng đời một lượt: vì sao có câu 2 giây, có câu 60 giây
+
+Nhân viên hay hỏi "sao lúc nhanh lúc chậm". Câu trả lời nằm ở đây: bot **không
+trả lời một phát**. Nó chạy một vòng lặp — hỏi model, model bảo "tra cái này
+đi", chạy công cụ, đưa kết quả lại cho model, model lại bảo tra tiếp. Cứ thế
+**tối đa 8 vòng**.
+
+Một câu như "cái đèn P10 giá bao nhiêu" xong sau 1 vòng: khoảng 2-3 giây. Một
+câu như "lên đơn cho anh Long Led 100 nguồn 5V60A giá 230k" phải tra hàng, tra
+khách, lên đơn, rồi gửi ảnh hoá đơn — 4 vòng, mỗi vòng một lượt gọi model, dễ
+lên 15-20 giây. Đó là chậm bình thường, không phải hỏng.
+
+Cả lượt có **ngân sách 90 giây**. Đo thật trên prod: công cụ chạy dưới 700ms,
+một lượt gọi model khoảng 2 giây. Vậy 90 giây là rất rộng — nếu chạm trần thì
+gần như chắc chắn là **nhà cung cấp model bị nghẽn**, chứ không phải câu hỏi
+khó. Đây từng là nguồn của lỗi "Bot gặp lỗi (lượt agent quá hạn 90000ms)" lặp
+đi lặp lại: một mắt xích được phép tự thử lại tới 109 giây, dài hơn cả ngân
+sách tổng của lượt.
+
+```mermaid
+flowchart TD
+    A["Nhân viên nói một câu"] --> B["Bấm giờ: bắt đầu ngân sách 90 giây"]
+    B --> C["Gửi câu + 22 công cụ cho model"]
+
+    C --> D{"Model muốn gì?"}
+    D -->|"Trả lời luôn"| ANS
+    D -->|"Gọi công cụ"| E["Chạy các công cụ<br/>(nhiều cái CÙNG LÚC nếu model xin<br/>— tra 3 sản phẩm là 1 vòng, không phải 3)"]
+
+    E --> F["Nhét kết quả vào ngữ cảnh"]
+    F --> G{"Đã đủ 8 vòng?"}
+    G -->|"Chưa"| H{"Còn thời gian<br/>trong 90 giây?"}
+    G -->|"Rồi"| CAP["Chạm trần vòng lặp:<br/>dừng gọi công cụ, bắt model chốt lời"]
+
+    H -->|"Còn"| C
+    H -->|"Hết"| TIME["HẾT GIỜ"]
+
+    TIME --> T1{"Ai đang hỏi?"}
+    T1 -->|"Nhân viên"| T2["Trả những gì đã tra được<br/>('em tra được đến đây thì hết giờ')<br/>KHÔNG ném lỗi kỹ thuật ra"]
+    T1 -->|"Khách"| T3["KHÔNG trả dữ liệu dở<br/>(sợ lộ nội bộ)<br/>-> giữ chân + gọi người thật"]
+
+    CAP --> ANS
+    T2 --> ANS
+    ANS["Model soạn câu trả lời"] --> W{"Hàng rào chống hứa lèo<br/>(sơ đồ 3)"}
+
+    W -->|"Câu khớp việc đã làm"| SEND["Gửi về Zalo<br/>+ ảnh, file, QR nếu có"]
+    W -->|"Khoe 'đã lên đơn' mà chưa ghi gì"| BLOCK["Chặn câu bịa,<br/>báo nhân viên xử lý"]
+    T3 --> BLOCK
+```
+
+**Bảng đối chiếu để trả lời câu "sao lâu vậy":**
+
+| Nhân viên hỏi | Số vòng | Thời gian thường thấy |
+|---|---|---|
+| "Đèn P10 giá bao nhiêu" | 1 | 2-3 giây |
+| "12v400w NB còn bao nhiêu" | 2 (tra hàng → tra tồn) | 4-6 giây |
+| "Doanh thu tháng này" | 1-2 | 3-8 giây |
+| "Lên đơn cho anh Long Led 100 nguồn 5V giá 230k" | 3-4 + gửi ảnh | 15-25 giây |
+| "Doanh số chi tiết theo từng sản phẩm của khách X" | 2-4, có thể phải khám phá bảng trước | 10-30 giây |
+| Bất cứ câu nào chạm 90 giây | — | **Không phải câu khó — là gateway model đang nghẽn** |
+
+**Ba chốt chặn trong vòng lặp, mỗi cái sinh ra từ một sự cố thật:**
+
+- **Trần 8 vòng.** Không chặn thì hai công cụ gọi qua lại nhau chạy được nhiều
+  ngày và đốt sạch hạn mức API.
+- **Công cụ lỗi vẫn phải trả kết quả về cho model** (kèm dấu "lỗi"), để model
+  tự đổi cách làm hoặc chuyển sale. Nuốt lỗi thì model treo chờ vô tận.
+- **Ngữ cảnh phồng thì tự dọn.** Quá 30.000 token thì xoá bớt kết quả công cụ
+  cũ, giữ lại 3 cái gần nhất — nhưng **kết quả tạo đơn thì không bao giờ xoá**,
+  vì trong đó có mã đơn. Xoá đi là model quên mất mình đã tạo đơn rồi và tạo
+  lại lần nữa.
+
+**Chú thích cho lập trình viên:** vòng lặp `agent/loop.ts`
+(`DEFAULT_MAX_ITERATIONS = 8`, `runToolSafely` luôn trả `ToolResult`, mọi
+`tool_result` gộp vào MỘT message user để khỏi dạy model bỏ gọi song song) ·
+ngân sách `noi-zalo/dung.ts:hanGioLuot` (90.000ms, đổi qua
+`AI_AGENT_HAN_GIO_MS`) + `noi-zalo/ngan-sach.ts:hanConLai` (mỗi lần gọi provider
+chỉ được chờ trong phần CÒN LẠI của ngân sách) + `tomTatDoDang` (trả dữ liệu dở,
+CHỈ luồng nhân viên) · dọn ngữ cảnh `staff-agent.ts:CONTEXT_EDITING_MAC_DINH`
+(`exclude_tools: ['tao_don_nhap']`) · hàng rào chống hứa lèo `agent/y-dinh-dung.ts`.
+
+---
+
+## Phụ lục — Công cụ đăng ký rồi mà thực tế không ai dùng
+
+Đo trên prod, toàn bộ 486 lượt gọi công cụ từ 04/08 đến 11/08/2026. Ghi lại vì
+đây là thứ chỉ nhìn code không thấy được.
+
+| Công cụ | Số lần gọi | Đọc ra điều gì |
+|---|---|---|
+| Ghi tự do vào Odoo (`lam_odoo`) | **0** | Cửa hậu quyền lực nhất chưa từng mở. Tốt — nhưng nghĩa là bốn cái phanh **chưa từng được thử lửa thật**. |
+| Gửi tài liệu PDF (`gui_tai_lieu`) | **0** | Có nhân viên đã hỏi xin catalog ("a muốn e gửi cho a dạng tài liệu cattalog") mà công cụ vẫn 0 lần — đáng nghi, nên soi lại xem bot có chọn nhầm sang tra tri thức không. |
+| Tra thuế (`tra-thue.ts`) | **0** | **Không đăng ký ở registry nào.** File còn nằm đó nhưng chưa từng chạy — code chết, nên xoá hoặc nối vào. |
+| Đơn chờ xác nhận | 1 | Gần như chưa dùng. |
+| Cảnh báo tồn kho | 1 | Gần như chưa dùng, dù có nhân viên hỏi đúng nghiệp vụ này bằng câu khác ("hàng nào có tồn kho nhỏ hơn 100") — và câu đó bị định tuyến sang đọc Odoo tự do thay vì công cụ chuyên. |
+| Tra danh mục (nhân viên) | 2 | Chủ yếu là công cụ cho khách. |
+| Sửa chiết khấu | 4 | Ít nhưng đúng nghiệp vụ, có dùng thật. |
+
+**Một quan sát đáng để anh Quốc biết:** hai dòng cuối bảng cho thấy cùng một
+nghiệp vụ đang đi bằng hai đường khác nhau. Nhân viên hỏi "hàng nào tồn kho
+nhỏ hơn 100" thì bot mở Odoo ra đọc tay, thay vì dùng công cụ cảnh báo tồn kho
+đã viết sẵn. Không sai kết quả, nhưng chậm hơn và dễ lệch số hơn — công cụ
+chuyên còn biết tính theo tốc độ bán, đọc tay thì không.
