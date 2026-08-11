@@ -17,10 +17,11 @@
 // Hai việc sửa ở đây:
 //   1. `hanConLai` — mỗi lần gọi provider chỉ được chờ trong phần còn lại của
 //      ngân sách, không phải hạn cứng của riêng nó.
-//   2. `chayCoHanGioMem` — hết giờ thì lấy kết quả dở dang (đã có tool chạy)
-//      thay vì vứt hết và ném lỗi.
-import { describe, it, expect, vi } from 'vitest';
-import { hanConLai, chayCoHanGioMem, tomTatDoDang } from '../../../src/modules/ai/agent/noi-zalo/ngan-sach.js';
+//   2. `tomTatDoDang` — hết giờ thì trả dữ liệu tool đã tra được thay vì vứt
+//      hết và ném lỗi (CHỈ luồng nhân viên; luồng khách xem
+//      het-gio-khach-khong-lo-noi-bo.func.ts).
+import { describe, it, expect } from 'vitest';
+import { hanConLai, tomTatDoDang } from '../../../src/modules/ai/agent/noi-zalo/ngan-sach.js';
 
 describe('hanConLai — không lần gọi nào được vượt ngân sách còn lại', () => {
   it('còn nhiều thời gian → dùng hạn mặc định của lần thử đó', () => {
@@ -52,47 +53,13 @@ describe('hanConLai — không lần gọi nào được vượt ngân sách cò
   });
 });
 
-describe('chayCoHanGioMem — hết giờ thì lấy cái đang có, KHÔNG báo lỗi', () => {
-  it('việc xong trước hạn → trả kết quả bình thường', async () => {
-    const kq = await chayCoHanGioMem({
-      viec: Promise.resolve('xong rồi'),
-      ms: 1_000,
-      layDoDang: () => null,
-    });
-    expect(kq).toEqual({ trangThai: 'xong', giaTri: 'xong rồi' });
-  });
+// ĐÃ XOÁ nhóm test `chayCoHanGioMem` (11/08) cùng với chính hàm đó — nó là code
+// chết: viết kèm bản sửa 272c58f2, có test xanh, nhưng KHÔNG luồng nào gọi.
+// Cả hai luồng đều đã có đường tốt hơn: nhân viên dùng catch + `tomTatDoDang`
+// (bắt được cả lỗi thật lẫn hết giờ bằng một đường), khách thì không được phép
+// trả output tool ra nên trạng thái 'do_dang' vô dụng. Chi tiết ở đầu ngan-sach.ts.
 
-  it('hết giờ NHƯNG đã có dữ liệu tool → trả DỞ DANG, không ném lỗi', async () => {
-    const kq = await chayCoHanGioMem({
-      viec: new Promise((r) => setTimeout(() => r('quá muộn'), 5_000)),
-      ms: 50,
-      layDoDang: () => 'Công nợ anh Vấn: 12.000.000đ (đang tra tiếp)',
-    });
-    expect(kq.trangThai).toBe('do_dang');
-    if (kq.trangThai === 'do_dang') {
-      expect(kq.giaTri).toContain('12.000.000');
-    }
-  });
-
-  it('hết giờ và CHƯA có gì → trả rỗng để caller nhắn câu mềm', async () => {
-    const kq = await chayCoHanGioMem({
-      viec: new Promise((r) => setTimeout(() => r('quá muộn'), 5_000)),
-      ms: 50,
-      layDoDang: () => null,
-    });
-    expect(kq).toEqual({ trangThai: 'het_gio' });
-  });
-
-  it('việc NÉM lỗi thật → vẫn ném, đừng nuốt lỗi thành "hết giờ"', async () => {
-    await expect(chayCoHanGioMem({
-      viec: Promise.reject(new Error('Odoo sập')),
-      ms: 1_000,
-      layDoDang: () => null,
-    })).rejects.toThrow('Odoo sập');
-  });
-});
-
-describe('tomTatDoDang — hết giờ thì trả cái tool đã tra được', () => {
+describe('tomTatDoDang — hết giờ thì trả cái tool đã tra được (CHỈ luồng nhân viên)', () => {
   it('lấy kết quả tool CUỐI (gần câu hỏi nhất, các tool trước là bước trung gian)', () => {
     expect(tomTatDoDang([
       { toolName: 'tra_khach_hang', output: 'Anh Vấn · KH000027', thanhCong: true },

@@ -13,6 +13,7 @@
 import { prisma } from '../../../../shared/database/prisma-client.js';
 import { logger } from '../../../../shared/utils/logger.js';
 import { dungGenerate } from './llm.js';
+import { hanGioLuot } from './dung.js';
 import { guiTin, type DichGui } from './gui-zalo.js';
 
 const SO_TIN_DOC = 30;
@@ -137,7 +138,19 @@ export async function chaoNhomKhiThem(deps: ChaoNhomDeps): Promise<boolean> {
     const history = await api.getGroupChatHistory(groupId, SO_TIN_DOC);
     const boiCanh = gomBoiCanh(history, botUid);
     if (boiCanh) {
-      const gen = await dungGenerate(orgId);
+      // NGÂN SÁCH THỜI GIAN (11/08) — cùng lỗ hổng với luồng khách/nhân viên.
+      //
+      // Khác hai luồng kia ở một điểm đáng nói: chào nhóm KHÔNG nằm dưới
+      // `chayCoHanGio`, caller (`zalo-listener-factory`) chỉ `void` một promise
+      // nền. Nên ở đây không ai cắt cả: vòng thử-lại của provider được phép
+      // chạy trọn 12+20+30+40s chờ cộng nghỉ backoff 1+2+4s = 109s cho MỘT câu
+      // ngữ cảnh xã giao. Lời chào đến sau gần hai phút thì vô duyên hơn là
+      // không chào — mà cờ groupGreetedAt đã set từ bước 4, không chào lại được.
+      //
+      // Đặt mốc hết hạn để lần gọi này bỏ cuộc sớm; hỏng thì rơi xuống catch
+      // bên dưới và chào KHUÔN THUẦN — đúng thiết kế sẵn có "mọi lỗi → khuôn
+      // thuần", câu ngữ cảnh vốn là phần thêm nếm, không phải phần bắt buộc.
+      const gen = await dungGenerate(orgId, Date.now() + hanGioLuot());
       if (gen) {
         const kq = await gen({
           system:

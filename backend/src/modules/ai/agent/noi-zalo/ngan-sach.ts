@@ -20,12 +20,21 @@
 // Hai mảnh ở đây:
 //   1. `hanConLai` — mỗi lần gọi provider chỉ được chờ trong phần CÒN LẠI của
 //      ngân sách, thay vì hạn cứng riêng của nó.
-//   2. `chayCoHanGioMem` — hết giờ thì lấy kết quả DỞ DANG (dữ liệu tool đã
-//      tra được) thay vì vứt hết rồi ném lỗi. Anh Quốc chốt: "trả lời bằng dữ
-//      liệu đã tra được".
-
-/** Chừa tối thiểu cho một lần gọi, để không cắt xuống 0 rồi mất luôn cơ hội. */
-const TOI_THIEU_MS = 1_000;
+//   2. `tomTatDoDang` — hết giờ thì trả dữ liệu tool đã tra được thay vì vứt
+//      hết rồi báo lỗi. Anh Quốc chốt: "trả lời bằng dữ liệu đã tra được".
+//      CHỈ dùng cho luồng NHÂN VIÊN — xem ghi chú ngay trên hàm.
+//
+// ĐÃ XOÁ `chayCoHanGioMem` + `conDangThu` (11/08). Chúng được viết kèm bản sửa
+// 272c58f2, có test đầy đủ, nhưng KHÔNG nơi nào gọi — code chết đúng nghĩa.
+// Xoá thay vì đi tìm chỗ dùng, vì cả hai luồng đều đã có đường xử lý riêng và
+// TỐT HƠN:
+//   - luồng nhân viên: `chayCoHanGio` ném → catch bắt → `tomTatDoDang(daTra)`.
+//     Bắt được CẢ lỗi thật (Odoo sập) lẫn hết giờ bằng một đường, trong khi
+//     `chayCoHanGioMem` chỉ phủ hết giờ, còn lỗi thật vẫn phải có catch riêng.
+//   - luồng khách: hết giờ TUYỆT ĐỐI không được trả output tool ra (rò dữ liệu
+//     nội bộ — xem `tomTatDoDang`), nên trạng thái `do_dang` vô dụng ở đó.
+// Để code chết nằm lại là bẫy cho người sau: đọc thấy tưởng hệ thống có cơ chế
+// "hết giờ vẫn trả lời mềm", yên tâm dựa vào, mà thực ra nó chưa từng chạy.
 
 /**
  * Hạn chờ thực tế cho lần gọi tiếp theo: nhỏ hơn giữa "hạn mong muốn" và
@@ -46,56 +55,14 @@ export function hanConLai(input: {
   return Math.min(input.hanMongMuon, conLai);
 }
 
-export type KetQuaCoHan<T> =
-  | { trangThai: 'xong'; giaTri: T }
-  /** Hết giờ nhưng đã tra được gì đó — trả cái đang có, KHÔNG báo lỗi. */
-  | { trangThai: 'do_dang'; giaTri: string }
-  /** Hết giờ và chưa có gì — caller nhắn một câu mềm, không lộ số ms. */
-  | { trangThai: 'het_gio' };
-
-/**
- * Chạy một việc có hạn, nhưng hết giờ thì LẤY CÁI ĐANG CÓ thay vì ném lỗi.
- *
- * Khác `chayCoHanGio` cũ ở đúng chỗ này: bản cũ dùng Promise.race rồi ném, nên
- * mọi dữ liệu tool đã tra được đều bị vứt — nhân viên nhận câu báo lỗi kỹ
- * thuật trong khi bot đã biết công nợ, đã tra xong khách.
- *
- * Lỗi THẬT (Odoo sập, mất mạng) vẫn ném nguyên: nuốt nó thành "hết giờ" là
- * giấu sự cố, sau này không ai lần ra.
- */
-export async function chayCoHanGioMem<T>(input: {
-  viec: Promise<T>;
-  ms: number;
-  /** Lấy phần đã làm được tới lúc này (thường là tóm tắt kết quả tool). */
-  layDoDang: () => string | null;
-}): Promise<KetQuaCoHan<T>> {
-  let hen: NodeJS.Timeout | undefined;
-  const HET_GIO = Symbol('het_gio');
-
-  try {
-    const kq = await Promise.race([
-      input.viec,
-      new Promise<typeof HET_GIO>((giaiQuyet) => {
-        hen = setTimeout(() => giaiQuyet(HET_GIO), Math.max(input.ms, 0));
-      }),
-    ]);
-
-    if (kq !== HET_GIO) return { trangThai: 'xong', giaTri: kq as T };
-
-    const doDang = (input.layDoDang() ?? '').trim();
-    return doDang ? { trangThai: 'do_dang', giaTri: doDang } : { trangThai: 'het_gio' };
-  } finally {
-    if (hen) clearTimeout(hen);
-  }
-}
-
-/** Hạn tối thiểu để một lần gọi còn đáng thử — dưới mức này thì dừng luôn. */
-export function conDangThu(ms: number): boolean {
-  return ms >= TOI_THIEU_MS;
-}
-
 /**
  * Tóm tắt những gì tool đã tra được, để trả lời khi hết giờ.
+ *
+ * CHỈ DÙNG CHO LUỒNG NHÂN VIÊN. Hàm này trả NGUYÊN output của tool — mã khách
+ * hàng, công nợ, dòng giá vốn. Với nhân viên đó đúng là thứ họ đang cần; với
+ * KHÁCH thì đó là rò dữ liệu nội bộ (và khách cũng không hiểu "KH000027 · công
+ * nợ 12.000.000đ" nghĩa là gì). Luồng khách hết giờ thì nhắn câu giữ chân rồi
+ * báo nhân viên vào tiếp — có test khoá ở het-gio-khach-khong-lo-noi-bo.func.ts.
  *
  * Anh Quốc 11/08 chốt: hết giờ thì "trả lời bằng dữ liệu đã tra được". Bot
  * thường đã biết công nợ, đã tra xong khách — chỉ thiếu bước soạn câu cuối.

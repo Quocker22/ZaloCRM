@@ -23,7 +23,7 @@ import { layOdoo, timTriThuc, layLichSu, seqTuMessageId, coTinKhachMoiHon } from
 import { timDich, guiTin, guiAnh, guiHoaDonVaQr } from './gui-zalo.js';
 import { baoNhanVien, CAU_GIU_CHAN } from './bao-nhan-vien.js';
 import { demVaKiemTra, CAU_XIN_PHEP } from './gioi-han.js';
-import { taoDung, taoMoc, chayCoHanGio } from './dung.js';
+import { taoDung, taoMoc, chayCoHanGio, hanGioLuot } from './dung.js';
 import type { NgữCanhTin } from './types.js';
 
 const prismaLog = prisma as unknown as PrismaGhiLog;
@@ -115,7 +115,19 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
   });
   if (daXuLy > 0) return true;
 
-  const generate = await dungGenerate(ctx.orgId);
+  // NGÂN SÁCH THỜI GIAN cho cả lượt (11/08) — y như luồng nhân viên.
+  //
+  // Sửa 272c58f2 chỉ phủ luồng nhân viên; ở đây vẫn gọi `dungGenerate(orgId)`
+  // trống trong khi lượt cũng bị `chayCoHanGio` cắt ở 90s. Đo trên prod: một
+  // vòng thử-lại của provider được phép chạy 12+20+30+40s chờ cộng nghỉ backoff
+  // 1+2+4s = 109s — dài hơn cả hàng rào 90s. Không có mốc hết hạn tuyệt đối thì
+  // chỉ cần gateway chậm MỘT lần là cả lượt chết; khách ngồi chờ rồi nhận câu
+  // giữ chân vô cớ, còn shop mất một lượt tư vấn.
+  //
+  // Mốc phải đặt TRƯỚC `dungGenerate` và dùng chung cho cả lượt: mỗi lần gọi
+  // model chỉ được chờ trong phần CÒN LẠI của ngân sách.
+  const hanChot = Date.now() + hanGioLuot();
+  const generate = await dungGenerate(ctx.orgId, hanChot);
   if (!generate) return dung('chưa cấu hình LLM — nhường luồng cũ', { orgId: ctx.orgId });
 
   const t0 = moc.batDau({ noiDung: ctx.content.slice(0, 50) });
