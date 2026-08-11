@@ -4,6 +4,13 @@ Bản đồ cho người mới vào: đọc file này 10 phút là biết tin nh
 ở file nào, và vì sao code trông như vậy. Mỗi quy tắc ở đây đều rút từ một bug
 thật đã trả giá — có ghi ngày để tra lại lịch sử.
 
+> **Muốn xem SƠ ĐỒ thay vì đọc chữ?** → **[`docs/SO-DO-LUONG.md`](SO-DO-LUONG.md)**
+> — 3 sơ đồ Mermaid viết bằng ngôn ngữ nghiệp vụ cho người vận hành: (1) tổng
+> quan tin Zalo vào đi đâu ai trả lời, (2) máy gom đơn hỏi gì tiếp theo,
+> (3) các cổng chặn và mỗi cái chặn cái gì. File này (KIEN-TRUC-AGENT.md) giữ
+> phần chi tiết kỹ thuật: file nào làm gì, quy tắc rút từ bug, cách debug.
+> Sửa luồng thì phải sửa CẢ HAI.
+
 ## Tin nhắn đi qua đâu
 
 ```
