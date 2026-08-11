@@ -96,6 +96,9 @@ import {
   baoCaoLinhHoat, baoCaoLinhHoatDefinition, dinhDangLinhHoat, bangLinhHoat,
 } from '../odoo/tools/bao-cao-linh-hoat.js';
 import {
+  baoCaoBanTon, baoCaoBanTonDefinition, dinhDangBanTon, bangBanTon,
+} from '../odoo/tools/bao-cao-ban-ton.js';
+import {
   xuatExcel, tenFileBaoCao, NGUONG_DINH_KEM, type BangExcel, type TepBaoCao,
 } from '../odoo/xuat-excel.js';
 import { bangRaAnh } from '../odoo/anh-bang.js';
@@ -302,7 +305,24 @@ async function dinhKemNeuDai(
   taoBang: () => BangExcel,
   nhan?: (tep: TepBaoCao) => void,
 ): Promise<boolean> {
-  if (!nhan || soDong <= NGUONG_DINH_KEM) return false;
+  if (soDong <= NGUONG_DINH_KEM) return false;
+  return dinhKemLuon(taoBang, soDong, nhan);
+}
+
+/**
+ * Đính kèm BẤT KỂ bảng dài hay ngắn.
+ *
+ * Dùng cho báo cáo mà FILE CHÍNH LÀ SẢN PHẨM, không phải bản tóm tắt của tin
+ * nhắn: `bao_cao_ban_ton` sinh phiếu kiểm kho có cột trống để kho điền số đếm
+ * thực tế — ngày chỉ bán 3 mã vẫn cần file, vì đọc trên Zalo thì không có chỗ
+ * ghi. Ngưỡng NGUONG_DINH_KEM ("dài quá thì mới kèm") không áp dụng ở đây.
+ */
+async function dinhKemLuon(
+  taoBang: () => BangExcel,
+  soDong: number,
+  nhan?: (tep: TepBaoCao) => void,
+): Promise<boolean> {
+  if (!nhan) return false;
   const bang = taoBang();
   const chiAnh = process.env.AI_BAO_CAO_CHI_ANH === '1';
   let daKem = false;
@@ -551,6 +571,26 @@ export function buildStaffRegistry(deps: {
         const kem = kq.trangThai === 'ok' &&
           (await dinhKemNeuDai(kq.danhSach.length, () => bangLinhHoat(kq), deps.nhanTepBaoCao));
         return dinhDangLinhHoat(kq, kem);
+      },
+    })
+    // KIỂM KHO TỪNG PHẦN (yêu cầu anh Quyết 17:58 ngày 11/08/2026).
+    //
+    // CHỈ registry NHÂN VIÊN, KHÔNG cho luồng khách: báo cáo này phơi toàn bộ
+    // tồn kho và sản lượng bán của shop. Khách biết "hôm nay shop bán 7 mã,
+    // mã X còn 2.636 cái" là lộ quy mô kinh doanh và tạo đòn bẩy mặc cả —
+    // cùng lý do các tool báo cáo khác đều nằm trong khối này.
+    //
+    // ĐÍNH KÈM EXCEL BẤT KỂ DÀI NGẮN (khác mọi tool báo cáo trên, vốn chỉ kèm
+    // khi quá NGUONG_DINH_KEM dòng): mục đích của báo cáo này là kho CẦM FILE
+    // ĐI ĐẾM. Ngày chỉ bán 3 mã vẫn phải có file — đọc trên Zalo thì không có
+    // chỗ điền số đếm được, mất sạch tác dụng đối chiếu.
+    .register({
+      definition: baoCaoBanTonDefinition,
+      run: async (input) => {
+        const kq = await baoCaoBanTon({ odoo }, input as Parameters<typeof baoCaoBanTon>[1]);
+        const kem = kq.trangThai === 'ok' && kq.soMa > 0 &&
+          (await dinhKemLuon(() => bangBanTon(kq), kq.soMa, deps.nhanTepBaoCao));
+        return dinhDangBanTon(kq, kem);
       },
     });
 

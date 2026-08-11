@@ -53,7 +53,7 @@ const input = (over: Record<string, unknown> = {}) => ({
 });
 
 describe('buildStaffRegistry', () => {
-  it('đăng ký đủ 18 tool (thêm 3 tool Odoo tổng quát 10/08)', () => {
+  it('đăng ký đủ 20 tool (10/08: +3 tool tổng quát · 11/08: +sua_vat, +bao_cao_ban_ton)', () => {
     const r = buildStaffRegistry({
       odoo: fakeOdoo(),
       conversationId: 'c',
@@ -63,6 +63,9 @@ describe('buildStaffRegistry', () => {
 
     expect(r.definitions().map((d) => d.name)).toEqual([
       'bao_cao_ban_hang',
+      // KIỂM KHO từng phần (11/08) — yêu cầu anh Quyết: "hôm nay bán được bao
+      // nhiêu mã và còn tồn lại là bao nhiêu". CHỈ luồng nhân viên.
+      'bao_cao_ban_ton',
       'bao_cao_linh_hoat',
       'bao_cao_tong_quan',
       'canh_bao_ton_kho',
@@ -74,6 +77,9 @@ describe('buildStaffRegistry', () => {
       'lam_odoo',
       'sua_chiet_khau',
       'sua_don',
+      // VAT cho đơn ĐÃ LÊN (11/08) — ca hỏng 20:38→20:41 nhóm Test-AI: bot hỏi
+      // vòng 4 lần vì agent tự do không có tool VAT nào. CHỈ luồng nhân viên.
+      'sua_vat',
       'tao_don_nhap',
       'tao_khach_hang',
       'top_san_pham',
@@ -85,7 +91,7 @@ describe('buildStaffRegistry', () => {
     ]);
   });
 
-  it('năm tool GHI (thêm lam_odoo 10/08 — tool ghi tự do có phanh)', () => {
+  it('sáu tool GHI (thêm sua_vat 11/08 — VAT cho đơn đã lên)', () => {
     const r = buildStaffRegistry({
       odoo: fakeOdoo(),
       conversationId: 'c',
@@ -97,7 +103,10 @@ describe('buildStaffRegistry', () => {
     // sua_chiet_khau thêm 2026-08-01; tao_khach_hang 2026-08-04; sua_don 2026-08-07
     // (đổi SL/thêm hàng vào đơn cũ thay vì tạo đơn mới); lam_odoo 2026-08-10
     // (ghi tự do có phanh xoá/hàng loạt — xem tong-quat/an-toan.ts).
-    expect(ghi.sort()).toEqual(['lam_odoo', 'sua_chiet_khau', 'sua_don', 'tao_don_nhap', 'tao_khach_hang']);
+    // sua_vat 2026-08-11 (thêm/bỏ VAT cho đơn đã lên — ca hỏng 20:38→20:41).
+    expect(ghi.sort()).toEqual([
+      'lam_odoo', 'sua_chiet_khau', 'sua_don', 'sua_vat', 'tao_don_nhap', 'tao_khach_hang',
+    ]);
   });
 });
 
@@ -137,11 +146,11 @@ describe('chayLenhNhanVien — chạy vòng lặp', () => {
     expect(msg).toContain('tra giá P10');
   });
 
-  it('gửi đủ 18 tool cho LLM (thêm 3 tool tổng quát 10/08)', async () => {
+  it('gửi đủ 20 tool cho LLM (10/08: +3 tool tổng quát · 11/08: +sua_vat, +bao_cao_ban_ton)', async () => {
     const generate = fakeLLM([turnXong('ok')]);
     await chayLenhNhanVien(deps({ generate }), input());
 
-    expect(generate.mock.calls[0][0].tools).toHaveLength(18);
+    expect(generate.mock.calls[0][0].tools).toHaveLength(20);
   });
 
   it('system prompt là prompt NHÂN VIÊN, không phải prompt khách', async () => {
