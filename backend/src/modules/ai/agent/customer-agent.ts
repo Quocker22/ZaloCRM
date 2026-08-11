@@ -43,7 +43,7 @@ import {
   guiTaiLieu, guiTaiLieuDefinition, dinhDangGuiTaiLieu, type TaiLieu,
 } from '../odoo/tools/gui-tai-lieu.js';
 import { findImageForReply } from '../knowledge/product-image.js';
-import { laYDinhDung, khoeDaGuiTaiLieu } from './y-dinh-dung.js';
+import { laYDinhDung, khoeDaGuiTaiLieu, coBangChungGuiFile } from './y-dinh-dung.js';
 import { matchGuidelines, type KetQuaMatch } from './guideline-matcher.js';
 import { lapPromptKhach, tinhToolChoPhep, type GuidelineActive } from './guideline-prompt.js';
 
@@ -576,24 +576,33 @@ export async function chayTuVanKhach(
   // Tìm ảnh theo NỘI DUNG câu trả lời, không theo câu hỏi: chỉ gửi khi bot đã
   // chốt được ĐÚNG một sản phẩm. `findImageForReply` tự bỏ qua khi không chắc
   // (đòi khớp >=60% token tên + đúng mã model) — thà không gửi còn hơn gửi nhầm.
+  //
+  // TÍNH TRƯỚC hàng rào (trước 11/08 tối thì tính sau): ảnh sản phẩm là một
+  // ĐƯỜNG GỬI THẬT nữa, hàng rào phải biết nó tồn tại mới khỏi chặn nhầm.
+  const anhSanPham = findImageForReply(traLoi) ?? undefined;
+
   // HÀNG RÀO CHỐNG BỊA GỬI TÀI LIỆU (11/08/2026) — bot không được khoe "em gửi
-  // catalog cho anh rồi" khi KHÔNG có file nào thật sự lấy được.
+  // catalog cho anh rồi" khi lượt đó KHÔNG sinh ra file/ảnh nào.
   //
   // Bug 03:17-03:18 ngày 11/08 là chiều NGƯỢC LẠI (bot từ chối dù có file), và
   // sửa nó bằng cách mở tool `gui_tai_lieu` lại mở ra đúng chiều bịa mà hệ này
   // đã dính hai lần: khoeDaGhi (05/08 — "đã cập nhật đơn"), khoeDaGuiAnh (07/08
   // DNH36805 — "em gửi lại ảnh đơn hàng"). Khách xin tài liệu rồi ngồi chờ một
   // file không bao giờ tới thì tệ hơn hẳn việc nghe "bên em chưa có".
-  if (taiLieuDaLay.length === 0 && khoeDaGuiTaiLieu(traLoi)) {
+  //
+  // BẢN VÁ 11/08 tối: đối chiếu MỌI đường gửi, không chỉ `gui_tai_lieu`. Bên
+  // luồng nhân viên điều kiện hẹp đó đã chặn nhầm 3/3 lượt trong log 24h (ca
+  // 21:47:52 — bot tra đúng, sinh Excel thật, vẫn bị vứt câu trả lời). Luồng
+  // khách không có báo cáo Excel, nhưng CÓ ảnh sản phẩm: khách hỏi "cho xem
+  // hàng" mà bot đáp "em gửi hình sang anh xem nhé" kèm ảnh thật thì là ĐÚNG.
+  if (!coBangChungGuiFile({ taiLieu: taiLieuDaLay, coAnhHoaDon: Boolean(anhSanPham) }) && khoeDaGuiTaiLieu(traLoi)) {
     return {
       trangThai: 'chua_hoan_tat',
-      lyDo: 'Model nói đã gửi tài liệu nhưng KHÔNG gọi gui_tai_lieu — chặn để khỏi lừa khách.',
+      lyDo: 'Model nói đã gửi tài liệu nhưng KHÔNG có file/ảnh nào được sinh ra — chặn để khỏi lừa khách.',
       log,
       usage: kq.usage,
     };
   }
-
-  const anhSanPham = findImageForReply(traLoi) ?? undefined;
 
   return {
     trangThai: 'xong', traLoi, log, usage: kq.usage, anhSanPham, don: donVuaTao,

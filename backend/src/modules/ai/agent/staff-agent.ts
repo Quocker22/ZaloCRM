@@ -8,7 +8,10 @@
 import { runAgent } from './loop.js';
 import { ToolRegistry } from './registry.js';
 import { nhanDienLenhNhanVien, buildStaffSystemPrompt } from './staff-command.js';
-import { laYDinhDung, laToolGhi, khoeDaGhi, khoeDaGuiAnh, khoeDaChuyenSale, khoeDaGuiTaiLieu } from './y-dinh-dung.js';
+import {
+  laYDinhDung, laToolGhi, khoeDaGhi, khoeDaGuiAnh, khoeDaChuyenSale, khoeDaGuiTaiLieu,
+  coBangChungGuiFile,
+} from './y-dinh-dung.js';
 import { logger } from '../../../shared/utils/logger.js';
 import type { ContextManagementConfig, ToolAwareGenerate, TurnUsage } from './types.js';
 
@@ -904,20 +907,39 @@ export async function chayLenhNhanVien(
     };
   }
 
-  // HÀNG RÀO CHỐNG BỊA GỬI ẢNH — bot không được KHOE đã/đang gửi ảnh hoá đơn khi
-  // KHÔNG có ảnh thật.
+  // BẰNG CHỨNG GỬI FILE/ẢNH — gom MỌI ĐƯỜNG, dùng chung cho cả hai hàng rào dưới.
+  //
+  // Ca thật 21:47:52 + 21:50:21 ngày 11/08/2026: nhân viên xin "báo cáo các sản
+  // phẩm bán ra hôm nay", bot tra ĐÚNG (11/08/2026, 7 mã — khớp kiểm chứng prod)
+  // và sinh Excel thật, nhưng hàng rào tài liệu chỉ soi `taiLieuDaLay` nên tưởng
+  // bot bịa, vứt nguyên câu trả lời, nhân viên nhận "em chưa xử lý được".
+  //
+  // Excel báo cáo đi đường KHÁC HẲN `gui_tai_lieu`: tool báo cáo tự sinh qua
+  // `xuatExcel` → `tepBaoCao` → `guiFile`. Hàng rào phải đối chiếu với MỌI đường
+  // gửi thật, nếu không mỗi lần thêm một đường gửi là thêm một kiểu chặn nhầm.
+  // Chi tiết bốn đường + số đo log 24h: xem `coBangChungGuiFile` trong y-dinh-dung.ts.
+  const coFileHoacAnhThat = coBangChungGuiFile({
+    tepBaoCao,
+    taiLieu: taiLieuDaLay,
+    coAnhHoaDon: Boolean(hoaDon?.anh),
+  });
+
+  // HÀNG RÀO CHỐNG BỊA GỬI ẢNH — bot không được KHOE đã/đang gửi ảnh khi KHÔNG
+  // có ảnh thật nào.
   //
   // Bug thật 07/08/2026 (DNH36805, trong nhóm): nhân viên "có gửi luôn đi", bot
   // đáp "Dạ, em gửi lại ảnh đơn hàng DNH36805..." nhưng chạy 0 tool → ảnh không
-  // hề được gửi. Chỉ chặn khi khoe gửi ảnh mà KHÔNG có ảnh nào được tạo (hoaDon.anh)
-  // — có ảnh thật thì luong-nhan-vien.ts sẽ gửi, câu khoe là đúng.
-  const coAnhThat = Boolean(hoaDon?.anh);
-  if (!coAnhThat && khoeDaGuiAnh(traLoi)) {
+  // hề được gửi. Ca đó VẪN BỊ CHẶN sau bản vá này (không có bằng chứng nào).
+  //
+  // Nới từ "chỉ ảnh hoá đơn" sang "ảnh bất kỳ" vì ảnh bảng báo cáo (`bangRaAnh`,
+  // dùng khi xuất Excel lỗi hoặc cờ AI_BAO_CAO_CHI_ANH=1) cũng là ảnh THẬT đi
+  // qua `guiAnh` — bot nói "em gửi ảnh báo cáo" lúc đó là đúng sự thật.
+  if (!coFileHoacAnhThat && khoeDaGuiAnh(traLoi)) {
     return {
       trangThai: 'chua_hoan_tat',
       lyDo:
-        `Model nói đã gửi ảnh ("${traLoi.slice(0, 80)}") nhưng KHÔNG có ảnh hoá đơn nào được tạo. ` +
-        'Muốn gửi ảnh phải gọi tool gui_hoa_don để render ảnh thật; chặn câu bịa để nhân viên khỏi tin nhầm.',
+        `Model nói đã gửi ảnh ("${traLoi.slice(0, 80)}") nhưng KHÔNG có ảnh/file nào được tạo ra. ` +
+        'Muốn gửi ảnh phải gọi tool gui_hoa_don (hoặc tool báo cáo sinh ảnh bảng); chặn câu bịa để nhân viên khỏi tin nhầm.',
       log,
       usage: kq.usage,
     };
@@ -956,18 +978,23 @@ export async function chayLenhNhanVien(
   }
 
   // HÀNG RÀO CHỐNG BỊA GỬI TÀI LIỆU (11/08/2026) — song sinh với hàng rào ảnh
-  // ngay trên. Bot không được nói "em gửi catalog cho anh rồi" khi tool
-  // `gui_tai_lieu` không hề lấy được file nào.
+  // ngay trên. Bot không được nói "em gửi catalog cho anh rồi" khi lượt đó
+  // KHÔNG sinh ra file/ảnh nào.
   //
-  // Chính việc SỬA bug 03:17 (bot từ chối dù có file) mở ra chiều bịa ngược
-  // lại. Hai lần trước đã dạy: khoeDaGhi (05/08), khoeDaGuiAnh (07/08). Mở
-  // đường gửi mới mà không mở hàng rào theo là mời bug quay lại lần ba.
-  if (taiLieuDaLay.length === 0 && khoeDaGuiTaiLieu(traLoi)) {
+  // BẢN VÁ 11/08 tối: điều kiện cũ là `taiLieuDaLay.length === 0` — chỉ soi tool
+  // `gui_tai_lieu`. Nó chặn nhầm 3/3 lượt trong log 24h, tất cả đều là ca báo
+  // cáo bán hàng có Excel THẬT (21:47:52, 21:50:21 và một lượt nữa). Nay đối
+  // chiếu với `coFileHoacAnhThat` — gom cả Excel/ảnh báo cáo và ảnh hoá đơn.
+  //
+  // Chức năng chính GIỮ NGUYÊN: khoe gửi mà không sinh ra gì thì vẫn chặn. Chính
+  // việc SỬA bug 03:17 (bot từ chối dù có file) mở ra chiều bịa ngược lại; ba
+  // lần trước đã dạy: khoeDaGhi (05/08), khoeDaGuiAnh (07/08), và chính nó (11/08).
+  if (!coFileHoacAnhThat && khoeDaGuiTaiLieu(traLoi)) {
     return {
       trangThai: 'chua_hoan_tat',
       lyDo:
-        `Model nói đã gửi tài liệu ("${traLoi.slice(0, 80)}") nhưng KHÔNG file nào được lấy về. ` +
-        'Muốn gửi tài liệu phải gọi tool gui_tai_lieu; chặn câu bịa để nhân viên khỏi ngồi chờ file không tới.',
+        `Model nói đã gửi tài liệu ("${traLoi.slice(0, 80)}") nhưng KHÔNG file/ảnh nào được sinh ra. ` +
+        'Muốn gửi tài liệu phải gọi tool gui_tai_lieu (hoặc tool báo cáo sinh Excel); chặn câu bịa để nhân viên khỏi ngồi chờ file không tới.',
       log,
       usage: kq.usage,
     };

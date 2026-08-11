@@ -180,6 +180,57 @@ export function khoeDaGuiTaiLieu(traLoi: string): boolean {
 }
 
 /**
+ * Lượt này có SINH RA file/ảnh THẬT nào để gửi đi không?
+ *
+ * VÌ SAO PHẢI CÓ HÀM NÀY — ca thật 21:47:52 và 21:50:21 ngày 11/08/2026:
+ *
+ *   NV : "@bot báo cáo các sản phẩm bán ra hôm nay"
+ *   Bot: "Dạ khoản này em chưa xử lý được, anh/chị xem giúp em với ạ."
+ *
+ * Bot đã LÀM ĐÚNG VIỆC — log cho thấy nó tra ra ngày đúng (11/08/2026) và số
+ * mã đúng (7 mã, khớp kiểm chứng prod), rồi câu trả lời HOÀN CHỈNH bị hàng rào
+ * `khoeDaGuiTaiLieu` vứt đi với lý do "KHÔNG file nào được lấy về".
+ *
+ * Sai ở chỗ hàng rào chỉ biết MỘT đường gửi. Bot gửi được file/ảnh qua BỐN
+ * đường hoàn toàn khác nhau, mà trước bản vá này caller chỉ đối chiếu 1-2:
+ *
+ *   1. `tepBaoCao` loai='file' — Excel do các tool báo cáo (bao_cao_ban_ton,
+ *      bao_cao_linh_hoat, top_san_pham, don_cho_xac_nhan) tự sinh qua
+ *      `xuatExcel`, luồng nhân viên gửi bằng `guiFile`. KHÔNG qua gui_tai_lieu.
+ *   2. `tepBaoCao` loai='anh' — PNG bảng do `bangRaAnh` sinh khi xuất Excel lỗi
+ *      hoặc bật cờ AI_BAO_CAO_CHI_ANH=1. Gửi bằng `guiAnh`.
+ *   3. `taiLieu` — PDF catalog/datasheet từ tool `gui_tai_lieu`.
+ *   4. `coAnhHoaDon` — ảnh hoá đơn render từ tool `gui_hoa_don`.
+ *
+ * NGUYÊN TẮC: lượt đó có sinh ra BẤT KỲ file/ảnh nào thì câu "em gửi file cho
+ * anh" là ĐÚNG SỰ THẬT — cho qua. Bot không cần phải nói đúng tên loại file nó
+ * gửi; nhân viên chỉ quan tâm có nhận được cái gì không. Ép khớp từng loại chỉ
+ * đẻ ra đúng loại chặn nhầm này lần nữa.
+ *
+ * SỐ ĐO PROD 24h tính tới 11/08/2026 (docker logs zalo-crm-app --since 24h):
+ *   - 71 dòng luồng nhân viên, 3 lượt bị chặn "dở dang"
+ *   - 3/3 đều là CHẶN NHẦM, cả ba cùng ca báo cáo bán ra hôm nay
+ *   - 0 lượt bắt được ca bịa thật
+ *   - 0 lượt `khoeDaChuyenSale` kích hoạt
+ * Hàng rào tài liệu khi đó hại 100%, lợi 0%. Ai sửa tiếp nhớ đo lại con số này
+ * TRƯỚC khi siết thêm — chặn nhầm một câu đúng cũng phiền như để lọt một câu bịa.
+ */
+export function coBangChungGuiFile(bc: {
+  /** File/ảnh báo cáo do tool báo cáo sinh ra (xuatExcel / bangRaAnh). */
+  tepBaoCao?: ReadonlyArray<unknown>;
+  /** File tài liệu tool `gui_tai_lieu` lấy được. */
+  taiLieu?: ReadonlyArray<unknown>;
+  /** Ảnh hoá đơn tool `gui_hoa_don` render được. */
+  coAnhHoaDon?: boolean;
+}): boolean {
+  return (
+    (bc.tepBaoCao?.length ?? 0) > 0 ||
+    (bc.taiLieu?.length ?? 0) > 0 ||
+    Boolean(bc.coAnhHoaDon)
+  );
+}
+
+/**
  * Câu trả lời có HỨA "đã chuyển việc sang bộ phận sale" không?
  *
  * Ca thật 15:06→15:35 11/08/2026 (nhóm Test-AI) — bot nói câu này NĂM lần:
