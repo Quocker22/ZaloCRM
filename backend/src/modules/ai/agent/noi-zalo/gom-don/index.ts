@@ -321,6 +321,14 @@ async function taoDonVaBaoGia(
   deps: GomDonDeps,
   p: PhienGom,
   input: { orgId: string; conversationId: string; seq: number },
+  /**
+   * Lượt này đã BỎ một phiên gom dở để bắt đầu việc mới → phải báo.
+   *
+   * Trước 11/08 câu báo đó luôn đi kèm một hành động NÓI (tóm tắt/hỏi), nên nó
+   * nằm ở nhánh render cuối. Bỏ bước chốt thì lượt đè phiên có thể đi thẳng ra
+   * đơn — im lặng ở đây là nhân viên không biết đơn nháp cũ đã bị bỏ.
+   */
+  daBoPhienCu = false,
 ): Promise<'xong' | 'loi'> {
   const dong = p.dong
     .filter((d) => d.daChot && d.sl != null)
@@ -385,9 +393,23 @@ async function taoDonVaBaoGia(
       logger.warn({ err, donId: kq.donId }, '[gom-don] render/gửi ảnh báo giá lỗi (vẫn gửi link)');
     }
   }
+  // TÓM TẮT ĐI KÈM TIN BÁO ĐƠN (11/08).
+  //
+  // Bỏ bước hỏi chốt thì tóm tắt mất chỗ đứng cũ — nhưng KHÔNG được mất luôn.
+  // Nhân viên vẫn phải thấy bot hiểu gì: khách nào (kèm mã KH), từng dòng
+  // hàng, giá họ báo khi lệch giá hệ thống, chiết khấu, tặng kèm, VAT, tổng.
+  // Chỉ đổi thời điểm soát: trước đây soát rồi mới gật cho ghi; giờ ghi rồi
+  // soát — đơn là đơn NHÁP, thấy sai thì nói "sửa đơn" là máy sửa ngay.
+  //
+  // Gộp vào MỘT tin thay vì gửi hai: hai tin liên tiếp trên Zalo dễ bị đọc
+  // nhảy cóc, mà đây là một chuyện duy nhất — "đây là đơn em hiểu, và em đã
+  // lên nó rồi".
   await deps.guiTin(
-    `Đã lên đơn nháp ${kq.maDon} cho ${p.khachDaChot!.ten}, tổng ${tong}đ.` +
-    `${daGuiAnh ? ' Báo giá ở ảnh trên.' : ''} Link xử lý: ${linkXuLyDon(deps.odooUrl, kq.donId)}`,
+    `${daBoPhienCu ? 'Em bỏ đơn đang gom dở nhé.\n' : ''}` +
+    `${renderLoiNhan({ loai: 'tom_tat_don' }, p)}\n` +
+    `Em đã lên đơn nháp ${kq.maDon} cho ${p.khachDaChot!.ten}, tổng ${tong}đ.` +
+    `${daGuiAnh ? ' Báo giá ở ảnh trên.' : ''} Link xử lý: ${linkXuLyDon(deps.odooUrl, kq.donId)}` +
+    '\nSai chỗ nào anh/chị nhắn "sửa đơn ..." em sửa ngay ạ.',
   );
   return 'xong';
 }
@@ -634,11 +656,9 @@ export async function xuLyGomDon(
     }
   }
 
-  if ((daChon || doiNoiDung) && phien.daHoiChot) {
-    // Nội dung đơn thay đổi sau khi đã hỏi chốt → phải tóm tắt lại, không được
-    // lấy cái gật cũ áp cho đơn mới.
-    phien.daHoiChot = false;
-  }
+  // KHÔNG còn khối "đổi nội dung thì huỷ cái gật cũ": bỏ bước chốt (11/08) thì
+  // không còn cái gật nào để huỷ. Đơn không bao giờ nằm chờ giữa lúc tóm tắt và
+  // lúc ghi nữa — đủ slot là ghi ngay trong chính lượt đó.
 
   // 2. Vòng quyết định: tra cứu chạy xong thì hỏi lại bộ não lần nữa.
   //    Trần 3 vòng: tra_cuu chỉ có thể xảy ra 1 lần cho mỗi loạt từ khoá mới,
@@ -695,16 +715,14 @@ export async function xuLyGomDon(
   }
 
   if (hd.loai === 'tao_don') {
-    // Kiểm trên câu đã bỏ quote: "[Trả lời tin: …] chốt" phải nhận là xác nhận.
-    const xacNhan = trich.xacNhan || laXacNhanNgan(cauChon);
-    if (!xacNhan) {
-      // Đủ slot nhưng NV chưa gật (câu là bổ sung thông tin) → nhắc lại tóm tắt.
-      await deps.guiTin(renderLoiNhan({ loai: 'tom_tat_cho_chot' }, phien));
-      phien.daHoiChot = true;
-      await ghiPhien(phien);
-      return true;
-    }
-    const kq = await taoDonVaBaoGia(deps, phien, input);
+    // KHÔNG còn cổng xác nhận ở đây (bỏ 11/08). Anh Quốc, nguyên văn: "tôi
+    // muốn bỏ luôn cái bước chốt đơn này được không?, nếu mọi thứ đã rõ ràng
+    // thì lên đơn báo giá luôn" — và khi được hỏi có giữ ngoại lệ nào không:
+    // "Bỏ hoàn toàn, không hỏi gì nữa".
+    //
+    // Đủ slot = lên đơn. Tóm tắt vẫn in, nhưng nằm trong tin BÁO ĐƠN ĐÃ LÊN
+    // (xem taoDonVaBaoGia) chứ không phải một lượt chờ gật riêng.
+    const kq = await taoDonVaBaoGia(deps, phien, input, daBoPhienCu);
     if (kq === 'xong') {
       await xoaPhien(deps.prisma, input.conversationId);
       return true;
@@ -738,7 +756,6 @@ export async function xuLyGomDon(
   }
   phien.tinCuoi = tin;
   await deps.guiTin(tin);
-  phien.daHoiChot = hd.loai === 'tom_tat_cho_chot';
   // Đánh dấu vừa hỏi giá lệch: câu kế của NV là câu trả lời cho chính nó.
   phien.daHoiGiaLech = hd.loai === 'hoi_gia_lech';
   if (hd.loai === 'khong_thay') {

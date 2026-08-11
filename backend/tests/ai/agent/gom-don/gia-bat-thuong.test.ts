@@ -62,51 +62,57 @@ describe('lechVoLy — ngưỡng đo từ Odoo prod', () => {
   });
 });
 
-describe('buocTiepTheo — chặn trước khi hỏi chốt', () => {
-  it('CA THẬT 10:09:33: giá lệch vô lý → hoi_gia_lech, KHÔNG tom_tat_cho_chot', () => {
+// Bước hỏi chốt đã bỏ (anh Quốc 11/08) — hàng rào giá GIỮ NGUYÊN và giờ là
+// cổng người-gác DUY NHẤT còn lại trên đường lên đơn. Hai thứ khác nhau: bước
+// chốt hỏi khi mọi thứ BÌNH THƯỜNG, hàng rào này chỉ hỏi khi phát hiện BẤT
+// THƯỜNG (ca thật: lệch 28.750 lần). Bỏ nốt nó thì con số model bịa đi thẳng
+// vào Odoo không ai chặn.
+describe('buocTiepTheo — chặn trước khi tạo đơn', () => {
+  it('CA THẬT 10:09:33: giá lệch vô lý → hoi_gia_lech, KHÔNG tao_don', () => {
     const p: PhienGom = {
       khachTuKhoa: 'Hưng', khachDaChot: khach,
       dong: [{ tuKhoa: 'card thu', sl: 100, donGia: 8, daChot: cardThu }],
     };
-    // TRƯỚC khi sửa: trả tom_tat_cho_chot → bot in "= 800đ ... Em chốt lên đơn nhé?"
+    // TRƯỚC khi có hàng rào: đi thẳng lên đơn 800đ (46 triệu tụt còn 800đ).
     expect(buocTiepTheo(p)).toEqual({
       loai: 'hoi_gia_lech',
       lech: [{ ten: cardThu.ten, giaNv: 8, giaHt: 230000 }],
     });
   });
 
-  it('lệch vô lý vẫn chặn KỂ CẢ khi nhân viên đã gật (daHoiChot)', () => {
-    // Gật cho tóm tắt CŨ không phải là gật cho con số vô lý — phải hỏi lại
-    // đúng con số đó rồi mới đi tiếp.
+  it('chỉ ĐÚNG câu trả lời cho chính con số đó mới mở cổng, không phải gật chung', () => {
+    // giaLechDaXacNhan bị xoá mỗi khi NV báo giá MỚI (xem dapSlot) — nên nó
+    // luôn là cái gật cho ĐÚNG con số đang bị hỏi.
     const p: PhienGom = {
-      khachTuKhoa: 'Hưng', khachDaChot: khach, daHoiChot: true,
+      khachTuKhoa: 'Hưng', khachDaChot: khach,
       dong: [{ tuKhoa: 'card thu', sl: 100, donGia: 8, daChot: cardThu }],
     };
     expect(buocTiepTheo(p).loai).toBe('hoi_gia_lech');
+    expect(buocTiepTheo({ ...p, giaLechDaXacNhan: true }).loai).toBe('tao_don');
   });
 
-  it('nhân viên XÁC NHẬN lại giá đó → cho qua, ghi theo họ (luật 10/08)', () => {
+  it('nhân viên XÁC NHẬN lại giá đó → cho qua, lên đơn theo họ (luật 10/08)', () => {
     const p: PhienGom = {
       khachTuKhoa: 'Hưng', khachDaChot: khach, giaLechDaXacNhan: true,
       dong: [{ tuKhoa: 'card thu', sl: 100, donGia: 8, daChot: cardThu }],
     };
-    expect(buocTiepTheo(p)).toEqual({ loai: 'tom_tat_cho_chot' });
+    expect(buocTiepTheo(p)).toEqual({ loai: 'tao_don' });
   });
 
-  it('giảm 20% (lệch HỢP LÝ) → đi thẳng tóm tắt, KHÔNG hỏi gì thêm', () => {
+  it('giảm 20% (lệch HỢP LÝ) → lên đơn thẳng, KHÔNG hỏi gì thêm', () => {
     const p: PhienGom = {
       khachTuKhoa: 'Hưng', khachDaChot: khach,
       dong: [{ tuKhoa: 'card thu', sl: 100, donGia: 184000, daChot: cardThu }],
     };
-    expect(buocTiepTheo(p)).toEqual({ loai: 'tom_tat_cho_chot' });
+    expect(buocTiepTheo(p)).toEqual({ loai: 'tao_don' });
   });
 
-  it('SP chưa có giá + NV báo giá → tóm tắt bình thường (không phá đường 10/08)', () => {
+  it('SP chưa có giá + NV báo giá → lên đơn bình thường (không phá đường 10/08)', () => {
     const p: PhienGom = {
       khachTuKhoa: 'Hưng', khachDaChot: khach,
       dong: [{ tuKhoa: 'thanh led', sl: 300, donGia: 13000, daChot: { id: 9, ten: 'Thanh LED tỏa', gia: 1 } }],
     };
-    expect(buocTiepTheo(p)).toEqual({ loai: 'tom_tat_cho_chot' });
+    expect(buocTiepTheo(p)).toEqual({ loai: 'tao_don' });
   });
 
   it('dòng TẶNG (0đ) không bị coi là lệch giá', () => {
@@ -117,7 +123,7 @@ describe('buocTiepTheo — chặn trước khi hỏi chốt', () => {
         { tuKhoa: 'card thu', sl: 1, tang: true, daChot: cardThu },
       ],
     };
-    expect(buocTiepTheo(p)).toEqual({ loai: 'tom_tat_cho_chot' });
+    expect(buocTiepTheo(p)).toEqual({ loai: 'tao_don' });
   });
 });
 

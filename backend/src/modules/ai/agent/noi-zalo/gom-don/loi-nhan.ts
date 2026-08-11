@@ -105,9 +105,14 @@ function tomTat(p: PhienGom): string {
     : undefined;
   // Có VAT thì phải hiện CẢ tiền hàng LẪN tổng sau thuế — chỉ đưa một số thì
   // nhân viên không biết con số nào là cái khách phải trả.
+  //
+  // KHÔNG còn "Em chốt lên đơn nhé?" (bỏ 11/08). Anh Quốc: "tôi muốn bỏ luôn
+  // cái bước chốt đơn này được không?, nếu mọi thứ đã rõ ràng thì lên đơn báo
+  // giá luôn". Tóm tắt giữ nguyên NỘI DUNG, chỉ đổi THÌ: câu hỏi → câu kể.
+  // Mã đơn + link do `taoDonVaBaoGia` nối vào ngay sau khối này.
   const dongTong = dongVat.length > 0 && tongCuoi !== tong
-    ? [`Tiền hàng: ${tien(tong)}`, ...dongVat, `Tổng: ${tien(Math.round(tongCuoi))}. Em chốt lên đơn nhé?`]
-    : [...dongVat, `Tổng: ${tien(tong)}. Em chốt lên đơn nhé?`];
+    ? [`Tiền hàng: ${tien(tong)}`, ...dongVat, `Tổng: ${tien(Math.round(tongCuoi))}.`]
+    : [...dongVat, `Tổng: ${tien(tong)}.`];
   return [
     `Đơn cho ${p.khachDaChot?.ten}${p.khachDaChot?.ma ? ` (${p.khachDaChot.ma})` : ''}:`,
     ...dong,
@@ -153,7 +158,7 @@ export function renderLoiNhan(hd: HanhDong, p: PhienGom): string {
   switch (hd.loai) {
     case 'hoi_chon': return danhSachChon(p);
     case 'hoi_chon_don': return danhSachDon(p);
-    case 'tom_tat_cho_chot': return tomTat(p);
+    case 'tom_tat_don': return tomTat(p);
     case 'hoi_thieu': return hoiThieu(hd.thieu, p);
     case 'hoi_gia':
       return (

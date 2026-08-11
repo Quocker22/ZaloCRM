@@ -49,7 +49,7 @@ describe('tóm tắt — nhân viên phải THẤY thuế và tổng SAU thuế 
       daChot: { id: 2, ten: 'Card thu V7512', gia: 230000 },
     }];
 
-    const tin = renderLoiNhan({ loai: 'tom_tat_cho_chot' }, p);
+    const tin = renderLoiNhan({ loai: 'tom_tat_don' }, p);
 
     // 100 × 230.000 = 23.000.000 → CK 8% → 21.160.000 → VAT 8% = 1.692.800
     // → tổng 22.852.800. Đúng con số anh Quốc đưa trong yêu cầu.
@@ -66,7 +66,7 @@ describe('tóm tắt — nhân viên phải THẤY thuế và tổng SAU thuế 
       daChot: { id: 2, ten: 'Card thu V7512', gia: 230000 },
     }];
 
-    const tin = renderLoiNhan({ loai: 'tom_tat_cho_chot' }, p);
+    const tin = renderLoiNhan({ loai: 'tom_tat_don' }, p);
 
     expect(tin).not.toContain('VAT');
     expect(tin).toContain('Tổng: 21.160.000đ');
@@ -83,7 +83,7 @@ describe('tóm tắt — nhân viên phải THẤY thuế và tổng SAU thuế 
       daChot: { id: 2, ten: 'Card thu V7512', gia: 100000 },
     }];
 
-    const tin = renderLoiNhan({ loai: 'tom_tat_cho_chot' }, p);
+    const tin = renderLoiNhan({ loai: 'tom_tat_don' }, p);
 
     expect(tin).toContain('5%');
     expect(tin.toLowerCase()).toMatch(/không (có|tìm)/);

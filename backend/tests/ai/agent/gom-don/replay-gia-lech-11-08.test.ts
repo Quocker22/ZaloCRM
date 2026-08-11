@@ -52,6 +52,13 @@ function fakeOdoo() {
         if (d.includes('"in"')) return [{ ...CARD, active: true }];
         return [CARD];
       }
+      // Bỏ bước chốt (11/08): lượt đủ thông tin đã tạo đơn thật, nên tool
+      // tao_don_nhap ĐỌC LẠI đơn vừa tạo để xác nhận. Tra theo
+      // client_order_ref (chống trùng) phải rỗng; tra theo id → đơn draft.
+      if (model === 'sale.order') {
+        if (JSON.stringify(domain).includes('client_order_ref')) return [];
+        return [{ id: 26742, name: 'S13825', state: 'draft', amount_total: 23000000, amount_untaxed: 23000000 }];
+      }
       return [];
     }),
     execute: vi.fn(async () => 26742),
@@ -117,31 +124,30 @@ describe('CA THẬT 10:09:33 11/08 — giá 8đ vs hệ thống 230.000đ', () =
     expect(taoDon(odoo)).toBeUndefined();
   });
 
-  it('nhân viên gõ "ok" ngay sau đó = gật cho GIÁ, chưa phải chốt đơn', async () => {
+  // Bỏ bước chốt (11/08) đổi ý nghĩa của chữ "ok" ở đây: trước kia nó chỉ là
+  // gật cho GIÁ, còn phải gật thêm lần nữa mới lên đơn. Giờ gật giá xong là hết
+  // chuyện phải hỏi → đơn lên luôn trong chính lượt đó.
+  //
+  // Hàng rào giá VẪN nguyên: lượt ĐẦU vẫn bị chặn, đơn không vào Odoo cho tới
+  // khi nhân viên trả lời đúng câu hỏi về con số đó.
+  it('lượt đầu bị hàng rào giá chặn — đơn KHÔNG vào Odoo khi chưa trả lời', async () => {
     const { goi, tinGui, odoo } = dungMay([
       { lenDon: true, khach: 'cảnh tam kỳ', dong: [{ sp: 'card thu', sl: 100, gia: 8 }] },
-      { xacNhan: true },
     ]);
     await goi('lên đơn cho anh cảnh 100 card thu triết khấu 8%');
-    await goi('ok');
-
-    // Sau khi gật giá thì mới ra tóm tắt — và vẫn phải hỏi chốt một lần nữa,
-    // nên "ok" đầu tiên KHÔNG thể tự nó đẩy đơn vào Odoo.
     expect(taoDon(odoo)).toBeUndefined();
-    expect(tinGui.at(-1)).toContain('Em chốt lên đơn nhé?');
+    expect(tinGui.at(-1)).toMatch(/lệch nhiều quá/);
   });
 
-  it('gật giá rồi chốt → đơn ghi ĐÚNG giá nhân viên báo (luật 10/08 giữ nguyên)', async () => {
+  it('gật cho GIÁ → lên đơn NGAY, ghi đúng giá NV báo (luật 10/08 giữ nguyên)', async () => {
     const { goi, odoo } = dungMay([
       { lenDon: true, khach: 'cảnh tam kỳ', dong: [{ sp: 'card thu', sl: 100, gia: 8 }] },
       { xacNhan: true },
-      { xacNhan: true },
     ]);
     await goi('lên đơn cho anh cảnh 100 card thu triết khấu 8%');
-    await goi('ok');      // gật cho giá 8đ
-    await goi('chốt đi');  // gật chốt đơn
+    await goi('ok');      // gật cho giá 8đ → hết chuyện phải hỏi, lên đơn luôn
 
-    // Nhân viên đã khẳng định hai lần → ghi theo họ, KHÔNG tự sửa số.
+    // Nhân viên đã khẳng định đúng con số đó → ghi theo họ, KHÔNG tự sửa số.
     expect(dongDon(odoo)[0]).toMatchObject({ product_id: 448, product_uom_qty: 100, price_unit: 8 });
   });
 
@@ -153,22 +159,25 @@ describe('CA THẬT 10:09:33 11/08 — giá 8đ vs hệ thống 230.000đ', () =
     ]);
     await goi('lên đơn cho anh cảnh 100 card thu triết khấu 8%');
     await goi('230k nhé em');
-    expect(tinGui.at(-1)).toContain('Em chốt lên đơn nhé?');
-    await goi('ok');
 
+    // Giá mới đi qua hàng rào một lần nữa và HỢP LỆ → lên đơn ngay, không hỏi
+    // thêm lượt nào (bỏ bước chốt 11/08).
+    expect(tinGui.at(-1)).not.toContain('Em chốt lên đơn nhé?');
     expect(dongDon(odoo)[0]).toMatchObject({ price_unit: 230000 });
   });
 });
 
 describe('KHÔNG chặn nhầm việc bán thật', () => {
-  it('nhân viên giảm 20% (184k/230k) → tóm tắt thẳng, không hỏi giá lệch', async () => {
-    const { goi, tinGui } = dungMay([
+  it('nhân viên giảm 20% (184k/230k) → lên đơn thẳng, không hỏi giá lệch', async () => {
+    const { goi, tinGui, odoo } = dungMay([
       { lenDon: true, khach: 'cảnh tam kỳ', dong: [{ sp: 'card thu', sl: 100, gia: 184000 }] },
     ]);
     await goi('lên đơn cho anh cảnh 100 card thu giá 184k');
 
     const tin = tinGui.at(-1) ?? '';
-    expect(tin).toContain('Em chốt lên đơn nhé?');
     expect(tin).not.toMatch(/lệch nhiều quá/);
+    // Hàng rào không chạm → đủ thông tin là lên đơn, không hỏi gì nữa.
+    expect(taoDon(odoo)).toBeDefined();
+    expect(tin).not.toContain('Em chốt lên đơn nhé?');
   });
 });

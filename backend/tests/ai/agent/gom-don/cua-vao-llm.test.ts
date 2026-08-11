@@ -38,6 +38,13 @@ function fakeOdoo() {
         if (g && g[1] === '<=') return [];
         return [sp];
       }
+      // Bỏ bước chốt (11/08): lượt đủ thông tin đã tạo đơn thật, nên tool
+      // tao_don_nhap ĐỌC LẠI đơn vừa tạo để xác nhận. Tra theo
+      // client_order_ref (chống trùng) phải rỗng; tra theo id → đơn draft.
+      if (model === 'sale.order') {
+        if (JSON.stringify(domain).includes('client_order_ref')) return [];
+        return [{ id: 1, name: 'S13900', state: 'draft', amount_total: 1700000, amount_untaxed: 1700000 }];
+      }
       return [];
     }),
     execute: vi.fn(async () => 1),
@@ -132,8 +139,10 @@ describe('GIÁ nhân viên báo thắng giá hệ thống (luật 10/08)', () =>
     // Đúng: lấy giá NV báo, tính tiền theo giá đó, nêu rõ chênh lệch cho minh bạch.
     expect(tra).toContain('1.700.000');
     expect(tra).toMatch(/giá anh\/chị báo/i);
-    // Vẫn hỏi chốt trước khi ghi Odoo — đó là bước cố ý, không phải hỏi vặn.
-    expect(tra).toMatch(/chốt/i);
+    // KHÔNG hỏi chốt nữa (anh Quốc 11/08: "nếu mọi thứ đã rõ ràng thì lên đơn
+    // báo giá luôn") — đủ thông tin là ghi Odoo ngay, kèm mã đơn + link.
+    expect(tra).not.toMatch(/chốt lên đơn/i);
+    expect(tra).toContain('S13900');
   });
 
   it('sau khi nhân viên chốt → ghi Odoo với giá 170k', async () => {

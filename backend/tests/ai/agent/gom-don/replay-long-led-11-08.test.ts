@@ -63,6 +63,15 @@ function fakeOdoo() {
 
   const searchRead = vi.fn(async (model: string, domain: unknown[], _f: unknown, opts?: { limit?: number }) => {
     if (model === 'res.partner') {
+      // Tra theo ID: cổng "id có khớp tên NV nhắc không" của tao_don_nhap gọi
+      // đường này. Fake phải tôn trọng, nếu không nó trả người ĐẦU DANH SÁCH và
+      // cổng báo lệch tên nhầm (đúng ra cổng đang làm đúng việc của nó).
+      const dkId = (domain as unknown[][]).find(
+        (d) => Array.isArray(d) && d[0] === 'id' && (d[1] === '=' || d[1] === 'in'));
+      if (dkId) {
+        const ids = Array.isArray(dkId[2]) ? (dkId[2] as number[]) : [Number(dkId[2])];
+        return partners.filter((p) => ids.includes(p.id));
+      }
       const tokens = (domain as unknown[][])
         .filter((d) => Array.isArray(d) && d[0] === 'name' && d[1] === 'ilike')
         .map((d) => boDau(String(d[2])));
@@ -81,7 +90,11 @@ function fakeOdoo() {
       if (dkGia?.[1] === '<=') return products.filter((p) => p.list_price <= Number(dkGia[2]));
       return products;
     }
-    if (model === 'sale.order') return [];
+    // Bỏ bước chốt (11/08): lượt đủ thông tin đã tạo đơn thật → tool đọc lại.
+    if (model === 'sale.order') {
+      if (JSON.stringify(domain).includes('client_order_ref')) return [];
+      return [{ id: 777, name: 'S13840', state: 'draft', amount_total: 12600000, amount_untaxed: 12600000 }];
+    }
     return [];
   });
   const execute = vi.fn(async () => 777);

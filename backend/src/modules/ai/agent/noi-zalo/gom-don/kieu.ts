@@ -85,8 +85,6 @@ export interface PhienGom {
    */
   khachMoi?: { ten: string; sdt?: string; diaChi?: string };
   dong: DongGom[];
-  /** Đã hiện tóm tắt, đang chờ NV chốt — chặn tạo đơn khi chưa ai gật. */
-  daHoiChot?: boolean;
   /**
    * Nhân viên đã XÁC NHẬN lại giá lệch bất thường → thôi hỏi, ghi theo họ.
    *
@@ -205,7 +203,16 @@ export type HanhDong =
   | { loai: 'khong_thay_don' }
   /** Tra không ra khách nhưng NV đã cho tên → tạo khách mới rồi chạy tiếp. */
   | { loai: 'tao_khach' }
-  | { loai: 'tom_tat_cho_chot' }
+  /**
+   * Tóm tắt đơn — LỜI KỂ, không phải câu hỏi. Không còn là một BƯỚC của bảng
+   * trạng thái (bỏ 11/08 cùng bước chốt): `buocTiepTheo` không bao giờ trả ra
+   * nó nữa. `taoDonVaBaoGia` render trực tiếp để ghép vào tin báo đơn đã lên.
+   *
+   * Giữ lại vì nội dung tóm tắt vẫn cần: nhân viên phải soát được bot hiểu
+   * đúng khách nào, hàng gì, giá bao nhiêu — chỉ đổi thời điểm soát từ TRƯỚC
+   * khi ghi thành SAU khi ghi (đơn nháp sửa được).
+   */
+  | { loai: 'tom_tat_don' }
   | { loai: 'tao_don' }
   /** Chế 'sua': đủ rõ → ghi THẲNG Odoo, KHÔNG hỏi chốt (anh Quốc chốt 08/08). */
   | { loai: 'sua_don' };

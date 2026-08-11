@@ -39,6 +39,13 @@ function fakeOdoo() {
         if (g && g[1] === '<=') return [];
         return [sp];
       }
+      // Bỏ bước chốt (11/08): lượt đủ thông tin đã tạo đơn thật, nên tool
+      // tao_don_nhap ĐỌC LẠI đơn vừa tạo để xác nhận. Tra theo client_order_ref
+      // (chống trùng) phải rỗng; tra theo id là đọc lại → trả đơn draft.
+      if (model === 'sale.order') {
+        if (JSON.stringify(domain).includes('client_order_ref')) return [];
+        return [{ id: 26742, name: 'S13825', state: 'draft', amount_total: 21160000, amount_untaxed: 21160000 }];
+      }
       return [];
     }),
     execute: vi.fn(async () => 26742),

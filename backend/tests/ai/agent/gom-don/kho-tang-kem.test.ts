@@ -61,6 +61,13 @@ function fakeOdoo(khoCuaSp: Record<number, Array<{ warehouse_id: number; name: s
         if (d.includes('"in"')) return [THE, OVP].map((s) => ({ ...s, active: true }));
         return theoTen(d);
       }
+      // Bỏ bước chốt (11/08) → lượt đầu đã tạo đơn thật, nên tool tao_don_nhap
+      // ĐỌC LẠI đơn vừa tạo để xác nhận. Tra theo client_order_ref (chống
+      // trùng) phải rỗng; tra theo id là đọc lại → trả đơn draft.
+      if (model === 'sale.order') {
+        if (d.includes('client_order_ref')) return [];
+        return [{ id: 26742, name: 'S13825', state: 'draft', amount_total: 21160000, amount_untaxed: 21160000 }];
+      }
       return [];
     }),
     execute: vi.fn(async () => 26742),
@@ -146,21 +153,22 @@ describe('chiết khấu đứng SAU một sản phẩm thì chỉ thuộc sản
     expect(dong.find((d) => d.product_id === 902)!.discount).toBeUndefined();
   });
 
-  it('chiết khấu nói TÁCH RIÊNG một câu → vẫn áp cho CẢ ĐƠN (hành vi cũ giữ nguyên)', async () => {
+  // Chiết khấu nói TÁCH RIÊNG (không dính vào một món nào) → áp CẢ ĐƠN.
+  //
+  // Từ 11/08 câu này phải nằm CÙNG lượt với đơn: bỏ bước chốt nghĩa là đơn lên
+  // ngay ở lượt đủ thông tin, không còn khoảng chờ để nói thêm. Nói sau khi đơn
+  // đã lên thì đó là việc của "sửa đơn" (chế 'sua'), không phải máy gom nữa.
+  it('chiết khấu nói TÁCH RIÊNG (chietKhauDon) → áp cho CẢ ĐƠN', async () => {
     const { goi, odoo } = dungMay([
       {
-        lenDon: true, khach: 'cảnh tam kỳ',
+        lenDon: true, khach: 'cảnh tam kỳ', chietKhauDon: 8,
         dong: [
           { sp: 'thẻ nhận v7512', sl: 100, gia: 230000 },
           { sp: 'ovp k2', sl: 10, gia: 2300000 },
         ],
       },
-      { chietKhauDon: 8 },
-      { xacNhan: true },
     ]);
-    await goi('lên đơn 100 thẻ nhận v7512 giá 230k, 10 ovp k2 giá 2300k');
-    await goi('triết khấu 8% nữa em');
-    await goi('ok em');
+    await goi('lên đơn 100 thẻ nhận v7512 giá 230k, 10 ovp k2 giá 2300k, triết khấu 8%');
 
     const dong = dongTaoDon(odoo);
     expect(dong.find((d) => d.product_id === 448)!.discount).toBe(8);
@@ -276,7 +284,7 @@ describe('kho — KHÔNG BAO GIỜ hỏi, mặc định để Odoo lấy TT (anh
     expect(JSON.stringify(lenhTaoDon(odoo))).not.toContain('warehouse_id');
   });
 
-  it('hàng nằm NHIỀU kho mà NV không nói gì → KHÔNG hỏi, tóm tắt chốt luôn', async () => {
+  it('hàng nằm NHIỀU kho mà NV không nói gì → KHÔNG hỏi, lên đơn luôn', async () => {
     const { goi, tinGui } = dungMay([
       { lenDon: true, khach: 'cảnh tam kỳ', dong: [{ sp: 'thẻ nhận v7512', sl: 100, gia: 230000 }] },
     ], NHIEU_KHO);
@@ -286,9 +294,11 @@ describe('kho — KHÔNG BAO GIỜ hỏi, mặc định để Odoo lấy TT (anh
     // Không một chữ nào hỏi kho — đây chính là lượt hỏi anh Quốc bảo bỏ.
     expect(tra).not.toMatch(/kho nào/i);
     expect(tra).not.toMatch(/có ở \d+ kho/i);
-    // Đi thẳng tới tóm tắt chốt, không kẹt thêm lượt nào.
+    // Đi thẳng tới ĐƠN, không kẹt thêm lượt nào — và không rủ chốt nữa
+    // (bỏ bước chốt 11/08).
     expect(tra).toMatch(/Tổng:/);
-    expect(tra).toMatch(/chốt lên đơn/i);
+    expect(tra).not.toMatch(/chốt lên đơn/i);
+    expect(tra).toContain('S13825');
   });
 
   it('hàng NHIỀU kho, NV không nói kho → tạo đơn KHÔNG gửi warehouse_id', async () => {
@@ -316,33 +326,38 @@ describe('kho — KHÔNG BAO GIỜ hỏi, mặc định để Odoo lấy TT (anh
     expect(JSON.stringify(lenhTaoDon(odoo))).toContain('"warehouse_id":3');
   });
 
-  it('NV nói kho ở lượt SAU ("xuất kho B nhé") → nhận và đặt warehouse_id=4', async () => {
+  // Nói kho ở lượt SAU: từ 11/08 lượt đầu đã tạo đơn (bỏ bước chốt), nên câu
+  // "xuất kho B nhé" đến sau là việc của SỬA ĐƠN, không phải máy gom. Điều máy
+  // gom phải bảo đảm ở đây: kho nói CÙNG lượt vẫn vào đúng đơn — và ca thiếu
+  // thông tin (chưa đủ để lên đơn) thì kho nói lượt sau vẫn nhận.
+  it('kho nói ở lượt sau khi đơn CHƯA đủ thông tin → vẫn nhận, đặt warehouse_id=4', async () => {
     const { goi, odoo } = dungMay([
-      { lenDon: true, khach: 'cảnh tam kỳ', dong: [{ sp: 'thẻ nhận v7512', sl: 100, gia: 230000 }] },
-      { kho: 'KB' },
-      { xacNhan: true },
+      // Lượt 1 thiếu số lượng → máy hỏi, chưa lên đơn.
+      { lenDon: true, khach: 'cảnh tam kỳ', dong: [{ sp: 'thẻ nhận v7512', gia: 230000 }] },
+      // Lượt 2 bổ sung SL + kho cùng lúc → đủ, lên đơn ngay.
+      { kho: 'KB', dong: [{ sp: 'thẻ nhận v7512', sl: 100, gia: 230000 }] },
     ], NHIEU_KHO);
-    await goi('lên đơn cho anh cảnh 100 thẻ nhận v7512 giá 230k');
-    await goi('xuất kho B nhé em');
-    await goi('ok em');
+    await goi('lên đơn cho anh cảnh thẻ nhận v7512 giá 230k');
+    await goi('100 cái, xuất kho B nhé em');
     expect(JSON.stringify(lenhTaoDon(odoo))).toContain('"warehouse_id":4');
   });
 
   it('NV nói kho KHÔNG tồn tại ("kho Đà Nẵng") → báo rõ chứ không im, không đặt kho bừa', async () => {
     const { goi, odoo, tinGui } = dungMay([
-      { lenDon: true, khach: 'cảnh tam kỳ', dong: [{ sp: 'thẻ nhận v7512', sl: 100, gia: 230000 }] },
-      { kho: 'Đà Nẵng' },
-      { xacNhan: true },
+      {
+        lenDon: true, khach: 'cảnh tam kỳ', kho: 'Đà Nẵng',
+        dong: [{ sp: 'thẻ nhận v7512', sl: 100, gia: 230000 }],
+      },
     ], NHIEU_KHO);
-    await goi('lên đơn cho anh cảnh 100 thẻ nhận v7512 giá 230k');
-    await goi('lấy kho Đà Nẵng nhé');
+    await goi('lên đơn cho anh cảnh 100 thẻ nhận v7512 giá 230k, lấy kho Đà Nẵng nhé');
 
     // Im lặng bỏ qua là bẫy: NV tưởng hàng xuất Đà Nẵng, thực tế ra TT.
+    // Cảnh báo này giờ nằm trong CHÍNH tin báo đơn đã lên — vẫn phải có đủ,
+    // vì đơn nháp sửa được và nhân viên cần biết ngay để sửa.
     const tra = tinGui.join('\n');
     expect(tra).toMatch(/Đà Nẵng/i);
     expect(tra).toMatch(/Chi nhánh trung tâm|Hồ Chí Minh|Kho B/);
 
-    await goi('ok em');
     // Không map được thì KHÔNG ghi kho bừa — để Odoo lấy mặc định.
     expect(JSON.stringify(lenhTaoDon(odoo))).not.toContain('warehouse_id');
   });

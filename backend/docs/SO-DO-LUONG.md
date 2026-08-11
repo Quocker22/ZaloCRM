@@ -121,7 +121,20 @@ tin trong câu ra thành ô (khách nào, hàng gì, mấy cái, giá bao nhiêu
 
 Mỗi lượt tin, máy nhìn phiên đang gom rồi chọn **đúng một** việc để làm, theo
 thứ tự ưu tiên cố định: tra cứu trước → báo không thấy → hỏi chọn khi nhập
-nhằng → hỏi phần còn thiếu → kiểm giá → cuối cùng mới chốt đơn.
+nhằng → hỏi phần còn thiếu → kiểm giá → đủ hết thì LÊN ĐƠN.
+
+**Không còn bước hỏi chốt.** Trước 11/08, khi đã đủ khách + hàng + số lượng +
+giá, bot in tóm tắt rồi hỏi *"Em chốt lên đơn nhé?"* và đứng chờ nhân viên gõ
+"ok". Anh Quốc bỏ nhịp này, nguyên văn: *"tôi muốn bỏ luôn cái bước chốt đơn
+này được không?, nếu mọi thứ đã rõ ràng thì lên đơn báo giá luôn"* — và khi
+được hỏi có giữ ngoại lệ nào không (giá lệch / khách vừa tạo / đơn tiền lớn):
+*"Bỏ hoàn toàn, không hỏi gì nữa"*. Đủ thông tin là ghi thẳng.
+
+Tóm tắt KHÔNG mất theo: nội dung y nguyên (tên khách + mã KH, từng dòng hàng,
+giá nhân viên báo khi lệch giá hệ thống, chiết khấu, tặng kèm, VAT, tổng tiền),
+chỉ đổi thì — từ câu hỏi sang câu kể — và đi kèm mã đơn + link trong cùng một
+tin. Nhân viên vẫn soát được bot hiểu đúng không, chỉ là soát SAU khi ghi thay
+vì phải gật trước; đơn là đơn **nháp**, sai thì nhắn "sửa đơn ..." là sửa ngay.
 
 Phiên sống 15 phút; hết giờ thì bỏ, nhân viên nói lại từ đầu.
 
@@ -166,19 +179,15 @@ stateDiagram-v2
     HoiThieu --> HoiGia: đủ ô, nhưng hàng chưa có giá thật<br/>(hàng tặng được miễn)
     HoiThieu --> HoiGiaLech: giá nhân viên báo lệch vô lý<br/>so với hệ thống (dưới 0,1 hoặc trên 10 lần)
     HoiThieu --> SuaDon: chế SỬA và đã đủ rõ
-    HoiThieu --> TomTat: chế LÊN ĐƠN và đã đủ hết
+    HoiThieu --> TaoDon: chế LÊN ĐƠN và đã đủ hết<br/>(KHÔNG hỏi chốt nữa)
 
     HoiGia: Hỏi "hàng này báo giá bao nhiêu?"
     HoiGia --> TraCuu: nhân viên báo giá
 
-    HoiGiaLech: Hỏi lại "giá này có đúng không?"<br/>(gật cho tóm tắt cũ KHÔNG tính)
+    HoiGiaLech: Hỏi lại "giá này có đúng không?"<br/>(cổng người-gác DUY NHẤT còn lại)
     HoiGiaLech --> TraCuu: nhân viên xác nhận đúng con số đó
 
-    TomTat: Tóm tắt đơn, hỏi "chốt lên đơn nhé?"
-    TomTat --> TaoDon: nhân viên gật ("ok", "đúng rồi")
-    TomTat --> TraCuu: nhân viên sửa lại thông tin
-
-    TaoDon: Tạo đơn nháp trong Odoo<br/>gửi ảnh + link hoá đơn
+    TaoDon: Tạo đơn nháp trong Odoo<br/>nhắn tóm tắt + mã đơn + link, gửi ảnh báo giá
     TaoDon --> [*]
 
     SuaDon: Ghi thẳng vào đơn nháp<br/>(không hỏi chốt lần nữa)
@@ -222,7 +231,7 @@ flowchart TD
         H1["Phanh XOÁ<br/>lệnh xoá luôn phải xin xác nhận"]
         H2["Phanh hàng loạt<br/>sửa quá 20 bản ghi phải xác nhận"]
         H3["Cột cấm tuyệt đối<br/>giá vốn, giá nhập, lãi gộp:<br/>không đọc, không ghi, kể cả nhân viên hỏi"]
-        H4["Chặn giá bất thường<br/>230.000đ mà thành 8đ thì hỏi lại,<br/>không cho chốt"]
+        H4["Chặn giá bất thường<br/>230.000đ mà thành 8đ thì hỏi lại,<br/>không cho lên đơn"]
     end
 
     subgraph P3 ["2b — Khách KHÔNG đặt được đơn"]

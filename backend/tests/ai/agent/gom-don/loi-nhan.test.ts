@@ -42,17 +42,22 @@ describe('renderLoiNhan', () => {
     expect(s).toContain('a) Nguồn NB 12V100W · 185.000đ');
   });
 
-  it('tom_tat_cho_chot: đủ khách + dòng + SL + tổng tiền, có chữ chốt', () => {
+  // Bỏ bước hỏi chốt (anh Quốc 11/08: "nếu mọi thứ đã rõ ràng thì lên đơn báo
+  // giá luôn") — nhưng NỘI DUNG tóm tắt phải còn nguyên: nhân viên vẫn cần soát
+  // bot hiểu đúng gì. Đổi THÌ, không đổi thông tin: câu hỏi thành lời thông báo.
+  it('tom_tat_don: đủ khách + dòng + SL + tổng tiền, KHÔNG hỏi chốt nữa', () => {
     const p: PhienGom = {
       khachTuKhoa: 'Hưng',
       khachDaChot: { id: 7, ten: 'Hưng Cty A', ma: 'KH001017', dienThoai: '0901234567' },
       dong: [{ tuKhoa: 'nguồn NB', sl: 10, daChot: { id: 3, ten: 'Nguồn NB 12V100W', gia: 185000 } }],
     };
-    const s = renderLoiNhan({ loai: 'tom_tat_cho_chot' }, p);
+    const s = renderLoiNhan({ loai: 'tom_tat_don' }, p);
     expect(s).toContain('Hưng Cty A');
+    expect(s).toContain('KH001017');
     expect(s).toContain('10 × Nguồn NB 12V100W');
     expect(s).toContain('1.850.000đ');
-    expect(s.toLowerCase()).toContain('chốt');
+    expect(s).not.toContain('Em chốt lên đơn nhé?');
+    expect(s).not.toContain('?');
   });
 
   it('hoi_thieu sl: nêu đúng tên SP còn thiếu SL', () => {

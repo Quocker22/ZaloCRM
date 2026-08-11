@@ -227,6 +227,15 @@ describe('replay 10/08 — gỡ phiên kẹt vì SP chưa có giá', () => {
     const searchRead = vi.fn(async (model: string, domain: unknown[]) => {
       if (model === 'res.partner') return partners;
       if (model === 'product.product') {
+        // Tra theo ID: cổng kiểm giá lúc tạo đơn hỏi ['id','in',[...]]. Fake
+        // phải lọc đúng, nếu không nó trả CẢ SP đã bị bỏ ra khỏi đơn và cổng
+        // báo lỗi giá 1đ cho một dòng không còn tồn tại.
+        const dkId = (domain as unknown[]).find(
+          (d): d is [string, string, unknown] => Array.isArray(d) && d[0] === 'id');
+        if (dkId) {
+          const ids = Array.isArray(dkId[2]) ? (dkId[2] as number[]) : [Number(dkId[2])];
+          return [nho, ao].filter((p) => ids.includes(p.id)).map((p) => ({ ...p, active: true }));
+        }
         const tu = (domain as unknown[])
           .filter((d): d is [string,string,string] => Array.isArray(d) && d[0]==='name' && d[1]==='ilike')
           .map((d) => String(d[2]).toLowerCase());
@@ -371,7 +380,13 @@ describe('replay 10/08 — khách mới trong nhóm', () => {
       if (model === 'product.product') {
         const gia = (domain as unknown[]).find((d): d is [string,string,number] => Array.isArray(d) && d[0]==='list_price');
         if (gia && gia[1] === '<=') return [];
-        return [spNho];
+        return [{ ...spNho, active: true }];
+      }
+      // Bỏ bước chốt (11/08): tạo khách xong là chạy thẳng tới TẠO ĐƠN trong
+      // cùng lượt, nên tool đọc lại đơn vừa tạo để xác nhận state='draft'.
+      if (model === 'sale.order') {
+        if (JSON.stringify(domain).includes('client_order_ref')) return [];
+        return [{ id: 1, name: 'S13901', state: 'draft', amount_total: 1700000, amount_untaxed: 1700000 }];
       }
       return [];
     });
@@ -397,9 +412,11 @@ describe('replay 10/08 — khách mới trong nhóm', () => {
 
     // ĐÃ tạo khách trên Odoo
     expect(execute.mock.calls.some((c) => c[0] === 'res.partner' && c[1] === 'create')).toBe(true);
-    // và chạy TIẾP tới tóm tắt trong CHÍNH lượt này, không bắt nhắc lại
+    // và chạy TIẾP tới TẠO ĐƠN trong CHÍNH lượt này, không bắt nhắc lại.
+    // (Trước 11/08 chỗ này dừng ở tóm tắt chờ chốt; giờ đi thẳng ra đơn.)
     expect(tinGui[tinGui.length - 1]).toContain('Chiến Tàm Xá');
     expect(tinGui[tinGui.length - 1]).toContain('10 × cáp 16 sợi nhỏ');
+    expect(tinGui[tinGui.length - 1]).toContain('S13901');
     expect(tinGui.join('\n')).not.toContain('chưa cho phép tạo khách mới');
   });
 });

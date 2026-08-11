@@ -112,7 +112,10 @@ function dungMay() {
 }
 
 describe('replay chat 21:07 07/08 — lên đơn anh Hưng 10 cái nguồn NB', () => {
-  it('kịch bản #1: 4 lượt ra đơn, không một lần hỏi lại SL', async () => {
+  // 11/08: kịch bản này rút từ 4 lượt xuống 3. Anh Quốc bỏ bước chốt ("nếu mọi
+  // thứ đã rõ ràng thì lên đơn báo giá luôn") nên lượt "ok" cuối cùng biến mất:
+  // chọn "1a" xong là đủ thông tin → đơn lên ngay trong chính lượt đó.
+  it('kịch bản #1: 3 lượt ra đơn, không một lần hỏi lại SL', async () => {
     const m = dungMay();
 
     // Lượt 1: câu đầy đủ → tra song song → MỘT tin hỏi gộp khách + SP
@@ -132,26 +135,28 @@ describe('replay chat 21:07 07/08 — lên đơn anh Hưng 10 cái nguồn NB', 
     expect(await m.goi('lên đơn cho anh Hưng 10 cái nguồn NB nhé')).toBe(true);
     expect(m.tinGui[1]).toContain('1) Hưng Cty A');
 
-    // Lượt 3: "1a" → tóm tắt chờ chốt — map bằng CODE, không tốn lượt LLM
+    // Lượt 3: "1a" → ĐỦ THÔNG TIN nên tạo đơn LUÔN, không hỏi chốt nữa.
+    // Map "1a" bằng CODE, không tốn lượt LLM.
     const llmTruoc = m.soLanGoi();
     expect(await m.goi('1a')).toBe(true);
     expect(m.soLanGoi()).toBe(llmTruoc);
-    expect(m.tinGui[2]).toContain('10 × Nguồn NB 12V100W');
-    expect(m.tinGui[2]).toContain('1.850.000đ');
-
-    // Lượt 4: "ok" → tạo đúng MỘT đơn, đúng khách + SP + SL; phiên xoá
-    expect(await m.goi('ok')).toBe(true);
     expect(m.odoo.execute).toHaveBeenCalledTimes(1);
     const donTao = m.odoo.execute.mock.calls[0] as unknown[];
     expect(donTao[0]).toBe('sale.order');
     const payload = (donTao[2] as Array<Record<string, unknown>>)[0];
     expect(payload.partner_id).toBe(7);
-    expect(m.tinGui[3]).toContain('S13888');
-    expect(m.tinGui[3]).toContain('https://odoo.example.com'); // link xử lý
+
+    // Tin cuối: tóm tắt (nội dung GIỮ NGUYÊN) + đơn đã lên + link.
+    expect(m.tinGui[2]).toContain('10 × Nguồn NB 12V100W');
+    expect(m.tinGui[2]).toContain('1.850.000đ');
+    expect(m.tinGui[2]).toContain('S13888');
+    expect(m.tinGui[2]).toContain('https://odoo.example.com'); // link xử lý
     expect(m.db.rows.has('c1')).toBe(false);
 
     // Hợp đồng số 1: KHÔNG lượt nào hỏi "bao nhiêu" — SL có từ câu đầu
     expect(m.tinGui.join('\n')).not.toMatch(/bao nhiêu/i);
+    // Hợp đồng MỚI 11/08: không một lượt nào rủ chốt
+    expect(m.tinGui.join('\n')).not.toMatch(/chốt lên đơn/i);
   });
 
   it('kịch bản #2: digression giữa chừng → nhường agent thường, phiên GIỮ NGUYÊN', async () => {

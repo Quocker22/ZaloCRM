@@ -110,9 +110,13 @@ export function buocTiepTheo(p: PhienGom): HanhDong {
   // lần — rồi vẫn hỏi "Em chốt lên đơn nhé?". Đơn 46 triệu còn 800đ, chỉ chờ
   // một chữ "ok".
   //
-  // Đứng TRƯỚC cả tóm tắt LẪN tao_don, và KHÔNG nể daHoiChot: cái gật cho tóm
-  // tắt cũ không phải là gật cho con số vô lý này. Chỉ `giaLechDaXacNhan` —
+  // Đứng NGAY TRƯỚC tao_don — và từ 11/08 đây là cổng người-gác DUY NHẤT còn
+  // lại trên đường lên đơn (bước hỏi chốt đã bỏ). Chỉ `giaLechDaXacNhan` —
   // nhân viên trả lời đúng câu hỏi về chính con số đó — mới mở cổng.
+  //
+  // Hàng rào này KHÔNG phải "bước chốt" anh Quốc bỏ. Bước chốt hỏi khi mọi thứ
+  // BÌNH THƯỜNG ("đúng chưa, lên nhé?"); hàng rào này chỉ mở miệng khi phát
+  // hiện BẤT THƯỜNG (lệch 28.750 lần) — trung bình gần như không bao giờ chạy.
   //
   // Ngưỡng lấy từ số đo prod, không bịa: xem gia-bat-thuong.ts (5.781 dòng đơn
   // 2026 — KHÔNG dòng nào lệch dưới 0,1 lần; ca thật này ở 0,0000348 lần).
@@ -123,12 +127,23 @@ export function buocTiepTheo(p: PhienGom): HanhDong {
     if (lech.length > 0) return { loai: 'hoi_gia_lech', lech };
   }
 
-  // 5. Đủ hết.
-  //    Chế SỬA: ghi thẳng — không cổng chốt (anh Quốc chốt 08/08: "rõ ràng thì
-  //    chốt luôn"). An toàn vẫn còn: tool sua_don chỉ đụng đơn nháp, và mọi
-  //    nhập nhằng đã bị chặn ở các bước trên.
+  // 5. Đủ hết → GHI THẲNG, cả hai chế.
+  //
+  //    Chế SỬA đã thế từ 08/08 (anh Quốc: "rõ ràng thì chốt luôn").
+  //
+  //    Chế LÊN ĐƠN theo sau ngày 11/08. Nguyên văn anh Quốc: "tôi muốn bỏ luôn
+  //    cái bước chốt đơn này được không?, nếu mọi thứ đã rõ ràng thì lên đơn
+  //    báo giá luôn". Hỏi lại có giữ ngoại lệ nào (giá lệch / khách vừa tạo /
+  //    đơn tiền lớn) thì anh chốt: "Bỏ hoàn toàn, không hỏi gì nữa".
+  //
+  //    Vì sao bỏ được mà không mất an toàn: đơn tạo ra là đơn NHÁP, sửa được
+  //    bằng chính máy này (chế 'sua'). Nhịp "gật rồi mới ghi" mua rất ít —
+  //    mọi nhập nhằng thật (nhiều khách trùng tên, thiếu SL, SP chưa có giá,
+  //    giá lệch vô lý) đều đã bị các bước 1-4d chặn TRƯỚC khi tới đây. Tới
+  //    dòng này nghĩa là không còn gì để hỏi, nên câu hỏi chỉ là một lượt chờ.
+  //
+  //    Tóm tắt KHÔNG mất theo: orchestrator vẫn in nguyên nội dung đó, chỉ đổi
+  //    từ câu hỏi sang câu thông báo kèm mã đơn (xem `taoDonVaBaoGia`).
   if (laSua) return { loai: 'sua_don' };
-  //    Chế LÊN ĐƠN: hỏi chốt một lần; NV gật rồi (daHoiChot + xác nhận,
-  //    orchestrator kiểm phần xác nhận) thì tạo đơn.
-  return p.daHoiChot ? { loai: 'tao_don' } : { loai: 'tom_tat_cho_chot' };
+  return { loai: 'tao_don' };
 }

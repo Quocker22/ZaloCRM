@@ -41,13 +41,16 @@ describe('buocTiepTheo — bảng trạng thái', () => {
     expect(buocTiepTheo(p)).toEqual({ loai: 'hoi_thieu', thieu: 'khach' });
   });
 
-  it('đủ hết, chưa hỏi chốt → tom_tat_cho_chot; đã hỏi chốt → tao_don', () => {
+  // Anh Quốc 11/08: "tôi muốn bỏ luôn cái bước chốt đơn này được không?, nếu
+  // mọi thứ đã rõ ràng thì lên đơn báo giá luôn" — hỏi lại có giữ ngoại lệ nào
+  // (giá lệch / khách vừa tạo / đơn tiền lớn) thì anh chốt "bỏ hoàn toàn,
+  // không hỏi gì nữa". Đủ thông tin = TẠO ĐƠN, không có ô trung gian nào.
+  it('đủ hết → tao_don NGAY, KHÔNG còn bước hỏi chốt', () => {
     const p: PhienGom = {
       khachTuKhoa: 'Hưng', khachDaChot: khach,
       dong: [{ tuKhoa: 'nguồn NB', sl: 10, daChot: sp }],
     };
-    expect(buocTiepTheo(p)).toEqual({ loai: 'tom_tat_cho_chot' });
-    expect(buocTiepTheo({ ...p, daHoiChot: true })).toEqual({ loai: 'tao_don' });
+    expect(buocTiepTheo(p)).toEqual({ loai: 'tao_don' });
   });
 
   it('tra rồi không thấy → khong_thay nêu đúng phần hỏng', () => {
@@ -108,7 +111,7 @@ describe('buocTiepTheo — chế sua', () => {
     expect(buocTiepTheo(p)).toEqual({ loai: 'hoi_thieu', thieu: 'sl' });
   });
 
-  it('ĐỦ RÕ → sua_don NGAY, không qua tom_tat_cho_chot', () => {
+  it('ĐỦ RÕ → sua_don NGAY, ghi thẳng', () => {
     const p: PhienGom = { che: 'sua', khachTuKhoa: null, donSua: don,
       dong: [{ tuKhoa: 'cáp', sl: 1000, daChot: cap }] };
     expect(buocTiepTheo(p)).toEqual({ loai: 'sua_don' });
@@ -146,7 +149,7 @@ describe('buocTiepTheo — SP chưa có giá', () => {
     expect(buocTiepTheo(p)).toEqual({ loai: 'hoi_gia', sp: [spAo.ten] });
   });
 
-  it('SP giá ảo NHƯNG NV đã báo giá → cho qua, tóm tắt chốt bình thường', () => {
+  it('SP giá ảo NHƯNG NV đã báo giá → cho qua, lên đơn bình thường', () => {
     const p: PhienGom = {
       khachTuKhoa: 'Vấn', khachDaChot: khach,
       dong: [
@@ -154,15 +157,15 @@ describe('buocTiepTheo — SP chưa có giá', () => {
         { tuKhoa: 'led tỏa', sl: 300, daChot: spAo, donGia: 13000 },
       ],
     };
-    expect(buocTiepTheo(p)).toEqual({ loai: 'tom_tat_cho_chot' });
+    expect(buocTiepTheo(p)).toEqual({ loai: 'tao_don' });
   });
 
-  it('bỏ dòng SP giá ảo ra → phần còn lại chốt được ngay', () => {
+  it('bỏ dòng SP giá ảo ra → phần còn lại lên đơn được ngay', () => {
     const p: PhienGom = {
       khachTuKhoa: 'Vấn', khachDaChot: khach,
       dong: [{ tuKhoa: 'nguồn NB', sl: 10, daChot: spThat }],
     };
-    expect(buocTiepTheo(p)).toEqual({ loai: 'tom_tat_cho_chot' });
+    expect(buocTiepTheo(p)).toEqual({ loai: 'tao_don' });
   });
 });
 
@@ -195,7 +198,7 @@ describe('buocTiepTheo — khách mới', () => {
       khachDaChot: { id: 99, ten: 'Chiến Tàm Xá', ma: 'KH003200', dienThoai: '0969810330' },
       dong: [{ tuKhoa: 'nguồn NB', sl: 10, daChot: sp }],
     };
-    expect(buocTiepTheo(p)).toEqual({ loai: 'tom_tat_cho_chot' });
+    expect(buocTiepTheo(p)).toEqual({ loai: 'tao_don' });
   });
 });
 

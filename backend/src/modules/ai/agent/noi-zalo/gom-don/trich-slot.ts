@@ -18,6 +18,14 @@ export interface KetQuaTrich {
   /** NV báo đây là KHÁCH MỚI, kèm thông tin để tạo ("khách mới", tên + SĐT). */
   khachMoi?: { ten: string; sdt?: string; diaChi?: string };
   huy?: boolean;
+  /**
+   * Nhân viên GẬT ("ok", "đúng rồi", "chốt đi").
+   *
+   * KHÔNG còn dùng để chốt đơn — bước đó bỏ 11/08 (anh Quốc: "nếu mọi thứ đã
+   * rõ ràng thì lên đơn báo giá luôn"). Chỗ duy nhất còn đọc ô này là hàng rào
+   * GIÁ BẤT THƯỜNG: khi máy hỏi lại "anh/chị báo 8đ mà hệ thống 230.000đ, giá
+   * đúng là bao nhiêu?" thì cái gật ở đây là câu trả lời cho chính con số đó.
+   */
   xacNhan?: boolean;
   /** Câu không liên quan đơn hàng (digression) — máy nhường agent thường. */
   ngoaiLe?: boolean;
@@ -154,7 +162,7 @@ const ghiSlotDefinition: ToolDefinition = {
       sua: { type: 'boolean', description: 'true khi nhân viên SỬA đơn đã có (thêm hàng/đổi số lượng), không phải lên đơn mới' },
       maDon: { type: 'string', description: 'Mã đơn nhân viên nhắc, dạng S13820' },
       huy: { type: 'boolean', description: 'true khi nhân viên muốn huỷ đơn đang gom' },
-      xacNhan: { type: 'boolean', description: 'true khi nhân viên đồng ý chốt (ok, đúng rồi, lên đi)' },
+      xacNhan: { type: 'boolean', description: 'true khi nhân viên gật/đồng ý (ok, đúng rồi, giá đó chuẩn)' },
       ngoaiLe: { type: 'boolean', description: 'true khi câu KHÔNG liên quan việc lên đơn' },
     },
   },

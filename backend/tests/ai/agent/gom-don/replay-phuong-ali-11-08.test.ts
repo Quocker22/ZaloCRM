@@ -86,6 +86,13 @@ function fakeOdoo() {
       return products;
     }
     if (model === 'stock.quant') return [];
+    // Bỏ bước chốt (11/08): lượt đủ thông tin đã tạo đơn thật, nên tool
+    // tao_don_nhap ĐỌC LẠI đơn vừa tạo để xác nhận. Tra theo
+    // client_order_ref (chống trùng) phải rỗng; tra theo id → đơn draft.
+    if (model === 'sale.order') {
+      if (JSON.stringify(domain).includes('client_order_ref')) return [];
+      return [{ id: 9001, name: 'S13830', state: 'draft', amount_total: 1400000, amount_untaxed: 1400000 }];
+    }
     return [];
   });
 
