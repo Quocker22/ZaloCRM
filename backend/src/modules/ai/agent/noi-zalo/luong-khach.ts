@@ -23,6 +23,7 @@ import { layOdoo, timTriThuc, layLichSu, seqTuMessageId, coTinKhachMoiHon } from
 import { timDich, guiTin, guiAnh, guiFile, guiHoaDonVaQr } from './gui-zalo.js';
 import { khoTaiLieuCuaOrg } from '../../knowledge/kho-tai-lieu.js';
 import { baoNhanVien, CAU_GIU_CHAN } from './bao-nhan-vien.js';
+import { LOAI_VIEC } from './dich-bao.js';
 import { demVaKiemTra, CAU_XIN_PHEP } from './gioi-han.js';
 import { taoDung, taoMoc, chayCoHanGio, hanGioLuot } from './dung.js';
 import { thuGiuViec } from './khoa-viec.js';
@@ -68,6 +69,9 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
     if (dichBuc) {
       await baoNhanVien(dichBuc, {
         conversationId: ctx.conversationId,
+        orgId: ctx.orgId,
+        // Khách bực = việc của người TRỰC KHÁCH, không phải người kỹ thuật.
+        loaiViec: LOAI_VIEC.KHACH_CAN_HO_TRO,
         lyDo: 'khách có vẻ bực/chửi — cần người vào xoa dịu, bot ngừng để khỏi chọc thêm',
         tinKhach: ctx.content,
       });
@@ -95,6 +99,9 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
         }
         await baoNhanVien(dichChan, {
           conversationId: ctx.conversationId,
+          orgId: ctx.orgId,
+          // Vượt trần tin = triệu chứng vận hành (spam / cost-DoS) → người kỹ thuật.
+          loaiViec: LOAI_VIEC.BOT_SU_CO,
           lyDo: `khách vượt giới hạn tin (${gioiHan.lyDo}) — bot ngừng trả lời, cần người xem có phải khách thật không`,
           tinKhach: ctx.content,
         });
@@ -226,6 +233,9 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
           logger.info({ lyDo: yc.lyDo, conversationId: ctx.conversationId }, '[agent/khach] cần sale');
           await baoNhanVien(dich, {
             conversationId: ctx.conversationId,
+            orgId: ctx.orgId,
+            // Bot chủ động xin chuyển sale = khách cần người, không phải sự cố.
+            loaiViec: LOAI_VIEC.KHACH_CAN_HO_TRO,
             lyDo: `bot xin chuyển sale (${yc.lyDo}): ${yc.tomTat}`,
             tinKhach: ctx.content,
           });
@@ -295,6 +305,9 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
       logger.warn({ lyDo: r.lyDo, conversationId: ctx.conversationId }, '[agent/khach] chưa hoàn tất — giữ chân + báo nhân viên');
       const lanDau = await baoNhanVien(dich, {
         conversationId: ctx.conversationId,
+        orgId: ctx.orgId,
+        // Bot bí không trả lời được = sự cố của bot → người kỹ thuật.
+        loaiViec: LOAI_VIEC.BOT_SU_CO,
         lyDo: r.lyDo,
         tinKhach: ctx.content,
         soToolDaChay,
@@ -408,6 +421,9 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
     if (daChayTool) {
       const lanDau = await baoNhanVien(dich, {
         conversationId: ctx.conversationId,
+        orgId: ctx.orgId,
+        // Lỗi hệ thống sau khi đã gọi tool = sự cố → người kỹ thuật.
+        loaiViec: LOAI_VIEC.BOT_SU_CO,
         lyDo: `lỗi hệ thống: ${err instanceof Error ? err.message : String(err)}`,
         tinKhach: ctx.content,
         soToolDaChay,

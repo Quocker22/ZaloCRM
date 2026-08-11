@@ -15,7 +15,7 @@
 // chỉ còn log để dò, nhưng khách vẫn phải nhận được một câu — im lặng là điều
 // duy nhất bị cấm ở đây.
 import { logger } from '../../../../shared/utils/logger.js';
-import { threadBaoSale } from './cong-tac.js';
+import { layDichBao, LOAI_VIEC, type LoaiViec } from './dich-bao.js';
 import { guiTin, type DichGui } from './gui-zalo.js';
 
 /** Câu giữ chân khách — hứa NGƯỜI sẽ trả lời, không hứa nội dung (không đụng
@@ -41,6 +41,13 @@ export interface GoiNguCanh {
   /** Tin khách vừa nhắn — thứ đang chờ được trả lời. */
   tinKhach: string;
   soToolDaChay?: number;
+  /**
+   * Org của hội thoại — để tra đích báo trong DB (đa tổ chức, phải lọc).
+   * THIẾU → rơi về env AI_AGENT_THREAD_BAO_SALE như trước, không ném.
+   */
+  orgId?: string;
+  /** Loại việc để chọn đích. Mặc định "khách cần hỗ trợ". */
+  loaiViec?: LoaiViec;
 }
 
 /**
@@ -57,11 +64,13 @@ export async function baoNhanVien(dich: DichGui, goi: GoiNguCanh): Promise<boole
   }
   lanBaoCuoi.set(goi.conversationId, Date.now());
 
-  const noi = threadBaoSale();
-  if (!noi) {
+  // Đích lấy từ bảng agent_notify_targets (giao diện Cài đặt → "Người nhận
+  // thông báo"); bảng rỗng thì rơi về env cũ. Xem thứ tự ưu tiên ở dich-bao.ts.
+  const dsDich = await layDichBao(goi.orgId ?? '', goi.loaiViec ?? LOAI_VIEC.KHACH_CAN_HO_TRO);
+  if (dsDich.length === 0) {
     logger.warn(
-      { conversationId: goi.conversationId, lyDo: goi.lyDo },
-      '[agent/khach] bot bí nhưng CHƯA cấu hình AI_AGENT_THREAD_BAO_SALE — nhân viên chỉ còn log này',
+      { conversationId: goi.conversationId, lyDo: goi.lyDo, orgId: goi.orgId },
+      '[agent/khach] bot bí nhưng CHƯA cấu hình nơi nhận thông báo — nhân viên chỉ còn log này',
     );
     return true; // vẫn là lần bí đầu tiên — khách vẫn phải nhận câu giữ chân
   }
@@ -76,16 +85,23 @@ export async function baoNhanVien(dich: DichGui, goi: GoiNguCanh): Promise<boole
     `Hội thoại CRM: ${goi.conversationId}`,
   ].join('\n');
 
-  try {
-    // Không giả nhịp người — nhân viên biết đây là bot, chờ 9s là vô ích.
-    await guiTin(
-      { accountId: dich.accountId, threadId: noi.threadId, threadType: noi.threadType, zaloUid: null, tenKhach: null, sdtKhach: null },
-      noiDung,
-      false,
-    );
-    logger.info({ conversationId: goi.conversationId }, '[agent/khach] ĐÃ báo nhân viên');
-  } catch (err) {
-    logger.error({ err, conversationId: goi.conversationId }, '[agent/khach] báo nhân viên LỖI — khách vẫn được giữ chân');
+  // Gửi TUẦN TỰ và bọc try riêng từng đích: một nhóm bị Zalo chặn không được
+  // nuốt tin của những đích còn lại (trước đây chỉ một đích nên không cần).
+  for (const noi of dsDich) {
+    try {
+      // Không giả nhịp người — nhân viên biết đây là bot, chờ 9s là vô ích.
+      await guiTin(
+        { accountId: dich.accountId, threadId: noi.threadId, threadType: noi.threadType, zaloUid: null, tenKhach: null, sdtKhach: null },
+        noiDung,
+        false,
+      );
+      logger.info({ conversationId: goi.conversationId, dich: noi.tenGoi }, '[agent/khach] ĐÃ báo nhân viên');
+    } catch (err) {
+      logger.error(
+        { err, conversationId: goi.conversationId, dich: noi.tenGoi },
+        '[agent/khach] báo nhân viên LỖI — khách vẫn được giữ chân',
+      );
+    }
   }
   return true;
 }

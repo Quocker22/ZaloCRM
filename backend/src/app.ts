@@ -295,6 +295,11 @@ async function bootstrap() {
   // Nạp trước cache UID nhân viên — thu hẹp cửa sổ "lỡ tin đầu" sau khởi động.
   const { napCacheLucKhoiDong } = await import('./modules/ai/agent/agent-operator-service.js');
   void napCacheLucKhoiDong();
+
+  // Nơi nhận thông báo khi bot cần người (spec 11/08/2026) — thay env
+  // AI_AGENT_THREAD_BAO_SALE. Bảng rỗng thì vẫn chạy bằng env như cũ.
+  const { registerAgentNotifyRoutes } = await import('./modules/ai/agent/agent-notify-routes.js');
+  await app.register(registerAgentNotifyRoutes, { prefix: '/api/v1/agent-notify-targets' });
   await app.register(scoringRoutes);
   // Phase 8 — Engagement heatmap timeline + admin recompute/backfill
   const { registerEngagementRoutes } = await import('./modules/engagement/engagement-routes.js');

@@ -46,6 +46,7 @@ model Organization {
   users                       User[]
   zaloAccounts                ZaloAccount[]
   agentOperators              AgentOperator[]
+  agentNotifyTargets          AgentNotifyTarget[]
   contacts                    Contact[]
   contactAccess               ContactAccess[]
   conversations               Conversation[]
@@ -4203,6 +4204,45 @@ model AgentOperator {
   @@unique([orgId, zaloUid])
   @@index([orgId, enabled])
   @@map("agent_operators")
+}
+
+/// NƠI NHẬN THÔNG BÁO khi bot cần người hỗ trợ khách (spec 11/08/2026).
+///
+/// Vì sao BẢNG RIÊNG chứ không thêm cột vào AgentOperator: hai khái niệm khác
+/// nhau. AgentOperator = "ai được SAI bot" (khoá theo zaloUid của nick cá nhân,
+/// unique (orgId, zaloUid)). Bảng này = "ai NHẬN báo" — đích có thể là một
+/// NHÓM Zalo, thứ không có zaloUid và không gắn được vào User nào. Người sai
+/// bot chưa chắc là người trực khách.
+///
+/// Thay env AI_AGENT_THREAD_BAO_SALE. Ưu tiên: có dòng enabled trong bảng này
+/// thì dùng bảng; bảng rỗng thì rơi về env (prod đang chạy bằng env).
+model AgentNotifyTarget {
+  id      String @id @default(uuid())
+  orgId   String @map("org_id")
+  /// Tên admin đặt để nhận ra trong giao diện ("Nhóm trực khách", "Anh Quốc").
+  tenGoi  String @map("ten_goi")
+  /// 'nhom' = nhóm Zalo (threadType 1) | 'ca_nhan' = nick cá nhân (threadType 0).
+  loaiDich String @default("nhom") @map("loai_dich")
+  /// threadId Zalo: id nhóm, hoặc UID nick cá nhân.
+  threadId String @map("thread_id")
+
+  /// Nhận việc "khách cần hỗ trợ": khách gửi ảnh/voice/file/link/danh thiếp,
+  /// khách bực/chửi, bot xin chuyển sale.
+  nhanKhachCanHoTro Boolean @default(true) @map("nhan_khach_can_ho_tro")
+  /// Nhận việc "bot gặp sự cố": bot bí không trả lời được, lỗi sau khi gọi
+  /// tool, khách vượt giới hạn tin. Tách ra vì đây là việc của người kỹ
+  /// thuật, không phải người trực khách.
+  nhanBotSuCo       Boolean @default(true) @map("nhan_bot_su_co")
+
+  enabled     Boolean  @default(true)
+  createdById String?  @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, threadId])
+  @@index([orgId, enabled])
+  @@map("agent_notify_targets")
 }
 
 /// Phiên gom đơn của máy trạng thái slot (spec 2026-08-07-luong-len-don-slot).

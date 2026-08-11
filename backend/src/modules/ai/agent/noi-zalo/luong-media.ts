@@ -26,6 +26,7 @@ import { xuLyTinNhanVien } from './luong-nhan-vien.js';
 import { xuLyTinKhach } from './luong-khach.js';
 import { timDich, guiTin } from './gui-zalo.js';
 import { baoNhanVien } from './bao-nhan-vien.js';
+import { LOAI_VIEC } from './dich-bao.js';
 import type { NgữCanhTin } from './types.js';
 
 /** Loại tin media bot KHÔNG đọc được nhưng người gửi đang chờ phản hồi. */
@@ -274,6 +275,10 @@ export async function xuLyTinMedia(
   // ảnh thì chỉ MỘT câu giữ chân + MỘT tin báo, không phải 5.
   const lanDau = await baoNhanVien(dich, {
     conversationId: ctx.conversationId,
+    orgId: ctx.orgId,
+    // Ảnh/voice/file/link/danh thiếp bot không đọc được = khách đang chờ NGƯỜI
+    // xem hộ, không phải bot hỏng → người trực khách.
+    loaiViec: LOAI_VIEC.KHACH_CAN_HO_TRO,
     lyDo,
     tinKhach,
   });

@@ -156,6 +156,7 @@ const routes: RouteRecordRaw[] = [
       // M53 2026-05-30 — Trợ Lý AI Virtual Chat
       { path: 'crm/ai-assistant',      name: 'Settings.AiAssistant',     component: () => import('@/views/settings/AiAssistantPage.vue'), meta: { resource: 'settings' } },
       { path: 'crm/agent-operators',   name: 'Settings.AgentOperators',  component: () => import('@/views/settings/AgentOperatorsPage.vue'), meta: { resource: 'settings' } },
+      { path: 'crm/agent-notify',      name: 'Settings.AgentNotify',     component: () => import('@/views/settings/AgentNotifyTargetsPage.vue'), meta: { resource: 'settings' } },
       // 🔌 Channels & Integrations
       { path: 'channels/zalo',             name: 'Settings.ZaloAccounts',    component: () => import('@/views/ZaloAccountsView.vue'), meta: { resource: 'zalo_account' } },
       // 2026-06-18 — Trần SDK dời sang Cài đặt (gate 'settings', KHÔNG 'zalo_account') → sale ko đổi được.
