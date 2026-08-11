@@ -280,6 +280,23 @@ async function chayTraCuu(
       if (kq.trangThai === 'tim_thay') {
         p.khachDaChot = { id: kq.khach.id, ten: kq.khach.ten, ma: kq.khach.ma, dienThoai: kq.khach.dienThoai };
         delete p.khachUngVienConNua;
+      } else if (kq.trangThai === 'nhieu_ket_qua' && kq.tuChot) {
+        // TỰ CHỐT khi có người khớp GẦN NGUYÊN VĂN và áp đảo hẳn (21:56 11/08).
+        //
+        // Ca thật: NV gõ "a Long led" → 8 khách, nhưng chỉ "Anh Long Led"
+        // (KH000117) khớp nguyên văn, 7 người kia chỉ tình cờ trùng chữ "Long"
+        // hoặc "Led" rời rạc ("Led Kim Long", "Led Hoàng Long"). Bắt chọn giữa
+        // 8 cái tên trong đó 7 cái khác hẳn là làm phiền vô ích.
+        //
+        // Luật quyết định nằm trong xepHangKhach() — nó ĐÒI không còn ai "cùng
+        // kiểu tên" mới cho chốt, nên ca bẫy "Cảnh tam kỳ" vẫn rơi xuống nhánh
+        // hỏi bên dưới. Chốt nhầm khách nguy hiểm hơn bắt chọn.
+        p.khachDaChot = {
+          id: kq.tuChot.id, ten: kq.tuChot.ten, ma: kq.tuChot.ma, dienThoai: kq.tuChot.dienThoai,
+        };
+        // Đánh dấu để tóm tắt NÓI RÕ đã tự lấy ai — tuyệt đối không chốt im lặng.
+        p.khachTuChot = true;
+        delete p.khachUngVienConNua;
       } else if (kq.trangThai === 'nhieu_ket_qua') {
         p.khachUngVien = kq.danhSach;
         // Chạm trần → danh sách CHƯA ĐỦ, loi-nhan phải nói rõ (bug 16:15 11/08).

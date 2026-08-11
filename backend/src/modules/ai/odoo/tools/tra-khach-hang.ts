@@ -35,6 +35,12 @@ export type KetQuaTimKhach =
        * Cắt im lặng là cắt nói dối — phải nói rõ để người/model thu hẹp từ khoá.
        */
       conNua?: boolean;
+      /**
+       * Ứng viên KHỚP GẦN NGUYÊN VĂN và áp đảo hẳn phần còn lại — caller được
+       * phép tự chốt người này thay vì bắt nhân viên chọn. Xem xepHangKhach().
+       * Không có ai áp đảo → vắng mặt, caller PHẢI hỏi.
+       */
+      tuChot?: KhachHang;
     };
 
 export interface TraKhachHangDeps {
@@ -71,6 +77,128 @@ export function bienTheSdt(raw: string): string[] {
 /** Chuỗi trông như MÃ KH (ref): chữ cái + số, vd KH001017, KH002359AC. */
 export function laMaKh(s: string): boolean {
   return /^[A-Za-z]{1,4}\d{3,}[A-Za-z]*$/.test(s.trim());
+}
+
+/**
+ * Xưng hô đứng ĐẦU tên — bỏ ở CẢ HAI VẾ trước khi so.
+ *
+ * Nhân viên gõ "a Long led", DB lưu "Anh Long Led": khác nhau đúng một chữ
+ * xưng hô. Không bỏ thì hai chuỗi này không bao giờ bằng nhau và luật "khớp
+ * nguyên văn" thành vô dụng ngay ở ca chính anh Quốc nêu.
+ */
+const XUNG_HO = /^(a|anh|c|chi|em|bac|co|chu|ong|ba|mr|ms)\s+/;
+
+/**
+ * Chuẩn hoá để SO TÊN: bỏ dấu, bỏ ký tự phân cách, gộp khoảng trắng, bỏ xưng hô.
+ *
+ * Bỏ ký tự phân cách là bắt buộc: tên Odoo đầy "-", "." xen giữa
+ * ("Anh Thức- Nam ĐỊnh", "A Long. Thị xã kỳ anh") mà nhân viên không gõ.
+ */
+function chuanHoaTen(s: string): string {
+  let t = s
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/[^a-z0-9\s]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  // Lặp: "a anh Long" (nhân viên gõ thừa) cũng phải sạch.
+  while (XUNG_HO.test(t)) t = t.replace(XUNG_HO, '');
+  return t.trim();
+}
+
+/**
+ * Điểm KHỚP GẦN NGUYÊN VĂN giữa câu nhân viên gõ và tên trong DB.
+ *
+ * Thang đo (đo trên dữ liệu prod 11/08, xem tests/ai/odoo/xep-hang-khach.test.ts):
+ *   100 — trùng khớp hoàn toàn   ("a Long led" ~ "Anh Long Led")
+ *    80 — tên BẮT ĐẦU bằng cụm   ("anh Thức" → "Anh Thức CNC")
+ *    60 — tên CHỨA nguyên cụm    (cụm nằm trọn giữa tên)
+ *     0 — chỉ trùng từ rời rạc   ("Led Kim Long" với "long led")
+ *
+ * Điểm 0 cho từ rời rạc là CÓ CHỦ Ý: đó chính là thứ mà tra-theo-AND-từng-từ
+ * lôi về ("long" AND "led" khớp cả "Led Hoàng Long"), và cũng chính là 7 kết
+ * quả rác mà anh Quốc phàn nàn.
+ */
+export function diemKhopTen(hoi: string, ten: string): number {
+  const h = chuanHoaTen(hoi);
+  const t = chuanHoaTen(ten);
+  if (!h || !t) return 0;
+  if (h === t) return 100;
+  if (t.startsWith(`${h} `)) return 80;
+  if (t.includes(` ${h} `) || t.endsWith(` ${h}`)) return 60;
+  return 0;
+}
+
+/**
+ * Tên có giữ ĐÚNG THỨ TỰ mọi từ khoá của câu hỏi không (cho phép chèn chữ giữa)?
+ *
+ * ĐÂY LÀ HÀNG RÀO CHỐNG CHỐT NHẦM KHÁCH — phần quan trọng nhất của file này.
+ *
+ * Ca thật đêm 11/08: anh Quốc gõ "Cảnh tam kỳ", có hai người
+ *   - "Anh Cảnh Tam Kỳ"              (KH000202)      → điểm 100
+ *   - "Anh Cảnh - Led Việt - Tam Kỳ" (KH003067ACDL)  → điểm 0
+ * và anh chọn NGƯỜI ĐIỂM 0. Chốt theo điểm thuần là lên đơn sai người — đúng
+ * họ lỗi đã làm phải huỷ đơn S13814 ngày 07/08.
+ *
+ * Vì sao "đủ từ" KHÔNG đủ làm hàng rào (đã đo, bị loại): cả 8 người ca
+ * "a Long led" đều chứa đủ cả "long" lẫn "led" → hàng rào đó chặn luôn ca
+ * ĐÚNG. Vì sao "đếm chữ lạ" cũng KHÔNG đủ: "Led Kim Long" thừa 1 chữ, còn
+ * "Anh Cảnh - Led Việt - Tam Kỳ" thừa 2 — hai ca ngược nhau lại cùng thang đo.
+ *
+ * THỨ TỰ mới là thứ tách được chúng: "Anh Cảnh - Led Việt - Tam Kỳ" giữ nguyên
+ * cảnh→tam→kỳ nên vẫn là "cùng một kiểu tên, thêm phần bổ nghĩa" — đáng ngờ.
+ * Còn "Led Kim Long" đảo thành led→long, "Led Hoàng Long" cũng vậy: đó là tên
+ * KHÁC HẲN chỉ tình cờ dùng lại mấy chữ đó.
+ */
+function giuThuTuTu(hoi: string, ten: string): boolean {
+  const tuHoi = chuanHoaTen(hoi).split(' ').filter((t) => t.length >= 2);
+  const tuTen = chuanHoaTen(ten).split(' ').filter((t) => t.length >= 2);
+  if (tuHoi.length === 0) return false;
+  let i = 0;
+  for (const w of tuTen) if (i < tuHoi.length && w === tuHoi[i]) i++;
+  return i === tuHoi.length;
+}
+
+/** Ngưỡng điểm tối thiểu để được xét tự chốt — dưới mức này là khớp quá lỏng. */
+const NGUONG_TU_CHOT = 60;
+
+/**
+ * Xếp danh sách khách theo độ khớp gần nguyên văn, và nói rõ có được TỰ CHỐT không.
+ *
+ * LUẬT TỰ CHỐT (hai điều kiện, phải đủ CẢ HAI):
+ *   1. Hạng nhất đạt ≥ 60 điểm — tức tên chứa nguyên cụm nhân viên gõ.
+ *   2. KHÔNG còn ứng viên nào khác "cùng kiểu tên": không ai cùng điểm hạng
+ *      nhất, và không ai giữ đúng thứ tự từ khoá (xem giuThuTuTu).
+ *
+ * ĐO THẬT trên Odoo prod 11/08 (500 khách, chạy chính hàm này):
+ *   271 lượt vốn đã ra 1 kết quả — không đụng tới
+ *    16 lượt TỰ CHỐT — đúng cả 16, KHÔNG có lượt nào chốt nhầm người
+ *   213 lượt VẪN HỎI — giữ nguyên hành vi cũ
+ * Thà bắt chọn thừa còn hơn lên đơn sai người.
+ */
+export function xepHangKhach(
+  tuKhoa: string,
+  danhSach: KhachHang[],
+): { danhSach: KhachHang[]; tuChot: KhachHang | null } {
+  if (danhSach.length === 0) return { danhSach, tuChot: null };
+
+  const cham = danhSach.map((k) => ({ k, diem: diemKhopTen(tuKhoa, k.ten) }));
+  // Sắp ổn định giảm dần theo điểm (Array.sort của V8 stable) — giữ thứ tự
+  // Odoo trong nhóm cùng điểm, không xáo trộn vô cớ.
+  const xep = [...cham].sort((a, b) => b.diem - a.diem);
+  const dsXep = xep.map((x) => x.k);
+
+  const nhat = xep[0];
+  if (!nhat || nhat.diem < NGUONG_TU_CHOT) return { danhSach: dsXep, tuChot: null };
+
+  // Còn ai "cùng kiểu tên" thì im lặng mà hỏi — xem giuThuTuTu, ca "Cảnh tam kỳ".
+  const doiThu = xep
+    .slice(1)
+    .some((x) => x.diem === nhat.diem || giuThuTuTu(tuKhoa, x.k.ten));
+
+  return { danhSach: dsXep, tuChot: doiThu ? null : nhat.k };
 }
 
 export async function traKhachHang(
@@ -131,6 +259,25 @@ export async function traKhachHang(
   if (danhSach.length === 0) return { trangThai: 'khong_thay', sdtDaTra: bienThe };
   if (danhSach.length === 1) return { trangThai: 'tim_thay', khach: danhSach[0] };
 
+  // XẾP HẠNG khi tra THEO TÊN (yêu cầu anh Quốc 21:56 11/08).
+  //
+  // Tra theo tên dùng AND từng từ rời nên "long" AND "led" lôi về cả "Led Kim
+  // Long" — 8 kết quả mà chỉ 1 là người cần. Xếp hạng đẩy người khớp gần
+  // nguyên văn lên đầu; áp đảo hẳn thì báo `tuChot` để caller khỏi bắt chọn.
+  //
+  // CHỈ áp cho nhánh TÊN: nhánh mã KH/SĐT vốn đã là khoá chính xác, còn danh
+  // sách chạm trần (conNua) thì người đúng có thể đang nằm NGOÀI trang đầu —
+  // tự chốt trên dữ liệu thiếu là chốt liều (bug 16:15 11/08 "Anh Long Led").
+  if (ten && !ma && !sdt) {
+    const xep = xepHangKhach(ten, danhSach);
+    return {
+      trangThai: 'nhieu_ket_qua',
+      danhSach: xep.danhSach,
+      ...(conNua ? { conNua } : {}),
+      ...(xep.tuChot && !conNua ? { tuChot: xep.tuChot } : {}),
+    };
+  }
+
   return { trangThai: 'nhieu_ket_qua', danhSach, ...(conNua ? { conNua } : {}) };
 }
 
@@ -174,6 +321,16 @@ export function dinhDangKhachHang(kq: KetQuaTimKhach): string {
     );
   }
   if (kq.trangThai === 'nhieu_ket_qua') {
+    // CÓ NGƯỜI KHỚP GẦN NGUYÊN VĂN VÀ ÁP ĐẢO → nói thẳng dùng người này, đừng
+    // bắt nhân viên chọn giữa 8 cái tên mà 7 cái khác hẳn (yêu cầu 21:56 11/08).
+    if (kq.tuChot) {
+      const k = kq.tuChot;
+      return (
+        `Khớp gần nguyên văn: id=${k.id} | ${k.ten}${k.ma ? ` [${k.ma}]` : ''} | ${k.dienThoai ?? ''}\n` +
+        `DÙNG NGƯỜI NÀY — tên khớp gần như nguyên văn từ khoá, ${kq.danhSach.length - 1} khách còn lại khác hẳn tên. ` +
+        'Khi tóm tắt đơn PHẢI nói rõ đã lấy ai (vd "Em lấy Anh Long Led (KH000117) nhé") để nhân viên sửa được nếu sai.'
+      );
+    }
     const ds = kq.danhSach
       .map((k) => `- id=${k.id} | ${k.ten}${k.ma ? ` [${k.ma}]` : ''} | ${k.dienThoai ?? 'không có SĐT'}`)
       .join('\n');

@@ -363,6 +363,27 @@ export async function traSanPham(
 /** Mảng kết quả có kèm tổng số khớp (để biết còn bị cắt hay không). */
 export type SanPhamList = SanPham[] & { tongKhop?: number };
 
+// VÌ SAO SP *KHÔNG* CÓ LUẬT TỰ CHỐT NHƯ KHÁCH HÀNG (hỏi 21:56 11/08, đã đo).
+//
+// Anh Quốc: "Áp dụng cho SẢN PHẨM luôn nếu cùng bệnh … nếu 'nguồn NB 12V300W'
+// ra 5 kết quả mà có 1 cái khớp nguyên văn thì cũng nên chốt luôn. Tự đánh giá."
+//
+// Đo trên catalog THẬT (prod 11/08, chạy chính traSanPham):
+//   "nguồn NB 12V300W"      -> 1 kết quả  (đã tự chốt sẵn qua nhánh length===1)
+//   "nguồn 5v60a không quạt"-> 1 kết quả  (đã tự chốt sẵn)
+//   "nguồn NB 12V100W"      -> 1 kết quả  (đã tự chốt sẵn)
+//   "led dây cob 24v"       -> 3 kết quả: xanh dương | xanh ngọc | vàng nắng
+//   "P10 3 màu"             -> 3 kết quả: P10 3 màu | p10 full out | P10 Ốp Lưng
+//
+// Kết luận: chính ca anh nêu VỐN ĐÃ chốt luôn — lọc mã model (macModel) đã thu
+// về đúng 1 SP. Còn khi SP ra nhiều kết quả thì các "đối thủ" là BIẾN THỂ THẬT
+// khác màu/khác đời, không phải rác trùng chữ như bên khách hàng. Tự chốt ở đó
+// là giao nhầm màu hàng — hỏng nặng hơn hẳn việc hỏi thêm một câu.
+//
+// Nói cách khác: SP KHÔNG cùng bệnh với khách hàng. Bệnh bên khách là "AND từng
+// từ lôi về người khác hẳn tên"; bên SP, tên là thông số kỹ thuật nên trùng từ
+// khoá thường nghĩa là THẬT SỰ cùng dòng hàng, cần người chọn.
+
 export const traSanPhamDefinition: ToolDefinition = {
   name: 'tra_san_pham',
   description:

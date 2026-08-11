@@ -113,7 +113,18 @@ function tomTat(p: PhienGom): string {
   const dongTong = dongVat.length > 0 && tongCuoi !== tong
     ? [`Tiền hàng: ${tien(tong)}`, ...dongVat, `Tổng: ${tien(Math.round(tongCuoi))}.`]
     : [...dongVat, `Tổng: ${tien(tong)}.`];
+  // MÁY TỰ CHỐT KHÁCH → phải NÓI RÕ đã lấy ai, ngay dòng đầu (21:56 11/08).
+  //
+  // Anh Quốc: "Khi tự chốt, PHẢI nói rõ đã chọn ai — nhân viên cần thấy để sửa
+  // nếu sai. ĐỪNG chốt im lặng." Nhân viên không hề bấm chọn người này, nên
+  // dòng "Đơn cho X" bình thường là chưa đủ: họ cần biết đây là MÁY đoán, và
+  // đoán từ đâu, để soát trong một giây.
+  const dongTuChot = p.khachTuChot && p.khachDaChot
+    ? `Em lấy ${p.khachDaChot.ten}${p.khachDaChot.ma ? ` (${p.khachDaChot.ma})` : ''} nhé — ` +
+      'tên khớp gần như nguyên văn. Không đúng người thì anh/chị báo em (gõ SĐT hoặc mã KH) ạ.'
+    : undefined;
   return [
+    ...(dongTuChot ? [dongTuChot] : []),
     `Đơn cho ${p.khachDaChot?.ten}${p.khachDaChot?.ma ? ` (${p.khachDaChot.ma})` : ''}:`,
     ...dong,
     ...(tenKho ? [`Kho xuất: ${tenKho}`] : []),

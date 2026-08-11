@@ -77,6 +77,12 @@ export interface PhienGom {
    * Bug 16:15 11/08: "Anh Long Led" nằm ngoài 10 người đầu mà không ai biết.
    */
   khachUngVienConNua?: boolean;
+  /**
+   * Khách này do MÁY TỰ CHỐT (khớp gần nguyên văn, áp đảo), nhân viên chưa hề
+   * bấm chọn. Tóm tắt PHẢI nói rõ đã lấy ai + cách sửa nếu sai — anh Quốc
+   * 21:56 11/08: "Khi tự chốt, PHẢI nói rõ đã chọn ai … ĐỪNG chốt im lặng."
+   */
+  khachTuChot?: boolean;
   khachKhongThay?: boolean;
   /**
    * Thông tin khách MỚI nhân viên cung cấp khi tra không ra ("khách mới",
