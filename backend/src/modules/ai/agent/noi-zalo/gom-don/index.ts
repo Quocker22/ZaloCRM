@@ -16,6 +16,10 @@ import { traSanPham, dinhDangSanPham, boDau } from '../../../odoo/tools/tra-san-
 import { traTonKho, dinhDangTonKho } from '../../../odoo/tools/tra-ton-kho.js';
 import { taoDonNhap, dinhDangTaoDon } from '../../../odoo/tools/tao-don-nhap.js';
 import { suaDon, dinhDangSuaDon } from '../../../odoo/tools/sua-don.js';
+// VAT: tra id account.tax theo % nhân viên nói. KHÔNG phải tool cho model —
+// máy gom đơn gọi thẳng hàm, nên nó không có mặt trong registry (xem chú thích
+// đầu tra-thue.ts). Đừng xoá vì "không thấy đăng ký ở đâu".
+import { traThueBan } from '../../../odoo/tools/tra-thue.js';
 import { guiHoaDon } from '../../../odoo/tools/gui-hoa-don.js';
 import { IDEMPOTENCY_PREFIX } from '../../../odoo/idempotency.js';
 import { linkXuLyDon, type HoaDonAnhClient, type AnhHoaDon } from '../../../odoo/hoa-don-anh.js';
@@ -354,6 +358,10 @@ async function taoDonVaBaoGia(
     khach_hang_id: p.khachDaChot!.id, dong, y_dinh: 'moi' as const, ten_khach: p.khachDaChot!.ten,
     // Không chốt kho → KHÔNG gửi field, Odoo tự lấy kho mặc định (đúng 291/300 đơn).
     ...(p.khoId != null ? { kho_id: p.khoId } : {}),
+    // VAT: chỉ gửi khi TRA ĐƯỢC id thật trong account.tax. Tra không ra
+    // (vatKhongTra) thì lên đơn KHÔNG thuế — nhưng tóm tắt đã báo rõ cho nhân
+    // viên trước đó, không im lặng.
+    ...(p.vatThueId != null ? { thue_id: p.vatThueId } : {}),
   };
   const kq = await taoDonNhap(
     {
@@ -423,6 +431,9 @@ async function suaDonVaBao(deps: GomDonDeps, p: PhienGom): Promise<'xong' | 'loi
       ...(d.chietKhau ? { chiet_khau: d.chietKhau } : {}),
       // Lần thứ TƯ của cùng bài học: hàng tặng phải chạy cả đường sửa đơn.
       ...(d.tang ? { tang: true } : {}),
+      // Lần thứ NĂM: VAT cũng phải chạy cả đường sửa. Ca thật "đơn này xuất
+      // VAT nữa em" sau khi đơn đã lên — vá mỗi đường tạo là bỏ sót ca này.
+      ...(p.vatThueId != null ? { thue_id: p.vatThueId } : {}),
     }));
   const t0 = Date.now();
   const vaoSua = {
@@ -582,6 +593,33 @@ export async function xuLyGomDon(
     ...(laLenhSua || trich.sua ? { che: 'sua' as const } : {}),
   };
   const doiNoiDung = dapSlot(phien, trich);
+
+  // ── VAT: nối `trich.vat` với danh mục thuế Odoo (sửa 11/08/2026) ────────
+  //
+  // ĐÂY LÀ CHỖ TỪNG ĐỨT. Đo prod 486 lượt gọi tool 04→11/08: `tra-thue.ts` 0
+  // lần chạy. Không phải vì model không chọn tool (nó KHÔNG phải tool cho model,
+  // và không cần phải là) — mà vì `dapSlot` chưa bao giờ đọc `trich.vat`, nên
+  // `traThueBan()` không ai gọi. Bốn mảnh VAT (trích slot / tra thuế / tóm tắt /
+  // ghi tax_id) đều có và đều có test xanh, chỉ thiếu đúng đoạn dây này — tính
+  // năng VAT commit hôm nay chưa từng chạy một lần nào.
+  //
+  // Đặt NGOÀI `dapSlot` vì tra thuế là I/O sang Odoo, còn `dapSlot` là hàm
+  // thuần đắp slot — giữ nó thuần thì test replay khỏi phải dựng Odoo giả.
+  if (trich.vat != null && phien.vatPhanTram !== trich.vat) {
+    phien.vatPhanTram = trich.vat;
+    delete phien.vatThueId;
+    delete phien.vatKhongTra;
+
+    const thue = await traThueBan({ odoo: deps.odoo }, trich.vat);
+    if (thue) {
+      phien.vatThueId = thue.id;
+    } else {
+      // KHÔNG im lặng bỏ thuế: NV tưởng đơn có VAT mà hoá đơn ra không có là
+      // sai sổ sách, lúc phát hiện thì đã xuất mất rồi. Cờ này khiến tóm tắt
+      // báo rõ "hệ thống không có mức VAT đó".
+      phien.vatKhongTra = true;
+    }
+  }
 
   // ĐANG CHỜ TRẢ LỜI KHO — map bằng CODE trên chính câu NV gõ.
   //

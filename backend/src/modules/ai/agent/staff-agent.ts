@@ -340,7 +340,9 @@ export function buildStaffRegistry(deps: {
     .register({
       definition: canhBaoTonKhoDefinition,
       run: async (input) =>
-        dinhDangCanhBaoTonKho(await canhBaoTonKho({ odoo }, input as { so_ngay?: number })),
+        dinhDangCanhBaoTonKho(
+          await canhBaoTonKho({ odoo }, input as { so_ngay?: number; ton_duoi?: number }),
+        ),
     })
     .register({
       definition: traSanPhamDefinition,

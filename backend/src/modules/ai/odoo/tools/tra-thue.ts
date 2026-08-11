@@ -16,6 +16,24 @@
 //
 // Đo prod LEDNELIA VN 11/08/2026 — danh mục thuế bán đang có:
 //   id=3 "VAT 4%", id=4 "VAT 8%", id=5 "VAT 10%", id=6 "0%". KHÔNG có 5%.
+//
+// ─────────────────────────────────────────────────────────────────────────
+// ĐỪNG XOÁ VÌ "KHÔNG THẤY ĐĂNG KÝ Ở REGISTRY NÀO".
+//
+// File này nằm trong `odoo/tools/` nhưng KHÔNG phải tool cho model, và cố ý
+// như vậy: nó không có `ToolDefinition`, không vào `taoStaffRegistry`. Người
+// gọi là MÁY GOM ĐƠN (`agent/noi-zalo/gom-don/index.ts`), gọi thẳng hàm sau khi
+// `trich-slot` trích được `vat` — cùng kiểu với `traSanPham`/`traTonKho` mà máy
+// gom đơn cũng gọi trực tiếp.
+//
+// Model KHÔNG được phép tự chọn mức thuế: thuế là tiền thật trên sổ sách, phải
+// đi theo con số nhân viên nói, không phải theo suy đoán của model.
+//
+// LỊCH SỬ (đọc trước khi kết luận file này chết): đo prod 486 lượt gọi tool
+// 04→11/08 thấy 0 lần chạy, và docs từng ghi "code chết, nên xoá". Kiểm lại thì
+// đúng là chưa từng chạy — nhưng nguyên nhân là ĐỨT DÂY ở `gom-don`, chỗ đó
+// chưa bao giờ đọc `trich.vat` nên không ai gọi `traThueBan()`. Đã nối lại
+// 11/08; test khoá đường đi thật: `tests/ai/agent/gom-don/vat-noi-day.test.ts`.
 import type { OdooClient } from '../client.js';
 import { logger } from '../../../../shared/utils/logger.js';
 
