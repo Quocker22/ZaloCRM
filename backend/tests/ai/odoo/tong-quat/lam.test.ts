@@ -3,7 +3,7 @@
 // nhóm quyền trên Odoo (bán hàng, kho, mua, kế toán) nên Odoo KHÔNG chặn giúp.
 // Hai phanh phải chứng minh được bằng test, không phải bằng lời hứa.
 import { describe, it, expect, vi } from 'vitest';
-import { lamOdoo, dinhDangLam } from '../../../../src/modules/ai/odoo/tong-quat/lam.js';
+import { lamOdoo, dinhDangLam, CHIA_XAC_NHAN } from '../../../../src/modules/ai/odoo/tong-quat/lam.js';
 
 function fake(soKhop = 1) {
   const searchRead = vi.fn(async () => Array.from({ length: soKhop }, (_, i) => ({ id: i + 1 })));
@@ -65,11 +65,13 @@ describe('lamOdoo — PHANH', () => {
     expect(kq2.trangThai).toBe('da_lam');
   });
 
-  it('xác nhận rồi → chạy thật', async () => {
+  it('NGƯỜI xác nhận rồi (có chìa CHIA_XAC_NHAN) → chạy thật', async () => {
     const odoo = fake(47);
+    // Chìa khoá Symbol là bắt buộc từ 11/08: cờ `xac_nhan` trần (thứ model tự
+    // điền được) KHÔNG còn bỏ phanh — xem lam-xac-nhan-that.test.ts.
     const kq = await lamOdoo({ odoo } as never, {
       bang: 'sale.order', viec: 'goi_nut', nut: 'unlink',
-      loc: [['state', '=', 'draft']], xac_nhan: true,
+      loc: [['state', '=', 'draft']], xac_nhan: true, [CHIA_XAC_NHAN]: true,
     });
     expect(kq.trangThai).toBe('da_lam');
     expect(odoo.execute.mock.calls.some((c) => c[1] === 'unlink')).toBe(true);

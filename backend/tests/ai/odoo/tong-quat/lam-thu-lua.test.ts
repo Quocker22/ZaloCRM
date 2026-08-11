@@ -158,18 +158,23 @@ describe('PHANH 3 — cột giá vốn: ĐỌC bị cấm, nhưng GHI thì KHÔN
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// PHANH 4 — CỜ XÁC NHẬN
+// PHANH 4 — CỜ XÁC NHẬN (lỗ hổng ĐÃ BỊT 11/08/2026)
 //
-// LỖ HỔNG NGHIÊM TRỌNG (báo cáo, KHÔNG tự sửa): `xac_nhan` là một field bình
-// thường trong inputSchema, do CHÍNH MODEL điền. Không có gì buộc nó phải là
-// tiếng nói của con người. Vòng lặp tool-calling (`agent/loop.ts`) chạy tới
-// `maxIterations` lần TRONG CÙNG MỘT LƯỢT nhắn — model bị chặn ở lần gọi thứ
-// nhất hoàn toàn có thể gọi lại ngay lần thứ hai với `xac_nhan: true` mà nhân
-// viên KHÔNG hề đọc câu cảnh báo, thậm chí không kịp thấy nó.
+// LỖ HỔNG CŨ: `xac_nhan` là field bình thường trong inputSchema, do CHÍNH MODEL
+// điền. Vòng lặp tool-calling (`agent/loop.ts`) chạy tới `maxIterations` lần
+// TRONG CÙNG MỘT LƯỢT nhắn — model bị chặn ở lần gọi thứ nhất gọi lại ngay lần
+// thứ hai với `xac_nhan: true`, nhân viên KHÔNG hề đọc câu cảnh báo, thậm chí
+// không kịp thấy nó. Đo thật: 300 đơn bị xoá, không một con người nào gật.
 //
-// Phanh chỉ thật khi cái gật đến từ NGƯỜI. Ở đây nó đến từ model.
-describe('PHANH 4 — cờ xác nhận: mô phỏng model TỰ GẬT THAY NGƯỜI', () => {
-  it('xac_nhan=true cho qua mọi phanh — kể cả xoá 1.257 bản ghi', async () => {
+// CÁCH BỊT: cờ `xac_nhan` biến mất khỏi schema và chỉ có hiệu lực khi kèm chìa
+// khoá Symbol `CHIA_XAC_NHAN` — thứ KHÔNG serialize qua JSON nên input LLM
+// không mang được. Chìa do CODE đặt sau khi đối chiếu tin THẬT của nhân viên ở
+// lượt SAU (`xacNhanTuNguoi` trong staff-agent.ts), đúng mẫu `CHIA_BO_PHANH`
+// của tools/tao-khach-hang.ts và cơ chế `giaLechDaXacNhan` bên máy gom đơn.
+//
+// Bộ test đầy đủ cho đường này: lam-xac-nhan-that.test.ts.
+describe('PHANH 4 — cờ xác nhận: model KHÔNG tự gật thay người được', () => {
+  it('xac_nhan=true TRẦN (model tự điền) KHÔNG qua phanh — kể cả với 1.257 bản ghi', async () => {
     const odoo = fake(1257);
 
     const kq = await lamOdoo({ odoo } as never, {
@@ -177,15 +182,15 @@ describe('PHANH 4 — cờ xác nhận: mô phỏng model TỰ GẬT THAY NGƯ�
       loc: [['id', '>', 0]], xac_nhan: true,
     });
 
-    expect(kq.trangThai).toBe('da_lam');
-    expect(daGoi(odoo)).toContain('unlink');
+    expect(kq.trangThai).toBe('can_xac_nhan');
+    expect(daGoi(odoo)).not.toContain('unlink');
   });
 
-  it('LỖ HỔNG: model tự gật ở lượt gọi thứ hai, KHÔNG cần người nói gì', async () => {
+  it('ĐÃ BỊT: model tự gật ở lượt gọi thứ hai vẫn bị chặn, không ai mất đơn', async () => {
     // Mô phỏng đúng những gì `loop.ts` cho phép trong MỘT lượt nhắn:
     //   lần 1 → bị chặn, trả về "cần xác nhận"
     //   lần 2 → model đọc chính câu đó rồi tự điền xac_nhan: true
-    // Giữa hai lần KHÔNG có tin nhắn nào của người.
+    // Giữa hai lần KHÔNG có tin nhắn nào của người → phải chặn cả hai lần.
     const odoo = fake(300);
     const lenh = {
       bang: 'sale.order', viec: 'goi_nut' as const, nut: 'unlink',
@@ -198,19 +203,12 @@ describe('PHANH 4 — cờ xác nhận: mô phỏng model TỰ GẬT THAY NGƯ�
 
     const lan2 = await lamOdoo({ odoo } as never, { ...lenh, xac_nhan: true });
 
-    // 300 đơn bị xoá, không một con người nào gật. Đây là lỗ hổng cần anh Quốc
-    // quyết cách bịt (gợi ý: cờ xác nhận phải do CODE đặt sau khi đối chiếu tin
-    // nhắn thật của nhân viên, giống `giaLechDaXacNhan` bên máy gom đơn — chứ
-    // không để model tự khai).
-    expect(lan2.trangThai).toBe('da_lam');
-    expect(daGoi(odoo)).toContain('unlink');
+    expect(lan2.trangThai).toBe('can_xac_nhan');
+    expect(daGoi(odoo)).not.toContain('unlink');
   });
 
-  it('schema VẪN khai xac_nhan cho model tự điền — đây là gốc của lỗ hổng', () => {
+  it('schema KHÔNG còn khai xac_nhan — model không được mời tự điền', () => {
     const props = lamOdooDefinition.inputSchema.properties as Record<string, unknown>;
-    expect(props).toHaveProperty('xac_nhan');
-    // Ghi lại để khi ai đó bịt lỗ hổng (bỏ field khỏi schema, chuyển sang cờ
-    // đặc quyền khoá bằng Symbol như `choPhepDatGia`) thì test này đỏ và họ
-    // biết phải cập nhật cả báo cáo.
+    expect(props).not.toHaveProperty('xac_nhan');
   });
 });

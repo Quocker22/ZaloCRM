@@ -17,13 +17,49 @@ export interface LamOdooDeps {
   odoo: Pick<OdooClient, 'searchRead' | 'execute'>;
 }
 
+/**
+ * Chìa khoá cho cờ `xac_nhan`. Symbol KHÔNG serialize được qua JSON, nên input
+ * do LLM sinh (luôn là JSON thuần) KHÔNG THỂ mang nó — kể cả khi model tự bịa
+ * ra trường `xac_nhan: true`.
+ *
+ * ── VÌ SAO PHẢI CÓ (lỗ hổng thật, xác minh 11/08/2026) ────────────────────
+ * Trước đây `xac_nhan` được khai THẲNG trong `inputSchema` cho model tự điền.
+ * Vòng lặp tool-calling đẩy kết quả `can_xac_nhan` NGƯỢC lại cho model rồi
+ * chạy tiếp TRONG CÙNG MỘT LƯỢT NHẮN — model đọc chính câu cảnh báo nó vừa
+ * nhận, rồi gọi lại `lam_odoo` với `xac_nhan: true`. Nhân viên không kịp đọc,
+ * thậm chí không kịp THẤY: cả hai lần gọi nằm gọn trong một lượt, trước khi
+ * một chữ nào được gửi ra Zalo. Đo thật: 300 đơn bị xoá, không ai gật.
+ *
+ * Một cái phanh mà chính kẻ bị phanh tự nhả được thì không phải phanh — nó chỉ
+ * là lời đề nghị, và model đã chứng minh nhiều lần nó lờ được lời đề nghị
+ * (bug 05/08 gọi tao_don_nhap sau khi NV nói dừng; bug 10:09:33 11/08 giá 8đ).
+ *
+ * ĐÚNG MẪU `CHIA_BO_PHANH` trong tools/tao-khach-hang.ts, và cùng lý do: hai
+ * registry ép `input as never` / `as Parameters<...>` nên MỌI trường model bịa
+ * ra đều lọt thẳng vào tham số. Ranh giới phải là CODE, không phải schema.
+ *
+ * Chìa khoá này CHỈ do code đặt, sau khi đọc tin THẬT của nhân viên ở lượt SAU
+ * (xem `xacNhanTuNguoi` trong staff-agent.ts) — cùng cơ chế `giaLechDaXacNhan`
+ * bên máy gom đơn.
+ */
+export const CHIA_XAC_NHAN: unique symbol = Symbol('xac_nhan_tu_nguoi');
+
 export interface LamOdooInput {
   bang: string;
   viec: 'tao' | 'sua' | 'goi_nut';
   du_lieu?: Record<string, unknown>;
   loc?: unknown[];
   nut?: string;
+  /**
+   * Nhân viên ĐÃ đọc cảnh báo và gật ở lượt SAU.
+   *
+   * CHỈ có hiệu lực khi kèm chìa khoá `CHIA_XAC_NHAN`. Schema tool KHÔNG khai
+   * cờ này, nên model không được mời điền — và nếu nó tự bịa ra thì cũng vô
+   * hiệu vì thiếu chìa.
+   */
   xac_nhan?: boolean;
+  /** Chìa khoá xác thực cờ trên — xem CHIA_XAC_NHAN. */
+  [CHIA_XAC_NHAN]?: true;
 }
 
 export type KetQuaLam =
@@ -78,11 +114,16 @@ export async function lamOdoo(deps: LamOdooDeps, input: LamOdooInput): Promise<K
       return { trangThai: 'loi', lyDo: `Không có bản ghi nào khớp điều kiện trên ${bang}.` };
     }
 
+    // Cờ vượt phanh CHỈ có hiệu lực khi kèm chìa khoá Symbol — tức lời gật đến
+    // từ NGƯỜI (code đọc tin thật của nhân viên ở lượt sau), không phải từ
+    // model tự điền trong cùng lượt. Xem CHIA_XAC_NHAN ở đầu file.
+    const nguoiDaGat = input.xac_nhan === true && input[CHIA_XAC_NHAN] === true;
+
     const phanh = quyetDinhPhanh({
       viec: input.viec,
       ...(input.nut ? { nut: input.nut } : {}),
       soBanGhi,
-      ...(input.xac_nhan ? { xacNhan: true } : {}),
+      ...(nguoiDaGat ? { xacNhan: true } : {}),
     });
     if (!phanh.chay) {
       const viecMoTa = phanh.lyDo === 'xoa' ? 'XOÁ' : `${input.viec === 'sua' ? 'sửa' : input.nut}`;
@@ -124,8 +165,7 @@ export function dinhDangLam(kq: KetQuaLam): string {
   if (kq.trangThai === 'loi') return `Không làm được: ${kq.lyDo}`;
   if (kq.trangThai === 'can_xac_nhan') {
     return (
-      `${kq.moTa} Anh/chị xác nhận giúp em rồi em làm ngay ạ ` +
-      '(nhắn "đồng ý" / "xác nhận").'
+      `${kq.moTa} Anh/chị nhắn "đồng ý" (hoặc "xác nhận") ở tin SAU thì em làm ngay ạ.`
     );
   }
   return `Đã ${kq.viec} ${kq.soBanGhi} bản ghi trên ${kq.bang}.`;
@@ -139,8 +179,10 @@ export const lamOdooDefinition: ToolDefinition = {
     '"sửa giá SP này thành 99k", "đổi SĐT khách", "ghi nhận thanh toán". ' +
     'viec=goi_nut cần nut (action_confirm, action_cancel, action_post, button_validate). ' +
     'LUÔN nêu loc để chỉ rõ làm trên bản ghi nào. ' +
-    'Việc XOÁ hoặc đụng nhiều bản ghi sẽ trả về yêu cầu xác nhận — đọc nguyên văn ' +
-    'cho nhân viên rồi chờ họ đồng ý, gọi lại với xac_nhan=true. ' +
+    'Việc XOÁ hoặc đụng nhiều bản ghi sẽ trả về yêu cầu xác nhận: ĐỌC NGUYÊN VĂN ' +
+    'câu đó cho nhân viên rồi DỪNG LƯỢT — chờ họ trả lời ở tin SAU. ' +
+    'Gọi lại tool trong cùng lượt KHÔNG có tác dụng: lời gật phải đến từ nhân ' +
+    'viên thật, hệ thống tự nhận biết và bỏ phanh giúp bạn ở lượt sau. ' +
     'KHÔNG dùng cho lên đơn/sửa đơn hàng — đã có tao_don_nhap/sua_don.',
   inputSchema: {
     type: 'object',
@@ -150,7 +192,9 @@ export const lamOdooDefinition: ToolDefinition = {
       du_lieu: { type: 'object', description: 'Dữ liệu khi tao/sua, vd {"list_price": 99000}' },
       loc: { type: 'array', items: {}, description: 'Domain chỉ rõ bản ghi, vd [["name","=","S13823"]]' },
       nut: { type: 'string', description: 'Tên method khi viec=goi_nut' },
-      xac_nhan: { type: 'boolean', description: 'true khi nhân viên ĐÃ đồng ý sau cảnh báo' },
+      // CỐ Ý KHÔNG KHAI `xac_nhan`: khai ra là mời model tự gật thay nhân viên
+      // rồi vượt phanh ngay trong cùng lượt (lỗ hổng 11/08 — 300 đơn bị xoá,
+      // không ai gật). Cờ đó giờ chỉ code đặt được, kèm chìa CHIA_XAC_NHAN.
     },
     required: ['bang', 'viec'],
   },

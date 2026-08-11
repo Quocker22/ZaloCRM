@@ -100,8 +100,52 @@ import {
 } from '../odoo/xuat-excel.js';
 import { bangRaAnh } from '../odoo/anh-bang.js';
 import { docOdoo, docOdooDefinition, dinhDangDoc } from '../odoo/tong-quat/doc.js';
-import { lamOdoo, lamOdooDefinition, dinhDangLam } from '../odoo/tong-quat/lam.js';
+import { lamOdoo, lamOdooDefinition, dinhDangLam, CHIA_XAC_NHAN } from '../odoo/tong-quat/lam.js';
 import { khamPhaOdoo, khamPhaOdooDefinition, dinhDangKhamPha } from '../odoo/tong-quat/kham-pha.js';
+
+/**
+ * Dấu nhận biết bot ĐÃ xin xác nhận cho một lệnh nguy hiểm ở lượt TRƯỚC.
+ *
+ * Khớp đúng câu `dinhDangLam` sinh ra khi `lam_odoo` trả `can_xac_nhan`
+ * ("… Odoo KHÔNG hoàn tác được." / "(quá 20 bản ghi).", kèm lời mời nhắn
+ * "đồng ý" ở tin sau). Bắt theo NỘI DUNG câu bot đã GỬI ĐI, chứ không tin lời
+ * model tự khai trong cùng lượt — đó chính là lỗ hổng 11/08.
+ *
+ * Cố ý bắt HẸP: chỉ câu có cả cụm "xác nhận"/"đồng ý" LẪN dấu hiệu của lệnh
+ * nguy hiểm (số bản ghi / không hoàn tác). Bot nói "em xác nhận đơn giúp anh"
+ * KHÔNG mở được phanh xoá.
+ */
+const LOI_XIN_XAC_NHAN =
+  /(?:KHÔNG hoàn tác được|quá \d+ bản ghi)[\s\S]*?(?:đồng ý|xác nhận)/i;
+
+/**
+ * Nhân viên có GẬT cho lệnh nguy hiểm không?
+ *
+ * KHÔNG dùng thẳng `laXacNhanNgan`, dù nó là hàm chuẩn cho mọi chỗ khác. Hai
+ * lý do, cả hai đều đo được:
+ *
+ *   1. NÓ GẬT NHẦM. `laXacNhanNgan('khoan đã, để tôi xem lại')` trả TRUE —
+ *      chuỗi 'da' (từ "đã") nằm trong danh sách cụm xác nhận. Với việc lên đơn
+ *      thì gật nhầm chỉ tốn một câu sửa; với lệnh XOÁ 300 đơn thì "khoan đã"
+ *      bị hiểu thành "đồng ý" là mất dữ liệu vĩnh viễn. Ở đây phải NGẶT hơn.
+ *
+ *   2. NÓ BỎ SÓT chính chữ ta dặn. `laXacNhanNgan('xác nhận')` trả FALSE, mà
+ *      `dinhDangLam` lại mời nhân viên nhắn đúng chữ "xác nhận".
+ *
+ * Nguyên tắc: nghi ngờ thì KHÔNG gật. Nhân viên phải nhắn lại một chữ rõ hơn —
+ * tốn hai giây, đổi lấy việc không bao giờ xoá nhầm.
+ */
+const GAT_RO_RANG = /^(?:đồng ý|dong y|xác nhận|xac nhan|ok|oke|okay|đúng rồi|dung roi|chốt|chot|làm đi|lam di|xoá đi|xoa di|yes|y)$/i;
+
+export function laGatChoLenhNguyHiem(noiDung: string): boolean {
+  const t = String(noiDung ?? '').trim()
+    // Bỏ dấu câu ở hai đầu: "đồng ý!" / "ok." vẫn là lời gật.
+    .replace(/^[\s.,!?;:"'()]+|[\s.,!?;:"'()]+$/g, '');
+  if (!t) return false;
+  // Có ý DỪNG thì dứt khoát không phải gật, dù câu có chứa chữ "ok".
+  if (laYDinhDung(t)) return false;
+  return GAT_RO_RANG.test(t);
+}
 
 /** Bản ghi 1 lần gọi tool — cho quan trắc. */
 export interface ToolCallLog {
@@ -314,6 +358,14 @@ export function buildStaffRegistry(deps: {
   taiTaiLieu?: (t: TaiLieu) => Promise<string>;
   /** Nhận file tài liệu đã tải — caller gửi qua Zalo sau phần text. */
   nhanTaiLieu?: (t: { tieuDe: string; duongDanCucBo: string }) => void;
+  /**
+   * NGƯỜI THẬT vừa gật cho lệnh nguy hiểm mà bot hỏi ở LƯỢT TRƯỚC.
+   *
+   * Do CODE tính từ tin nhắn thật của nhân viên (`laXacNhanNgan`), KHÔNG phải
+   * do model tự khai — xem `CHIA_XAC_NHAN` trong odoo/tong-quat/lam.js. Đây là
+   * thứ duy nhất bỏ được phanh xoá / phanh hàng loạt của `lam_odoo`.
+   */
+  xacNhanTuNguoi?: boolean;
 }): ToolRegistry {
   const { odoo } = deps;
   const r = new ToolRegistry()
@@ -556,7 +608,23 @@ export function buildStaffRegistry(deps: {
     })
     .register({
       definition: lamOdooDefinition,
-      run: async (input) => dinhDangLam(await lamOdoo({ odoo }, input as never)),
+      // CHÌA KHOÁ XÁC NHẬN gắn ở ĐÂY, không để model tự khai (lỗ hổng 11/08:
+      // model đọc câu "cần xác nhận" rồi tự gọi lại với xac_nhan=true ngay
+      // trong CÙNG lượt — 300 đơn bị xoá, không một con người nào gật).
+      //
+      // `deps.xacNhanTuNguoi` do code tính từ tin THẬT của nhân viên ở lượt
+      // SAU. Symbol không serialize qua JSON nên input LLM không bao giờ mang
+      // được chìa này — đúng mẫu `CHIA_BO_PHANH` của tools/tao-khach-hang.ts.
+      run: async (input) => {
+        const tham = { ...(input as Record<string, unknown>) } as unknown as Parameters<typeof lamOdoo>[1];
+        // Cờ trần do model bịa ra: xoá đi cho sạch, rồi chỉ đặt lại khi NGƯỜI gật.
+        delete tham.xac_nhan;
+        if (deps.xacNhanTuNguoi) {
+          tham.xac_nhan = true;
+          tham[CHIA_XAC_NHAN] = true;
+        }
+        return dinhDangLam(await lamOdoo({ odoo }, tham));
+      },
     });
 
   // XUẤT HOÁ ĐƠN KẾ TOÁN (account.move, vào sổ). CHỈ nhân viên: đây là tool
@@ -633,11 +701,29 @@ export async function chayLenhNhanVien(
   const tepBaoCao: TepBaoCao[] = [];
   const taiLieuDaLay: Array<{ tieuDe: string; duongDanCucBo: string }> = [];
 
+  // NGƯỜI THẬT GẬT CHO LỆNH NGUY HIỂM — tính ở CODE, từ tin nhắn thật.
+  //
+  // Điều kiện phải hội đủ HAI vế, và đó chính là chỗ lỗ hổng 11/08 bị bịt:
+  //   1. Tin MỚI của nhân viên là lời gật ("đồng ý", "ok", "xác nhận"…)
+  //   2. Bot đã HỎI ở lượt TRƯỚC (lịch sử có câu xin xác nhận của bot)
+  //
+  // Vế 2 buộc phải có một lượt nhắn THẬT chen giữa: model không thể vừa hỏi
+  // vừa tự gật trong cùng một lượt, vì lúc nó chạy thì câu hỏi của nó chưa
+  // nằm trong `history` (history là các lượt ĐÃ gửi xong).
+  //
+  // Cùng cơ chế `giaLechDaXacNhan` bên máy gom đơn: cái gật phải là tiếng nói
+  // của người, đối chiếu bằng code — prompt dặn được nhưng model lờ được.
+  const botDaXinXacNhan = (input.history ?? []).some(
+    (h) => h.vai === 'bot' && LOI_XIN_XAC_NHAN.test(h.noiDung),
+  );
+  const xacNhanTuNguoi = botDaXinXacNhan && laGatChoLenhNguyHiem(lenh.noiDung);
+
   const registry = buildStaffRegistry({
     zaloUid: deps.zaloUid,
     odoo: deps.odoo,
     conversationId: input.conversationId,
     seq: input.seq,
+    xacNhanTuNguoi,
     chanDonLienKeGiay: deps.chanDonLienKeGiay,
     ghiNhanChuyenSale: deps.ghiNhanChuyenSale,
     anhClient: deps.anhClient,
