@@ -377,8 +377,11 @@ gọi lần nào**.
 (hàm `taoStaffRegistry`); thân từng công cụ ở `odoo/tools/*.ts`; ba công cụ tổng
 quát `odoo/tong-quat/{doc,lam,kham-pha}.ts`; xuất Excel + vẽ bảng thành ảnh
 `odoo/xuat-excel.ts` + `odoo/anh-bang.ts` (ngưỡng đính kèm `NGUONG_DINH_KEM`).
-Lưu ý: `odoo/tools/tra-thue.ts` tồn tại nhưng **không đăng ký ở registry nào** —
-code chết, xem phần cuối tài liệu.
+Lưu ý: `odoo/tools/tra-thue.ts` **cố ý không đăng ký ở registry nào** — nó không
+phải công cụ cho model. Người gọi là **máy gom đơn**
+(`agent/noi-zalo/gom-don/index.ts`) gọi thẳng hàm `traThueBan()` sau khi trích
+được `vat` từ tin nhắn, cùng kiểu với `traSanPham`/`traTonKho`. **Đừng xoá vì
+"không thấy đăng ký ở đâu"** — xem phần cuối tài liệu.
 
 ---
 
@@ -640,7 +643,7 @@ CHỈ luồng nhân viên) · dọn ngữ cảnh `staff-agent.ts:CONTEXT_EDITING
 |---|---|---|
 | Ghi tự do vào Odoo (`lam_odoo`) | **0** | Cửa hậu quyền lực nhất chưa từng mở. Tốt — nhưng nghĩa là bốn cái phanh **chưa từng được thử lửa thật**. |
 | Gửi tài liệu PDF (`gui_tai_lieu`) | **0** | Có nhân viên đã hỏi xin catalog ("a muốn e gửi cho a dạng tài liệu cattalog") mà công cụ vẫn 0 lần — đáng nghi, nên soi lại xem bot có chọn nhầm sang tra tri thức không. |
-| Tra thuế (`tra-thue.ts`) | **0** | **Không đăng ký ở registry nào.** File còn nằm đó nhưng chưa từng chạy — code chết, nên xoá hoặc nối vào. |
+| Tra thuế (`tra-thue.ts`) | **0** (số cũ, đã sửa) | **KHÔNG phải code chết — đừng xoá.** File cố ý không có `ToolDefinition`: model không được tự chọn mức thuế, vì thuế là tiền thật trên sổ. Người gọi là **máy gom đơn**, gọi thẳng `traThueBan()`. Con số 0 là do **đứt dây ở `gom-don`** (chỗ đó chưa đọc `trich.vat`), đã nối lại 11/08 (commit `874865ff`); đường đi thật khoá bằng `tests/ai/agent/gom-don/vat-noi-day.test.ts`. |
 | Đơn chờ xác nhận | 1 | Gần như chưa dùng. |
 | Cảnh báo tồn kho | 1 | Gần như chưa dùng, dù có nhân viên hỏi đúng nghiệp vụ này bằng câu khác ("hàng nào có tồn kho nhỏ hơn 100") — và câu đó bị định tuyến sang đọc Odoo tự do thay vì công cụ chuyên. |
 | Tra danh mục (nhân viên) | 2 | Chủ yếu là công cụ cho khách. |

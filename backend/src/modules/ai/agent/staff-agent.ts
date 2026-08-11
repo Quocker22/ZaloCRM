@@ -623,7 +623,11 @@ export function buildStaffRegistry(deps: {
           tham.xac_nhan = true;
           tham[CHIA_XAC_NHAN] = true;
         }
-        return dinhDangLam(await lamOdoo({ odoo }, tham));
+        // `conversationId` xuống theo để dấu vết cột giá vốn truy được về đúng
+        // hội thoại (xem NHAN_DAU_VET trong tong-quat/lam.ts). Chỉ để ghi log —
+        // KHÔNG đổi hành vi, KHÔNG thêm phanh: anh Quốc chốt "đừng siết chặt
+        // quá khó dùng".
+        return dinhDangLam(await lamOdoo({ odoo, conversationId: deps.conversationId }, tham));
       },
     });
 

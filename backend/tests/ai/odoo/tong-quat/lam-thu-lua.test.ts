@@ -123,11 +123,15 @@ describe('PHANH 2 — hơn 20 bản ghi phải xin phép', () => {
 // chỉ import `quyetDinhPhanh`, không hề lọc cột. Nghĩa là `lam_odoo` GHI ĐÈ
 // được `standard_price` (giá vốn) trong khi `doc_odoo` còn không được ĐỌC nó.
 //
-// Test dưới ghi lại HÀNH VI THẬT hiện nay chứ không phải hành vi mong muốn —
-// cố ý, để báo cáo cho anh Quốc quyết có siết hay không. Siết là thay đổi
-// nghiệp vụ (nhân viên đang có thể cần sửa giá vốn khi nhập hàng), không phải
-// việc tự quyết trong lúc viết test.
-describe('PHANH 3 — cột giá vốn: ĐỌC bị cấm, nhưng GHI thì KHÔNG', () => {
+// ĐÃ TRÌNH ANH QUỐC — ANH CHỐT KHÔNG SIẾT, nguyên văn: "đừng siết chặt quá khó
+// dùng". Lý do đúng: `lam_odoo` chỉ có ở luồng NHÂN VIÊN, mà nhân viên vốn đã
+// vào thẳng Odoo sửa giá vốn tay được — chặn ở bot chỉ làm phiền chứ không chặn
+// được gì thật. Thay vào đó nối DẤU VẾT (log + nêu rõ trong câu trả lời), khoá
+// ở `lam-dau-vet-cot-nhay-cam.test.ts`.
+//
+// Chặn ĐỌC giá vốn ở `doc.ts`/`kham-pha.ts` GIỮ NGUYÊN — luật anh Quốc đặt từ
+// đầu, không đổi.
+describe('PHANH 3 — cột giá vốn: ĐỌC bị cấm, GHI thì cho, nhưng có DẤU VẾT', () => {
   it('danh sách cột cấm vẫn nhận diện đúng standard_price / cost / margin', () => {
     for (const c of ['standard_price', 'cost', 'margin', 'purchase_price', 'total_cost', 'margin_percent']) {
       expect(laCotCam(c), `${c} phải bị coi là cột cấm`).toBe(true);
@@ -137,7 +141,7 @@ describe('PHANH 3 — cột giá vốn: ĐỌC bị cấm, nhưng GHI thì KHÔN
     }
   });
 
-  it('HIỆN TRẠNG: lam_odoo GHI ĐÈ được standard_price — phanh cột chưa nối vào đường ghi', async () => {
+  it('CHỦ ĐÍCH: lam_odoo VẪN ghi đè được standard_price — anh Quốc chốt không chặn', async () => {
     const odoo = fake(1);
 
     const kq = await lamOdoo({ odoo } as never, {
@@ -145,8 +149,8 @@ describe('PHANH 3 — cột giá vốn: ĐỌC bị cấm, nhưng GHI thì KHÔN
       du_lieu: { standard_price: 1 },
     });
 
-    // Nếu ngày nào đó anh Quốc chốt siết, test này sẽ đỏ — đó là tín hiệu
-    // ĐÚNG, sửa kỳ vọng xuống 'loi' và nối locCotCam vào lam.ts.
+    // Đây là hành vi ĐƯỢC CHỌN, không phải sơ hở còn sót. Ai định đổi thành
+    // 'loi' hay 'can_xac_nhan' thì đọc lại quyết định ở đầu describe trước.
     expect(kq.trangThai).toBe('da_lam');
     const write = odoo.execute.mock.calls.find((c) => c[1] === 'write');
     expect((write![2] as unknown[])[1]).toMatchObject({ standard_price: 1 });
