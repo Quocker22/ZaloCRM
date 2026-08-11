@@ -330,6 +330,43 @@ export async function trichSlot(
     '("VAT 10%", "thuế 10%") → vat=10. Câu không nhắc thuế thì BỎ TRỐNG.',
     'PHÂN BIỆT: "xuất hoá đơn"/"gửi lại hoá đơn" một mình là xin GỬI ẢNH hoá',
     'đơn → ngoaiLe=true, KHÔNG phải vat. "Xuất VAT"/"hoá đơn đỏ" mới là thuế.',
+    // ─── NỘI DUNG ẢNH (vá 11/08, ca thật 23:22) ────────────────────────────
+    //
+    //   23:22:31  NV : [Ảnh danh sách hàng] "@Tiểu Mã Nelia tạo phiếu nhập hàng
+    //                   giúp tôi nhà cung cấp là Trung Quốc"
+    //   23:22:43  Bot: "Có 2 nhà cung cấp tên Trung Quốc: 1)… 2)… chọn giúp em"
+    //   23:22:49  NV : "1"
+    //   23:22:50  Bot: "Anh/chị nhập những hàng gì ạ?"  ← HỎI THỨ ĐÃ CÓ TRONG ẢNH
+    // Anh Quốc: "ủa là sao? sản phẩm rồi số lượng trong ảnh mà".
+    //
+    // Bot ĐÃ đọc ảnh thành công (log `[doc-anh] đã đọc ảnh`) và `luong-media`
+    // ĐÃ ghép đúng chuỗi `<lời nhắn>\n[Khách gửi ảnh, nội dung trong ảnh: …]`.
+    // Chuỗi đó cũng tới máy gom đơn NGUYÊN VẸN — `boQuote` neo `^` nên không
+    // đụng tới khối ở cuối câu, và `nhanDienLenhNhanVien` chỉ cắt đúng cái tag
+    // (đã đo lại từng hàm một, không hàm nào nuốt mất).
+    //
+    // Chỗ đứt là LỜI DẶN NÀY: nó viết cho "MỘT câu của nhân viên" và chưa từng
+    // nhắc tới khối `[Khách gửi ảnh…]`. Model trích được ý định (nhapHang) và
+    // tên NCC từ lời nhắn rồi coi khối ảnh là văn bản nền, BỎ QUA danh sách
+    // hàng. Phiên vào chế 'nhap' với `dong` rỗng → `buocTiepTheo` trả
+    // `hoi_thieu:'sp'` → đúng câu 23:22:50.
+    //
+    // Vá bằng lời dặn chứ không bằng regex bóc khối ở code: danh sách hàng viết
+    // tay muôn hình vạn trạng ("P10 full out: 10.000 tấm", "10k tấm P10",
+    // "P5 - 1460"), tách bằng chữ là thiếu mãi. Model vốn đã giỏi việc này —
+    // nó chỉ cần được BẢO là khối đó mang hàng thật.
+    'NỘI DUNG ẢNH: câu có thể kèm khối "[Khách gửi ảnh, nội dung trong ảnh: …]"',
+    '— đó là chữ bot ĐỌC ĐƯỢC TỪ ẢNH nhân viên vừa gửi, KHÔNG phải văn bản nền.',
+    'Đọc khối đó Y NHƯ nhân viên tự gõ ra: mọi tên hàng + số lượng trong ảnh đều',
+    'phải vào `dong`. Ảnh danh sách hàng ("P10 full out: 10.000 tấm / P5 full out:',
+    '1.460 tấm") → hai dòng {sp:"P10 full out", sl:10000} và {sp:"P5 full out",',
+    'sl:1460}. Số trong ảnh giữ NGUYÊN VĂN, "10.000" là mười nghìn chứ không phải',
+    '10. Có giá nhập trong ảnh thì điền `gia` như thường.',
+    'Lời nhắn kèm ảnh cho Ý ĐỊNH (lên đơn / nhập hàng / sửa đơn) và tên khách hay',
+    'nhà cung cấp; ẢNH cho DANH SÁCH HÀNG. Phải lấy CẢ HAI — chỉ lấy lời nhắn là',
+    'bot quay ra hỏi lại thứ đã nằm sẵn trong ảnh (ca thật 23:22 11/08).',
+    'Khối ảnh đứng MỘT MÌNH (không kèm lời nhắn) là nhân viên gửi ảnh BỔ SUNG cho',
+    'việc đang gom → vẫn trích hàng vào `dong`, KHÔNG phải ngoaiLe.',
     'Chỉ trích cái CÓ trong câu — không đoán, không bịa. Bỏ xưng hô (anh/chị/em/bác)',
     'khỏi tên khách, nhưng GIỮ NGUYÊN biệt danh chứa từ ngành hàng — khách buôn hay',
     'tên kiểu "Long Led", "Hoa Đèn": "lên đơn cho anh Long Led" → khach="Long Led",',

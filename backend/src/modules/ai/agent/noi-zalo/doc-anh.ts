@@ -163,7 +163,23 @@ export function loiDanDocAnh(chuThich: string): string {
     '(vd "5.400.000" giữ nguyên, đừng viết "5,4 triệu").',
     'Nếu là biên lai/hoá đơn: nêu số tiền, người nhận, số tài khoản, nội dung.',
     'Nếu là sản phẩm: mô tả loại hàng, mã/thông số in trên ảnh.',
-    'Nếu là danh sách/đơn viết tay: chép lại từng dòng.',
+    // ─── DANH SÁCH HÀNG (siết 11/08, ca thật 23:22) ──────────────────────────
+    // Ảnh trong ca đó là DANH SÁCH HÀNG viết tay, không phải biên lai. Lời dặn
+    // cũ chỉ có "chép lại từng dòng" — đúng ý nhưng KHÔNG nói rõ mỗi dòng phải
+    // giữ SỐ LƯỢNG. Đo thật trên chính ảnh đó (gpt-4.1-mini, prod 11/08):
+    //   lời dặn CŨ  → "P10 full out: 10.000 tấm / P5 full out: 1460 tấm 242 thùng"
+    //                 gộp dính vào nhau, vài dòng đầu mất số lượng riêng
+    //   lời dặn MỚI → "P10 full out: 10.000 tấm" và "P5 full out: 1460 tấm"
+    //                 tách đúng từng dòng, đủ tên + số lượng
+    // Dòng thiếu số lượng là dòng máy gom đơn phải hỏi lại — đúng câu 23:22:50
+    // "Anh/chị nhập những hàng gì ạ?" cho thứ đã nằm sẵn trong ảnh.
+    //
+    // Đây là ĐẦU VÀO của máy gom đơn, không phải văn mô tả cho người đọc, nên
+    // dặn theo ĐỊNH DẠNG cố định thay vì "chép lại" chung chung.
+    'Nếu là DANH SÁCH HÀNG / đơn viết tay: chép ĐỦ TỪNG DÒNG theo đúng dạng',
+    '"tên hàng: số lượng đơn vị" (vd "P10 full out: 10.000 tấm"), có giá thì ghi',
+    'thêm giá. Giữ ĐỦ SỐ LƯỢNG của mọi dòng — KHÔNG tóm tắt, KHÔNG gộp dòng,',
+    'KHÔNG bỏ sót dòng nào, kể cả danh sách dài vài chục dòng.',
     'KHÔNG đoán thứ không có trong ảnh.',
   ];
   if (chuThich) dan.push(`Người gửi kèm lời nhắn: "${chuThich}".`);
