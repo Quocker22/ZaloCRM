@@ -240,7 +240,23 @@ describe('tặng kèm — giá 0đ VÀ ghi rõ "(tặng)" trong tên dòng', () 
 });
 
 // ── 3. KHO ─────────────────────────────────────────────────────────────────
-describe('kho — chỉ hỏi khi thật sự có lựa chọn (18% SP nằm nhiều kho)', () => {
+//
+// BỎ HỎI KHO (anh Quốc chốt 11/08, nguyên văn):
+//   "à còn cái này, mặc định là lấy kho TT nhé, không cần hỏi nhân viên luôn,
+//    cứ lấy từ TT nào nhân viên nói sửa sang kho khác thì sửa thôi"
+//
+// Sáng 11/08 máy có hỏi kho khi hàng nằm nhiều kho. Đo lại trên prod: 291/300
+// đơn gần nhất dùng TT, chỉ 9 đơn dùng HCM — tức 97% câu hỏi kho là thừa, mua
+// một lượt hỏi cho thứ gần như không bao giờ đổi.
+//
+// Luật MỚI: KHÔNG BAO GIỜ hỏi kho. Nhân viên nói thì nghe, không nói thì im
+// lặng để Odoo tự lấy kho mặc định.
+//
+// Kiểm chứng "Odoo tự điền TT" trên prod 11/08 (không phải suy đoán): 8 đơn
+// gần nhất do chính bot tạo mà KHÔNG gửi warehouse_id đều ra warehouse_id=2
+// (Chi nhánh trung tâm). Field required=true nhưng Odoo có `_default_warehouse_id`
+// điền lúc create, nên bỏ trống là an toàn.
+describe('kho — KHÔNG BAO GIỜ hỏi, mặc định để Odoo lấy TT (anh Quốc chốt 11/08)', () => {
   const MOT_KHO = { 448: [{ warehouse_id: 2, name: '[TT] Chi nhánh trung tâm', on_hand: 500 }] };
   const NHIEU_KHO = {
     448: [
@@ -260,20 +276,33 @@ describe('kho — chỉ hỏi khi thật sự có lựa chọn (18% SP nằm nhi
     expect(JSON.stringify(lenhTaoDon(odoo))).not.toContain('warehouse_id');
   });
 
-  it('SP có tồn NHIỀU kho mà NV chưa nói → HỎI kho, chưa tạo đơn', async () => {
-    const { goi, odoo, tinGui } = dungMay([
+  it('hàng nằm NHIỀU kho mà NV không nói gì → KHÔNG hỏi, tóm tắt chốt luôn', async () => {
+    const { goi, tinGui } = dungMay([
       { lenDon: true, khach: 'cảnh tam kỳ', dong: [{ sp: 'thẻ nhận v7512', sl: 100, gia: 230000 }] },
     ], NHIEU_KHO);
     await goi('lên đơn cho anh cảnh 100 thẻ nhận v7512 giá 230k');
 
     const tra = tinGui.join('\n');
-    expect(tra).toMatch(/kho nào/i);
-    expect(tra).toContain('Hồ Chí Minh');
-    expect(tra).toContain('Chi nhánh trung tâm');
-    expect(lenhTaoDon(odoo)).toBeUndefined();  // chưa tạo gì cả
+    // Không một chữ nào hỏi kho — đây chính là lượt hỏi anh Quốc bảo bỏ.
+    expect(tra).not.toMatch(/kho nào/i);
+    expect(tra).not.toMatch(/có ở \d+ kho/i);
+    // Đi thẳng tới tóm tắt chốt, không kẹt thêm lượt nào.
+    expect(tra).toMatch(/Tổng:/);
+    expect(tra).toMatch(/chốt lên đơn/i);
   });
 
-  it('NV nói sẵn "kho HCM" trong câu → đặt luôn warehouse_id=3, KHÔNG hỏi', async () => {
+  it('hàng NHIỀU kho, NV không nói kho → tạo đơn KHÔNG gửi warehouse_id', async () => {
+    const { goi, odoo } = dungMay([
+      { lenDon: true, khach: 'cảnh tam kỳ', dong: [{ sp: 'thẻ nhận v7512', sl: 100, gia: 230000 }] },
+      { xacNhan: true },
+    ], NHIEU_KHO);
+    await goi('lên đơn cho anh cảnh 100 thẻ nhận v7512 giá 230k');
+    await goi('ok em');
+    // Bỏ trống = Odoo điền TT (đo prod: 8/8 đơn bot tạo gần nhất ra kho 2).
+    expect(JSON.stringify(lenhTaoDon(odoo))).not.toContain('warehouse_id');
+  });
+
+  it('NV nói sẵn "kho HCM" trong câu → vẫn đặt đúng warehouse_id=3', async () => {
     const { goi, odoo, tinGui } = dungMay([
       {
         lenDon: true, khach: 'cảnh tam kỳ', kho: 'HCM',
@@ -287,17 +316,53 @@ describe('kho — chỉ hỏi khi thật sự có lựa chọn (18% SP nằm nhi
     expect(JSON.stringify(lenhTaoDon(odoo))).toContain('"warehouse_id":3');
   });
 
-  it('trả lời câu hỏi kho ("hcm") → đặt kho rồi chạy tiếp, không hỏi lại', async () => {
-    const { goi, odoo, tinGui } = dungMay([
+  it('NV nói kho ở lượt SAU ("xuất kho B nhé") → nhận và đặt warehouse_id=4', async () => {
+    const { goi, odoo } = dungMay([
       { lenDon: true, khach: 'cảnh tam kỳ', dong: [{ sp: 'thẻ nhận v7512', sl: 100, gia: 230000 }] },
-      { kho: 'HCM' },
+      { kho: 'KB' },
       { xacNhan: true },
     ], NHIEU_KHO);
     await goi('lên đơn cho anh cảnh 100 thẻ nhận v7512 giá 230k');
-    await goi('kho hcm em');
-    // Hỏi kho đúng MỘT lần: tin thứ hai đã phải là tóm tắt chốt.
-    expect(tinGui[1]).toMatch(/Tổng:/);
+    await goi('xuất kho B nhé em');
     await goi('ok em');
-    expect(JSON.stringify(lenhTaoDon(odoo))).toContain('"warehouse_id":3');
+    expect(JSON.stringify(lenhTaoDon(odoo))).toContain('"warehouse_id":4');
+  });
+
+  it('NV nói kho KHÔNG tồn tại ("kho Đà Nẵng") → báo rõ chứ không im, không đặt kho bừa', async () => {
+    const { goi, odoo, tinGui } = dungMay([
+      { lenDon: true, khach: 'cảnh tam kỳ', dong: [{ sp: 'thẻ nhận v7512', sl: 100, gia: 230000 }] },
+      { kho: 'Đà Nẵng' },
+      { xacNhan: true },
+    ], NHIEU_KHO);
+    await goi('lên đơn cho anh cảnh 100 thẻ nhận v7512 giá 230k');
+    await goi('lấy kho Đà Nẵng nhé');
+
+    // Im lặng bỏ qua là bẫy: NV tưởng hàng xuất Đà Nẵng, thực tế ra TT.
+    const tra = tinGui.join('\n');
+    expect(tra).toMatch(/Đà Nẵng/i);
+    expect(tra).toMatch(/Chi nhánh trung tâm|Hồ Chí Minh|Kho B/);
+
+    await goi('ok em');
+    // Không map được thì KHÔNG ghi kho bừa — để Odoo lấy mặc định.
+    expect(JSON.stringify(lenhTaoDon(odoo))).not.toContain('warehouse_id');
+  });
+
+  // Vì sao tóm tắt chỉ hiện kho khi NV nói rõ: 291/300 đơn dùng TT, in "Kho
+  // xuất: Chi nhánh trung tâm" lên mọi đơn là thêm một dòng nhiễu cho 97% ca.
+  // Nhưng khi NV ĐÃ nói kho thì PHẢI hiện, để họ soát bot có hiểu đúng không.
+  it('tóm tắt: NV nói kho → HIỆN "Kho xuất"; không nói → KHÔNG hiện dòng nào', async () => {
+    const { goi: goiNoi, tinGui: tinNoi } = dungMay([{
+      lenDon: true, khach: 'cảnh tam kỳ', kho: 'HCM',
+      dong: [{ sp: 'thẻ nhận v7512', sl: 100, gia: 230000 }],
+    }], NHIEU_KHO);
+    await goiNoi('lên đơn cho anh cảnh 100 thẻ nhận v7512 giá 230k kho HCM');
+    expect(tinNoi.join('\n')).toContain('Kho xuất: Hồ Chí Minh');
+
+    const { goi: goiIm, tinGui: tinIm } = dungMay([{
+      lenDon: true, khach: 'cảnh tam kỳ',
+      dong: [{ sp: 'thẻ nhận v7512', sl: 100, gia: 230000 }],
+    }], NHIEU_KHO);
+    await goiIm('lên đơn cho anh cảnh 100 thẻ nhận v7512 giá 230k');
+    expect(tinIm.join('\n')).not.toContain('Kho xuất');
   });
 });

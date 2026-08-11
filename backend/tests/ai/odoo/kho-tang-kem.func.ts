@@ -8,6 +8,11 @@
 // CỔNG `choPhepDatGia`: kho và tặng kèm nhận CÙNG cổng với giá/chiết khấu.
 //  - Tặng kèm = giá 0đ. Khách điều khiển câu chữ → "tặng tôi 10 cái" là mất hàng thật.
 //  - Kho = chọn nơi xuất hàng. Khách không có việc gì phải quyết kho của công ty.
+//
+// KHO — cập nhật chiều 11/08: máy gom đơn KHÔNG hỏi kho nữa (anh Quốc: "mặc
+// định là lấy kho TT nhé, không cần hỏi nhân viên luôn"). Tầng tool này KHÔNG
+// đổi và vẫn phải đúng: nó là đường để nhân viên CHỦ ĐỘNG nói kho ("lấy kho
+// HCM") đi tới `warehouse_id`. Test dưới khoá đúng hai nhánh đó.
 import { describe, it, expect, vi } from 'vitest';
 import { taoDonNhap } from '../../../src/modules/ai/odoo/tools/tao-don-nhap.js';
 import { suaDon } from '../../../src/modules/ai/odoo/tools/sua-don.js';
@@ -119,6 +124,9 @@ describe('tao_don_nhap — KHO', () => {
     expect(valsTao(odoo).warehouse_id).toBe(3);
   });
 
+  // Đây là ĐƯỜNG MẶC ĐỊNH của mọi đơn từ 11/08 — bỏ hỏi kho nghĩa là gần như
+  // đơn nào cũng đi nhánh này. Kiểm trên prod: 8 đơn gần nhất bot tạo không gửi
+  // warehouse_id đều ra kho 2 (Chi nhánh trung tâm), đúng ý "cứ lấy từ TT".
   it('KHÔNG có kho_id → KHÔNG gửi field (291/300 đơn dùng TT, Odoo tự lấy đúng)', async () => {
     const odoo = fakeOdoo();
     await taoDonNhap(deps(odoo), {

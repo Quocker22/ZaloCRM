@@ -10,25 +10,6 @@ import type { PhienGom, HanhDong } from './kieu.js';
 import { NGUONG_GIA_AO } from '../../../odoo/tools/tra-san-pham.js';
 import { lechVoLy } from './gia-bat-thuong.js';
 
-/**
- * Các kho ĐÁNG hỏi cho đơn này.
- *
- * Một đơn xuất từ MỘT kho (warehouse_id nằm trên sale.order, không phải trên
- * dòng), nên kho hợp lệ = kho có tồn của MỌI dòng hàng — phần giao, không phải
- * phần hợp. Gợi ý một kho không đủ hàng cho dòng thứ hai là đẩy nhân viên vào
- * đơn thiếu hàng.
- *
- * Dòng chưa tra tồn (khoCo thiếu) → trả rỗng: không biết thì đừng hỏi bừa.
- */
-function khoNhieuLuaChon(p: PhienGom): Array<{ id: number; ten: string }> {
-  const dong = p.dong.filter((d) => d.daChot);
-  if (dong.length === 0 || dong.some((d) => !d.khoCo)) return [];
-
-  const dau = dong[0].khoCo!;
-  const giao = dau.filter((k) => dong.every((d) => d.khoCo!.some((x) => x.id === k.id)));
-  return giao;
-}
-
 export function buocTiepTheo(p: PhienGom): HanhDong {
   // Chế SỬA (spec 08/08): đích là ĐƠN chứ không phải khách — khách đã nằm sẵn
   // trên đơn. Và khi đủ rõ thì GHI THẲNG, không hỏi chốt: nhân viên nói "sửa"
@@ -107,19 +88,19 @@ export function buocTiepTheo(p: PhienGom): HanhDong {
     .map((d) => d.daChot!.ten);
   if (thieuGia.length > 0) return { loai: 'hoi_gia', sp: thieuGia };
 
-  // 4c. KHO — hỏi CHỈ khi thật sự có lựa chọn (đo prod: 18% SP nằm nhiều kho).
+  // 4c. KHO — KHÔNG CÓ BƯỚC NÀY NỮA. Đừng thêm lại.
   //
-  // Ba điều kiện phải đủ cả: NV chưa nói kho, chưa hỏi lần nào, và có ít nhất
-  // một dòng hàng nằm ở >1 kho. 82% SP còn lại chỉ một kho — hỏi là làm phiền
-  // mà không thêm thông tin. Không hỏi thì Odoo tự lấy kho mặc định (TT), đúng
-  // hành vi 291/300 đơn gần nhất.
+  // Sáng 11/08 chỗ này từng hỏi "Hàng này có ở 2 kho ạ… anh/chị xuất kho nào?"
+  // khi hàng nằm nhiều kho. Anh Quốc bỏ ngay chiều cùng ngày, nguyên văn:
+  //   "à còn cái này, mặc định là lấy kho TT nhé, không cần hỏi nhân viên luôn,
+  //    cứ lấy từ TT nào nhân viên nói sửa sang kho khác thì sửa thôi"
   //
-  // Chỉ áp cho chế LÊN ĐƠN: đơn đang sửa đã có kho từ lúc tạo, đổi kho giữa
-  // chừng là việc khác hẳn — nhân viên phải nói rõ mới đổi.
-  if (!laSua && p.khoId == null && !p.daHoiKho) {
-    const chon = khoNhieuLuaChon(p);
-    if (chon.length > 1) return { loai: 'hoi_kho', chon };
-  }
+  // Số đo hậu thuẫn: 291/300 đơn gần nhất dùng kho TT, 9 đơn dùng HCM — 97% câu
+  // hỏi kho là thừa. Mua một lượt hỏi cho thứ gần như không bao giờ đổi là lỗ.
+  //
+  // Không đặt khoId thì Odoo tự điền kho mặc định = TT (kiểm trên prod 11/08:
+  // 8 đơn gần nhất bot tạo không gửi warehouse_id đều ra kho 2). Nhân viên nói
+  // kho thì `trich-slot` + `mapKho` vẫn nhận và đặt đúng — chỉ bỏ bước HỎI.
 
   // 4d. GIÁ LỆCH VÔ LÝ so với hệ thống → hỏi lại trước khi cho chốt.
   //

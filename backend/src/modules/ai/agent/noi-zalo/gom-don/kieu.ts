@@ -43,21 +43,17 @@ export interface DongGom {
   ungVien?: SanPham[];
   /** Tra rồi mà 0 kết quả — báo NV gõ lại, đừng im. */
   khongThay?: boolean;
-  /**
-   * Các kho CÓ TỒN của SP này (đã tra). Rỗng/1 phần tử → không cần hỏi kho.
-   *
-   * Đo prod: 175/978 SP (18%) có tồn ở nhiều hơn một kho. 82% còn lại không có
-   * gì để chọn — hỏi là làm phiền nhân viên mà không thêm thông tin nào.
-   */
-  khoCo?: Array<{ id: number; ten: string }>;
 }
 
 /**
  * Kho xuất hàng của đơn (sale.order.warehouse_id).
  *
  * Đo prod 11/08: 291/300 đơn gần nhất dùng TT, 9 đơn dùng HCM. Nên MẶC ĐỊNH là
- * không đặt gì — để Odoo tự lấy TT như xưa nay. Chỉ đặt khi nhân viên nói rõ,
- * hoặc khi máy hỏi vì hàng nằm nhiều kho.
+ * không đặt gì — để Odoo tự lấy TT như xưa nay. CHỈ đặt khi nhân viên nói rõ.
+ *
+ * Anh Quốc chốt 11/08 (nguyên văn): "mặc định là lấy kho TT nhé, không cần hỏi
+ * nhân viên luôn, cứ lấy từ TT nào nhân viên nói sửa sang kho khác thì sửa
+ * thôi". Máy KHÔNG hỏi kho — bảng này chỉ để dịch chữ NV nói sang id.
  */
 export const KHO: ReadonlyArray<{ id: number; ma: string; ten: string }> = [
   { id: 2, ma: 'TT', ten: 'Chi nhánh trung tâm' },
@@ -111,16 +107,20 @@ export interface PhienGom {
    */
   daHoiGiaLech?: boolean;
   /**
-   * Kho xuất hàng NV đã chốt cho đơn này (id trong KHO). Không đặt = để Odoo tự
-   * lấy kho mặc định — đúng hành vi 291/300 đơn hiện nay.
+   * Kho xuất hàng NV đã nói cho đơn này (id trong KHO). Không đặt = để Odoo tự
+   * lấy kho mặc định TT — đúng hành vi 291/300 đơn hiện nay.
+   *
+   * CHỈ đặt được khi nhân viên nói rõ; máy không bao giờ hỏi (anh Quốc 11/08).
    */
   khoId?: number;
   /**
-   * Đã hỏi kho một lần rồi. Hỏi kho là hỏi THÊM một lượt, mà 82% SP chỉ nằm một
-   * kho — hỏi tới lần thứ hai thì nhân viên chửi. Không trả lời được thì đi tiếp
-   * bằng kho mặc định, đừng chặn đơn.
+   * Chữ kho nhân viên nói mà KHÔNG map được sang kho nào có thật ("kho Đà
+   * Nẵng"). Giữ lại để tóm tắt báo rõ.
+   *
+   * Im lặng bỏ qua là bẫy: nhân viên tưởng hàng xuất Đà Nẵng, thực tế Odoo lấy
+   * TT — sai nơi xuất hàng mà không ai biết cho tới lúc giao.
    */
-  daHoiKho?: boolean;
+  khoKhongRo?: string;
 
   // ── VAT (11/08/2026) ───────────────────────────────────────────────────
   /**
@@ -201,11 +201,6 @@ export type HanhDong =
    * (ca thật), mà cũng có thể là giá thật nhân viên cố ý — chỉ họ mới biết.
    */
   | { loai: 'hoi_gia_lech'; lech: Array<{ ten: string; giaNv: number; giaHt: number }> }
-  /**
-   * Hàng nằm ở NHIỀU kho mà NV chưa nói lấy kho nào → hỏi MỘT lần.
-   * `chon` = các kho thật sự có tồn, không liệt kê kho trống cho có.
-   */
-  | { loai: 'hoi_kho'; chon: Array<{ id: number; ten: string }> }
   | { loai: 'khong_thay'; khach?: string; sp: string[] }
   | { loai: 'khong_thay_don' }
   /** Tra không ra khách nhưng NV đã cho tên → tạo khách mới rồi chạy tiếp. */

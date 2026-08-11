@@ -13,7 +13,6 @@ import type { OdooClient } from '../../../odoo/client.js';
 import { traKhachHang, dinhDangKhachHang } from '../../../odoo/tools/tra-khach-hang.js';
 import { taoKhachHang, dinhDangTaoKhach, CHIA_BO_PHANH } from '../../../odoo/tools/tao-khach-hang.js';
 import { traSanPham, dinhDangSanPham, boDau } from '../../../odoo/tools/tra-san-pham.js';
-import { traTonKho, dinhDangTonKho } from '../../../odoo/tools/tra-ton-kho.js';
 import { taoDonNhap, dinhDangTaoDon } from '../../../odoo/tools/tao-don-nhap.js';
 import { suaDon, dinhDangSuaDon } from '../../../odoo/tools/sua-don.js';
 // VAT: tra id account.tax theo % nhân viên nói. KHÔNG phải tool cho model —
@@ -98,15 +97,6 @@ export function mapKho(noi: string): number | null {
   }
   return null;
 }
-
-/**
- * Nhân viên nói "kho nào cũng được" — đường thoát khỏi câu hỏi kho.
- *
- * Cần vì hỏi kho là hỏi THÊM một lượt: 291/300 đơn dùng kho mặc định, nên phần
- * lớn nhân viên sẽ không quan tâm. Không có đường thoát thì họ kẹt ở câu hỏi.
- */
-const KHO_NAO_CUNG_DUOC =
-  /(?:kho\s+n[àa]o\s+c[ũu]ng|c[ũu]ng\s+đư[ợo]c|sao\s+c[ũu]ng|t[ùu]y\s+em|m[ặa]c\s+đ[ịi]nh|đ[âa]u\s+c[ũu]ng)/i;
 
 export interface GomDonDeps {
   prisma: DbPhienGomDon;
@@ -207,9 +197,20 @@ function dapSlot(p: PhienGom, trich: KetQuaTrich): boolean {
   }
   // KHO nhân viên nói trong câu ("kho HCM") → map mã/tên sang id qua bảng KHO.
   // Map ở CODE chứ không tin số model tự bịa: sai kho là xuất hàng sai nơi.
+  //
+  // Đây là ĐƯỜNG DUY NHẤT đặt kho từ 11/08: máy không hỏi kho nữa (anh Quốc
+  // "không cần hỏi nhân viên luôn"), nên kho chỉ đổi khi NV chủ động nói.
   if (trich.kho) {
     const moi = mapKho(trich.kho);
-    if (moi != null && p.khoId !== moi) { p.khoId = moi; doi = true; }
+    if (moi != null) {
+      if (p.khoId !== moi) { p.khoId = moi; doi = true; }
+      if (p.khoKhongRo) { delete p.khoKhongRo; doi = true; }
+    } else if (p.khoKhongRo !== trich.kho) {
+      // Không map được ("kho Đà Nẵng") → GIỮ LẠI để tóm tắt báo rõ. Nuốt im
+      // thì NV tưởng xuất kho họ nói, thực tế Odoo lấy TT.
+      p.khoKhongRo = trich.kho;
+      doi = true;
+    }
   }
 
   // Câu chỉ có SL ("10 cái") — LLM được dặn gắn vào món đang thiếu; nếu nó trả
@@ -307,32 +308,12 @@ async function chayTraCuu(
   }
   await Promise.all(viec);
 
-  // TỒN THEO KHO cho các dòng vừa chốt SP — cần để biết có đáng hỏi kho không.
-  // Chạy SAU vòng trên vì phải có `daChot.id` mới tra được.
+  // KHÔNG tra tồn theo kho ở đây nữa (bỏ 11/08 cùng câu hỏi kho).
   //
-  // Chỉ tra ở chế LÊN ĐƠN và khi NV chưa chốt kho: đơn đang sửa đã có kho, còn
-  // NV nói sẵn "kho HCM" thì hỏi nữa là thừa. Tiết kiệm hẳn một round-trip cho
-  // đa số đơn.
-  if (p.che !== 'sua' && p.khoId == null && !p.daHoiKho) {
-    await Promise.all(
-      p.dong
-        .filter((d) => d.daChot && !d.khoCo)
-        .map(async (d) => {
-          const t0 = Date.now();
-          const kq = await traTonKho({ odoo: deps.odoo }, { san_pham_id: d.daChot!.id });
-          deps.ghiLog({
-            toolName: 'tra_ton_kho', input: { san_pham_id: d.daChot!.id },
-            output: dinhDangTonKho(kq), thanhCong: true,
-            durationMs: Date.now() - t0, iteration: 0,
-          });
-          // Chỉ kho CÒN BÁN ĐƯỢC mới là lựa chọn thật. Kho tồn 0 mà đưa vào
-          // danh sách là mời nhân viên chọn một kho không có hàng.
-          d.khoCo = (kq?.theoKho ?? [])
-            .filter((k) => k.conBanDuoc > 0)
-            .map((k) => ({ id: k.khoId, ten: k.tenKho }));
-        }),
-    );
-  }
+  // Vòng tra `tra_ton_kho` từng chạy chỗ này chỉ để biết hàng có nằm nhiều kho
+  // không, tức chỉ phục vụ câu hỏi kho. Anh Quốc bỏ câu hỏi đó ("mặc định là
+  // lấy kho TT nhé, không cần hỏi nhân viên luôn") nên vòng tra thành vô dụng —
+  // và nó tốn một round-trip Odoo cho MỖI dòng hàng của MỌI đơn lên.
 }
 
 /** Tạo đơn + gửi báo giá (ảnh khi có, link luôn luôn) cho nhân viên. */
@@ -621,21 +602,9 @@ export async function xuLyGomDon(
     }
   }
 
-  // ĐANG CHỜ TRẢ LỜI KHO — map bằng CODE trên chính câu NV gõ.
-  //
-  // Vì sao không chỉ dựa vào LLM: câu trả lời kho thường cụt lủn ("hcm", "kho
-  // b", "cũng được") nên model rất dễ trả ngoaiLe=true rồi máy nhường agent
-  // thường, đúng kiểu treo phiên đã nổ nhiều lần. Code map được thì khỏi đoán.
-  if (phien.daHoiKho && phien.khoId == null) {
-    if (KHO_NAO_CUNG_DUOC.test(cauChon)) {
-      // Không quan tâm kho → đi tiếp bằng kho mặc định của Odoo. daHoiKho đã
-      // bật nên bảng trạng thái không hỏi lại.
-      phien.khoId = undefined;
-    } else {
-      const moi = mapKho(cauChon);
-      if (moi != null) phien.khoId = moi;
-    }
-  }
+  // KHÔNG còn khối "đang chờ trả lời kho": máy không hỏi kho nữa nên không có
+  // câu trả lời nào để chờ. Nhân viên nói kho thì `dapSlot` (qua trích slot +
+  // mapKho) nhận, ở bất kỳ lượt nào.
 
   // ĐANG CHỜ TRẢ LỜI GIÁ LỆCH (hàng rào 11/08, bug 10:09:33).
   //
@@ -770,9 +739,6 @@ export async function xuLyGomDon(
   phien.tinCuoi = tin;
   await deps.guiTin(tin);
   phien.daHoiChot = hd.loai === 'tom_tat_cho_chot';
-  // Đã hỏi kho một lần thì thôi: lượt sau dù NV trả lời trống trơn, máy vẫn đi
-  // tiếp bằng kho mặc định thay vì hỏi mãi (291/300 đơn dùng mặc định).
-  if (hd.loai === 'hoi_kho') phien.daHoiKho = true;
   // Đánh dấu vừa hỏi giá lệch: câu kế của NV là câu trả lời cho chính nó.
   phien.daHoiGiaLech = hd.loai === 'hoi_gia_lech';
   if (hd.loai === 'khong_thay') {

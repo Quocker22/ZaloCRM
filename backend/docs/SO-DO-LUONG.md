@@ -121,9 +121,16 @@ tin trong câu ra thành ô (khách nào, hàng gì, mấy cái, giá bao nhiêu
 
 Mỗi lượt tin, máy nhìn phiên đang gom rồi chọn **đúng một** việc để làm, theo
 thứ tự ưu tiên cố định: tra cứu trước → báo không thấy → hỏi chọn khi nhập
-nhằng → hỏi phần còn thiếu → kiểm giá/kho → cuối cùng mới chốt đơn.
+nhằng → hỏi phần còn thiếu → kiểm giá → cuối cùng mới chốt đơn.
 
 Phiên sống 15 phút; hết giờ thì bỏ, nhân viên nói lại từ đầu.
+
+**Kho: máy KHÔNG hỏi.** Sáng 11/08 có thêm một bước hỏi "xuất kho nào?" khi
+hàng nằm ở nhiều kho; chiều cùng ngày anh Quốc bỏ: *"mặc định là lấy kho TT
+nhé, không cần hỏi nhân viên luôn, cứ lấy từ TT nào nhân viên nói sửa sang kho
+khác thì sửa thôi"*. Đo trên Odoo: 291/300 đơn gần nhất dùng kho TT — 97% câu
+hỏi kho là thừa. Nay đơn không nói gì thì Odoo tự lấy TT; nhân viên nói "lấy
+kho HCM" thì bot nghe và ghi đúng kho đó, có báo lại trong tóm tắt.
 
 ```mermaid
 stateDiagram-v2
@@ -157,16 +164,12 @@ stateDiagram-v2
     HoiThieu: thứ tự khách -> hàng -> số lượng
     HoiThieu --> TraCuu: nhân viên trả lời
     HoiThieu --> HoiGia: đủ ô, nhưng hàng chưa có giá thật<br/>(hàng tặng được miễn)
-    HoiThieu --> HoiKho: đủ giá, nhưng hàng nằm ở nhiều kho<br/>và nhân viên chưa nói kho
     HoiThieu --> HoiGiaLech: giá nhân viên báo lệch vô lý<br/>so với hệ thống (dưới 0,1 hoặc trên 10 lần)
     HoiThieu --> SuaDon: chế SỬA và đã đủ rõ
     HoiThieu --> TomTat: chế LÊN ĐƠN và đã đủ hết
 
     HoiGia: Hỏi "hàng này báo giá bao nhiêu?"
     HoiGia --> TraCuu: nhân viên báo giá
-
-    HoiKho: Hỏi "xuất kho nào?"<br/>(chỉ hỏi MỘT lần)
-    HoiKho --> TraCuu: nhân viên chọn kho
 
     HoiGiaLech: Hỏi lại "giá này có đúng không?"<br/>(gật cho tóm tắt cũ KHÔNG tính)
     HoiGiaLech --> TraCuu: nhân viên xác nhận đúng con số đó
@@ -183,9 +186,10 @@ stateDiagram-v2
 ```
 
 **Chú thích cho lập trình viên:** bảng trạng thái ở
-`noi-zalo/gom-don/buoc-tiep-theo.ts` (hàm thuần, 13 loại hành động khai trong
+`noi-zalo/gom-don/buoc-tiep-theo.ts` (hàm thuần, 12 loại hành động khai trong
 `kieu.ts`); orchestrator `gom-don/index.ts`; phiên lưu bảng `phien_gom_don`
-TTL 15'; ngưỡng giá lệch đo từ prod ở `gom-don/gia-bat-thuong.ts`.
+TTL 15'; ngưỡng giá lệch đo từ prod ở `gom-don/gia-bat-thuong.ts`; chữ kho
+nhân viên nói map sang id ở `gom-don/index.ts:mapKho` (bảng kho `kieu.ts:KHO`).
 
 ---
 

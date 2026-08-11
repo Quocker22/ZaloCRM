@@ -88,9 +88,21 @@ function tomTat(p: PhienGom): string {
     tongCuoi = tong + tienThue;
     dongVat.push(`VAT ${p.vatPhanTram}% = ${tien(Math.round(tienThue))}`);
   }
-  // Kho CHỈ hiện khi nhân viên đã chọn khác mặc định — 291/300 đơn dùng kho TT,
-  // in thêm một dòng "Kho: TT" cho mọi đơn là nhiễu thuần tuý.
+  // KHO chỉ hiện khi nhân viên ĐÃ NÓI kho.
+  //
+  // Máy không hỏi kho nữa (anh Quốc 11/08), nên 97% đơn chạy bằng kho mặc định
+  // TT — in "Kho xuất: Chi nhánh trung tâm" lên mọi đơn là thêm một dòng nhiễu
+  // cho 291/300 đơn, đúng thứ phiền mà quyết định này muốn bỏ.
+  //
+  // Nhưng khi họ ĐÃ nói kho thì PHẢI hiện: đó là lúc cần soát bot có nghe đúng
+  // không, và cũng là 3% đơn mà chọn sai kho gây xuất hàng sai nơi.
   const tenKho = p.khoId != null ? KHO.find((k) => k.id === p.khoId)?.ten : undefined;
+  // Nói kho mà máy không nhận ra → báo NGAY trong tóm tắt, kèm danh sách kho có
+  // thật. Im lặng thì nhân viên tưởng đã xuất kho họ nói, thực tế đơn ra TT.
+  const canhKho = p.khoKhongRo
+    ? `Em không có kho nào tên "${p.khoKhongRo}" ạ — đơn này em để kho mặc định (${KHO[0].ten}). ` +
+      `Kho hiện có: ${KHO.map((k) => k.ten).join(', ')}.`
+    : undefined;
   // Có VAT thì phải hiện CẢ tiền hàng LẪN tổng sau thuế — chỉ đưa một số thì
   // nhân viên không biết con số nào là cái khách phải trả.
   const dongTong = dongVat.length > 0 && tongCuoi !== tong
@@ -100,6 +112,7 @@ function tomTat(p: PhienGom): string {
     `Đơn cho ${p.khachDaChot?.ten}${p.khachDaChot?.ma ? ` (${p.khachDaChot.ma})` : ''}:`,
     ...dong,
     ...(tenKho ? [`Kho xuất: ${tenKho}`] : []),
+    ...(canhKho ? [canhKho] : []),
     ...dongTong,
   ].join('\n');
 }
@@ -162,13 +175,6 @@ export function renderLoiNhan(hd: HanhDong, p: PhienGom): string {
             '— lệch nhiều quá ạ.')
           .join('\n') +
         '\nAnh/chị xác nhận giúp em giá đúng là bao nhiêu ạ? (nhắn lại giá, hoặc "đúng rồi" nếu giá đó chuẩn)'
-      );
-    case 'hoi_kho':
-      // Hàng nằm nhiều kho — hỏi MỘT lần, kèm đường thoát "kho nào cũng được"
-      // để nhân viên không bị chặn nếu họ không quan tâm (291/300 đơn dùng TT).
-      return (
-        `Hàng này có ở ${hd.chon.length} kho ạ: ${hd.chon.map((k) => k.ten).join(', ')}. ` +
-        'Anh/chị xuất kho nào ạ? (gõ tên kho, hoặc "kho nào cũng được" để em lấy kho mặc định)'
       );
     case 'khong_thay': return khongThay(hd);
     case 'khong_thay_don':
