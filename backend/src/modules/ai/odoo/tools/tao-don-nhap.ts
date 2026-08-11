@@ -39,6 +39,17 @@ export interface DongDon {
    * đơn vẫn ra 23.000.000đ, phải nhắc thêm một lượt mới thành 21.160.000đ.
    */
   chiet_khau?: number;
+  /**
+   * Dòng HÀNG TẶNG: ghi giá 0đ VÀ gắn "(tặng)" vào tên dòng. Cùng cổng
+   * `choPhepDatGia` với giá — khách điều khiển câu chữ thì "tặng tôi 10 cái" là
+   * mất hàng thật.
+   *
+   * Vì sao phải đánh dấu vào TÊN chứ không chỉ để giá 0 (đo prod 11/08): 34/597
+   * dòng đang có giá 0đ, nhưng trong đó có 428 con ốc và 107 sợi cáp — phụ kiện
+   * đi kèm, không phải quà tặng. Không dòng nào ghi chữ "tặng" nên báo cáo
+   * không tách nổi hai loại. Từ nay quà tặng thật luôn có dấu.
+   */
+  tang?: boolean;
 }
 
 export type KetQuaTaoDon =
@@ -123,7 +134,18 @@ export function tenKhopKhach(tenNhac: string, tenPartner: string): boolean {
 
 export async function taoDonNhap(
   deps: TaoDonDeps,
-  input: { khach_hang_id: number; dong: DongDon[]; y_dinh?: 'moi' | 'sua'; ten_khach?: string },
+  input: {
+    khach_hang_id: number; dong: DongDon[]; y_dinh?: 'moi' | 'sua'; ten_khach?: string;
+    /**
+     * Kho xuất hàng (sale.order.warehouse_id). Cùng cổng `choPhepDatGia`: khách
+     * không có việc gì phải quyết kho của công ty.
+     *
+     * KHÔNG truyền = giữ nguyên hành vi cũ, Odoo tự lấy kho mặc định. Đo prod
+     * 11/08: 291/300 đơn gần nhất dùng kho TT, nên mặc định vốn đã đúng cho
+     * gần như mọi đơn — chỉ đặt khi nhân viên nói rõ.
+     */
+    kho_id?: number;
+  },
 ): Promise<KetQuaTaoDon> {
   const partnerId = Number(input.khach_hang_id);
   if (!Number.isInteger(partnerId) || partnerId <= 0) {
@@ -260,13 +282,23 @@ export async function taoDonNhap(
   // NGOẠI LỆ (10/08): dòng có `don_gia` do NHÂN VIÊN báo thì không chặn — giá
   // đã có nguồn gốc là người, không phải bot bịa. Bug demo 17:17: SP giá 1đ
   // làm kẹt cả phiên dù NV đã báo 13k/thanh.
+  //
+  // NGOẠI LỆ 2 (11/08): dòng TẶNG cũng không chặn — hàng tặng vốn 0đ, đòi nó có
+  // giá hợp lệ là mâu thuẫn. Chỉ SP nào CHỈ xuất hiện ở dòng tặng mới được
+  // miễn: SP vừa bán vừa tặng thì dòng bán vẫn phải có giá thật.
   const coGiaNvBao = new Set(
     deps.choPhepDatGia
       ? dong.filter((d) => Number(d.don_gia) > 0).map((d) => Number(d.san_pham_id))
       : [],
   );
+  const chiLaTang = new Set(
+    deps.choPhepDatGia
+      ? spIds.filter((id) => dong.filter((d) => Number(d.san_pham_id) === id).every((d) => d.tang === true))
+      : [],
+  );
   const khongGia = spInfo.filter(
-    (s) => Number(s.list_price ?? 0) <= NGUONG_GIA_AO && !coGiaNvBao.has(Number(s.id)),
+    (s) => Number(s.list_price ?? 0) <= NGUONG_GIA_AO
+      && !coGiaNvBao.has(Number(s.id)) && !chiLaTang.has(Number(s.id)),
   );
   if (khongGia.length > 0) {
     const ten = khongGia
@@ -310,12 +342,25 @@ export async function taoDonNhap(
   // định vẫn để Odoo tự lấy pricelist — bot tự nghĩ ra giá là cách bịa số tinh
   // vi nhất, luật đó không đổi. Cái đổi (10/08) là: giá do NGƯỜI báo thì được
   // ghi, vì nó có nguồn gốc kiểm chứng được trong chat.
+  const tenTheoId = new Map(spInfo.map((s) => [Number(s.id), String(s.name ?? '')]));
   const orderLine = dong.map((d) => {
+    // Dòng TẶNG đi cùng cổng với giá (11/08) — luồng khách không được tự cho
+    // mình hàng 0đ. Ghi CẢ giá 0 LẪN dấu "(tặng)" trong tên: chỉ giá 0 thì
+    // không tách được với phụ kiện đi kèm (428 ốc, 107 cáp đang 0đ trên prod).
+    const tang = deps.choPhepDatGia === true && d.tang === true;
     const giaNv = deps.choPhepDatGia ? Number(d.don_gia) : 0;
     // Chiết khấu đi cùng cổng với giá, và chỉ nhận 0-100: ghi bừa là sai tiền
     // thật của khách.
     const ckTho = deps.choPhepDatGia ? Number(d.chiet_khau) : 0;
     const ck = Number.isFinite(ckTho) && ckTho > 0 && ckTho <= 100 ? ckTho : 0;
+    if (tang) {
+      return [0, 0, {
+        product_id: Number(d.san_pham_id),
+        product_uom_qty: Number(d.so_luong),
+        name: `${tenTheoId.get(Number(d.san_pham_id)) ?? ''} (tặng)`.trim(),
+        price_unit: 0,
+      }];
+    }
     return [
       0,
       0,
@@ -328,6 +373,11 @@ export async function taoDonNhap(
     ];
   });
 
+  // Kho: chỉ ghi khi caller được phép VÀ đưa id nguyên dương. id rác (0, âm,
+  // NaN) → bỏ qua để Odoo dùng mặc định, KHÔNG ghi bừa một kho sai.
+  const khoTho = deps.choPhepDatGia ? Number(input.kho_id) : Number.NaN;
+  const khoId = Number.isInteger(khoTho) && khoTho > 0 ? khoTho : 0;
+
   let donId: number;
   try {
     donId = await deps.odoo.execute<number>('sale.order', 'create', [
@@ -336,6 +386,7 @@ export async function taoDonNhap(
         // BẮT BUỘC truyền rõ: sale_order.py:115 tự điền field này từ sequence
         // nếu để trống → mất chốt chặn mà không có cảnh báo nào.
         client_order_ref: khoa,
+        ...(khoId > 0 ? { warehouse_id: khoId } : {}),
         order_line: orderLine,
       },
     ]);

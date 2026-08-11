@@ -12,7 +12,7 @@ import type { PhienGom } from './kieu.js';
 export interface KetQuaTrich {
   /** Tên/mã khách — ĐÃ bỏ xưng hô (anh/chị/em). */
   khach?: string;
-  dong?: Array<{ sp: string; sl?: number; gia?: number; chietKhau?: number }>;
+  dong?: Array<{ sp: string; sl?: number; gia?: number; chietKhau?: number; tang?: boolean }>;
   /** SP nhân viên muốn BỎ khỏi đơn đang gom ("bỏ 300 thanh led tỏa"). */
   boDong?: string[];
   /** NV báo đây là KHÁCH MỚI, kèm thông tin để tạo ("khách mới", tên + SĐT). */
@@ -33,8 +33,18 @@ export interface KetQuaTrich {
   /**
    * Chiết khấu % cho CẢ ĐƠN, khi nhân viên nói riêng một câu không kèm SP
    * ("triết khấu 8% nữa em" — ca thật 03:24:53 11/08).
+   *
+   * PHÂN BIỆT VỚI `dong[].chietKhau` (sửa 11/08): chiết khấu đứng NGAY SAU một
+   * sản phẩm thì thuộc RIÊNG sản phẩm đó. Câu thật:
+   *   "100 cái thẻ nhận v7512 x giá 230k triết khấu 8%. 10 cái ovp k2 x giá 2300k"
+   * — 8% chỉ của thẻ nhận. Áp cho cả đơn là bớt nhầm 1.840.000đ ở dòng ovp.
    */
   chietKhauDon?: number;
+  /**
+   * Kho xuất hàng NV nói trong câu ("kho HCM", "lấy kho Hồ Chí Minh") — dạng mã
+   * hoặc tên; code map sang id qua KHO, không tin số model tự bịa.
+   */
+  kho?: string;
   /** SỬA đơn đã có (spec 08/08) thay vì lên đơn mới. */
   sua?: boolean;
   /** Mã đơn NV nhắc ("sửa đơn S13820") — dạng S + số. */
@@ -65,7 +75,22 @@ const ghiSlotDefinition: ToolDefinition = {
             sp: { type: 'string', description: 'Tên/từ khoá sản phẩm' },
             sl: { type: 'number', description: 'Số lượng nếu câu có nói' },
             gia: { type: 'number', description: 'Đơn giá nhân viên báo, ĐỔI RA ĐỒNG: "170k"→170000, "13k/thanh"→13000, "1tr2"→1200000' },
-            chietKhau: { type: 'number', description: 'Chiết khấu PHẦN TRĂM nếu câu có nói: "chiết khấu 8%"/"triết khấu 8"/"giảm 5%" → 8, 8, 5' },
+            chietKhau: {
+              type: 'number',
+              description:
+                'Chiết khấu PHẦN TRĂM của RIÊNG dòng này, khi câu nói chiết khấu NGAY SAU ' +
+                'sản phẩm này: "100 cái thẻ v7512 giá 230k triết khấu 8%" → dòng thẻ v7512 ' +
+                'có chietKhau=8. Chiết khấu chỉ thuộc sản phẩm đứng TRƯỚC nó, KHÔNG lan sang ' +
+                'sản phẩm nói sau đó.',
+            },
+            tang: {
+              type: 'boolean',
+              description:
+                'true khi đây là hàng TẶNG KÈM (giá 0đ): "tặng 1 cái", "khuyến mãi thêm 2 cái", ' +
+                '"biếu anh 1 cuộn". Dòng tặng là dòng RIÊNG, KHÔNG gộp vào dòng bán: ' +
+                '"10 cái ovp k2 giá 2300k tặng 1 cái" → HAI dòng, dòng bán sl=10 gia=2300000 ' +
+                'và dòng tặng sl=1 tang=true. KHÔNG điền gia cho dòng tặng.',
+            },
           },
           required: ['sp'],
         },
@@ -94,7 +119,21 @@ const ghiSlotDefinition: ToolDefinition = {
           'KHÔNG phải lên đơn: xuất hoá đơn, báo cáo, doanh số, tồn kho, công nợ, ' +
           'sửa đơn đã có (dùng sua=true), hỏi giá đơn thuần.',
       },
-      chietKhauDon: { type: 'number', description: 'Chiết khấu % cho CẢ ĐƠN khi câu nói riêng không kèm tên SP: "chiết khấu 8% nữa", "giảm 5% đi" → 8, 5' },
+      chietKhauDon: {
+        type: 'number',
+        description:
+          'Chiết khấu % cho CẢ ĐƠN — CHỈ khi câu nói chiết khấu TÁCH RIÊNG, không kèm ' +
+          'tên sản phẩm nào: "triết khấu 8% nữa em", "giảm 5% đi". ' +
+          'Câu có chiết khấu đi LIỀN SAU một sản phẩm thì KHÔNG dùng ô này — ' +
+          'điền vào dong[].chietKhau của chính sản phẩm đó.',
+      },
+      kho: {
+        type: 'string',
+        description:
+          'Kho xuất hàng nếu câu có nói: "kho HCM"/"lấy kho Hồ Chí Minh" → "HCM"; ' +
+          '"kho trung tâm"/"kho TT" → "TT"; "kho B"/"kho KB" → "KB". ' +
+          'Câu KHÔNG nhắc kho thì bỏ trống — đừng đoán.',
+      },
       sua: { type: 'boolean', description: 'true khi nhân viên SỬA đơn đã có (thêm hàng/đổi số lượng), không phải lên đơn mới' },
       maDon: { type: 'string', description: 'Mã đơn nhân viên nhắc, dạng S13820' },
       huy: { type: 'boolean', description: 'true khi nhân viên muốn huỷ đơn đang gom' },
@@ -126,11 +165,16 @@ export function lamSachTrich(raw: Record<string, unknown>): KetQuaTrich {
         // ghi bừa vào đơn — sai chiết khấu là sai tiền thật của khách.
         const ckTho = Number(d.chietKhau);
         const ck = Number.isFinite(ckTho) && ckTho > 0 && ckTho <= 100 ? ckTho : undefined;
+        // Dòng TẶNG thì giá luôn là 0 — bỏ luôn `gia`/`chietKhau` model có lỡ
+        // điền. Hàng tặng có giá là mâu thuẫn tự thân, và chiết khấu trên 0đ
+        // vẫn là 0đ nhưng làm báo cáo khó đọc.
+        const tang = d.tang === true;
         return {
           sp: (d.sp as string).trim(),
           ...(sl !== undefined ? { sl } : {}),
-          ...(gia !== undefined ? { gia } : {}),
-          ...(ck !== undefined ? { chietKhau: ck } : {}),
+          ...(!tang && gia !== undefined ? { gia } : {}),
+          ...(!tang && ck !== undefined ? { chietKhau: ck } : {}),
+          ...(tang ? { tang: true } : {}),
         };
       });
     if (dong.length > 0) kq.dong = dong;
@@ -155,6 +199,7 @@ export function lamSachTrich(raw: Record<string, unknown>): KetQuaTrich {
   }
   const ckDon = Number(raw.chietKhauDon);
   if (Number.isFinite(ckDon) && ckDon > 0 && ckDon <= 100) kq.chietKhauDon = ckDon;
+  if (typeof raw.kho === 'string' && raw.kho.trim()) kq.kho = raw.kho.trim();
   if (raw.lenDon === true) kq.lenDon = true;
   if (raw.sua === true) kq.sua = true;
   if (typeof raw.maDon === 'string' && /^S\d+$/i.test(raw.maDon.trim())) {
@@ -195,6 +240,16 @@ export async function trichSlot(
     'GIÁ nhân viên báo ("x 170k", "13k/thanh", "giá 1tr2") → điền gia, ĐỔI RA',
     'ĐỒNG (170k=170000). Câu BỎ hàng ("bỏ 300 thanh led tỏa", "không lấy cáp',
     'nữa", "bỏ X ra") → điền boDong, KHÔNG điền dong.',
+    'CHIẾT KHẤU đi LIỀN SAU một sản phẩm là của RIÊNG sản phẩm đó:',
+    '"100 cái thẻ v7512 giá 230k triết khấu 8%. 10 cái ovp k2 giá 2300k" →',
+    'dòng thẻ v7512 có chietKhau=8, dòng ovp k2 KHÔNG có chiết khấu. Chỉ dùng',
+    'chietKhauDon khi chiết khấu nói TÁCH RIÊNG, không kèm tên hàng nào',
+    '("triết khấu 8% nữa em").',
+    'TẶNG KÈM ("tặng 1 cái", "khuyến mãi thêm 2", "biếu 1 cuộn") → thêm dòng',
+    'RIÊNG với tang=true, KHÔNG điền gia. "10 cái ovp k2 giá 2300k tặng 1 cái"',
+    '= HAI dòng: {sp:"ovp k2", sl:10, gia:2300000} và {sp:"ovp k2", sl:1, tang:true}.',
+    'KHO nếu câu có nhắc ("kho HCM", "lấy kho Hồ Chí Minh", "kho trung tâm") →',
+    'điền kho; câu không nhắc thì bỏ trống, ĐỪNG đoán.',
     'Chỉ trích cái CÓ trong câu — không đoán, không bịa. Bỏ xưng hô (anh/chị/em/bác)',
     'khỏi tên khách, nhưng GIỮ NGUYÊN biệt danh chứa từ ngành hàng — khách buôn hay',
     'tên kiểu "Long Led", "Hoa Đèn": "lên đơn cho anh Long Led" → khach="Long Led",',

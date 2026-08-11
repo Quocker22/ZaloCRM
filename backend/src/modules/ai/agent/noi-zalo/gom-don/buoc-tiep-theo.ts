@@ -9,6 +9,25 @@
 import type { PhienGom, HanhDong } from './kieu.js';
 import { NGUONG_GIA_AO } from '../../../odoo/tools/tra-san-pham.js';
 
+/**
+ * Các kho ĐÁNG hỏi cho đơn này.
+ *
+ * Một đơn xuất từ MỘT kho (warehouse_id nằm trên sale.order, không phải trên
+ * dòng), nên kho hợp lệ = kho có tồn của MỌI dòng hàng — phần giao, không phải
+ * phần hợp. Gợi ý một kho không đủ hàng cho dòng thứ hai là đẩy nhân viên vào
+ * đơn thiếu hàng.
+ *
+ * Dòng chưa tra tồn (khoCo thiếu) → trả rỗng: không biết thì đừng hỏi bừa.
+ */
+function khoNhieuLuaChon(p: PhienGom): Array<{ id: number; ten: string }> {
+  const dong = p.dong.filter((d) => d.daChot);
+  if (dong.length === 0 || dong.some((d) => !d.khoCo)) return [];
+
+  const dau = dong[0].khoCo!;
+  const giao = dau.filter((k) => dong.every((d) => d.khoCo!.some((x) => x.id === k.id)));
+  return giao;
+}
+
 export function buocTiepTheo(p: PhienGom): HanhDong {
   // Chế SỬA (spec 08/08): đích là ĐƠN chứ không phải khách — khách đã nằm sẵn
   // trên đơn. Và khi đủ rõ thì GHI THẲNG, không hỏi chốt: nhân viên nói "sửa"
@@ -79,10 +98,27 @@ export function buocTiepTheo(p: PhienGom): HanhDong {
   // Bug demo 17:17-17:23 10/08: SP giá 1đ lọt vào phiên, tới lúc tạo đơn tool
   // mới chặn — và phiên dính cứng ở đó, 5 lệnh sau đều trả một câu lỗi cũ.
   // Chặn ở đây thì nhân viên biết ngay và có đường xử (báo giá hoặc bỏ ra).
+  //
+  // Dòng TẶNG được miễn: hàng tặng vốn 0đ, hỏi giá của món cho không là vô nghĩa
+  // và chặn cứng phiên đúng như bug 17:17 mà bước này sinh ra để tránh.
   const thieuGia = p.dong
-    .filter((d) => d.daChot && d.daChot.gia <= NGUONG_GIA_AO && !d.donGia)
+    .filter((d) => !d.tang && d.daChot && d.daChot.gia <= NGUONG_GIA_AO && !d.donGia)
     .map((d) => d.daChot!.ten);
   if (thieuGia.length > 0) return { loai: 'hoi_gia', sp: thieuGia };
+
+  // 4c. KHO — hỏi CHỈ khi thật sự có lựa chọn (đo prod: 18% SP nằm nhiều kho).
+  //
+  // Ba điều kiện phải đủ cả: NV chưa nói kho, chưa hỏi lần nào, và có ít nhất
+  // một dòng hàng nằm ở >1 kho. 82% SP còn lại chỉ một kho — hỏi là làm phiền
+  // mà không thêm thông tin. Không hỏi thì Odoo tự lấy kho mặc định (TT), đúng
+  // hành vi 291/300 đơn gần nhất.
+  //
+  // Chỉ áp cho chế LÊN ĐƠN: đơn đang sửa đã có kho từ lúc tạo, đổi kho giữa
+  // chừng là việc khác hẳn — nhân viên phải nói rõ mới đổi.
+  if (!laSua && p.khoId == null && !p.daHoiKho) {
+    const chon = khoNhieuLuaChon(p);
+    if (chon.length > 1) return { loai: 'hoi_kho', chon };
+  }
 
   // 5. Đủ hết.
   //    Chế SỬA: ghi thẳng — không cổng chốt (anh Quốc chốt 08/08: "rõ ràng thì

@@ -13,13 +13,14 @@ import type { OdooClient } from '../../../odoo/client.js';
 import { traKhachHang, dinhDangKhachHang } from '../../../odoo/tools/tra-khach-hang.js';
 import { taoKhachHang, dinhDangTaoKhach, CHIA_BO_PHANH } from '../../../odoo/tools/tao-khach-hang.js';
 import { traSanPham, dinhDangSanPham, boDau } from '../../../odoo/tools/tra-san-pham.js';
+import { traTonKho, dinhDangTonKho } from '../../../odoo/tools/tra-ton-kho.js';
 import { taoDonNhap, dinhDangTaoDon } from '../../../odoo/tools/tao-don-nhap.js';
 import { suaDon, dinhDangSuaDon } from '../../../odoo/tools/sua-don.js';
 import { guiHoaDon } from '../../../odoo/tools/gui-hoa-don.js';
 import { IDEMPOTENCY_PREFIX } from '../../../odoo/idempotency.js';
 import { linkXuLyDon, type HoaDonAnhClient, type AnhHoaDon } from '../../../odoo/hoa-don-anh.js';
 import { laXacNhanNgan } from '../cam-xuc.js';
-import type { PhienGom, HanhDong, DonSua } from './kieu.js';
+import { KHO, type PhienGom, type HanhDong, type DonSua } from './kieu.js';
 import { buocTiepTheo } from './buoc-tiep-theo.js';
 import { apDungChon } from './chon.js';
 import { renderLoiNhan } from './loi-nhan.js';
@@ -75,6 +76,34 @@ export function tachTenRoHon(cau: string, tuKhoaCu: string): string | null {
   return s;
 }
 
+/**
+ * Chữ nhân viên nói về kho → id kho thật. Trả null khi không chắc.
+ *
+ * Map ở CODE, không để model tự điền id: model bịa số là bịa nơi xuất hàng.
+ * Nhận cả mã ("HCM", "TT", "KB") lẫn tên ("Hồ Chí Minh", "trung tâm", "kho B")
+ * vì nhân viên gõ kiểu nào cũng có.
+ */
+export function mapKho(noi: string): number | null {
+  const s = boDau(noi).replace(/\bkho\b/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
+  if (!s) return null;
+  for (const k of KHO) {
+    const ma = boDau(k.ma);
+    const ten = boDau(k.ten);
+    // Khớp mã đứng RIÊNG một từ ("hcm", "tt", "kb") hoặc tên chứa nhau.
+    if (s.split(' ').includes(ma) || s === ten || ten.includes(s) || s.includes(ten)) return k.id;
+  }
+  return null;
+}
+
+/**
+ * Nhân viên nói "kho nào cũng được" — đường thoát khỏi câu hỏi kho.
+ *
+ * Cần vì hỏi kho là hỏi THÊM một lượt: 291/300 đơn dùng kho mặc định, nên phần
+ * lớn nhân viên sẽ không quan tâm. Không có đường thoát thì họ kẹt ở câu hỏi.
+ */
+const KHO_NAO_CUNG_DUOC =
+  /(?:kho\s+n[àa]o\s+c[ũu]ng|c[ũu]ng\s+đư[ợo]c|sao\s+c[ũu]ng|t[ùu]y\s+em|m[ặa]c\s+đ[ịi]nh|đ[âa]u\s+c[ũu]ng)/i;
+
 export interface GomDonDeps {
   prisma: DbPhienGomDon;
   odoo: Pick<OdooClient, 'searchRead' | 'execute'>;
@@ -129,8 +158,12 @@ function dapSlot(p: PhienGom, trich: KetQuaTrich): boolean {
   for (const d of trich.dong ?? []) {
     // Món vừa bị bỏ trong CHÍNH câu này thì đừng thêm lại.
     if ((trich.boDong ?? []).some((b) => boDau(d.sp).includes(boDau(b)) || boDau(b).includes(boDau(d.sp)))) continue;
+    // Dòng TẶNG không bao giờ gộp vào dòng BÁN, kể cả cùng SP: "10 cái ovp k2
+    // giá 2300k tặng 1 cái" là hai dòng khác nhau trên đơn. Gộp thì đơn còn
+    // đúng 1 cái giá 0đ — mất 10 cái đang bán.
     const cu = p.dong.find(
-      (x) => boDau(x.tuKhoa) === boDau(d.sp) || (x.daChot && boDau(x.daChot.ten).includes(boDau(d.sp))),
+      (x) => Boolean(x.tang) === Boolean(d.tang)
+        && (boDau(x.tuKhoa) === boDau(d.sp) || (x.daChot && boDau(x.daChot.ten).includes(boDau(d.sp)))),
     );
     if (cu) {
       if (d.sl != null && cu.sl !== d.sl) { cu.sl = d.sl; doi = true; }
@@ -141,18 +174,32 @@ function dapSlot(p: PhienGom, trich: KetQuaTrich): boolean {
         tuKhoa: d.sp, sl: d.sl ?? null,
         ...(d.gia != null ? { donGia: d.gia } : {}),
         ...(d.chietKhau != null ? { chietKhau: d.chietKhau } : {}),
+        ...(d.tang ? { tang: true } : {}),
       });
       doi = true;
     }
   }
-  // Chiết khấu nói RIÊNG một câu ("triết khấu 8% nữa em" — ca thật 03:24:53
-  // 11/08) thì áp cho MỌI dòng đang gom: nhân viên nói chiết khấu cho cả đơn,
-  // không phải riêng món nào.
+  // Chiết khấu nói TÁCH RIÊNG một câu ("triết khấu 8% nữa em" — ca thật
+  // 03:24:53 11/08) thì áp cho MỌI dòng đang gom: nhân viên nói cho cả đơn.
+  //
+  // KHÁC HẲN chiết khấu đi liền sau một sản phẩm (`dong[].chietKhau`), thứ chỉ
+  // thuộc riêng sản phẩm đó — sửa 11/08 sau khi thấy câu thật
+  // "100 thẻ v7512 giá 230k triết khấu 8%. 10 ovp k2 giá 2300k tặng 1 cái":
+  // luật cũ áp 8% sang cả ovp k2, bớt nhầm 1.840.000đ.
+  //
+  // Dòng TẶNG được miễn: chiết khấu trên 0đ vẫn là 0đ, ghi vào chỉ làm bẩn đơn.
   const ckChung = trich.chietKhauDon;
   if (ckChung != null) {
     for (const x of p.dong) {
+      if (x.tang) continue;
       if (x.chietKhau !== ckChung) { x.chietKhau = ckChung; doi = true; }
     }
+  }
+  // KHO nhân viên nói trong câu ("kho HCM") → map mã/tên sang id qua bảng KHO.
+  // Map ở CODE chứ không tin số model tự bịa: sai kho là xuất hàng sai nơi.
+  if (trich.kho) {
+    const moi = mapKho(trich.kho);
+    if (moi != null && p.khoId !== moi) { p.khoId = moi; doi = true; }
   }
 
   // Câu chỉ có SL ("10 cái") — LLM được dặn gắn vào món đang thiếu; nếu nó trả
@@ -249,6 +296,33 @@ async function chayTraCuu(
     })());
   }
   await Promise.all(viec);
+
+  // TỒN THEO KHO cho các dòng vừa chốt SP — cần để biết có đáng hỏi kho không.
+  // Chạy SAU vòng trên vì phải có `daChot.id` mới tra được.
+  //
+  // Chỉ tra ở chế LÊN ĐƠN và khi NV chưa chốt kho: đơn đang sửa đã có kho, còn
+  // NV nói sẵn "kho HCM" thì hỏi nữa là thừa. Tiết kiệm hẳn một round-trip cho
+  // đa số đơn.
+  if (p.che !== 'sua' && p.khoId == null && !p.daHoiKho) {
+    await Promise.all(
+      p.dong
+        .filter((d) => d.daChot && !d.khoCo)
+        .map(async (d) => {
+          const t0 = Date.now();
+          const kq = await traTonKho({ odoo: deps.odoo }, { san_pham_id: d.daChot!.id });
+          deps.ghiLog({
+            toolName: 'tra_ton_kho', input: { san_pham_id: d.daChot!.id },
+            output: dinhDangTonKho(kq), thanhCong: true,
+            durationMs: Date.now() - t0, iteration: 0,
+          });
+          // Chỉ kho CÒN BÁN ĐƯỢC mới là lựa chọn thật. Kho tồn 0 mà đưa vào
+          // danh sách là mời nhân viên chọn một kho không có hàng.
+          d.khoCo = (kq?.theoKho ?? [])
+            .filter((k) => k.conBanDuoc > 0)
+            .map((k) => ({ id: k.khoId, ten: k.tenKho }));
+        }),
+    );
+  }
 }
 
 /** Tạo đơn + gửi báo giá (ảnh khi có, link luôn luôn) cho nhân viên. */
@@ -266,11 +340,18 @@ async function taoDonVaBaoGia(
       ...(d.donGia ? { don_gia: d.donGia } : {}),
       // Chiết khấu nói ngay lúc lên đơn (11/08) — không bắt nhắc lượt thứ hai.
       ...(d.chietKhau ? { chiet_khau: d.chietKhau } : {}),
+      // Hàng tặng (11/08): tool ghi giá 0đ + gắn "(tặng)" vào tên dòng.
+      ...(d.tang ? { tang: true } : {}),
     }));
   const t0 = Date.now();
+  const donVao = {
+    khach_hang_id: p.khachDaChot!.id, dong, y_dinh: 'moi' as const, ten_khach: p.khachDaChot!.ten,
+    // Không chốt kho → KHÔNG gửi field, Odoo tự lấy kho mặc định (đúng 291/300 đơn).
+    ...(p.khoId != null ? { kho_id: p.khoId } : {}),
+  };
   const kq = await taoDonNhap(
     { odoo: deps.odoo, conversationId: input.conversationId, seq: input.seq, choPhepDatGia: true },
-    { khach_hang_id: p.khachDaChot!.id, dong, y_dinh: 'moi', ten_khach: p.khachDaChot!.ten },
+    donVao,
   );
   deps.ghiLog({
     toolName: 'tao_don_nhap',
@@ -328,11 +409,18 @@ async function suaDonVaBao(deps: GomDonDeps, p: PhienGom): Promise<'xong' | 'loi
       ...(d.donGia ? { don_gia: d.donGia } : {}),
       // Cùng lý do với giá: sửa một đường mà quên đường kia là lỗi lặp 3 lần.
       ...(d.chietKhau ? { chiet_khau: d.chietKhau } : {}),
+      // Lần thứ TƯ của cùng bài học: hàng tặng phải chạy cả đường sửa đơn.
+      ...(d.tang ? { tang: true } : {}),
     }));
   const t0 = Date.now();
-  const kq = await suaDon({ odoo: deps.odoo }, { don_id: don.id, doi });
+  const vaoSua = {
+    don_id: don.id, doi,
+    // Chỉ đổi kho khi NV nói rõ — không nói thì giữ nguyên kho đơn đang có.
+    ...(p.khoId != null ? { kho_id: p.khoId } : {}),
+  };
+  const kq = await suaDon({ odoo: deps.odoo }, vaoSua);
   deps.ghiLog({
-    toolName: 'sua_don', input: { don_id: don.id, doi },
+    toolName: 'sua_don', input: vaoSua,
     output: dinhDangSuaDon(kq), thanhCong: kq.ok,
     durationMs: Date.now() - t0, iteration: 0,
   });
@@ -459,6 +547,22 @@ export async function xuLyGomDon(
   };
   const doiNoiDung = dapSlot(phien, trich);
 
+  // ĐANG CHỜ TRẢ LỜI KHO — map bằng CODE trên chính câu NV gõ.
+  //
+  // Vì sao không chỉ dựa vào LLM: câu trả lời kho thường cụt lủn ("hcm", "kho
+  // b", "cũng được") nên model rất dễ trả ngoaiLe=true rồi máy nhường agent
+  // thường, đúng kiểu treo phiên đã nổ nhiều lần. Code map được thì khỏi đoán.
+  if (phien.daHoiKho && phien.khoId == null) {
+    if (KHO_NAO_CUNG_DUOC.test(cauChon)) {
+      // Không quan tâm kho → đi tiếp bằng kho mặc định của Odoo. daHoiKho đã
+      // bật nên bảng trạng thái không hỏi lại.
+      phien.khoId = undefined;
+    } else {
+      const moi = mapKho(cauChon);
+      if (moi != null) phien.khoId = moi;
+    }
+  }
+
   // ĐƯỜNG THOÁT 4 (bug 16:15 11/08): đang chờ chọn khách mà câu không map được
   // và LLM trích không đem lại từ khoá mới → thử chính CÂU của NV: nếu là "tên
   // rõ hơn" ("Anh Long Led" khi đang tra "Long") thì tra lại bằng tên đó.
@@ -577,6 +681,9 @@ export async function xuLyGomDon(
   phien.tinCuoi = tin;
   await deps.guiTin(tin);
   phien.daHoiChot = hd.loai === 'tom_tat_cho_chot';
+  // Đã hỏi kho một lần thì thôi: lượt sau dù NV trả lời trống trơn, máy vẫn đi
+  // tiếp bằng kho mặc định thay vì hỏi mãi (291/300 đơn dùng mặc định).
+  if (hd.loai === 'hoi_kho') phien.daHoiKho = true;
   if (hd.loai === 'khong_thay') {
     // Đã báo không thấy — dọn phần hỏng để NV gõ lại từ khoá khác.
     if (phien.khachKhongThay) { phien.khachTuKhoa = null; delete phien.khachKhongThay; }

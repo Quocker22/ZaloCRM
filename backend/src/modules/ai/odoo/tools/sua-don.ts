@@ -19,6 +19,8 @@ const STATE_SUA_DUOC = ['draft', 'sent'] as const;
  * pricelist như cũ (bot không tự nghĩ ra giá — luật đó không đổi).
  */
 function giaNeuCo(d: DongSua): { price_unit?: number; discount?: number } {
+  // Dòng TẶNG: giá LUÔN 0, bỏ qua mọi giá/chiết khấu lỡ truyền vào.
+  if (d.tang === true) return { price_unit: 0 };
   const g = Number(d.don_gia);
   // Chiết khấu cùng luật với giá (11/08): chỉ nhận 0-100, ghi bừa là sai tiền
   // thật của khách. "Hai đường phải cùng luật" — bài học bug 17:41 10/08.
@@ -44,6 +46,14 @@ export interface DongSua {
    * chiết khấu mà không ai biết.
    */
   chiet_khau?: number;
+  /**
+   * Dòng HÀNG TẶNG (giá 0đ + tên gắn "(tặng)"). Cùng lý do với `don_gia` và
+   * `chiet_khau`: đường TẠO đơn nhận thì đường SỬA cũng phải nhận, nếu không
+   * nhân viên thêm hàng tặng vào đơn cũ lại ra dòng nguyên giá.
+   *
+   * Đây là lần thứ TƯ cùng một bài học — xem comment `don_gia` ở trên.
+   */
+  tang?: boolean;
 }
 
 export interface KetQuaSuaDon {
@@ -88,7 +98,11 @@ async function timDon(
  */
 export async function suaDon(
   deps: SuaDonDeps,
-  input: { don_id?: number; ma_don?: string; doi?: DongSua[]; them?: DongSua[] },
+  input: {
+    don_id?: number; ma_don?: string; doi?: DongSua[]; them?: DongSua[];
+    /** Đổi kho xuất hàng của đơn. Không truyền = giữ nguyên kho đơn đang có. */
+    kho_id?: number;
+  },
 ): Promise<KetQuaSuaDon> {
   const doi = Array.isArray(input.doi) ? input.doi : [];
   const them = Array.isArray(input.them) ? input.them : [];
@@ -131,6 +145,30 @@ export async function suaDon(
     if (Array.isArray(d.product_id)) idTheoSp.set(Number(d.product_id[0]), d.id);
   }
 
+  // Tên SP — chỉ tra khi CÓ dòng tặng, để không tốn thêm round-trip XML-RPC
+  // cho ca sửa đơn thường (không tặng gì).
+  const coTang = [...doi, ...them].some((d) => d.tang === true);
+  const tenTheoId = new Map<number, string>();
+  if (coTang) {
+    const sp = await deps.odoo.searchRead<{ id: number; name: string }>(
+      'product.product',
+      [['id', 'in', [...doi, ...them].filter((d) => d.tang).map((d) => Number(d.san_pham_id))]],
+      ['id', 'name'],
+      { limit: 50 },
+    );
+    for (const s of sp) tenTheoId.set(Number(s.id), String(s.name ?? ''));
+  }
+  /** Vals của một dòng tạo mới; dòng tặng gắn thêm dấu "(tặng)" vào tên. */
+  const valsMoi = (d: DongSua) => ({
+    order_id: donId,
+    product_id: Number(d.san_pham_id),
+    product_uom_qty: Number(d.so_luong),
+    ...(d.tang === true
+      ? { name: `${tenTheoId.get(Number(d.san_pham_id)) ?? ''} (tặng)`.trim() }
+      : {}),
+    ...giaNeuCo(d),
+  });
+
   let soDoiSL = 0;
   let soThem = 0;
 
@@ -138,23 +176,31 @@ export async function suaDon(
   for (const d of doi) {
     const spId = Number(d.san_pham_id);
     const lineId = idTheoSp.get(spId);
-    if (lineId) {
+    // Dòng TẶNG luôn là dòng RIÊNG, kể cả khi SP đó đã có trong đơn: "10 cái
+    // ovp k2, tặng thêm 1 cái" mà write đè lên dòng bán thì đơn mất luôn 10 cái
+    // đang bán, còn đúng 1 cái giá 0đ. Tặng thì CREATE, không bao giờ WRITE.
+    if (lineId && d.tang !== true) {
       await deps.odoo.execute('sale.order.line', 'write',
         [[lineId], { product_uom_qty: Number(d.so_luong), ...giaNeuCo(d) }], {});
       soDoiSL++;
     } else {
-      // SP chưa có trong đơn → tạo dòng mới (đổi thành thêm).
-      await deps.odoo.execute('sale.order.line', 'create',
-        [{ order_id: donId, product_id: spId, product_uom_qty: Number(d.so_luong), ...giaNeuCo(d) }], {});
+      // SP chưa có trong đơn (hoặc là dòng tặng) → tạo dòng mới.
+      await deps.odoo.execute('sale.order.line', 'create', [valsMoi(d)], {});
       soThem++;
     }
   }
 
   // 2) THÊM dòng hàng mới (không kiểm trùng — nhân viên chủ động thêm).
   for (const d of them) {
-    await deps.odoo.execute('sale.order.line', 'create',
-      [{ order_id: donId, product_id: Number(d.san_pham_id), product_uom_qty: Number(d.so_luong), ...giaNeuCo(d) }], {});
+    await deps.odoo.execute('sale.order.line', 'create', [valsMoi(d)], {});
     soThem++;
+  }
+
+  // 3) ĐỔI KHO của đơn — chỉ khi nhân viên nói rõ. Không nói thì KHÔNG đụng:
+  //    đơn cũ đã có kho từ lúc tạo, ghi đè im lặng là đổi nơi xuất hàng thật.
+  const khoTho = Number(input.kho_id);
+  if (Number.isInteger(khoTho) && khoTho > 0) {
+    await deps.odoo.execute('sale.order', 'write', [[donId], { warehouse_id: khoTho }], {});
   }
 
   // Đọc LẠI tổng thật từ Odoo.

@@ -28,12 +28,42 @@ export interface DongGom {
    * 21.160.000đ. Anh Quốc: "cái lên đơn chưa lên thêm được chiết khấu nữa".
    */
   chietKhau?: number;
+  /**
+   * Dòng HÀNG TẶNG: giá 0đ và tên dòng gắn "(tặng)".
+   *
+   * Đo trên Odoo prod 11/08: 34/597 dòng có giá 0đ — nhưng KHÔNG phải quà tặng
+   * hết. Trong đó có dòng 428 con ốc, 107 sợi cáp: phụ kiện đi kèm, cũng 0đ.
+   * Không dòng nào ghi chữ "tặng" nên báo cáo không tách nổi hai loại.
+   *
+   * Nên tặng kèm phải để lại DẤU trong tên dòng, không chỉ đặt giá 0.
+   */
+  tang?: boolean;
   daChot?: Pick<SanPham, 'id' | 'ten' | 'gia'>;
   /** >1 kết quả tra — chờ NV chọn. */
   ungVien?: SanPham[];
   /** Tra rồi mà 0 kết quả — báo NV gõ lại, đừng im. */
   khongThay?: boolean;
+  /**
+   * Các kho CÓ TỒN của SP này (đã tra). Rỗng/1 phần tử → không cần hỏi kho.
+   *
+   * Đo prod: 175/978 SP (18%) có tồn ở nhiều hơn một kho. 82% còn lại không có
+   * gì để chọn — hỏi là làm phiền nhân viên mà không thêm thông tin nào.
+   */
+  khoCo?: Array<{ id: number; ten: string }>;
 }
+
+/**
+ * Kho xuất hàng của đơn (sale.order.warehouse_id).
+ *
+ * Đo prod 11/08: 291/300 đơn gần nhất dùng TT, 9 đơn dùng HCM. Nên MẶC ĐỊNH là
+ * không đặt gì — để Odoo tự lấy TT như xưa nay. Chỉ đặt khi nhân viên nói rõ,
+ * hoặc khi máy hỏi vì hàng nằm nhiều kho.
+ */
+export const KHO: ReadonlyArray<{ id: number; ma: string; ten: string }> = [
+  { id: 2, ma: 'TT', ten: 'Chi nhánh trung tâm' },
+  { id: 3, ma: 'HCM', ten: 'Hồ Chí Minh' },
+  { id: 4, ma: 'KB', ten: 'Kho B' },
+];
 
 /** Đơn nháp đang sửa (chế 'sua'). */
 export interface DonSua {
@@ -61,6 +91,17 @@ export interface PhienGom {
   dong: DongGom[];
   /** Đã hiện tóm tắt, đang chờ NV chốt — chặn tạo đơn khi chưa ai gật. */
   daHoiChot?: boolean;
+  /**
+   * Kho xuất hàng NV đã chốt cho đơn này (id trong KHO). Không đặt = để Odoo tự
+   * lấy kho mặc định — đúng hành vi 291/300 đơn hiện nay.
+   */
+  khoId?: number;
+  /**
+   * Đã hỏi kho một lần rồi. Hỏi kho là hỏi THÊM một lượt, mà 82% SP chỉ nằm một
+   * kho — hỏi tới lần thứ hai thì nhân viên chửi. Không trả lời được thì đi tiếp
+   * bằng kho mặc định, đừng chặn đơn.
+   */
+  daHoiKho?: boolean;
 
   // ── Chế SỬA ĐƠN (spec 2026-08-08) ──────────────────────────────────────
   /**
@@ -108,6 +149,11 @@ export type HanhDong =
   | { loai: 'hoi_thieu'; thieu: 'khach' | 'sp' | 'sl' }
   /** SP chưa có giá trong Odoo và NV cũng chưa báo giá — hỏi ngay, đừng để kẹt. */
   | { loai: 'hoi_gia'; sp: string[] }
+  /**
+   * Hàng nằm ở NHIỀU kho mà NV chưa nói lấy kho nào → hỏi MỘT lần.
+   * `chon` = các kho thật sự có tồn, không liệt kê kho trống cho có.
+   */
+  | { loai: 'hoi_kho'; chon: Array<{ id: number; ten: string }> }
   | { loai: 'khong_thay'; khach?: string; sp: string[] }
   | { loai: 'khong_thay_don' }
   /** Tra không ra khách nhưng NV đã cho tên → tạo khách mới rồi chạy tiếp. */

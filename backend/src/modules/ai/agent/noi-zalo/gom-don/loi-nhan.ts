@@ -2,7 +2,7 @@
 // Lời gửi nhân viên của máy gom đơn — TEMPLATE TẤT ĐỊNH, không LLM soạn.
 // Cùng phiên → cùng chữ. Không markdown (Zalo hiện thô). Đánh số khớp chon.ts:
 // khách 1..n, SP a..z.
-import type { PhienGom, HanhDong } from './kieu.js';
+import { KHO, type PhienGom, type HanhDong } from './kieu.js';
 
 const tien = (n: number) => `${n.toLocaleString('vi-VN')}đ`;
 const chuCai = (i: number) => String.fromCharCode(97 + i);
@@ -47,13 +47,18 @@ function tomTat(p: PhienGom): string {
   // Thành tiền SAU chiết khấu (11/08). Ca thật 03:24:35: nhân viên đã nói
   // "triết khấu 8%" ngay từ đầu mà tóm tắt vẫn ghi 23.000.000đ thay vì
   // 21.160.000đ — họ tưởng bot bỏ sót nên phải nhắc lại một lượt nữa.
+  // Dòng TẶNG luôn 0đ — không tính vào tiền, và phải HIỆN RÕ chữ "tặng" để
+  // nhân viên soát được (đo prod: 34 dòng 0đ hiện có lẫn cả phụ kiện, không ai
+  // phân biệt nổi).
   const thanhTien = (d: PhienGom['dong'][number]) => {
+    if (d.tang) return 0;
     const g = (d.sl ?? 0) * giaCua(d);
     return d.chietKhau ? g * (1 - d.chietKhau / 100) : g;
   };
   const dong = p.dong
     .filter((d) => d.daChot && d.sl != null)
     .map((d) => {
+      if (d.tang) return `${d.sl} × ${d.daChot!.ten} — TẶNG (0đ)`;
       const lech = d.donGia && d.daChot && d.donGia !== d.daChot.gia && d.daChot.gia > NGUONG_AO
         ? ` (giá anh/chị báo ${tien(d.donGia)}, hệ thống ${tien(d.daChot.gia)})`
         : d.donGia ? ` (giá anh/chị báo ${tien(d.donGia)})` : '';
@@ -61,9 +66,13 @@ function tomTat(p: PhienGom): string {
       return `${d.sl} × ${d.daChot!.ten}${ck} = ${tien(thanhTien(d))}${lech}`;
     });
   const tong = p.dong.reduce((t, d) => t + (d.daChot && d.sl != null ? thanhTien(d) : 0), 0);
+  // Kho CHỈ hiện khi nhân viên đã chọn khác mặc định — 291/300 đơn dùng kho TT,
+  // in thêm một dòng "Kho: TT" cho mọi đơn là nhiễu thuần tuý.
+  const tenKho = p.khoId != null ? KHO.find((k) => k.id === p.khoId)?.ten : undefined;
   return [
     `Đơn cho ${p.khachDaChot?.ten}${p.khachDaChot?.ma ? ` (${p.khachDaChot.ma})` : ''}:`,
     ...dong,
+    ...(tenKho ? [`Kho xuất: ${tenKho}`] : []),
     `Tổng: ${tien(tong)}. Em chốt lên đơn nhé?`,
   ].join('\n');
 }
@@ -111,6 +120,13 @@ export function renderLoiNhan(hd: HanhDong, p: PhienGom): string {
         `Sản phẩm ${hd.sp.map((x) => `"${x}"`).join(', ')} chưa có giá trong hệ thống ạ. ` +
         'Anh/chị báo giá giúp em (vd: 13k/thanh), hoặc nhắn "bỏ ' +
         `${hd.sp[0]?.split(' ').slice(0, 3).join(' ') ?? 'món này'}" để em lên đơn phần còn lại.`
+      );
+    case 'hoi_kho':
+      // Hàng nằm nhiều kho — hỏi MỘT lần, kèm đường thoát "kho nào cũng được"
+      // để nhân viên không bị chặn nếu họ không quan tâm (291/300 đơn dùng TT).
+      return (
+        `Hàng này có ở ${hd.chon.length} kho ạ: ${hd.chon.map((k) => k.ten).join(', ')}. ` +
+        'Anh/chị xuất kho nào ạ? (gõ tên kho, hoặc "kho nào cũng được" để em lấy kho mặc định)'
       );
     case 'khong_thay': return khongThay(hd);
     case 'khong_thay_don':
