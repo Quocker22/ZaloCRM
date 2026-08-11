@@ -18,9 +18,15 @@ const STATE_SUA_DUOC = ['draft', 'sent'] as const;
  * price_unit chỉ gửi khi NHÂN VIÊN có báo giá. Không báo → để Odoo tự lấy
  * pricelist như cũ (bot không tự nghĩ ra giá — luật đó không đổi).
  */
-function giaNeuCo(d: DongSua): { price_unit?: number } {
+function giaNeuCo(d: DongSua): { price_unit?: number; discount?: number } {
   const g = Number(d.don_gia);
-  return g > 0 ? { price_unit: g } : {};
+  // Chiết khấu cùng luật với giá (11/08): chỉ nhận 0-100, ghi bừa là sai tiền
+  // thật của khách. "Hai đường phải cùng luật" — bài học bug 17:41 10/08.
+  const c = Number(d.chiet_khau);
+  return {
+    ...(g > 0 ? { price_unit: g } : {}),
+    ...(Number.isFinite(c) && c > 0 && c <= 100 ? { discount: c } : {}),
+  };
 }
 
 export interface DongSua {
@@ -32,6 +38,12 @@ export interface DongSua {
    * khi đường TẠO đơn đã nhận giá từ 17:39. Hai đường phải cùng luật.
    */
   don_gia?: number;
+  /**
+   * Chiết khấu % (0-100). Cùng lý do với `don_gia`: đường TẠO đơn nhận từ
+   * 11/08 thì đường SỬA cũng phải nhận, nếu không nhân viên sửa đơn xong mất
+   * chiết khấu mà không ai biết.
+   */
+  chiet_khau?: number;
 }
 
 export interface KetQuaSuaDon {

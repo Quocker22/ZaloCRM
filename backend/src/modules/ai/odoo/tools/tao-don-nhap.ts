@@ -30,6 +30,15 @@ export interface DongDon {
    * vẫn lên đơn được (bug demo 17:17: kẹt cứng vì SP giá 1đ).
    */
   don_gia?: number;
+  /**
+   * Chiết khấu % (0-100) nhân viên báo. Cùng cổng `choPhepDatGia` với đơn giá:
+   * luồng KHÁCH tuyệt đối không được đặt — khách điều khiển câu chữ thì điều
+   * khiển được chiết khấu ("giảm cho tôi 99%").
+   *
+   * Ca thật 03:23 11/08: nhân viên nói "giá 230k triết khấu 8%" ngay từ đầu mà
+   * đơn vẫn ra 23.000.000đ, phải nhắc thêm một lượt mới thành 21.160.000đ.
+   */
+  chiet_khau?: number;
 }
 
 export type KetQuaTaoDon =
@@ -303,6 +312,10 @@ export async function taoDonNhap(
   // ghi, vì nó có nguồn gốc kiểm chứng được trong chat.
   const orderLine = dong.map((d) => {
     const giaNv = deps.choPhepDatGia ? Number(d.don_gia) : 0;
+    // Chiết khấu đi cùng cổng với giá, và chỉ nhận 0-100: ghi bừa là sai tiền
+    // thật của khách.
+    const ckTho = deps.choPhepDatGia ? Number(d.chiet_khau) : 0;
+    const ck = Number.isFinite(ckTho) && ckTho > 0 && ckTho <= 100 ? ckTho : 0;
     return [
       0,
       0,
@@ -310,6 +323,7 @@ export async function taoDonNhap(
         product_id: Number(d.san_pham_id),
         product_uom_qty: Number(d.so_luong),
         ...(giaNv > 0 ? { price_unit: giaNv } : {}),
+        ...(ck > 0 ? { discount: ck } : {}),
       },
     ];
   });

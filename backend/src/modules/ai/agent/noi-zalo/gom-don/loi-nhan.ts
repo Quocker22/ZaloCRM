@@ -38,16 +38,23 @@ function tomTat(p: PhienGom): string {
   // Giá NV báo THẮNG giá hệ thống (10/08) — nhưng phải NÓI RÕ khi lệch, để NV
   // tự kiểm chứ không âm thầm ghi số khác cái họ nghĩ.
   const giaCua = (d: PhienGom['dong'][number]) => d.donGia ?? d.daChot?.gia ?? 0;
+  // Thành tiền SAU chiết khấu (11/08). Ca thật 03:24:35: nhân viên đã nói
+  // "triết khấu 8%" ngay từ đầu mà tóm tắt vẫn ghi 23.000.000đ thay vì
+  // 21.160.000đ — họ tưởng bot bỏ sót nên phải nhắc lại một lượt nữa.
+  const thanhTien = (d: PhienGom['dong'][number]) => {
+    const g = (d.sl ?? 0) * giaCua(d);
+    return d.chietKhau ? g * (1 - d.chietKhau / 100) : g;
+  };
   const dong = p.dong
     .filter((d) => d.daChot && d.sl != null)
     .map((d) => {
-      const g = giaCua(d);
       const lech = d.donGia && d.daChot && d.donGia !== d.daChot.gia && d.daChot.gia > NGUONG_AO
         ? ` (giá anh/chị báo ${tien(d.donGia)}, hệ thống ${tien(d.daChot.gia)})`
         : d.donGia ? ` (giá anh/chị báo ${tien(d.donGia)})` : '';
-      return `${d.sl} × ${d.daChot!.ten} = ${tien((d.sl ?? 0) * g)}${lech}`;
+      const ck = d.chietKhau ? ` − CK ${d.chietKhau}%` : '';
+      return `${d.sl} × ${d.daChot!.ten}${ck} = ${tien(thanhTien(d))}${lech}`;
     });
-  const tong = p.dong.reduce((t, d) => t + (d.daChot && d.sl != null ? d.sl * giaCua(d) : 0), 0);
+  const tong = p.dong.reduce((t, d) => t + (d.daChot && d.sl != null ? thanhTien(d) : 0), 0);
   return [
     `Đơn cho ${p.khachDaChot?.ten}${p.khachDaChot?.ma ? ` (${p.khachDaChot.ma})` : ''}:`,
     ...dong,

@@ -20,6 +20,14 @@ export interface DongGom {
    * được (bug demo 17:17: kẹt cứng vì SP giá 1đ).
    */
   donGia?: number;
+  /**
+   * Chiết khấu % nhân viên báo NGAY lúc lên đơn (0-100).
+   *
+   * Ca thật 03:23 11/08: "…giá 230k triết khấu 8%" — máy không có ô này nên
+   * bỏ qua, ra 23.000.000đ; nhân viên phải nhắc lại một lượt nữa mới đúng
+   * 21.160.000đ. Anh Quốc: "cái lên đơn chưa lên thêm được chiết khấu nữa".
+   */
+  chietKhau?: number;
   daChot?: Pick<SanPham, 'id' | 'ten' | 'gia'>;
   /** >1 kết quả tra — chờ NV chọn. */
   ungVien?: SanPham[];

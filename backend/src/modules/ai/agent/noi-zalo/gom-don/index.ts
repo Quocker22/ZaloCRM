@@ -106,11 +106,26 @@ function dapSlot(p: PhienGom, trich: KetQuaTrich): boolean {
     if (cu) {
       if (d.sl != null && cu.sl !== d.sl) { cu.sl = d.sl; doi = true; }
       if (d.gia != null && cu.donGia !== d.gia) { cu.donGia = d.gia; doi = true; }
+      if (d.chietKhau != null && cu.chietKhau !== d.chietKhau) { cu.chietKhau = d.chietKhau; doi = true; }
     } else {
-      p.dong.push({ tuKhoa: d.sp, sl: d.sl ?? null, ...(d.gia != null ? { donGia: d.gia } : {}) });
+      p.dong.push({
+        tuKhoa: d.sp, sl: d.sl ?? null,
+        ...(d.gia != null ? { donGia: d.gia } : {}),
+        ...(d.chietKhau != null ? { chietKhau: d.chietKhau } : {}),
+      });
       doi = true;
     }
   }
+  // Chiết khấu nói RIÊNG một câu ("triết khấu 8% nữa em" — ca thật 03:24:53
+  // 11/08) thì áp cho MỌI dòng đang gom: nhân viên nói chiết khấu cho cả đơn,
+  // không phải riêng món nào.
+  const ckChung = trich.chietKhauDon;
+  if (ckChung != null) {
+    for (const x of p.dong) {
+      if (x.chietKhau !== ckChung) { x.chietKhau = ckChung; doi = true; }
+    }
+  }
+
   // Câu chỉ có SL ("10 cái") — LLM được dặn gắn vào món đang thiếu; nếu nó trả
   // dòng trùng tên món cũ thì nhánh trên đã xử. Không tự đoán gì thêm ở đây.
   return doi;
@@ -215,6 +230,8 @@ async function taoDonVaBaoGia(
       so_luong: d.sl!,
       // Giá NV báo thắng giá hệ thống (anh Quốc chốt 10/08).
       ...(d.donGia ? { don_gia: d.donGia } : {}),
+      // Chiết khấu nói ngay lúc lên đơn (11/08) — không bắt nhắc lượt thứ hai.
+      ...(d.chietKhau ? { chiet_khau: d.chietKhau } : {}),
     }));
   const t0 = Date.now();
   const kq = await taoDonNhap(
@@ -275,6 +292,8 @@ async function suaDonVaBao(deps: GomDonDeps, p: PhienGom): Promise<'xong' | 'loi
       so_luong: d.sl!,
       // Bug 17:41 10/08: quên dòng này nên hoá đơn ghi 1đ/thanh thay vì giá NV báo.
       ...(d.donGia ? { don_gia: d.donGia } : {}),
+      // Cùng lý do với giá: sửa một đường mà quên đường kia là lỗi lặp 3 lần.
+      ...(d.chietKhau ? { chiet_khau: d.chietKhau } : {}),
     }));
   const t0 = Date.now();
   const kq = await suaDon({ odoo: deps.odoo }, { don_id: don.id, doi });

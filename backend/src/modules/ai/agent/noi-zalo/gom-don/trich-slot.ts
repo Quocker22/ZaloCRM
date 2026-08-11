@@ -12,7 +12,7 @@ import type { PhienGom } from './kieu.js';
 export interface KetQuaTrich {
   /** Tên/mã khách — ĐÃ bỏ xưng hô (anh/chị/em). */
   khach?: string;
-  dong?: Array<{ sp: string; sl?: number; gia?: number }>;
+  dong?: Array<{ sp: string; sl?: number; gia?: number; chietKhau?: number }>;
   /** SP nhân viên muốn BỎ khỏi đơn đang gom ("bỏ 300 thanh led tỏa"). */
   boDong?: string[];
   /** NV báo đây là KHÁCH MỚI, kèm thông tin để tạo ("khách mới", tên + SĐT). */
@@ -30,6 +30,11 @@ export interface KetQuaTrich {
    * code giỏi giữ luật — để mỗi bên làm việc của mình.
    */
   lenDon?: boolean;
+  /**
+   * Chiết khấu % cho CẢ ĐƠN, khi nhân viên nói riêng một câu không kèm SP
+   * ("triết khấu 8% nữa em" — ca thật 03:24:53 11/08).
+   */
+  chietKhauDon?: number;
   /** SỬA đơn đã có (spec 08/08) thay vì lên đơn mới. */
   sua?: boolean;
   /** Mã đơn NV nhắc ("sửa đơn S13820") — dạng S + số. */
@@ -54,6 +59,7 @@ const ghiSlotDefinition: ToolDefinition = {
             sp: { type: 'string', description: 'Tên/từ khoá sản phẩm' },
             sl: { type: 'number', description: 'Số lượng nếu câu có nói' },
             gia: { type: 'number', description: 'Đơn giá nhân viên báo, ĐỔI RA ĐỒNG: "170k"→170000, "13k/thanh"→13000, "1tr2"→1200000' },
+            chietKhau: { type: 'number', description: 'Chiết khấu PHẦN TRĂM nếu câu có nói: "chiết khấu 8%"/"triết khấu 8"/"giảm 5%" → 8, 8, 5' },
           },
           required: ['sp'],
         },
@@ -82,6 +88,7 @@ const ghiSlotDefinition: ToolDefinition = {
           'KHÔNG phải lên đơn: xuất hoá đơn, báo cáo, doanh số, tồn kho, công nợ, ' +
           'sửa đơn đã có (dùng sua=true), hỏi giá đơn thuần.',
       },
+      chietKhauDon: { type: 'number', description: 'Chiết khấu % cho CẢ ĐƠN khi câu nói riêng không kèm tên SP: "chiết khấu 8% nữa", "giảm 5% đi" → 8, 5' },
       sua: { type: 'boolean', description: 'true khi nhân viên SỬA đơn đã có (thêm hàng/đổi số lượng), không phải lên đơn mới' },
       maDon: { type: 'string', description: 'Mã đơn nhân viên nhắc, dạng S13820' },
       huy: { type: 'boolean', description: 'true khi nhân viên muốn huỷ đơn đang gom' },
@@ -109,10 +116,15 @@ export function lamSachTrich(raw: Record<string, unknown>): KetQuaTrich {
       .map((d) => {
         const sl = nguyenDuong(d.sl);
         const gia = nguyenDuong(d.gia);
+        // Chiết khấu chỉ nhận 0-100: model bịa "150%" hay số âm thì BỎ, đừng
+        // ghi bừa vào đơn — sai chiết khấu là sai tiền thật của khách.
+        const ckTho = Number(d.chietKhau);
+        const ck = Number.isFinite(ckTho) && ckTho > 0 && ckTho <= 100 ? ckTho : undefined;
         return {
           sp: (d.sp as string).trim(),
           ...(sl !== undefined ? { sl } : {}),
           ...(gia !== undefined ? { gia } : {}),
+          ...(ck !== undefined ? { chietKhau: ck } : {}),
         };
       });
     if (dong.length > 0) kq.dong = dong;
@@ -135,6 +147,8 @@ export function lamSachTrich(raw: Record<string, unknown>): KetQuaTrich {
       ...(typeof o.diaChi === 'string' && o.diaChi.trim() ? { diaChi: o.diaChi.trim() } : {}),
     };
   }
+  const ckDon = Number(raw.chietKhauDon);
+  if (Number.isFinite(ckDon) && ckDon > 0 && ckDon <= 100) kq.chietKhauDon = ckDon;
   if (raw.lenDon === true) kq.lenDon = true;
   if (raw.sua === true) kq.sua = true;
   if (typeof raw.maDon === 'string' && /^S\d+$/i.test(raw.maDon.trim())) {
