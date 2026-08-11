@@ -17,7 +17,7 @@ import { taoDonNhap, dinhDangTaoDon } from '../../../odoo/tools/tao-don-nhap.js'
 // PHIẾU NHẬP HÀNG (11/08) — ca thật 22:09-22:11: bot đáp "chưa có tool tạo
 // phiếu nhập hàng ... nằm ngoài phạm vi em hỗ trợ" dù quyền ghi purchase.order
 // vốn đã có (đo prod: create=true/write=true, 5 đơn mua thật đang chạy).
-import { taoDonMua, dinhDangTaoDonMua, traNhaCungCap, dinhDangNhaCungCap } from '../../../odoo/tools/tao-don-mua.js';
+import { taoDonMua, dinhDangTaoDonMua, traNhaCungCap, dinhDangNhaCungCap, boTienToNcc } from '../../../odoo/tools/tao-don-mua.js';
 import { suaDon, dinhDangSuaDon } from '../../../odoo/tools/sua-don.js';
 // VAT: tra id account.tax theo % nhân viên nói. KHÔNG phải tool cho model —
 // máy gom đơn gọi thẳng hàm, nên nó không có mặt trong registry (xem chú thích
@@ -70,6 +70,20 @@ const NHAN_LENH_SUA_DON =
  */
 const boQuote = (cau: string): string =>
   cau.replace(/^\[Trả lời tin: "[\s\S]{0,220}?"\]\s*/, '');
+
+/**
+ * Câu có mang khối NỘI DUNG ẢNH mà `luong-media` ghép vào không?
+ *
+ * Khối này do `docVaChuyenTiep` dựng sau khi bot đọc ảnh thành công:
+ *   `<lời nhắn>\n[Khách gửi ảnh, nội dung trong ảnh: …]`
+ *
+ * ĐỪNG NHẦM với khối `[Trả lời tin: "…"]` mà `boQuote` cắt. Hai khối trông
+ * giống nhau (đều là khối vuông trong câu) nhưng vai trò NGƯỢC nhau:
+ *   [Trả lời tin: …]     → NGỮ CẢNH bot tự chèn, phải cắt khỏi câu CHỌN
+ *                          (bug 23:14 07/08: quote danh sách rồi gõ "5").
+ *   [Khách gửi ảnh: …]   → NỘI DUNG THẬT nhân viên gửi, phải GIỮ NGUYÊN.
+ */
+const coKhoiAnh = (cau: string): boolean => cau.includes('[Khách gửi ảnh');
 
 /** Xưng hô đầu câu + đuôi lịch sự — bóc ra để lấy phần TÊN thật. */
 const XUNG_HO_DAU = /^(?:anh|chị|chi|em|bác|bac|cô|co|chú|chu|ông|ong|bà|ba)\s+/i;
@@ -134,10 +148,19 @@ export interface GomDonDeps {
 function dapSlot(p: PhienGom, trich: KetQuaTrich): boolean {
   let doi = false;
   if (trich.khach && !p.khachDaChot) {
-    const moi = boDau(trich.khach);
+    // Ở chế NHẬP, bỏ tiền tố "nhà cung cấp"/"cty"… trước khi so (11/08).
+    //
+    // Ca thật 23:16:15: lượt trước đã lưu từ khoá "Trung Quốc", nhân viên đáp
+    // "Nhà cung cấp Trung Quốc" — model trả về nguyên văn cả tiền tố. Không bỏ
+    // thì hai chuỗi khác nhau → máy tưởng NHÂN VIÊN ĐỔI NHÀ CUNG CẤP, xoá sạch
+    // danh sách ứng viên vừa hiện và tra lại từ đầu. Đó chính là lý do lượt kế
+    // (gõ mã "NCC000001") không còn danh sách nào để khớp, và bot quay về câu
+    // hỏi mở đầu.
+    const khachTrich = p.che === 'nhap' ? boTienToNcc(trich.khach) : trich.khach;
+    const moi = boDau(khachTrich);
     if (!p.khachTuKhoa || boDau(p.khachTuKhoa) !== moi) {
       // Đổi khách giữa chừng → làm lại phần khách từ đầu, bỏ ứng viên cũ.
-      p.khachTuKhoa = trich.khach;
+      p.khachTuKhoa = khachTrich;
       delete p.khachUngVien;
       delete p.khachUngVienConNua;
       delete p.khachKhongThay;
@@ -308,6 +331,18 @@ async function chayTraCuu(
       });
       if (kq.trangThai === 'tim_thay') {
         p.khachDaChot = { id: kq.ncc.id, ten: kq.ncc.ten, ma: kq.ncc.ma, dienThoai: null };
+        delete p.khachUngVienConNua;
+      } else if (kq.trangThai === 'nhieu_ket_qua' && kq.tuChot) {
+        // TỰ CHỐT NCC khi có tên khớp gần nguyên văn và áp đảo hẳn — cùng luật
+        // với khách hàng (xepHangKhach), theo yêu cầu anh Quốc 23:17 11/08
+        // "dùng luôn tính năng tìm khách hàng áp dụng qua đi".
+        //
+        // An toàn vì hàng rào giuThuTuTu vẫn chạy: còn NCC nào "cùng kiểu tên"
+        // là không chốt, hỏi. Ca "Trung Quốc" có 2 NCC cùng bắt đầu bằng "Trung
+        // Quốc" nên VẪN HỎI — đúng ý đồ, chốt nhầm là treo công nợ phải trả sai.
+        // Và `khachTuChot` bắt tóm tắt phải nói rõ đã lấy ai để nhân viên soát.
+        p.khachDaChot = { id: kq.tuChot.id, ten: kq.tuChot.ten, ma: kq.tuChot.ma, dienThoai: null };
+        p.khachTuChot = true;
         delete p.khachUngVienConNua;
       } else if (kq.trangThai === 'nhieu_ket_qua') {
         // Ép về hình dạng KhachHang để dùng chung `apDungChon` + `renderLoiNhan`.
@@ -746,7 +781,20 @@ export async function xuLyGomDon(
   // Luật: câu tự nó mang dấu hiệu lệnh lên đơn (regex) thì "không liên quan đơn
   // hàng" là câu trả lời TỰ MÂU THUẪN — bỏ qua, code cầm lái tiếp. Hàng rào HẸP
   // có chủ ý: chỉ cứu khi regex khớp, câu báo cáo/tồn kho vẫn nhường như cũ.
-  if (!daChon && trich.ngoaiLe && !regexLen && !laLenhSua && !regexNhap) return false;
+  //
+  // ẢNH GIỮA PHIÊN cũng được cứu như vậy (vá 11/08, ca thật 23:22). Nhân viên
+  // hay trả lời câu hỏi của bot BẰNG ẢNH: bot hỏi "nhập những hàng gì ạ?", họ
+  // chụp danh sách hàng gửi vào. Lúc đó tin không có chữ nào giống lệnh, model
+  // rất dễ gọi nó là digression — mà nhường agent tự do ở đây là bỏ rơi phiên
+  // đang gom dở, đúng thứ máy trạng thái sinh ra để tránh.
+  //
+  // HẸP có chủ ý — PHẢI có phiên đang mở. Không có phiên thì ảnh vu vơ (ảnh
+  // chuyển khoản, ảnh cái ghế) vẫn nhường agent thường như cũ; nếu không thì
+  // mọi ảnh khách gửi đều bị lôi vào máy gom đơn.
+  const anhGiuaPhien = phien != null && coKhoiAnh(input.cau);
+  if (!daChon && trich.ngoaiLe && !regexLen && !laLenhSua && !regexNhap && !anhGiuaPhien) {
+    return false;
+  }
 
   // Chế phiên: câu có dấu hiệu sửa (regex HOẶC model trích sua=true) → 'sua'.
   // Phiên đã mở giữ nguyên chế của nó — đang gom đơn mới mà nói "thêm 5 cáp"
@@ -935,10 +983,21 @@ export async function xuLyGomDon(
   // ngắn chỉ rõ các đường thoát. So với tin ĐÃ GỬI gần nhất nên hai lượt liên
   // tiếp không bao giờ giống hệt nhau.
   if (tin === phien.tinCuoi) {
-    tin =
-      `Em vẫn chưa khớp được "${cauChon.slice(0, 80)}" với lựa chọn nào ạ. ` +
-      'Anh/chị chọn SỐ THỨ TỰ trong danh sách trên, gõ SĐT hoặc mã KH của khách, ' +
-      'nói "khách mới" nếu khách chưa có, hoặc "huỷ" để làm lại giúp em.';
+    // ĐƯỜNG THOÁT PHẢI ĐÚNG NGỮ CẢNH (sửa 11/08).
+    //
+    // Ca thật 23:16:18: bot đang hỏi NHÀ CUNG CẤP nhưng đọc nguyên văn câu của
+    // luồng khách — "gõ SĐT hoặc mã KH của khách", "nói khách mới nếu khách
+    // chưa có". Sai việc, và "khách mới" ở chế nhập còn VÔ NGHĨA: bot không
+    // được phép tự tạo NCC (gắn điều khoản thanh toán, công nợ phải trả, MST),
+    // nên bày cho nhân viên một đường thoát không tồn tại.
+    const laNhap = phien.che === 'nhap';
+    tin = laNhap
+      ? `Em vẫn chưa khớp được "${cauChon.slice(0, 80)}" với nhà cung cấp nào ạ. ` +
+        'Anh/chị chọn SỐ THỨ TỰ trong danh sách trên, hoặc gõ mã NCC (vd NCC000001), ' +
+        'hoặc "huỷ" để làm lại giúp em. NCC chưa có trong hệ thống thì nhờ kế toán tạo trước ạ.'
+      : `Em vẫn chưa khớp được "${cauChon.slice(0, 80)}" với lựa chọn nào ạ. ` +
+        'Anh/chị chọn SỐ THỨ TỰ trong danh sách trên, gõ SĐT hoặc mã KH của khách, ' +
+        'nói "khách mới" nếu khách chưa có, hoặc "huỷ" để làm lại giúp em.';
   }
   phien.tinCuoi = tin;
   await deps.guiTin(tin);

@@ -6,6 +6,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { xuLyGomDon, type GomDonDeps } from '../../../../src/modules/ai/agent/noi-zalo/gom-don/index.js';
 import type { ToolAwareGenerate } from '../../../../src/modules/ai/agent/types.js';
+import { ilikeChua } from '../../odoo/ilike-gia.js';
 
 const usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
 
@@ -61,7 +62,9 @@ function fakeOdoo(opts: {
       const tuKhoa = (domain as unknown[])
         .filter((d): d is [string, string, string] =>
           Array.isArray(d) && d[0] === 'name' && d[1] === 'ilike' && typeof d[2] === 'string')
-        .map((d) => d[2].toLowerCase().replace(/%/g, ''));
+        // GIỮ NGUYÊN mẫu (kể cả '_' và '%') — từ 11/08 traSanPham tra bằng mẫu
+        // KHÔNG DẤU dùng '_', bóc đi là fake không khớp nổi (xem ilike-gia.ts).
+        .map((d) => d[2]);
       if (tuKhoa.length === 0) return products;
       // Lượt AND vẫn có một '|' ở đầu (nhánh default_code) — dấu hiệu phân biệt
       // là có '&' hay không.
@@ -77,8 +80,9 @@ function fakeOdoo(opts: {
           if (op === '>' && !(p.list_price > Number(nguong))) return false;
           if (op === '<=' && !(p.list_price <= Number(nguong))) return false;
         }
-        const ten = p.name.toLowerCase();
-        return laOr ? tuKhoa.some((t) => ten.includes(t)) : tuKhoa.every((t) => ten.includes(t));
+        return laOr
+          ? tuKhoa.some((t) => ilikeChua(t, p.name))
+          : tuKhoa.every((t) => ilikeChua(t, p.name));
       });
     }
     if (model === 'sale.order') {
@@ -238,7 +242,7 @@ describe('replay 10/08 — gỡ phiên kẹt vì SP chưa có giá', () => {
         }
         const tu = (domain as unknown[])
           .filter((d): d is [string,string,string] => Array.isArray(d) && d[0]==='name' && d[1]==='ilike')
-          .map((d) => String(d[2]).toLowerCase());
+          .map((d) => String(d[2]));
         const gia = (domain as unknown[]).find((d): d is [string,string,number] => Array.isArray(d) && d[0]==='list_price');
         return [nho, ao].filter((p) => {
           if (gia) {
@@ -246,7 +250,7 @@ describe('replay 10/08 — gỡ phiên kẹt vì SP chưa có giá', () => {
             if (op === '>' && !(p.list_price > Number(ng))) return false;
             if (op === '<=' && !(p.list_price <= Number(ng))) return false;
           }
-          return tu.length === 0 || tu.every((t) => p.name.toLowerCase().includes(t));
+          return tu.length === 0 || tu.every((t) => ilikeChua(t, p.name));
         });
       }
       if (model === 'sale.order') {

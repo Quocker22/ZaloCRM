@@ -272,13 +272,45 @@ describe('traNhaCungCap — tra NCC', () => {
     expect(s.toLowerCase()).toContain('không được tự tạo');
   });
 
-  it('GIỮ NGUYÊN DẤU khi tra — bỏ dấu là ra 0 kết quả', async () => {
-    // Đo prod 11/08: ilike 'quoc' → [] ; ilike 'Quốc' → 2 NCC. Postgres không
-    // unaccent ở đây, nên tuyệt đối không được tự bỏ dấu câu nhân viên gõ.
-    const odoo = fakeOdoo();
-    await traNhaCungCap({ odoo }, { ten: 'Trung Quốc' });
+  it('gõ CÓ DẤU hay KHÔNG DẤU đều ra CÙNG một truy vấn', async () => {
+    // ĐẢO Ý so với bản 11/08 sáng: hồi đó luật là "giữ nguyên dấu, đừng bỏ" vì
+    // ilike 'quoc' → 0 kq. Nhưng luật đó bắt nhân viên phải gõ đúng dấu mới
+    // dùng được bot — chính là ca hỏng 23:15 ("trung quoc" → không thấy NCC nào).
+    //
+    // Cách mới: KHÔNG bỏ dấu để tra thẳng (vẫn 0 kq), mà biến từ khoá thành MẪU
+    // LIKE dùng '_' cho nguyên âm → "tr_ng q__c", khớp được cả hai kiểu gõ mà
+    // vẫn lọc ở tầng DB. Xem tim-khong-dau.ts.
+    const coDau = fakeOdoo();
+    await traNhaCungCap({ odoo: coDau }, { ten: 'Trung Quốc' });
+    const khongDau = fakeOdoo();
+    await traNhaCungCap({ odoo: khongDau }, { ten: 'trung quoc' });
 
-    expect(JSON.stringify(odoo.searchRead.mock.calls[0][1])).toContain('Trung Quốc');
+    const dCoDau = JSON.stringify(coDau.searchRead.mock.calls[0][1]);
+    expect(dCoDau).toContain('tr_ng q__c');
+    // Hai kiểu gõ phải quy về ĐÚNG một truy vấn — đó là cả điểm của bản vá.
+    expect(JSON.stringify(khongDau.searchRead.mock.calls[0][1])).toBe(dCoDau);
+  });
+
+  it('BỎ TIỀN TỐ "nhà cung cấp" trước khi tra (ca thật 23:16:15)', async () => {
+    // Nhân viên đáp nguyên văn "Nhà cung cấp Trung Quốc"; tra cả cụm thì ilike
+    // ra 0 kq vì tên trong DB chỉ là "Trung Quốc".
+    const odoo = fakeOdoo();
+    await traNhaCungCap({ odoo }, { ten: 'Nhà cung cấp Trung Quốc' });
+
+    const d = JSON.stringify(odoo.searchRead.mock.calls[0][1]);
+    expect(d).toContain('tr_ng q__c');
+    expect(d).not.toContain('nh_ c_ng c_p');
+  });
+
+  it('gõ MÃ NCC vào ô tên → tra theo ref, ra đúng một NCC (ca thật 23:16:53)', async () => {
+    // "NCC000001" là ref thật của id=314 (đo prod). Phải nhận ra là MÃ chứ không
+    // đem đi tra như tên.
+    const odoo = fakeOdoo();
+    await traNhaCungCap({ odoo }, { ten: 'NCC000001' });
+
+    const d = JSON.stringify(odoo.searchRead.mock.calls[0][1]);
+    expect(d).toContain('ref');
+    expect(d).toContain('NCC000001');
   });
 });
 

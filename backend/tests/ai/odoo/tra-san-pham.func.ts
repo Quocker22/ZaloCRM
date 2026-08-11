@@ -144,10 +144,14 @@ describe('domainTimKiem — TÁCH TỪ KHOÁ', () => {
     const s = JSON.stringify(d);
 
     // Phải có ilike riêng cho từng từ trên `name`.
-    expect(s).toContain('"COB"');
+    //
+    // Từ 11/08 mỗi từ đi dưới dạng MẪU KHÔNG DẤU ("xanh" → "x_nh") vì `ilike`
+    // của Postgres prod không bỏ dấu (xem tim-khong-dau.ts). Điều test khoá vẫn
+    // là TÁCH TỪNG TỪ chứ không tra nguyên cụm.
+    expect(s).toContain('"c_b"');
     expect(s).toContain('"24v"');
-    expect(s).toContain('"xanh"');
-    expect(s).toContain('"ngọc"');
+    expect(s).toContain('"x_nh"');
+    expect(s).toContain('"ng_c"');
 
     // `name` KHÔNG được khớp nguyên chuỗi (đó chính là bug cũ).
     // `default_code` thì CÓ — mã SP không tách từ, gõ mã là gõ đủ.
@@ -171,9 +175,11 @@ describe('domainTimKiem — TÁCH TỪ KHOÁ', () => {
   });
 
   it('bỏ từ đệm ("màu", "cái", "cuộn") — chúng không phân biệt được SP', () => {
+    // So trên dạng MẪU KHÔNG DẤU ("màu" → "m__", "xanh" → "x_nh") — xem
+    // tim-khong-dau.ts. Việc test khoá không đổi: từ đệm bị loại, từ thật giữ lại.
     const d = JSON.stringify(domainTimKiem('COB màu xanh'));
-    expect(d).not.toContain('"màu"');
-    expect(d).toContain('"xanh"');
+    expect(d).not.toContain('"m__"');
+    expect(d).toContain('"x_nh"');
   });
 
   it('mã SP dài vẫn tra được nguyên chuỗi qua default_code', () => {

@@ -8,6 +8,7 @@
 
 import type { OdooClient } from '../client.js';
 import type { ToolDefinition } from '../../agent/types.js';
+import { dieuKienKhongDau, mauKhongDau } from '../tim-khong-dau.js';
 
 /**
  * Field ĐƯỢC PHÉP đọc. Danh sách trắng, không phải danh sách đen.
@@ -155,21 +156,28 @@ export function domainTimKiem(ten: string): unknown[] {
   // Kết quả sẽ rộng, nhưng có kết quả vẫn hơn trả rỗng.
   const dung = tu.length > 0 ? tu : moiTu;
 
+  // MẪU KHÔNG DẤU cho `name` (sửa 11/08) — `ilike` prod KHÔNG bỏ dấu, đo thật:
+  //   ['name','ilike','Nguồn'] -> 5 kq  ·  ['name','ilike','Nguon'] -> 0 kq
+  // Nhân viên gõ "nguon NB" là trượt sạch. Xem tim-khong-dau.ts.
+  //
+  // `default_code` GIỮ NGUYÊN `ilike` thường: mã SP là ASCII ("P10FO", "2835"),
+  // không có dấu để mà bỏ, và nới thành wildcard chỉ làm mã ngắn khớp bừa.
+
   // Query quá ngắn (1 ký tự) → khớp nguyên chuỗi cho an toàn.
   if (dung.length === 0) {
-    return ['|', ['name', 'ilike', ten], ['default_code', 'ilike', ten]];
+    return ['|', dieuKienKhongDau('name', ten), ['default_code', 'ilike', ten]];
   }
 
   // Một từ: name ilike X OR default_code ilike X
   if (dung.length === 1) {
-    return ['|', ['name', 'ilike', dung[0]], ['default_code', 'ilike', dung[0]]];
+    return ['|', dieuKienKhongDau('name', dung[0]), ['default_code', 'ilike', dung[0]]];
   }
 
   // Nhiều từ: (name chứa TẤT CẢ các từ) OR (default_code chứa nguyên chuỗi).
   // default_code là mã, không tách từ — nhân viên gõ mã thì gõ đủ.
   const theoTen = [
     ...Array(dung.length - 1).fill('&'),
-    ...dung.map((t) => ['name', 'ilike', t]),
+    ...dung.map((t) => dieuKienKhongDau('name', t)),
   ];
   return ['|', ...theoTen, ['default_code', 'ilike', ten]];
 }
@@ -279,9 +287,13 @@ export async function traSanPham(
     if (doan.length >= 2) {
       // lowercase chỉ để log/test nhất quán — ilike vốn không phân biệt hoa thường.
       const mau = doan.join('%').toLowerCase();
+      // Nhánh `name` cũng phải KHÔNG DẤU (11/08): đây là đường cứu cuối khi mọi
+      // cách trên đã trượt, để nó kẹt vì dấu thì coi như không có đường cứu.
+      // mauKhongDau giữ nguyên '%' (không nằm trong diện thay) nên vẫn nối đoạn.
+      const mauKd = doan.map((d) => mauKhongDau(d.toLowerCase())).join('%');
       rowsFinal = await deps.odoo.searchRead<Record<string, unknown>>(
         'product.product',
-        [...domainGoc, '|', ['name', 'ilike', mau], ['default_code', 'ilike', mau]],
+        [...domainGoc, '|', ['name', 'ilike', mauKd], ['default_code', 'ilike', mau]],
         [...ALLOWED_FIELDS],
         { limit: limit * 4 },
       );

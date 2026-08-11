@@ -15,6 +15,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { xuLyGomDon, type GomDonDeps } from '../../../../src/modules/ai/agent/noi-zalo/gom-don/index.js';
 import { boDau } from '../../../../src/modules/ai/odoo/tools/tra-san-pham.js';
 import type { ToolAwareGenerate } from '../../../../src/modules/ai/agent/types.js';
+import { ilikeChua } from '../../odoo/ilike-gia.js';
 
 const usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
 
@@ -56,9 +57,9 @@ function fakeOdoo() {
     if (model === 'res.partner') {
       const tokens = (domain as unknown[][])
         .filter((d) => Array.isArray(d) && d[0] === 'name' && d[1] === 'ilike')
-        .map((d) => boDau(String(d[2])));
+        .map((d) => String(d[2]));
       const khop = tokens.length > 0
-        ? KHACH.filter((p) => tokens.every((t) => boDau(p.name).includes(t)))
+        ? KHACH.filter((p) => tokens.every((t) => ilikeChua(t, p.name)))
         : KHACH;
       return khop.slice(0, opts?.limit ?? khop.length);
     }

@@ -94,11 +94,15 @@ describe('traKhachHang — TRA THEO TÊN', () => {
     const odoo = fakeOdoo([]);
     await traKhachHang({ odoo }, { ten: 'hoàng sơn nam' });
 
+    // Từ 11/08 mỗi từ được tra bằng MẪU KHÔNG DẤU ("hoàng" → "h__ng") vì `ilike`
+    // của Postgres prod không bỏ dấu — xem tim-khong-dau.ts. Việc test khoá vẫn
+    // y nguyên: TÁCH TỪNG TỪ, không tra nguyên cụm.
     const d = JSON.stringify(odoo.searchRead.mock.calls[0][1]);
-    expect(d).toContain('"hoàng"');
-    expect(d).toContain('"sơn"');
-    expect(d).toContain('"nam"');
-    expect(d).not.toContain('"hoàng sơn nam"');
+    expect(d).toContain('"h__ng"');
+    expect(d).toContain('"s_n"');
+    expect(d).toContain('"n_m"');
+    // Nguyên cụm (dù ở dạng mẫu) KHÔNG được xuất hiện — đó là bug cũ.
+    expect(d).not.toContain('"h__ng s_n n_m"');
   });
 
   it('có CẢ sdt lẫn ten → ưu tiên sdt (chính xác hơn)', async () => {

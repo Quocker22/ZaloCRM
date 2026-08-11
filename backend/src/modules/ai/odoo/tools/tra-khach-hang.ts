@@ -13,6 +13,7 @@
 import type { OdooClient } from '../client.js';
 import type { ToolDefinition } from '../../agent/types.js';
 import { normalizeVnPhone } from '../../../../shared/phone/normalize-vn-phone.js';
+import { dieuKienKhongDau } from '../tim-khong-dau.js';
 
 export interface KhachHang {
   id: number;
@@ -232,10 +233,17 @@ export async function traKhachHang(
     // TRA THEO TÊN — tách từ khoá, mỗi từ một điều kiện AND.
     // Cùng lý do như tra_san_pham: "qc hoàng sơn" phải khớp được cả khi tên
     // trong DB có thêm chữ ở giữa. Nhân viên gõ tên gần đúng là chuyện bình thường.
+    //
+    // MẪU KHÔNG DẤU (sửa 11/08) — `ilike` của Postgres prod KHÔNG bỏ dấu, đo thật:
+    //   ['name','ilike','Thức'] -> 3 kq  ·  ['name','ilike','Thuc'] -> 0 kq
+    //   ['name','ilike','Vân']  -> 5 kq  ·  ['name','ilike','Van']  -> 1 kq (trật cả 5)
+    // Nhân viên gõ điện thoại không dấu là trượt sạch. dieuKienKhongDau() vá bằng
+    // mẫu LIKE `_`, vẫn lọc ở tầng DB. Tra rộng hơn thì đã có xepHangKhach() ngay
+    // dưới chấm điểm lại — cặp "DB lọc thô + JS xếp tinh" này là có chủ ý.
     const tu = ten.split(/\s+/).filter((t) => t.length >= 2);
     dieuKien = tu.length <= 1
-      ? [['name', 'ilike', ten]]
-      : [...Array(tu.length - 1).fill('&'), ...tu.map((t) => ['name', 'ilike', t])];
+      ? [dieuKienKhongDau('name', ten)]
+      : [...Array(tu.length - 1).fill('&'), ...tu.map((t) => dieuKienKhongDau('name', t))];
   }
 
   // Xin TRẦN + 1: phần tử thứ 11 không hiển thị, chỉ để BIẾT danh sách bị cắt.

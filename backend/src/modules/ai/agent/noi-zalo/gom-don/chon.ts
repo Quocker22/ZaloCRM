@@ -110,11 +110,25 @@ export function apDungChon(p: PhienGom, cauTho: string): boolean {
     if (map) return true;
   }
 
-  // ── Mã KH / SĐT khớp đúng một ứng viên khách ──
+  // ── Mã KH / MÃ NCC / SĐT khớp đúng một ứng viên ──
+  //
+  // MÃ NCC (11/08): ca thật 23:16:53 — bot đang liệt kê 2 nhà cung cấp, nhân
+  // viên gõ đúng mã "NCC000001" (ref thật của id=314, đo prod) mà máy không
+  // nhận, câu rơi xuống LLM và bot quay về hỏi lại từ đầu luồng.
+  //
+  // `laMaKh` vốn đã khớp được "NCC000001" về mặt hình dạng (chữ+số), nhưng chỉ
+  // được gọi trên nhánh khách — và ở chế nhập, `khachUngVien` CHÍNH LÀ danh sách
+  // NCC (xem kieu.ts). Nên chỉ cần so `ref` là đủ, không cần luật riêng.
+  //
+  // So khớp cả dạng ref TỰ DO: đo prod 200 NCC thì 186 dùng "NCC######", 2 dùng
+  // "KH######", số còn lại lấy luôn tên làm ref ("cát tường", "Giang Led"). Vì
+  // vậy điều kiện là "câu TRÙNG KHỚP ref của đúng một ứng viên", không khoá cứng
+  // tiền tố NCC — khoá cứng là bỏ sót 14 nhà cung cấp thật.
   if (p.khachUngVien) {
     const soTrong = cau.replace(/[^\d]/g, '');
     const khop = p.khachUngVien.filter(
       (k) =>
+        k.ma?.toLowerCase() === cau.toLowerCase() ||
         (laMaKh(cau) && k.ma?.toLowerCase() === cau.toLowerCase()) ||
         (soTrong.length >= 9 && k.dienThoai?.replace(/[^\d]/g, '').endsWith(soTrong.slice(-9))),
     );

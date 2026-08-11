@@ -37,6 +37,7 @@
 
 import type { OdooClient } from '../client.js';
 import { tenKhopKhach } from './tao-don-nhap.js';
+import { dieuKienKhongDau } from '../tim-khong-dau.js';
 import type { ToolDefinition } from '../../agent/types.js';
 
 /** Số hoá đơn liệt kê tối đa. Tin Zalo dài hơn là không ai đọc. */
@@ -127,7 +128,10 @@ export async function xuatCongNo(
   } else if (input.ten?.trim()) {
     khach = await deps.odoo.searchRead(
       'res.partner',
-      [['customer_rank', '>', 0], ['name', 'ilike', input.ten.trim()]],
+      // Mẫu KHÔNG DẤU (11/08): `ilike` prod không bỏ dấu nên "cong no anh Thuc"
+      // gõ không dấu ra 0 kết quả, bot báo "không có khách này" — sai sự thật.
+      // Bước khớp chính xác (bỏ dấu) ngay dưới vẫn lọc lại, nên tra rộng an toàn.
+      [['customer_rank', '>', 0], dieuKienKhongDau('name', input.ten.trim())],
       F, { limit: KHACH_TOI_DA + 1 },
     );
 

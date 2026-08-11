@@ -37,6 +37,8 @@
 import type { OdooClient } from '../client.js';
 import type { ToolDefinition } from '../../agent/types.js';
 import { sinhKhoaDon } from '../idempotency.js';
+import { dieuKienKhongDau } from '../tim-khong-dau.js';
+import { xepHangKhach } from './tra-khach-hang.js';
 
 /**
  * GHI CHÚ KHOÁ: vì sao `origin` chứ không phải `partner_ref`.
@@ -327,16 +329,72 @@ export interface NhaCungCap {
 export type KetQuaTimNcc =
   | { trangThai: 'tim_thay'; ncc: NhaCungCap }
   | { trangThai: 'khong_thay'; tuKhoa: string }
-  | { trangThai: 'nhieu_ket_qua'; danhSach: NhaCungCap[]; conNua?: boolean };
+  | {
+      trangThai: 'nhieu_ket_qua';
+      danhSach: NhaCungCap[];
+      conNua?: boolean;
+      /**
+       * Ứng viên khớp GẦN NGUYÊN VĂN và áp đảo hẳn — caller được phép tự chốt.
+       * Cùng luật với khách hàng, xem xepHangKhach(). Không ai áp đảo → vắng mặt.
+       */
+      tuChot?: NhaCungCap;
+    };
+
+/**
+ * Tiền tố nhân viên hay gắn TRƯỚC tên nhà cung cấp — bỏ trước khi tra.
+ *
+ * Ca thật 23:16:15 ngày 11/08: nhân viên gõ nguyên văn "Nhà cung cấp Trung Quốc".
+ * Tra cả cụm đó thì `ilike` ra 0 kết quả (đo prod), vì tên trong DB chỉ là
+ * "Trung Quốc" — chữ "Nhà cung cấp" là NHÃN LOẠI, không phải một phần của tên.
+ *
+ * Đây là bản song song của XUNG_HO bên tra-khach-hang.ts ("anh/chị/em"): cùng ý
+ * tưởng "bỏ chữ đưa đẩy ở đầu", nhưng khác tập chữ vì NCC là tổ chức chứ không
+ * phải người. Cố nhét chung một hằng số là sai cả hai đầu — "anh" đứng đầu tên
+ * NCC ("Anh Cường - Ao Sào", NCC000196 thật trên prod) là một phần của TÊN.
+ */
+const TIEN_TO_NCC = /^(nha\s+cung\s+cap|ncc|nha\s+cc|ben|cty|cong\s+ty|nha\s+may|shop|hang)\s+/;
+
+/** Bỏ mọi tiền tố loại NCC ở đầu câu, lặp cho "ncc cty X". Giữ nguyên DẤU của phần tên. */
+export function boTienToNcc(ten: string): string {
+  let s = ten.trim();
+  // So trên bản KHÔNG DẤU để bắt cả "nhà cung cấp" lẫn "nha cung cap", nhưng
+  // CẮT trên chuỗi gốc để phần tên còn lại giữ nguyên dấu.
+  for (;;) {
+    const khongDau = s
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .replace(/đ/g, 'd');
+    const m = khongDau.match(TIEN_TO_NCC);
+    if (!m) break;
+    s = s.slice(m[0].length).trim();
+  }
+  // Cắt sạch thành rỗng ("nhà cung cấp" trơ trọi) → trả nguyên văn, để caller
+  // xử nhánh không-tìm-thấy thay vì tra bằng chuỗi rỗng (lôi về cả bảng).
+  return s || ten.trim();
+}
+
+/**
+ * Chuỗi trông như MÃ NCC (ref). Đo prod 11/08: 186/200 NCC dùng dạng "NCC000001",
+ * nhưng 2 NCC lại mang ref dạng "KH001046" và một số dùng tên tự do làm ref.
+ * Nên nhận CẢ dạng chữ+số chung (giống laMaKh) chứ không khoá cứng tiền tố NCC.
+ */
+export function laMaNcc(s: string): boolean {
+  return /^[A-Za-z]{2,4}\d{3,}[A-Za-z]*$/.test(s.trim());
+}
 
 /**
  * Tìm NCC theo tên hoặc mã. Chỉ ĐỌC, KHÔNG BAO GIỜ tạo res.partner.
  *
- * CHÚ Ý DẤU TIẾNG VIỆT — đo prod 11/08, đây là cái bẫy thật:
- *   ilike 'quoc'      → 0 kết quả
- *   ilike 'Quốc'      → 2 NCC (id=314 "Trung Quốc", id=21 "Trung Quốc- Kho Cô Lỳ")
- * Postgres ở đây KHÔNG unaccent. Nên tuyệt đối KHÔNG tự bỏ dấu câu nhân viên
- * gõ trước khi tra — làm vậy là biến mọi lượt tra thành 0 kết quả.
+ * DÙNG LẠI ĐÚNG BỘ NÃO CỦA TRA KHÁCH HÀNG (yêu cầu anh Quốc 23:17 11/08: "bạn
+ * dùng luôn tính năng tìm khách hàng áp dụng qua đi"): cùng `xepHangKhach` để
+ * chấm điểm và quyết định tự chốt, không viết luật thứ hai lệch nhau.
+ *
+ * DẤU TIẾNG VIỆT — đo prod 11/08, cái bẫy thật:
+ *   ilike 'trung quoc' → 0 kq  ·  ilike 'Trung Quốc' → 2 kq
+ * Postgres ở đây KHÔNG bật `unaccent`. Cách vá: mauKhongDau() biến từ khoá
+ * thành mẫu LIKE dùng `_` cho mọi chữ có thể mang dấu, nên tra được cả hai kiểu
+ * gõ mà VẪN lọc ở tầng DB (không kéo bảng về). Xem tim-khong-dau.ts.
  *
  * Lọc `supplier_rank > 0` là bắt buộc: prod có "TRung Quốc" [KH001046] là KHÁCH
  * HÀNG nằm cạnh "Trung Quốc" [NCC000001] là NCC. Không lọc thì đơn mua treo vào
@@ -346,14 +404,19 @@ export async function traNhaCungCap(
   deps: { odoo: Pick<OdooClient, 'searchRead'> },
   input: { ten?: string; ma?: string },
 ): Promise<KetQuaTimNcc> {
-  const ten = (input.ten ?? '').trim();
-  const ma = (input.ma ?? '').trim();
+  const tenTho = (input.ten ?? '').trim();
+  let ma = (input.ma ?? '').trim();
+  // Nhân viên gõ thẳng mã vào ô tên ("NCC000001" — ca thật 23:16:53) → nhận ra
+  // và chuyển sang tra theo `ref`, khoá chính xác, ra đúng một NCC.
+  if (!ma && tenTho && laMaNcc(tenTho)) ma = tenTho;
+  // Bỏ tiền tố "nhà cung cấp"/"cty"… trước khi tra tên (ca thật 23:16:15).
+  const ten = ma ? '' : boTienToNcc(tenTho);
   if (!ten && !ma) return { trangThai: 'khong_thay', tuKhoa: '' };
 
-  // Mã NCC (ref) là khoá chính xác → ưu tiên. Tên thì tra nguyên cụm GIỮ DẤU.
+  // Mã NCC (ref) là khoá chính xác → ưu tiên. Tên thì tra bằng mẫu KHÔNG DẤU.
   const dieuKien: unknown[] = ma
     ? [['ref', '=ilike', ma]]
-    : [['name', 'ilike', ten]];
+    : [dieuKienKhongDau('name', ten)];
 
   const TRAN = 10;
   const rows = await deps.odoo.searchRead<Record<string, unknown>>(
@@ -369,9 +432,31 @@ export async function traNhaCungCap(
     ma: r.ref ? String(r.ref) : null,
   }));
 
-  if (danhSach.length === 0) return { trangThai: 'khong_thay', tuKhoa: ma || ten };
+  if (danhSach.length === 0) return { trangThai: 'khong_thay', tuKhoa: ma || tenTho };
   if (danhSach.length === 1) return { trangThai: 'tim_thay', ncc: danhSach[0] };
-  return { trangThai: 'nhieu_ket_qua', danhSach, ...(conNua ? { conNua } : {}) };
+
+  // XẾP HẠNG bằng CHÍNH hàm của tra khách hàng (yêu cầu 23:17 11/08).
+  //
+  // Cần thiết vì mẫu không dấu tra rộng hơn hẳn: "_" khớp ký tự bất kỳ nên
+  // "tr_ng q__c" lôi về cả những tên chỉ tình cờ cùng khung chữ. DB lọc thô cho
+  // rẻ, còn xepHangKhach chấm điểm tinh trên vài chục dòng đã về tới đây.
+  //
+  // `tuChot` chỉ nhả khi danh sách ĐỦ (không conNua) — y hệt luật bên khách:
+  // chốt trên dữ liệu bị cắt là chốt liều, người đúng có thể nằm ngoài trang đầu.
+  const xep = xepHangKhach(
+    ten || ma,
+    danhSach.map((n) => ({ id: n.id, ten: n.ten, ma: n.ma, dienThoai: null, congNo: 0 })),
+  );
+  const theoId = new Map(danhSach.map((n) => [n.id, n]));
+  const dsXep = xep.danhSach.map((k) => theoId.get(k.id)!).filter(Boolean);
+  const tuChot = xep.tuChot ? theoId.get(xep.tuChot.id) : undefined;
+
+  return {
+    trangThai: 'nhieu_ket_qua',
+    danhSach: dsXep,
+    ...(conNua ? { conNua } : {}),
+    ...(tuChot && !conNua ? { tuChot } : {}),
+  };
 }
 
 export const traNhaCungCapDefinition: ToolDefinition = {
