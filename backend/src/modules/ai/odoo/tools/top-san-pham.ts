@@ -10,6 +10,9 @@ import type { ToolDefinition } from '../../agent/types.js';
 import type { OdooClient } from '../client.js';
 import { NGUONG_DINH_KEM, type BangExcel } from '../xuat-excel.js';
 import { laSanPhamKyThuat } from '../sp-ky-thuat.js';
+import {
+  chonKy, ngayVietNam, KY_HOP_LE, MO_TA_KY, MO_TA_TU_NGAY, MO_TA_DEN_NGAY, type Ky,
+} from '../ky-thoi-gian.js';
 
 export interface DongTop {
   sanPhamId: number;
@@ -28,23 +31,30 @@ export interface TopSanPhamDeps {
 
 const TRAN_DONG = 200;
 
-/** 'YYYY-MM-DD' hợp lệ? Ngày rác truyền thẳng vào domain là Odoo ném khó hiểu. */
-function ngayHopLe(s: string | undefined): s is string {
-  return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
-}
-
 export async function topSanPham(
   deps: TopSanPhamDeps,
-  input: { kieu?: string; tu_ngay?: string; den_ngay?: string; gioi_han?: number },
+  input: { kieu?: string; ky?: string; tu_ngay?: string; den_ngay?: string; gioi_han?: number; bayGio?: Date },
 ): Promise<KetQuaTop> {
   const kieu = input.kieu === 'e' ? 'e' : 'ban_chay';
   const limit = Math.min(Math.max(1, input.gioi_han ?? 20), TRAN_DONG);
+  const bayGio = input.bayGio ?? new Date();
 
-  // Mặc định 30 ngày gần nhất — "dạo này bán gì chạy" là câu hỏi phổ biến nhất.
-  const den = ngayHopLe(input.den_ngay) ? input.den_ngay : new Date().toISOString().slice(0, 10);
-  const tu = ngayHopLe(input.tu_ngay)
-    ? input.tu_ngay
-    : new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+  // ═══ KỲ DO CODE CHỐT ─ xem ky-thoi-gian.ts (ca 21:17 + 03:29 ngày 11/08) ══
+  // Model KHÔNG có đồng hồ, nên `ky` (từ khoá) thắng mọi ngày nó tự nhẩm.
+  //
+  // MẶC ĐỊNH KHÁC hai tool kia: 30 NGÀY gần nhất, không phải hôm nay — "dạo
+  // này bán gì chạy" là câu hỏi phổ biến nhất của tool này, ép về hôm nay là
+  // trả lời câu khác. Vì vậy chỉ gọi `chonKy` khi model THẬT SỰ có nêu kỳ.
+  const coNeuKy = Boolean(input.ky) || Boolean(input.tu_ngay) || Boolean(input.den_ngay);
+  const mac30Ngay = (): Ky => {
+    const den = ngayVietNam(bayGio);
+    const tu = ngayVietNam(new Date(bayGio.getTime() - 30 * 86_400_000));
+    return { tu, den };
+  };
+  const kyChot = coNeuKy ? chonKy(input, bayGio, 'thang_nay') : mac30Ngay();
+  // Ngày vô lý (tương lai/quá 1 năm) → `chonKy` đã kéo về kỳ an toàn; ở tool
+  // này rơi về 30 ngày cho đúng nếp cũ thay vì tháng này.
+  const { tu, den } = kyChot.canhBao ? mac30Ngay() : kyChot;
   const ky = `${tu} – ${den}`;
 
   try {
@@ -162,8 +172,11 @@ export const topSanPhamDefinition: ToolDefinition = {
     type: 'object',
     properties: {
       kieu: { type: 'string', enum: ['ban_chay', 'e'], description: 'ban_chay = bán nhiều nhất; e = còn tồn nhưng 0 bán trong kỳ.' },
-      tu_ngay: { type: 'string', description: 'YYYY-MM-DD. Bỏ trống = 30 ngày trước.' },
-      den_ngay: { type: 'string', description: 'YYYY-MM-DD. Bỏ trống = hôm nay.' },
+      // Ca 21:17 + 03:29 ngày 11/08/2026: model không có đồng hồ nên tự nhẩm
+      // ngày ra 2026-06-20. `ky` để nó chọn TỪ KHOÁ, code tính ngày.
+      ky: { type: 'string', enum: [...KY_HOP_LE], description: `${MO_TA_KY} Bỏ trống = 30 ngày gần nhất.` },
+      tu_ngay: { type: 'string', description: MO_TA_TU_NGAY },
+      den_ngay: { type: 'string', description: MO_TA_DEN_NGAY },
       gioi_han: { type: 'number', description: 'Số dòng (mặc định 20, trần 200).' },
     },
   },

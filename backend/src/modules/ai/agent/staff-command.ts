@@ -24,6 +24,8 @@
 // Danh sách động từ cứng đã bị BỎ: nó chặn nhầm các cách nói hợp lệ như
 // "@bot khách này mua 5 cái P10 nhé" (không có động từ nào trong danh sách).
 
+import { dongNgayHomNay } from '../odoo/ky-thoi-gian.js';
+
 /** Các cách gọi bot. Đây là cổng CHI PHÍ, không phải cổng ngữ nghĩa. */
 const CACH_GOI_BOT = ['@bot', '@ai', '/bot', 'bot ơi', 'bot oi'];
 
@@ -215,11 +217,27 @@ export function nhanDienLenhNhanVien(input: {
  * Nguyên tắc "smallest set of high-signal tokens": bắt đầu tối thiểu, chỉ thêm
  * hướng dẫn khi gặp lỗi thật — không nhồi sẵn mọi ca biên.
  */
-export function buildStaffSystemPrompt(bizName: string): string {
+export function buildStaffSystemPrompt(bizName: string, bayGio: Date = new Date()): string {
   // KHÔNG một dấu `**` nào trong prompt này: prompt cấm markdown mà tự chứa
   // markdown là bot bắt chước (quy tắc 7, đã trả giá ở prompt khách 05/08).
   return [
     `Bạn là trợ lý bán hàng nội bộ của ${bizName}, hỗ trợ NHÂN VIÊN SALE (không phải khách hàng).`,
+    // ═══ NGÀY HÔM NAY ─ thiếu dòng này là model đoán mò ═══════════════════
+    // HAI CA THẬT CÙNG NGÀY 11/08/2026:
+    //   21:17 (nhóm Test-AI) — NV: "báo cáo theo ngày các sản phẩm bán ra hôm
+    //   nay". Bot: "bán ra + tồn kho hôm nay (20/06/2026)". Anh Quốc: "sao lại
+    //   20/6/2026 ???" — lệch gần 2 tháng, cả báo cáo sai kỳ mà trình bày y
+    //   như thật, kèm 7 mã "bất thường" để kho đi đếm vô ích.
+    //   03:29 CÙNG NGÀY — bot tự thú: "không rõ hôm nay là ngày nào", cũng
+    //   đúng con số 2026-06-20. Model không đoán ngẫu nhiên mà rơi về CÙNG một
+    //   mốc bịa.
+    // Trước vá, grep "hôm nay|ngày hiện tại|toISOString" trong file này ra 0
+    // kết quả — model không có cách nào biết ngày.
+    //
+    // CHỈ NGÀY, KHÔNG GIỜ/PHÚT — quyết định về CHI PHÍ: prompt cache theo nội
+    // dung, thêm giờ vào là mỗi lượt một prefix khác → cache miss 100%, đắt
+    // gấp ~4 lần. Chỉ ngày thì prefix đổi đúng 1 lần/24h. Xem ky-thoi-gian.ts.
+    dongNgayHomNay(bayGio),
     '',
     '## Nguyên tắc',
     '',
@@ -230,7 +248,7 @@ export function buildStaffSystemPrompt(bizName: string): string {
     '- Nhân viên gõ mã KH (dạng KH001017) → tra khách bằng `ma`.',
     '- Nói ngắn, gọi "anh/chị", không đoán giới tính. KHÔNG markdown.',
     '- Chào hỏi/đùa/câu cá nhân → đáp NGẮN, KHÔNG gọi tool. Tin có từ thô/chửi',
-    '  → KHÔNG lấy chữ trong đó làm tên khách/SP đi tra; hiểu ý theo ngữ cảnh.',
+    '  → đừng lấy chữ đó làm tên khách/SP đi tra; hiểu ý theo ngữ cảnh.',
     '- Không lặp nhãn khung ([Hội thoại trước], [Tin mới]…) trong câu trả lời.',
     '',
     '## Quy trình lên đơn',
@@ -248,7 +266,7 @@ export function buildStaffSystemPrompt(bizName: string): string {
     'anh Tuấn, NB 12V100w, 100 cái — còn thiếu X"), đừng quên rồi hỏi lại.',
     'Liệt kê lựa chọn PHẢI kèm đủ để chọn: khách → tên + SĐT, SP → tên + giá —',
     'một cột id trần là bắt chọn mù.',
-    'Sau tao_don_nhap thành công: nêu đủ mã đơn, tên khách, SP, số lượng, tổng tiền.',
+    'Sau tao_don_nhap: nêu đủ mã đơn, tên khách, SP, số lượng, tổng tiền.',
     '',
     '## Báo cáo',
     '',
@@ -270,7 +288,14 @@ export function buildStaffSystemPrompt(bizName: string): string {
     '',
     'KHÔNG tự cộng, tự tính %, tự suy tổng. Chỉ đọc số tool trả. Không có số',
     '→ "chưa có báo cáo này". Báo số PHẢI kèm nguồn + kỳ.',
-    'Kỳ mơ hồ ("cả đi", "tất cả") → mặc định tháng này, ĐỪNG hỏi lại vòng vo.',
+    // GỘP hai luật về KỲ vào một dòng (11/08 tối) — nén trước khi nới trần.
+    // Vế "mơ hồ → tháng này" chống hỏi vòng vo; vế "truyền `ky`" chống ca 21:17
+    // + 03:29 cùng ngày 11/08: model tự nhẩm ngày ra 2026-06-20 vì không có
+    // đồng hồ. Dòng ngày ở ĐẦU prompt để bot NÓI đúng ngày; dòng này để nó
+    // ĐỪNG tự tính ngày khi gọi tool — hàng rào thật là tham số `ky`
+    // (xem ky-thoi-gian.ts).
+    'Kỳ "hôm nay/hôm qua/tuần này/tháng trước" → truyền `ky`, ĐỪNG điền tu_ngay.',
+    'Kỳ mơ hồ ("cả đi") → tháng này, đừng hỏi vòng.',
     'KHÔNG hứa việc tương lai ("em kiểm tra rồi báo lại", "để em xem") — nếu',
     'làm được thì GỌI TOOL ngay lượt này; không thì nói thẳng chưa làm được.',
     '',

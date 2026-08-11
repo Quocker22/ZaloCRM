@@ -10,6 +10,9 @@ import type { ToolDefinition } from '../../agent/types.js';
 import type { OdooClient } from '../client.js';
 import { NGUONG_DINH_KEM, type BangExcel } from '../xuat-excel.js';
 import { locChoSoLuong } from '../sp-ky-thuat.js';
+import {
+  chonKy, ngayHopLe, KY_HOP_LE, MO_TA_KY, MO_TA_TU_NGAY, MO_TA_DEN_NGAY,
+} from '../ky-thoi-gian.js';
 
 /* ── Danh mục đóng ─────────────────────────────────────────────────────── */
 
@@ -85,8 +88,12 @@ export interface BaoCaoLinhHoatInput {
   bang?: string;
   do?: string;
   nhom_theo?: string;
+  /** Từ khoá kỳ — xem ky-thoi-gian.ts. Model KHÔNG tự nhẩm ngày. */
+  ky?: string;
   tu_ngay?: string;
   den_ngay?: string;
+  /** Đồng hồ tiêm được — test không phụ thuộc ngày chạy thật. */
+  bayGio?: Date;
   trang_thai?: string;
   khach_id?: number;
   san_pham_id?: number;
@@ -112,10 +119,6 @@ export type KetQuaLinhHoat =
 
 export interface LinhHoatDeps {
   odoo: Pick<OdooClient, 'execute'>;
-}
-
-function ngayHopLe(s: unknown): s is string {
-  return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
 }
 
 /** Lỗi nói được "phải làm gì" — model đọc lỗi tool tốt hơn đọc prompt. */
@@ -168,13 +171,31 @@ export async function baoCaoLinhHoat(
     domain.push(...ch.nen);
   }
 
-  if (input.tu_ngay !== undefined) {
-    if (!ngayHopLe(input.tu_ngay)) return loi(`tu_ngay='${input.tu_ngay}' sai định dạng, cần YYYY-MM-DD.`);
-    domain.push([ch.ngay, '>=', `${input.tu_ngay} 00:00:00`]);
+  // ═══ KỲ DO CODE CHỐT ─ xem ky-thoi-gian.ts (ca 21:17 + 03:29 ngày 11/08) ══
+  // Model KHÔNG có đồng hồ: hỏi "hôm nay" mà nó điền 2026-06-20. `ky` (từ
+  // khoá) thắng mọi ngày model tự nhẩm.
+  //
+  // KHÁC hai tool báo cáo kia: KHÔNG nêu kỳ ở đây nghĩa là TOÀN BỘ THỜI GIAN —
+  // một câu hỏi hợp lệ ("khách nào mua nhiều nhất từ trước tới nay"). Ép về
+  // hôm nay là đổi nghĩa câu hỏi, nên chỉ chốt kỳ khi model THẬT SỰ có nêu.
+  //
+  // Sai ĐỊNH DẠNG vẫn báo lỗi thẳng (không nuốt): tool này để model tự ghép
+  // truy vấn, nuốt lỗi im lặng là nó không bao giờ học được cú pháp đúng.
+  if (input.tu_ngay !== undefined && !ngayHopLe(input.tu_ngay)) {
+    return loi(`tu_ngay='${input.tu_ngay}' sai định dạng, cần YYYY-MM-DD.`);
   }
-  if (input.den_ngay !== undefined) {
-    if (!ngayHopLe(input.den_ngay)) return loi(`den_ngay='${input.den_ngay}' sai định dạng, cần YYYY-MM-DD.`);
-    domain.push([ch.ngay, '<=', `${input.den_ngay} 23:59:59`]);
+  if (input.den_ngay !== undefined && !ngayHopLe(input.den_ngay)) {
+    return loi(`den_ngay='${input.den_ngay}' sai định dạng, cần YYYY-MM-DD.`);
+  }
+
+  let moTaKy = ' · toàn bộ thời gian';
+  let canhBaoKy: string | undefined;
+  if (input.ky !== undefined || input.tu_ngay !== undefined || input.den_ngay !== undefined) {
+    const kyChot = chonKy(input, input.bayGio ?? new Date(), 'thang_nay');
+    canhBaoKy = kyChot.canhBao;
+    domain.push([ch.ngay, '>=', `${kyChot.tu} 00:00:00`]);
+    domain.push([ch.ngay, '<=', `${kyChot.den} 23:59:59`]);
+    moTaKy = ` · kỳ ${kyChot.tu} – ${kyChot.den}`;
   }
 
   if (input.khach_id !== undefined) {
@@ -242,9 +263,13 @@ export async function baoCaoLinhHoat(
     const tongSoNhom = danhSach.length;
     danhSach = danhSach.slice(0, gioiHan);
 
+    // Kỳ in ra là kỳ THẬT SỰ ĐÃ CHẠY (sau khi code chốt), không phải ngày model
+    // gửi. In ngày model gửi chính là cách ca 21:17 lừa được người đọc: nhãn
+    // "hôm nay (20/06/2026)" trông y như thật.
     const moTa =
       `${bang} · đo ${doKey} · nhóm theo ${nhomKey}` +
-      (input.tu_ngay || input.den_ngay ? ` · kỳ ${input.tu_ngay ?? '…'} – ${input.den_ngay ?? '…'}` : ' · toàn bộ thời gian') +
+      moTaKy +
+      (canhBaoKy ? ` · LƯU Ý: ${canhBaoKy}` : '') +
       (input.trang_thai ? ` · trạng thái ${input.trang_thai}` : '');
 
     return { trangThai: 'ok', danhSach, tong, moTa, tongSoNhom };
@@ -313,8 +338,11 @@ export const baoCaoLinhHoatDefinition: ToolDefinition = {
       bang: { type: 'string', enum: ['don_hang', 'dong_don', 'khach_hang', 'ton_kho'], description: 'Nguồn dữ liệu. don_hang=đơn bán; dong_don=từng dòng sản phẩm trong đơn; khach_hang=danh bạ khách; ton_kho=tồn hiện tại.' },
       do: { type: 'string', description: 'Đo gì. don_hang: tong_tien/so_don/so_khach · dong_don: so_luong/tong_tien · khach_hang: so_khach · ton_kho: so_luong. GHÉP NHIỀU bằng dấu phẩy khi nhân viên hỏi "chi tiết": "so_luong,tong_tien".' },
       nhom_theo: { type: 'string', enum: ['nhan_vien', 'khach', 'san_pham', 'ngay', 'thang'], description: 'Nhóm kết quả theo gì. san_pham chỉ với dong_don/ton_kho.' },
-      tu_ngay: { type: 'string', description: 'YYYY-MM-DD' },
-      den_ngay: { type: 'string', description: 'YYYY-MM-DD' },
+      // Ca 21:17 + 03:29 ngày 11/08/2026: model không có đồng hồ nên tự nhẩm
+      // ngày ra 2026-06-20. `ky` để nó chọn TỪ KHOÁ, code tính ngày.
+      ky: { type: 'string', enum: [...KY_HOP_LE], description: `${MO_TA_KY} Bỏ trống = toàn bộ thời gian.` },
+      tu_ngay: { type: 'string', description: MO_TA_TU_NGAY },
+      den_ngay: { type: 'string', description: MO_TA_DEN_NGAY },
       trang_thai: { type: 'string', enum: ['nhap', 'xac_nhan', 'hoan_thanh', 'huy'], description: 'Chỉ don_hang/dong_don. Bỏ trống = mọi trạng thái trừ huỷ.' },
       khach_id: { type: 'number', description: 'Lọc theo một khách (id từ tra_khach_hang).' },
       san_pham_id: { type: 'number', description: 'Lọc theo một SP (id từ tra_san_pham).' },

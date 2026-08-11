@@ -34,6 +34,9 @@ import type { ToolDefinition } from '../../agent/types.js';
 import type { OdooClient } from '../client.js';
 import { NGUONG_DINH_KEM, type BangExcel } from '../xuat-excel.js';
 import { laSanPhamKyThuat } from '../sp-ky-thuat.js';
+import {
+  chonKy, ngayVietNam, KY_HOP_LE, MO_TA_KY, MO_TA_TU_NGAY, MO_TA_DEN_NGAY,
+} from '../ky-thoi-gian.js';
 
 /**
  * Trần số mã kéo về. Một ngày bận nhất đo được ~40 mã; 500 là dư xa, đủ để
@@ -73,20 +76,16 @@ export type KetQuaBanTon =
       laHomNay: boolean;
       /** Danh sách bị cắt vì vượt trần? Cắt im lặng là lỗi nguy hiểm nhất. */
       biCat: boolean;
+      /**
+       * Kỳ đã bị CODE SỬA vì ngày model gửi vô lý (tương lai/quá 1 năm).
+       * Phải in ra cho nhân viên — sửa im lặng cũng là một kiểu bịa.
+       */
+      canhBaoKy?: string;
     }
   | { trangThai: 'loi'; lyDo: string };
 
 export interface BaoCaoBanTonDeps {
   odoo: Pick<OdooClient, 'searchRead' | 'execute'>;
-}
-
-/** 'YYYY-MM-DD' hợp lệ? Ngày rác truyền thẳng vào domain là Odoo ném khó hiểu. */
-function ngayHopLe(s: unknown): s is string {
-  return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
-}
-
-function homNay(): string {
-  return new Date().toISOString().slice(0, 10);
 }
 
 /** 'YYYY-MM-DD' → 'DD/MM' cho người Việt đọc nhanh. */
@@ -140,21 +139,24 @@ function danhDauBatThuong(tonHienTai: number, banRa: number): LyDoBatThuong | nu
 
 export async function baoCaoBanTon(
   deps: BaoCaoBanTonDeps,
-  input: { tu_ngay?: string; den_ngay?: string } = {},
+  input: { ky?: string; tu_ngay?: string; den_ngay?: string; bayGio?: Date } = {},
 ): Promise<KetQuaBanTon> {
-  // MẶC ĐỊNH = HÔM NAY. Anh Quyết nói "báo cáo THEO NGÀY" — rơi về "30 ngày
-  // gần nhất" như top_san_pham là giao cho kho đếm sai tập mã.
-  const tu = ngayHopLe(input.tu_ngay) ? input.tu_ngay : homNay();
-  // Chỉ có tu_ngay ("hôm qua bán gì") → kỳ đúng MỘT ngày đó, không kéo tới hôm
-  // nay: "hôm qua" mà trả cả hôm nay là danh sách mã sai.
-  const den = ngayHopLe(input.den_ngay)
-    ? input.den_ngay
-    : ngayHopLe(input.tu_ngay)
-      ? input.tu_ngay
-      : homNay();
+  // ═══ KỲ DO CODE CHỐT, KHÔNG TIN NGÀY MODEL GỬI ═══════════════════════════
+  // Ca thật 21:17 ngày 11/08/2026 (nhóm Test-AI): NV hỏi "báo cáo các sản phẩm
+  // bán ra HÔM NAY", model điền tu_ngay=2026-06-20 (lệch gần 2 tháng), code cũ
+  // tin luôn và in "hôm nay (20/06/2026)". Anh Quốc: "sao lại 20/6/2026 ???".
+  // Ca 03:29 CÙNG NGÀY bot tự thú cùng con số đó — model không có đồng hồ.
+  //
+  // `chonKy` cho `ky` (từ khoá) THẮNG mọi ngày model tự nhẩm, nên NV nói "hôm
+  // nay" thì không còn đường nào ra ngày khác. Mặc định vẫn HÔM NAY: anh Quyết
+  // hỏi "báo cáo THEO NGÀY", rơi về 30 ngày là giao kho đếm sai tập mã.
+  const bayGio = input.bayGio ?? new Date();
+  const kyChot = chonKy(input, bayGio, 'hom_nay');
+  const { tu, den } = kyChot;
 
   const ky = tu === den ? ngayVN(tu) : `${ngayVN(tu)} – ${ngayVN(den)}`;
-  const laHomNay = tu === homNay() && den === homNay();
+  const nay = ngayVietNam(bayGio);
+  const laHomNay = tu === nay && den === nay;
 
   try {
     // ── 1. SỐ BÁN trong kỳ, do ODOO cộng (read_group) ────────────────────
@@ -196,7 +198,10 @@ export async function baoCaoBanTon(
       .filter((d) => !laSanPhamKyThuat(d.tenDayDu));
 
     if (banTheoSP.length === 0) {
-      return { trangThai: 'ok', danhSach: [], soMa: 0, soBatThuong: 0, ky, laHomNay, biCat: false };
+      return {
+        trangThai: 'ok', danhSach: [], soMa: 0, soBatThuong: 0, ky, laHomNay,
+        biCat: false, canhBaoKy: kyChot.canhBao,
+      };
     }
 
     // ── 2. TỒN HIỆN TẠI của đúng những mã đã bán ─────────────────────────
@@ -249,6 +254,7 @@ export async function baoCaoBanTon(
       ky,
       laHomNay,
       biCat: banTheoSP.length >= TRAN_MA,
+      canhBaoKy: kyChot.canhBao,
     };
   } catch (err) {
     // Lỗi hạ tầng KHÔNG được biến thành "hôm nay bán 0 mã": kho sẽ không đi
@@ -320,11 +326,15 @@ export function dinhDangBanTon(kq: KetQuaBanTon, daDinhKem = false): string {
 
   const NGUON = 'Nguồn: Odoo · đơn bán trong kỳ (loại đơn huỷ, loại dòng VAT/phí) + tồn hiện tại';
 
+  // Kỳ đã bị code sửa → NÓI NGAY ĐẦU, trước cả số liệu. Đặt cuối thì model tóm
+  // tắt lại thường cắt mất, và nhân viên đọc số trước rồi tin luôn.
+  const canhBao = kq.canhBaoKy ? `LƯU Ý: ${kq.canhBaoKy}\n` : '';
+
   if (kq.soMa === 0) {
     // Rỗng KHÔNG được trả bảng trống: nói thẳng là không có mã nào, kèm kỳ —
     // model nhận chuỗi mơ hồ sẽ tự bịa nội dung.
     return (
-      `Kỳ ${kq.ky}: KHÔNG có mã nào bán ra (0 mã) — không có gì cần kho đối chiếu.\n${NGUON}`
+      `${canhBao}Kỳ ${kq.ky}: KHÔNG có mã nào bán ra (0 mã) — không có gì cần kho đối chiếu.\n${NGUON}`
     );
   }
 
@@ -360,6 +370,7 @@ export function dinhDangBanTon(kq: KetQuaBanTon, daDinhKem = false): string {
     : '';
 
   return (
+    canhBao +
     `Kỳ ${kq.ky}: bán ra ${kq.soMa} mã sản phẩm.\n` +
     `Danh sách mã cần đối chiếu (bán nhiều nhất trước):\n${dong}${conNua}` +
     phanBatThuong +
@@ -387,7 +398,7 @@ export const baoCaoBanTonDefinition: ToolDefinition = {
     '"hôm nay bán ra những mã nào", "hôm qua bán được mấy mã", ' +
     '"cho kho đi đối chiếu số lượng thực tế những mã bán ra", ' +
     '"kiểm kho hôm nay", "tuần này bán những mã gì để kiểm kho". ' +
-    'Mặc định kỳ = HÔM NAY. ' +
+    'Mặc định kỳ = HÔM NAY. Nhân viên nói "hôm nay/hôm qua/tuần này" → truyền `ky`, ĐỪNG tự nhẩm ngày. ' +
     'ĐÂY LÀ TOOL DUY NHẤT ghép được SỐ BÁN với SỐ TỒN theo từng mã trong một kỳ. ' +
     'KHÔNG dùng top_san_pham (tool đó mặc định 30 ngày và KHÔNG có cột tồn kho), ' +
     'KHÔNG dùng canh_bao_ton_kho (chỉ biết tồn, không biết bán ra), ' +
@@ -395,18 +406,15 @@ export const baoCaoBanTonDefinition: ToolDefinition = {
   inputSchema: {
     type: 'object',
     properties: {
-      tu_ngay: {
-        type: 'string',
-        description:
-          'YYYY-MM-DD. Bỏ trống = HÔM NAY. "Hôm qua" → điền ngày hôm qua. ' +
-          '"Tuần này" → điền ngày thứ Hai của tuần.',
-      },
-      den_ngay: {
-        type: 'string',
-        description:
-          'YYYY-MM-DD. Bỏ trống mà có tu_ngay thì kỳ đúng MỘT ngày tu_ngay. ' +
-          'Chỉ điền khi nhân viên nêu khoảng "từ ngày… đến ngày…".',
-      },
+      // `ky` ĐỨNG TRƯỚC tu_ngay có chủ đích: model đọc schema theo thứ tự, ô
+      // đầu tiên là ô nó hay điền nhất. Trước đây ô đầu là `tu_ngay` kèm mô tả
+      // "Bỏ trống = HÔM NAY, 'Hôm qua' → điền ngày hôm qua" — tức là MỜI model
+      // tự nhẩm ngày trong khi nó không có đồng hồ. Đó là ca 21:17 ngày
+      // 11/08/2026 (điền 2026-06-20 cho câu hỏi "hôm nay") và ca 03:29 cùng
+      // ngày (cùng con số 2026-06-20).
+      ky: { type: 'string', enum: [...KY_HOP_LE], description: MO_TA_KY },
+      tu_ngay: { type: 'string', description: MO_TA_TU_NGAY },
+      den_ngay: { type: 'string', description: MO_TA_DEN_NGAY },
     },
     required: [],
   },

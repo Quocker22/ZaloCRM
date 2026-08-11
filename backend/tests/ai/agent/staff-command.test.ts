@@ -174,6 +174,53 @@ describe('buildStaffSystemPrompt', () => {
     expect(buildStaffSystemPrompt('SHOP ABC')).toContain('SHOP ABC');
   });
 
+  // ═════════════════════════════════════════════════════════════════════════
+  // BOT KHÔNG BIẾT HÔM NAY LÀ NGÀY NÀO — hai ca thật CÙNG NGÀY 11/08/2026:
+  //
+  //   21:17 (nhóm Test-AI) — NV: "@bot ... báo cáo theo ngày các sản phẩm bán
+  //   ra hôm nay". Bot: "báo cáo bán ra + tồn kho hôm nay (20/06/2026) đây ạ".
+  //   Anh Quốc: "sao lại 20/6/2026 ???" — lệch gần 2 tháng, cả báo cáo sai kỳ.
+  //
+  //   03:29 CÙNG NGÀY — bot tự thú: "em thấy dữ liệu đơn hàng trả về đang ở kỳ
+  //   2026-06-20 — không rõ hôm nay là ngày nào". CÙNG MỘT NGÀY BỊA.
+  //
+  // Prompt này TRƯỚC ĐÓ không hề nêu ngày (grep "hôm nay|ngày hiện tại|
+  // toISOString" ra 0 kết quả), nên model chỉ còn nước đoán.
+  //
+  // Đồng hồ được TIÊM — test không được phụ thuộc ngày chạy thật.
+  const LUC_21H17 = new Date('2026-08-11T14:17:00Z'); // 21:17 giờ VN
+
+  it('NÊU NGÀY HÔM NAY — thiếu dòng này là model đoán mò (ca 21:17 + 03:29 11/08)', () => {
+    const p = buildStaffSystemPrompt('X', LUC_21H17);
+    expect(p).toContain('11/08/2026');
+    expect(p).toContain('Thứ Ba');
+  });
+
+  // CHỐNG PHÁ CACHE: prompt cache theo NỘI DUNG. Có giờ/phút thì mỗi lượt một
+  // prefix khác → miss 100%, token đắt gấp ~4 lần (đọc cache 0,25×). Chỉ NGÀY
+  // thì prefix đổi mỗi 24h, coi như không tốn thêm.
+  it('KHÔNG chứa giờ/phút — nhét giờ vào là phá cache prompt mỗi lượt', () => {
+    expect(buildStaffSystemPrompt('X', LUC_21H17)).not.toMatch(/\d{1,2}:\d{2}/);
+  });
+
+  it('cùng NGÀY khác GIỜ → prompt Y HỆT (cache prefix còn nguyên)', () => {
+    const sang = new Date('2026-08-11T02:00:00Z'); // 09:00 giờ VN
+    const toi = new Date('2026-08-11T14:17:00Z'); // 21:17 giờ VN
+    expect(buildStaffSystemPrompt('X', sang)).toBe(buildStaffSystemPrompt('X', toi));
+  });
+
+  it('sang ngày mới thì prompt đổi theo (không kẹt ngày cũ)', () => {
+    const mai = new Date('2026-08-12T02:00:00Z');
+    expect(buildStaffSystemPrompt('X', mai)).toContain('12/08/2026');
+  });
+
+  it('BẢO MODEL DÙNG `ky`, đừng tự tính ngày — nó không có đồng hồ', () => {
+    // Dòng ngày ở prompt là để bot NÓI đúng ngày với nhân viên. Hàng rào thật
+    // nằm ở tool: model chọn TỪ KHOÁ, code đổi ra ngày. Prompt phải chỉ đúng
+    // đường đó, không thì model vẫn tự điền tu_ngay theo ngày nó nhẩm ra.
+    expect(buildStaffSystemPrompt('X', LUC_21H17)).toContain('ky');
+  });
+
   // Bố cục học từ Claude Code plugins/*/agents/*.md
   it('chia mục bằng Markdown header, không viết văn xuôi dài', () => {
     const p = buildStaffSystemPrompt('X');
@@ -236,7 +283,21 @@ describe('buildStaffSystemPrompt', () => {
     // khách) mà `amount_tax` vẫn 0. Dòng prompt gánh HAI việc trong 79 ký tự:
     // "gọi tool NGAY" (chống hỏi vòng) và "CẤM nhân giá" (chống ghi sai giá) —
     // đã nén từ 2 dòng/135 ký tự xuống 1 dòng, sự tích dồn hết vào comment.
-    expect(buildStaffSystemPrompt(BIZ_THAT).length).toBeLessThan(3500);
+    // 3.500 → 3.600 (11/08 tối, ca 21:17 + 03:29 CÙNG NGÀY): prompt phải nêu
+    // NGÀY HÔM NAY. Trước đó grep "hôm nay|ngày hiện tại|toISOString" trong
+    // staff-command.ts ra 0 kết quả — model không có đồng hồ nên đoán mò, và
+    // cả hai ca đều rơi về CÙNG một ngày bịa 20/06/2026. NV hỏi "bán ra hôm
+    // nay", bot đáp "hôm nay (20/06/2026)" kèm 7 mã "bất thường" — kho đi đếm
+    // vô ích. Đây là NĂNG LỰC MỚI, không phải diễn giải thêm: không có ngày
+    // trong prompt thì không câu chữ nào cứu được.
+    //
+    // CHI PHÍ THÊM +75 ký tự ròng, ĐÃ NÉN TRƯỚC KHI NỚI (−49 ký tự):
+    //   · dòng ngày "Hôm nay là Thứ Ba, 11/08/2026 (giờ Việt Nam)." = 45
+    //   · dòng định tuyến `ky` (chống model tự nhẩm ngày khi gọi tool) = 79
+    //   · nén lại: gộp 2 luật kỳ, rút gọn 3 dòng đã có (−49)
+    // Ký tự tĩnh vẫn rẻ 4x nhờ implicit cache — và dòng ngày CỐ Ý chỉ có NGÀY,
+    // không có giờ/phút, để prefix cache chỉ đổi 1 lần/24h thay vì mỗi lượt.
+    expect(buildStaffSystemPrompt(BIZ_THAT).length).toBeLessThan(3600);
   });
 });
 
