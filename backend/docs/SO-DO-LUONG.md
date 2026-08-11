@@ -30,9 +30,10 @@ flowchart TD
     A["Tin nhắn Zalo vào<br/>(bot đọc qua nick Zalo)"] --> B["Lưu tin vào CRM"]
     B --> C{"Tin dạng gì?"}
 
-    C -->|"Sticker / GIF / Link"| D["Bỏ qua có chủ đích<br/>(người thật cũng không đáp sticker)"]
+    C -->|"Sticker / GIF"| D["Bỏ qua có chủ đích<br/>(người thật cũng không đáp sticker)"]
     C -->|"Ảnh"| E["Bot đọc ảnh thành chữ"]
     C -->|"Voice / Video / File"| F["Chưa đọc được:<br/>nhắn giữ chân khách + báo nhân viên"]
+    C -->|"Link"| L["Bot KHÔNG mở link (tránh SSRF):<br/>nhắn giữ chân + báo nhân viên,<br/>kèm tên trang + tên tài liệu Zalo gửi sẵn"]
     C -->|"Chữ"| G
 
     E -->|"Đọc được"| G{"Ai đang nói?"}

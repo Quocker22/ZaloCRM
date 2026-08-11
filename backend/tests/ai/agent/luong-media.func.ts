@@ -102,6 +102,88 @@ describe('xuLyTinMedia — ảnh/voice: giữ chân + báo người', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// LINK (11/08) — anh Quốc soi sơ đồ luồng và bắt được: 'link' bị gom chung
+// nhóm bỏ qua với sticker/gif. Lý do gom ("người thật cũng không đáp sticker")
+// ĐÚNG với sticker nhưng SAI với link: sticker KHÔNG mang thông tin, còn link
+// thì CÓ. Ca thật đo trên prod 60 ngày: khách gửi đúng 1 link — một Google
+// Sheet tên "Thông số sản phẩm LED NELIA", nhiều khả năng là bảng hàng cần
+// báo giá. Bot im hoàn toàn, khách tưởng đã nhận.
+describe('link — KHÔNG được im lặng (bug 11/08)', () => {
+  // Nguyên văn content của tin thật trên prod (rút gọn thumb cho gọn).
+  // Chú ý shape: `title` = chính URL do Zalo tự bung thẻ, còn TÊN người gõ/đặt
+  // nằm trong params.mediaTitle. Đây là lý do phải bóc params, không dùng title.
+  const LINK_SHEET = JSON.stringify({
+    title: 'https://docs.google.com/spreadsheets/d/1RygKKQMBOGkvYOjbfRA5YYTbJrE-_hKkF59EOu9eBO8/edit?gid=0#gid=0',
+    description: '',
+    href: 'https://docs.google.com/spreadsheets/d/1RygKKQMBOGkvYOjbfRA5YYTbJrE-_hKkF59EOu9eBO8/edit?gid=0#gid=0',
+    thumb: 'https://photo-stal-3.zdn.vn/gr/abc.jpg',
+    action: 'recommened.link',
+    params: JSON.stringify({ src: 'docs.google.com', mediaTitle: 'Thông số sản phẩm LED NELIA' }),
+  });
+
+  it('CA THẬT: khách gửi Google Sheet → giữ chân khách + báo nhân viên, KHÔNG im lặng', async () => {
+    const kq = await xuLyTinMedia({ ...CTX, content: LINK_SHEET }, 'link');
+
+    expect(kq).toBe(true);
+    expect(guiTin).toHaveBeenCalled();
+    const guiKhach = vi.mocked(guiTin).mock.calls.map((c) => c[1]).find((t) => t.includes('em đã nhận được'));
+    expect(guiKhach).toContain('đường link');
+  });
+
+  it('tin báo nhân viên nêu RÕ tên trang + tên tài liệu để người biết mở cái gì', async () => {
+    await xuLyTinMedia({ ...CTX, content: LINK_SHEET }, 'link');
+
+    const baoNv = vi.mocked(guiTin).mock.calls.map((c) => c[1]).find((t) => t.includes('docs.google.com'));
+    expect(baoNv).toBeTruthy();
+    expect(baoNv).toContain('Thông số sản phẩm LED NELIA');
+  });
+
+  it('BẢO MẬT: bot KHÔNG tự đi tải nội dung link (chặn SSRF + prompt injection)', async () => {
+    // Khách gửi link trỏ vào MẠNG NỘI BỘ để dò hệ thống. Bot chỉ được nhắc
+    // lại URL cho người thật, tuyệt đối không fetch. Nếu ai đó sau này thêm
+    // fetch vào đây, test này phải đỏ.
+    const fetchGiaLap = vi.spyOn(globalThis, 'fetch');
+    const LINK_NOI_BO = JSON.stringify({
+      title: 'http://100.107.48.28:5432/', href: 'http://100.107.48.28:5432/',
+      action: 'recommened.link', params: '{"src":"100.107.48.28"}',
+    });
+
+    const kq = await xuLyTinMedia({ ...CTX, content: LINK_NOI_BO }, 'link');
+
+    expect(kq).toBe(true);
+    expect(fetchGiaLap).not.toHaveBeenCalled();
+  });
+
+  it('link do BOT tự gửi (isSelf) → không tự xử lý, tránh bot nói với chính mình', async () => {
+    // Prod 60 ngày: 1/2 tin link là của nick shop (link mời vào nhóm). Bot mà
+    // giữ chân chính nó thì thành vòng lặp.
+    const kq = await xuLyTinMedia({ ...CTX, content: LINK_SHEET, isSelf: true }, 'link');
+
+    expect(kq).toBe(false);
+    expect(guiTin).not.toHaveBeenCalled();
+  });
+
+  it('link trong NHÓM → không giữ chân (ồn), như voice/file', async () => {
+    const kq = await xuLyTinMedia({ ...CTX, content: LINK_SHEET, laNhom: true }, 'link');
+
+    expect(kq).toBe(false);
+    expect(guiTin).not.toHaveBeenCalled();
+  });
+
+  it('link nhiều lần → throttle: vẫn chỉ MỘT lượt giữ chân + báo', async () => {
+    for (let i = 0; i < 4; i++) await xuLyTinMedia({ ...CTX, content: LINK_SHEET }, 'link');
+
+    expect(guiTin).toHaveBeenCalledTimes(2);
+  });
+
+  it('sticker/gif VẪN bỏ qua — đừng phá cái đang đúng', async () => {
+    expect(await xuLyTinMedia({ ...CTX, content: LINK_SHEET }, 'sticker')).toBe(true);
+    expect(await xuLyTinMedia({ ...CTX, content: LINK_SHEET }, 'gif')).toBe(true);
+    expect(guiTin).not.toHaveBeenCalled();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // ĐỌC ẢNH (10/08) — anh Quốc: "làm bot đọc được ảnh… chỉ đọc ảnh rồi lấy
 // thông tin xử lý thôi". Ảnh → chữ → luồng thường, nên mọi nghiệp vụ sẵn có
 // (gom đơn, tra khách, tool Odoo) dùng được với ảnh mà không viết lại đường nào.
