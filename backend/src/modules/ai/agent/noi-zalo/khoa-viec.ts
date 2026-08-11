@@ -15,6 +15,21 @@
 //
 // Khoá này đặt NGAY KHI BẮT ĐẦU và theo NỘI DUNG việc (không theo messageId):
 // hai lượt trên đến từ hai tin khác nhau nhưng cùng một việc.
+//
+// DÙNG Ở CẢ HAI LUỒNG từ 11/08. Ban đầu chỉ luồng nhân viên, vì bug 21:34 xảy
+// ra ở đó. Dò lại prod thấy luồng KHÁCH có đúng cùng khe hở — hội thoại
+// 0d81fe67 (chat 1-1), 04/08:
+//   18:23:41.303  khách "chào"  messageId 24f20f8e…
+//   18:23:46.550  khách "chào"  messageId a558b28e…   ← id KHÁC, cùng một việc
+//   18:23:59 + 18:24:15  bot chào LẠI hai lần
+// `aiSuggestion.count` đếm theo messageId nên không thấy gì; `coTinKhachMoiHon`
+// chạy sau LLM và lượt tin mới nhất không có tin nào mới hơn để bỏ.
+//
+// RANH GIỚI với hai lớp kia (đừng gộp — mỗi lớp một bài toán):
+//   - lớp này        : hai TIN KHÁC NHAU, cùng NỘI DUNG, trong ~100 giây
+//   - aiSuggestion   : CÙNG MỘT TIN được xử lý lại, không giới hạn thời gian
+//   - coTinKhachMoiHon: tin nội dung KHÁC NHAU, cần GỘP ngữ cảnh chứ không phải
+//                       chặn trùng
 import { createHash } from 'node:crypto';
 import { getRedis } from '../../../../shared/redis-client.js';
 import { logger } from '../../../../shared/utils/logger.js';

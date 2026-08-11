@@ -222,3 +222,47 @@ quát: đọc, khám phá, làm) · giá bất thường `gom-don/gia-bat-thuong
 tiền khách `noi-zalo/cong-tac.ts:tranTienKhach` · bốn hàng rào chống hứa lèo
 `agent/y-dinh-dung.ts` (`khoeDaGhi`, `khoeDaGuiAnh`, `khoeDaGuiTaiLieu`,
 `khoeDaChuyenSale`).
+
+---
+
+## Sơ đồ 4 — Ba lớp chống trả lời trùng: lớp nào chặn cái gì
+
+Bot từng trả lời hai lần cho cùng một việc, và mỗi lần sửa lại đẻ ra một lớp
+bảo vệ mới. Đến 11/08 có ba lớp chồng lên nhau, mỗi lớp một cơ chế khác nhau.
+Đã rà lại: **ba lớp giải ba bài toán KHÁC NHAU, không lớp nào thay được lớp
+nào.** Ai định gộp cho gọn thì đọc bảng dưới trước — gộp nhầm là mở lại ba bug
+cũ cùng lúc.
+
+| | Lớp 1 — Khoá việc | Lớp 2 — Đã trả lời tin này | Lớp 3 — Có tin mới hơn |
+|---|---|---|---|
+| **Chặn tình huống** | Hai TIN KHÁC NHAU mang CÙNG một việc | CÙNG MỘT TIN bị đưa vào xử lý lại | Khách gõ nhiều tin ngắn liên tiếp |
+| **Nhận biết bằng** | Băm nội dung câu | Mã số tin (messageId) | Có tin khách nào mới hơn không |
+| **Chặn lúc** | Ngay đầu lượt, trước khi tốn tiền model | Ngay đầu lượt | Sau khi model soạn xong câu |
+| **Sống bao lâu** | 100 giây | Vĩnh viễn | Trong một lượt |
+| **Bug gốc** | 21:34 10/08 nhóm + 18:23 04/08 khách | Zalo gửi lại / sync lại lịch sử | 07/08, học Chatwoot |
+| **Dùng ở luồng** | Nhân viên + Khách (từ 11/08) | Khách | Cả hai |
+
+**Vì sao không gộp được — mỗi ô trống là một bug sống lại:**
+
+- **Bỏ Lớp 1, giữ Lớp 2?** Không được. Lớp 2 đếm theo mã số tin, mà hai tin
+  "chào" của khách là hai mã khác nhau → Lớp 2 đếm ra 0 cho cả hai lượt, bot
+  chào lại hai lần. Đúng ca đã xảy ra 18:23 ngày 04/08.
+- **Bỏ Lớp 2, giữ Lớp 1?** Không được. Khoá việc chỉ sống 100 giây. Tin cũ được
+  Zalo gửi lại hoặc sync lại sau đó thì khoá đã hết hạn, chỉ còn Lớp 2 đứng chặn.
+- **Bỏ Lớp 3, giữ Lớp 1?** Không được. Lớp 3 xử lý các tin có nội dung KHÁC
+  NHAU ("cả tháng này" rồi "và tháng trước") — băm nội dung không hề khớp nên
+  Lớp 1 không thấy gì. Đây là bài toán GỘP NGỮ CẢNH, không phải chặn trùng.
+
+**Một ngoại lệ phải nhớ:** câu xác nhận ngắn ("ok", "đúng rồi", "vâng") được
+**miễn trừ** khỏi Lớp 1 và Lớp 3. Lý do là bug S13804 ngày 07/08: câu xác nhận
+lần nào cũng giống hệt nhau, nếu đem chặn trùng thì lượt thứ hai bị nuốt, bot
+hỏi lại vô tận và đơn không bao giờ được ghi. Đánh đổi có chủ ý — thà bot đáp
+hai câu "ok" ngắn còn hơn mất hẳn một đơn.
+
+**Chú thích cho lập trình viên:** Lớp 1 `noi-zalo/khoa-viec.ts:thuGiuViec`
+(Redis `SET NX EX`, hạn 100 giây, băm SHA-1 nội dung đã chuẩn hoá; rơi xuống
+khoá bộ nhớ khi Redis lỗi — thà trả lời hai lần còn hơn nuốt lệnh) · Lớp 2
+`luong-khach.ts` đếm `aiSuggestion` theo `messageId` + `type='auto_reply_agent'`
+· Lớp 3 `du-lieu.ts:coTinKhachMoiHon`, gọi sau khi agent chạy xong và chỉ khi
+chưa ghi tool nào · ngoại lệ xác nhận `cam-xuc.ts:laXacNhanNgan`. Test khoá
+ranh giới ba lớp: `tests/ai/agent/chong-tra-loi-trung.func.ts`.

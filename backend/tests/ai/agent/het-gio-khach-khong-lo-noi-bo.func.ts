@@ -62,6 +62,7 @@ import { chayTuVanKhach } from '../../../src/modules/ai/agent/customer-agent.js'
 import { guiTin } from '../../../src/modules/ai/agent/noi-zalo/gui-zalo.js';
 import { CAU_GIU_CHAN } from '../../../src/modules/ai/agent/noi-zalo/bao-nhan-vien.js';
 import { xoaLichSuBao } from '../../../src/modules/ai/agent/noi-zalo/bao-nhan-vien.js';
+import { _resetKhoaViecChoTest } from '../../../src/modules/ai/agent/noi-zalo/khoa-viec.js';
 
 const ctx = {
   orgId: 'o1', bizName: 'Shop', conversationId: 'c-het-gio', messageId: 'm1',
@@ -79,6 +80,10 @@ beforeEach(() => {
   process.env.ODOO_PASSWORD = 'p';
   vi.clearAllMocks();
   xoaLichSuBao(); // throttle báo nhân viên dùng chung Map — dọn giữa mỗi ca
+  // KHOÁ VIỆC cũng là state dùng chung trong tiến trình (11/08): mọi ca ở đây
+  // dùng CÙNG một `ctx` (cùng hội thoại, cùng câu), nên khoá do ca trước đặt sẽ
+  // chặn ca sau và làm test đỏ oan. Dọn giữa mỗi ca, giống xoaLichSuBao.
+  _resetKhoaViecChoTest();
 });
 afterEach(() => { process.env = goc; });
 

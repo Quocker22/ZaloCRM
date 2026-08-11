@@ -15,7 +15,7 @@ import { chayTuVanKhach } from '../customer-agent.js';
 import { napGuidelineKhach, type PrismaGuideline } from '../guideline-store.js';
 import { coTagBot } from '../staff-command.js';
 import { chiCoEmoji } from './chi-co-emoji.js';
-import { laBucTuc } from './cam-xuc.js';
+import { laBucTuc, laXacNhanNgan } from './cam-xuc.js';
 import { taoGhiLog, type PrismaGhiLog } from '../ghi-log-tool.js';
 import { batLuongKhach, batKhachTuChotDon, duCauHinh, tranTienKhach, chanDonLienKeGiay } from './cong-tac.js';
 import { dungGenerate } from './llm.js';
@@ -25,6 +25,7 @@ import { khoTaiLieuCuaOrg } from '../../knowledge/kho-tai-lieu.js';
 import { baoNhanVien, CAU_GIU_CHAN } from './bao-nhan-vien.js';
 import { demVaKiemTra, CAU_XIN_PHEP } from './gioi-han.js';
 import { taoDung, taoMoc, chayCoHanGio, hanGioLuot } from './dung.js';
+import { thuGiuViec } from './khoa-viec.js';
 import type { NgữCanhTin } from './types.js';
 
 const prismaLog = prisma as unknown as PrismaGhiLog;
@@ -109,12 +110,60 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
   const dich = await timDich(ctx.conversationId);
   if (!dich) return dung('không tra được thread', { conversationId: ctx.conversationId });
 
-  // Chống trả lời hai lần cùng một tin (retry, tin trùng từ Zalo). Trả TRUE —
-  // tin này ĐÃ có câu trả lời, luồng cũ không được nhảy vào.
+  // LỚP CHỐNG TRÙNG 1/2 — theo messageId: chống trả lời hai lần CÙNG một tin
+  // (retry webhook, sync lại lịch sử). Trả TRUE — tin này ĐÃ có câu trả lời,
+  // luồng cũ không được nhảy vào.
+  //
+  // Lớp này KHÔNG phủ được ca hai messageId khác nhau cùng một việc — xem khoá
+  // việc ngay bên dưới. Cũng KHÔNG bỏ được lớp này: bản ghi aiSuggestion sống
+  // vĩnh viễn, còn khoá việc chỉ sống 100 giây, nên tin cũ quay lại sau đó chỉ
+  // còn lớp này đứng chặn.
   const daXuLy = await prisma.aiSuggestion.count({
     where: { orgId: ctx.orgId, messageId: ctx.messageId, type: 'auto_reply_agent' },
   });
   if (daXuLy > 0) return true;
+
+  // LỚP CHỐNG TRÙNG 2/2 — KHOÁ VIỆC theo NỘI DUNG (đưa từ luồng nhân viên sang,
+  // 11/08). Chặn HAI messageId KHÁC NHAU cùng mang MỘT việc.
+  //
+  // Khe hở đo được trên prod, hội thoại 0d81fe67 (chat 1-1 với khách), 04/08:
+  //   18:23:41.303  khách "chào"   messageId 24f20f8e…
+  //   18:23:46.550  khách "chào"   messageId a558b28e…  ← id KHÁC
+  //   18:23:59.588  bot  "Dạ chào anh Quốc, em chào lại anh ạ…"
+  //   18:24:15.987  bot  "Dạ chào anh Quốc ạ! Em đã kiểm tra thông tin rồi ạ…"
+  // → khách nhận HAI câu chào cho cùng một việc. Đây chính là bug 21:34 10/08
+  // của luồng nhân viên, chỉ khác chỗ xảy ra.
+  //
+  // Vì sao hai lớp kia không cứu được:
+  //   - `aiSuggestion.count` đếm theo messageId — hai id khác nhau thì mỗi lượt
+  //     đều đếm ra 0.
+  //   - `coTinKhachMoiHon` chỉ chạy SAU khi LLM xong, và lượt của tin MỚI NHẤT
+  //     không có tin nào mới hơn nữa để mà bỏ.
+  // Chỉ khoá nguyên tử đặt NGAY ĐẦU LƯỢT, băm theo nội dung, mới chặn được.
+  //
+  // Đặt TRƯỚC `dungGenerate` để lượt bị chặn không đốt tiền model.
+  //
+  // Trả TRUE chứ KHÔNG dùng `dung()` (vốn trả false): false là "nhường luồng RAG
+  // cũ", mà RAG nhảy vào đúng lúc này thì khách vẫn nhận hai câu — chỉ khác là
+  // câu thứ hai do hệ khác nói. Việc này lượt khác đang làm rồi: im hẳn.
+  //
+  // NGOẠI LỆ — CÂU XÁC NHẬN NGẮN ("ok", "đúng rồi", "vâng"): KHÔNG khoá.
+  // Bài học S13804 07/08: câu xác nhận là tín hiệu QUYẾT ĐỊNH, nuốt nó là bot
+  // hỏi lại vô tận và đơn không bao giờ được ghi. Mà "ok" thì lần nào cũng băm
+  // ra cùng một khoá, nên khách đáp "ok" cho hai câu hỏi KHÁC NHAU của bot sẽ
+  // mất lượt thứ hai — đúng cái bug đó sống lại. Cùng lý do luồng nhân viên
+  // miễn trừ câu xác nhận khỏi `coTinKhachMoiHon`.
+  //
+  // Đánh đổi có chủ ý: hai tin "ok" trùng thật thì bot đáp hai lần (phiền, một
+  // câu ngắn), còn khoá nhầm thì mất hẳn một đơn. Ưu tiên KHÔNG mất đơn.
+  const laXacNhan = laXacNhanNgan(ctx.content);
+  if (!laXacNhan && !(await thuGiuViec(ctx.conversationId, ctx.content))) {
+    logger.info(
+      { conversationId: ctx.conversationId, noiDung: ctx.content.slice(0, 40) },
+      '[agent/khach] việc này lượt khác đang xử lý — im lặng bỏ qua',
+    );
+    return true;
+  }
 
   // NGÂN SÁCH THỜI GIAN cho cả lượt (11/08) — y như luồng nhân viên.
   //
