@@ -47,6 +47,34 @@ const NHAN_LENH_SUA_DON =
 const boQuote = (cau: string): string =>
   cau.replace(/^\[Trả lời tin: "[\s\S]{0,220}?"\]\s*/, '');
 
+/** Xưng hô đầu câu + đuôi lịch sự — bóc ra để lấy phần TÊN thật. */
+const XUNG_HO_DAU = /^(?:anh|chị|chi|em|bác|bac|cô|co|chú|chu|ông|ong|bà|ba)\s+/i;
+const DUOI_LICH_SU = /\s+(?:nhé|nhe|nha|nhá|ạ|đi|ơi|nè)\.?$/i;
+
+/**
+ * Câu trả lời của NV có phải TÊN KHÁCH RÕ HƠN từ khoá đang tra không?
+ *
+ * Bug thật 16:15 11/08: bot liệt 10 khách "Long", NV gõ "Anh Long Led" — LLM
+ * trích lại cắt về "Long" → dapSlot thấy không đổi → không tra lại → bot lặp
+ * nguyên danh sách vô hạn. Code phải tự nhận ra: câu NGẮN, CHỨA từ khoá cũ và
+ * DÀI HƠN nó nghĩa là nhân viên đang nói rõ thêm tên — dùng nguyên câu (bỏ
+ * xưng hô, bỏ đuôi lịch sự) làm từ khoá tra mới, không chờ LLM trích đúng.
+ *
+ * Cố ý HẸP: câu >6 từ (lệnh dài), không chứa từ khoá cũ ("9999", "ko thấy"),
+ * hay y hệt từ khoá cũ → trả null, đi đường khác. Thà bỏ sót còn hơn tra bừa.
+ */
+export function tachTenRoHon(cau: string, tuKhoaCu: string): string | null {
+  let s = cau.trim();
+  for (let i = 0; i < 3; i++) s = s.replace(DUOI_LICH_SU, '').trim();
+  s = s.replace(XUNG_HO_DAU, '').trim();
+  if (!s || s.split(/\s+/).length > 6) return null;
+  const sMoi = boDau(s);
+  if (!/[a-z]/.test(sMoi)) return null; // toàn số/ký hiệu — không phải tên
+  const cu = boDau(tuKhoaCu.trim());
+  if (!cu || sMoi === cu || !sMoi.includes(cu)) return null;
+  return s;
+}
+
 export interface GomDonDeps {
   prisma: DbPhienGomDon;
   odoo: Pick<OdooClient, 'searchRead' | 'execute'>;
@@ -68,6 +96,7 @@ function dapSlot(p: PhienGom, trich: KetQuaTrich): boolean {
       // Đổi khách giữa chừng → làm lại phần khách từ đầu, bỏ ứng viên cũ.
       p.khachTuKhoa = trich.khach;
       delete p.khachUngVien;
+      delete p.khachUngVienConNua;
       delete p.khachKhongThay;
       doi = true;
     }
@@ -192,10 +221,15 @@ async function chayTraCuu(
       });
       if (kq.trangThai === 'tim_thay') {
         p.khachDaChot = { id: kq.khach.id, ten: kq.khach.ten, ma: kq.khach.ma, dienThoai: kq.khach.dienThoai };
+        delete p.khachUngVienConNua;
       } else if (kq.trangThai === 'nhieu_ket_qua') {
         p.khachUngVien = kq.danhSach;
+        // Chạm trần → danh sách CHƯA ĐỦ, loi-nhan phải nói rõ (bug 16:15 11/08).
+        if (kq.conNua) p.khachUngVienConNua = true;
+        else delete p.khachUngVienConNua;
       } else {
         p.khachKhongThay = true;
+        delete p.khachUngVienConNua;
       }
     })());
   }
@@ -424,6 +458,20 @@ export async function xuLyGomDon(
     ...(laLenhSua || trich.sua ? { che: 'sua' as const } : {}),
   };
   const doiNoiDung = dapSlot(phien, trich);
+
+  // ĐƯỜNG THOÁT 4 (bug 16:15 11/08): đang chờ chọn khách mà câu không map được
+  // và LLM trích không đem lại từ khoá mới → thử chính CÂU của NV: nếu là "tên
+  // rõ hơn" ("Anh Long Led" khi đang tra "Long") thì tra lại bằng tên đó.
+  if (!daChon && phien.khachUngVien && !phien.khachDaChot && phien.khachTuKhoa) {
+    const tenRoHon = tachTenRoHon(cauChon, phien.khachTuKhoa);
+    if (tenRoHon) {
+      phien.khachTuKhoa = tenRoHon;
+      delete phien.khachUngVien;
+      delete phien.khachUngVienConNua;
+      delete phien.khachKhongThay;
+    }
+  }
+
   if ((daChon || doiNoiDung) && phien.daHoiChot) {
     // Nội dung đơn thay đổi sau khi đã hỏi chốt → phải tóm tắt lại, không được
     // lấy cái gật cũ áp cho đơn mới.
@@ -515,7 +563,19 @@ export async function xuLyGomDon(
 
   // 3. Hành động nói: render template, cập nhật cờ, lưu phiên.
   const loiBao = daBoPhienCu ? 'Em bỏ đơn đang gom dở nhé.\n' : '';
-  await deps.guiTin(loiBao + renderLoiNhan(hd, phien));
+  let tin = loiBao + renderLoiNhan(hd, phien);
+  // GUARD CHỐNG LẶP NGUYÊN VĂN (bug 16:15 11/08): gửi lại y hệt tin trước là
+  // bot "điếc" — NV gõ gì cũng nhận một tường chữ. Trùng thì đổi thành câu
+  // ngắn chỉ rõ các đường thoát. So với tin ĐÃ GỬI gần nhất nên hai lượt liên
+  // tiếp không bao giờ giống hệt nhau.
+  if (tin === phien.tinCuoi) {
+    tin =
+      `Em vẫn chưa khớp được "${cauChon.slice(0, 80)}" với lựa chọn nào ạ. ` +
+      'Anh/chị chọn SỐ THỨ TỰ trong danh sách trên, gõ SĐT hoặc mã KH của khách, ' +
+      'nói "khách mới" nếu khách chưa có, hoặc "huỷ" để làm lại giúp em.';
+  }
+  phien.tinCuoi = tin;
+  await deps.guiTin(tin);
   phien.daHoiChot = hd.loai === 'tom_tat_cho_chot';
   if (hd.loai === 'khong_thay') {
     // Đã báo không thấy — dọn phần hỏng để NV gõ lại từ khoá khác.

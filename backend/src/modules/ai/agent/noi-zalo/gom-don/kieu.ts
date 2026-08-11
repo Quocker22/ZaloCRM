@@ -46,6 +46,11 @@ export interface PhienGom {
   khachTuKhoa: string | null;
   khachDaChot?: Pick<KhachHang, 'id' | 'ten' | 'ma' | 'dienThoai'>;
   khachUngVien?: KhachHang[];
+  /**
+   * Danh sách ứng viên CHẠM TRẦN tra cứu — còn khách trùng ngoài danh sách.
+   * Bug 16:15 11/08: "Anh Long Led" nằm ngoài 10 người đầu mà không ai biết.
+   */
+  khachUngVienConNua?: boolean;
   khachKhongThay?: boolean;
   /**
    * Thông tin khách MỚI nhân viên cung cấp khi tra không ra ("khách mới",
@@ -71,6 +76,11 @@ export interface PhienGom {
   donKhongThay?: boolean;
   /** Số lần tạo đơn thất bại liên tiếp — 2 lần thì bỏ phiên (chống kẹt 10/08). */
   soLanLoi?: number;
+  /**
+   * Tin máy đã gửi GẦN NHẤT — guard chống lặp nguyên văn (bug 16:15 11/08:
+   * NV gõ gì cũng nhận lại đúng một tường chữ danh sách). Trùng thì đổi lời.
+   */
+  tinCuoi?: string;
   /**
    * UID Zalo của người ĐANG được bot hỏi (người mở phiên).
    *

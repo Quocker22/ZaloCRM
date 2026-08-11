@@ -18,6 +18,12 @@ function danhSachChon(p: PhienGom): string {
         (k, i) => `${i + 1}) ${k.ten}${k.ma ? ` · ${k.ma}` : ''}${k.dienThoai ? ` · ${k.dienThoai}` : ''}`,
       ),
     );
+    // Tra cứu chạm trần → danh sách CHƯA ĐỦ, phải nói rõ. Cắt im lặng làm
+    // nhân viên tưởng hệ thống không có khách đó (bug 16:15 11/08: "ủa tại sao
+    // không tìm thấy anh Long led???" — anh ấy nằm ngoài 10 người đầu).
+    if (p.khachUngVienConNua) {
+      phan.push('Danh sách CHƯA ĐỦ — còn khách trùng khác. Không thấy đúng người, anh/chị gõ tên đầy đủ hơn hoặc SĐT giúp em.');
+    }
   }
   for (const d of p.dong) {
     if (!d.ungVien?.length) continue;
