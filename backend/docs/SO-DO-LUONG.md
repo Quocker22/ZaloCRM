@@ -50,6 +50,7 @@ flowchart TD
     C -->|"Ảnh"| E["Bot đọc ảnh thành chữ"]
     C -->|"Voice / Video / File"| F["Chưa đọc được:<br/>nhắn giữ chân khách + báo nhân viên"]
     C -->|"Link"| L["Bot KHÔNG mở link (tránh SSRF):<br/>nhắn giữ chân + báo nhân viên,<br/>kèm tên trang + tên tài liệu Zalo gửi sẵn"]
+    C -->|"Danh thiếp Zalo<br/>(tên + số điện thoại)"| DT["Bóc tên + SĐT nhưng KHÔNG tự tra Odoo,<br/>KHÔNG tự tạo khách:<br/>nhắn giữ chân + báo nhân viên kèm tên + SĐT"]
     C -->|"Chữ"| G
 
     E -->|"Đọc được"| G{"Ai đang nói?"}
@@ -85,7 +86,21 @@ flowchart TD
     Z1["Gửi tin về Zalo<br/>(kèm ảnh hoá đơn, file báo cáo, QR)"]
     Z3["Nhắn giữ chân khách<br/>+ báo nhân viên vào tiếp"]
     F --> Z3
+    L --> Z3
+    DT --> Z3
 ```
+
+**Vì sao danh thiếp KHÔNG tự tạo khách.** Danh thiếp Zalo có sẵn tên và số
+điện thoại — đúng thứ bot cần để tạo khách mới, và đo thật 60 ngày thì 4/4 số
+nhận được đều chưa có trong Odoo. Nhưng ở chỗ này bot **không phân biệt được**
+"nhân viên gửi danh thiếp khách mới" với "khách gửi danh thiếp người quen", mà
+hai ca đó đòi hai cách xử đối nghịch: ca đầu tra Odoo là đúng việc, ca sau tra
+rồi đáp "số này là anh Vấn KH000027" là **rò dữ liệu người thứ ba** — khách
+không có quyền biết shop có hồ sơ gì về người quen của họ. Không phân biệt
+được thì chọn mức an toàn cho ca xấu nhất: báo người thật kèm tên + SĐT, để
+người quyết định. Nhân viên muốn tạo khách thì gõ lệnh như mọi khi, khi đó đi
+qua luồng nhân viên với công cụ `tao_khach_hang` và hàng rào chống trùng sẵn
+có. Câu nhắn cho khách cố ý **không** nhắc lại tên/SĐT trong danh thiếp.
 
 **Chú thích cho lập trình viên:** điểm vào `chat/message-handler.ts` ·
 phân loại ảnh/file `noi-zalo/luong-media.ts` + `doc-anh.ts` · luồng nhân viên

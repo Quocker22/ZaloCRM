@@ -11,6 +11,9 @@
 //                      trả lời "em đã nhận sticker" nghe máy móc hơn cả im lặng.
 //   image/voice/     → KHÔNG đọc được nội dung → câu giữ chân + báo nhân viên
 //   video/file/link    (tái dùng bao-nhan-vien, có sẵn throttle 10 phút).
+//   danh thiếp       → ĐỌC được tên + SĐT, nhưng CỐ Ý chỉ báo người chứ không
+//   (qr_code /         tự tra/tạo khách — xem khối lý do bảo mật ở chỗ dựng
+//    contact_card)     tin báo trong `xuLyTinMedia`.
 //   text chỉ emoji   → như sticker: bỏ qua, KHÔNG gọi LLM ("👍" mà đi hết một
 //                      lượt agent là đốt ~3k token cho một cái like).
 import { logger } from '../../../../shared/utils/logger.js';
@@ -35,7 +38,14 @@ const LOAI_CAN_NGUOI: Record<string, string> = {
   // LINK (11/08) — xem khối comment dưới LOAI_BO_QUA để biết vì sao link nằm
   // ở đây chứ không nằm trong nhóm bỏ qua.
   link: 'đường link',
+  // DANH THIẾP (11/08) — hai nhãn, cùng một thứ. Xem khối comment ở
+  // `moTaDanhThiep` để biết vì sao 'qr_code' KHÔNG phải QR chuyển khoản.
+  qr_code: 'danh thiếp',
+  contact_card: 'danh thiếp',
 };
+
+/** Loại tin là DANH THIẾP — hai nhãn của cùng một thứ, xem `moTaDanhThiep`. */
+const LOAI_DANH_THIEP = new Set(['qr_code', 'contact_card']);
 
 /**
  * Loại tin bỏ qua có chủ đích — đáp lại còn máy móc hơn im lặng.
@@ -98,6 +108,49 @@ export function moTaLink(content: string): { trang: string; ten: string; url: st
 }
 
 /**
+ * Bóc TÊN + SỐ ĐIỆN THOẠI khỏi một tin DANH THIẾP ZALO.
+ *
+ * ─── NHÃN 'qr_code' KHÔNG PHẢI QR CHUYỂN KHOẢN (đo thật 11/08) ───
+ * `detectContentType` gắn nhãn 'qr_code' cho mọi tin có `description` chứa
+ * chữ "qrCodeUrl", với comment cũ đoán là "QR Code (VietQR/bank)". Đo trên
+ * prod 60 ngày thì SAI: cả 5 tin đều là DANH THIẾP ZALO — tên người + số điện
+ * thoại, kèm URL ảnh QR để người khác quét kết bạn. Không có đồng nào chuyển
+ * khoản trong đó. Ai đọc code này về sau đừng bị cái tên nhãn dẫn đi lạc.
+ *
+ * Shape thật (nguyên văn tin 10/08 10:20, chỉ rút gọn URL):
+ *   { "title": "Ledbinhnguyen",
+ *     "description": "{\"phone\":\"0934786998\",\"qrCodeUrl\":\"https://qr-talk.zdn.vn/...\"}" }
+ *
+ * JSON LỒNG HAI TẦNG: `description` là một CHUỖI JSON, không phải object —
+ * phải parse hai lần. Tầng nào hỏng thì bỏ tầng đó, KHÔNG ném lỗi: tin đến từ
+ * ngoài, một tin dị dạng không được làm chết cả luồng media.
+ *
+ * CỐ Ý không tải `qrCodeUrl`: thông tin cần (tên + SĐT) đã nằm sẵn trong text,
+ * tải thêm chỉ mở rủi ro mà không được gì.
+ */
+export function moTaDanhThiep(content: string): { ten: string; sdt: string } {
+  let o: Record<string, unknown> = {};
+  try {
+    o = JSON.parse(String(content ?? '')) as Record<string, unknown>;
+  } catch {
+    // Tầng ngoài hỏng → không có gì để bóc, caller vẫn báo người với tin rỗng.
+    return { ten: '', sdt: '' };
+  }
+
+  const ten = typeof o.title === 'string' ? o.title.trim() : '';
+
+  let sdt = '';
+  try {
+    const d = JSON.parse(String(o.description ?? '{}')) as Record<string, unknown>;
+    if (typeof d.phone === 'string') sdt = d.phone.trim();
+  } catch {
+    // Tầng trong hỏng — vẫn còn TÊN để nhân viên tự tra, hơn là im lặng.
+  }
+
+  return { ten, sdt };
+}
+
+/**
  * Xử lý một tin media từ KHÁCH (1-1). Trả `true` = đã xử lý xong phần mình.
  *
  * KHÔNG chạy trong nhóm: giữ chân giữa nhóm đông người vừa vô nghĩa vừa ồn.
@@ -145,6 +198,14 @@ export async function xuLyTinMedia(
     return false;
   }
 
+  // DANH THIẾP do CHÍNH BOT/nick shop gửi → không tự xử lý. Nick shop gửi danh
+  // thiếp là để GIỚI THIỆU nhân viên cho khách; bot mà giữ chân chính nó thì
+  // thành vòng lặp tự nói với mình, y như trường hợp link ở trên.
+  if (LOAI_DANH_THIEP.has(contentType) && ctx.isSelf) {
+    logger.info({ conversationId: ctx.conversationId }, '[agent/khach] danh thiếp do nick shop gửi — bỏ qua');
+    return false;
+  }
+
   // ẢNH — ĐỌC được (10/08). Anh Quốc: "làm bot đọc được ảnh… chỉ đọc ảnh rồi
   // lấy thông tin xử lý thôi". Chuyển ảnh thành CHỮ rồi ném vào đúng luồng
   // thường, nên toàn bộ nghiệp vụ sẵn có (gom đơn, tra khách, tool Odoo) dùng
@@ -176,6 +237,37 @@ export async function xuLyTinMedia(
     const { trang, ten, url } = moTaLink(ctx.content ?? '');
     tinKhach = `[${loai}]${ten ? ` ${ten}` : ''}${trang ? ` (${trang})` : ''}${url ? ` — ${url}` : ''}`;
     lyDo = `khách gửi đường link${trang ? ` từ ${trang}` : ''} — bot KHÔNG mở link, cần người xem`;
+  }
+
+  // DANH THIẾP: nhét TÊN + SĐT vào tin báo, để nhân viên tra Odoo và quyết
+  // định tạo khách hay không mà không phải lục lại hội thoại.
+  //
+  // ─── VÌ SAO BÁO NGƯỜI CHỨ KHÔNG TỰ TRA/TẠO KHÁCH (chốt 11/08) ───
+  // Cám dỗ là cho bot tra Odoo theo SĐT rồi tự tạo khách — vì đo thật 4/4 số
+  // trong 5 tin danh thiếp KHÔNG có trong Odoo, tức toàn khách mới. Nhưng cả
+  // 5 tin đều đến từ `sender_type='contact'`, mà ở đường này bot KHÔNG phân
+  // biệt được chắc chắn "nhân viên gửi danh thiếp khách mới" với "khách gửi
+  // danh thiếp người quen". Hai ca đó đòi hai cách xử đối nghịch:
+  //   - Nhân viên gửi → tra Odoo là ĐÚNG việc.
+  //   - Khách gửi     → tra rồi đáp "số này là anh Vấn KH000027" là RÒ DỮ
+  //                     LIỆU NGƯỜI THỨ BA. Khách không có quyền biết shop có
+  //                     hồ sơ gì về người quen của họ.
+  // Không phân biệt được thì phải chọn mức an toàn cho ca xấu nhất: báo người
+  // thật, KHÔNG tra, KHÔNG tạo. Nhân viên muốn dùng số này thì gõ lệnh như mọi
+  // khi — khi đó họ đi qua luồng nhân viên, có `tao_khach_hang` với hàng rào
+  // chống trùng sẵn có, và có người chịu trách nhiệm cho lệnh đó.
+  //
+  // Bài học bug "khách rác Long" (KH003199, hoá đơn 21 triệu) cùng ngày: bot
+  // TỰ TẠO khách khi bí là hành vi nguy hiểm. Nhận được danh thiếp KHÔNG phải
+  // là lý do để tạo khách — nó chỉ là lý do để gọi người thật vào.
+  //
+  // Câu gửi KHÁCH cố ý KHÔNG nhắc lại tên/SĐT: nhắc lại thông tin người thứ ba
+  // cho một người thứ ba khác cũng là rò dữ liệu, dù bot chỉ đang lặp lại.
+  if (LOAI_DANH_THIEP.has(contentType)) {
+    const { ten, sdt } = moTaDanhThiep(ctx.content ?? '');
+    tinKhach = `[${loai}]${ten ? ` ${ten}` : ''}${sdt ? ` · ${sdt}` : ''}`;
+    lyDo = `khách gửi danh thiếp Zalo${ten ? ` (${ten}${sdt ? ` · ${sdt}` : ''})` : ''}`
+      + ' — bot KHÔNG tự tra/tạo khách, cần người xem và quyết định';
   }
 
   // baoNhanVien tự throttle theo hội thoại (10 phút): khách gửi album 5 tấm

@@ -15,7 +15,7 @@ vi.mock('../../../src/modules/ai/agent/noi-zalo/gui-zalo.js', () => ({
 }));
 
 import { timDich, guiTin } from '../../../src/modules/ai/agent/noi-zalo/gui-zalo.js';
-import {xuLyTinMedia} from '../../../src/modules/ai/agent/noi-zalo/luong-media.js';
+import { xuLyTinMedia, moTaDanhThiep } from '../../../src/modules/ai/agent/noi-zalo/luong-media.js';
 import { chiCoEmoji } from '../../../src/modules/ai/agent/noi-zalo/chi-co-emoji.js';
 import { xoaLichSuBao } from '../../../src/modules/ai/agent/noi-zalo/bao-nhan-vien.js';
 import { logger } from '../../../src/shared/utils/logger.js';
@@ -180,6 +180,140 @@ describe('link — KHÔNG được im lặng (bug 11/08)', () => {
     expect(await xuLyTinMedia({ ...CTX, content: LINK_SHEET }, 'sticker')).toBe(true);
     expect(await xuLyTinMedia({ ...CTX, content: LINK_SHEET }, 'gif')).toBe(true);
     expect(guiTin).not.toHaveBeenCalled();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DANH THIẾP ZALO (11/08) — rà các loại tin bot chưa xử thì bắt được
+// `contentType='qr_code'` rơi vào nhánh "loại lạ → trả false", tức bot IM LẶNG
+// HOÀN TOÀN. Tên nhãn dễ gây hiểu nhầm là QR chuyển khoản; đo trên prod thì
+// KHÔNG phải: đó là DANH THIẾP ZALO (tên người + số điện thoại).
+//
+// Số đo thật 60 ngày: 5 tin, TẤT CẢ từ sender_type='contact'. Và 4/4 số điện
+// thoại trong đó KHÔNG CÓ trong Odoo — nghĩa là người ta đang gửi danh thiếp
+// KHÁCH MỚI cho bot, đúng thứ bot cần để tạo khách, mà bot bỏ qua.
+//
+// Đối chiếu bug cùng ngày: bot tự BỊA khách rác tên "Long" (KH003199) rồi xuất
+// hoá đơn 21 triệu lên đó chỉ vì tra không ra tên. Nhân viên CÓ cách đưa thông
+// tin chuẩn (tên + SĐT qua danh thiếp) mà bot lại không nhận — hai mặt của
+// cùng một vấn đề.
+describe('danh thiếp Zalo (qr_code) — bot đang IM LẶNG (bug 11/08)', () => {
+  // Nguyên văn content của tin thật trên prod 10/08 10:20 (Ledbinhnguyen).
+  // Chú ý JSON LỒNG: `description` là một CHUỖI JSON chứa phone + qrCodeUrl,
+  // không phải object. Đây là lý do phải parse hai tầng.
+  const DANH_THIEP = JSON.stringify({
+    title: 'Ledbinhnguyen',
+    description: JSON.stringify({
+      phone: '0934786998',
+      qrCodeUrl: 'https://qr-talk.zdn.vn/1/2/abcdef.jpg',
+    }),
+  });
+
+  it('CA THẬT: khách gửi danh thiếp → KHÔNG im lặng nữa (trước đây trả false)', async () => {
+    const kq = await xuLyTinMedia({ ...CTX, content: DANH_THIEP }, 'qr_code');
+
+    expect(kq).toBe(true);
+  });
+
+  it('bóc được TÊN + SỐ ĐIỆN THOẠI từ JSON lồng hai tầng', () => {
+    expect(moTaDanhThiep(DANH_THIEP)).toEqual({
+      ten: 'Ledbinhnguyen',
+      sdt: '0934786998',
+    });
+  });
+
+  it('JSON lồng HỎNG → không ném lỗi, trả về phần bóc được', () => {
+    const hong = JSON.stringify({ title: 'Nguyễn Anh', description: '{hỏng' });
+    expect(() => moTaDanhThiep(hong)).not.toThrow();
+    expect(moTaDanhThiep(hong).ten).toBe('Nguyễn Anh');
+    expect(moTaDanhThiep(hong).sdt).toBe('');
+
+    // JSON ngoài cùng hỏng luôn cũng không được ném.
+    expect(() => moTaDanhThiep('{hỏng hoàn toàn')).not.toThrow();
+    expect(moTaDanhThiep('{hỏng hoàn toàn')).toEqual({ ten: '', sdt: '' });
+  });
+
+  it('BẢO MẬT luồng KHÁCH: chỉ báo người thật, KHÔNG tự tra/tạo khách', async () => {
+    // Khách gửi danh thiếp NGƯỜI KHÁC. Bot tuyệt đối không được tự tạo khách
+    // trong Odoo, và không được lộ thông tin khách khác kiểu "số này là anh
+    // Vấn KH000027" — đó là rò dữ liệu người thứ ba.
+    //
+    // Bài học bug "khách rác Long" cùng ngày: bot tự tạo khách khi bí là hành
+    // vi nguy hiểm. Nhận được danh thiếp KHÔNG phải là lý do để tạo khách.
+    const kq = await xuLyTinMedia({ ...CTX, content: DANH_THIEP }, 'qr_code');
+
+    expect(kq).toBe(true);
+    const guiKhach = vi.mocked(guiTin).mock.calls.map((c) => c[1]).find((t) => t.includes('em đã nhận được'));
+    expect(guiKhach).toContain('danh thiếp');
+    // Câu gửi khách KHÔNG được chứa số điện thoại của người thứ ba.
+    expect(guiKhach).not.toContain('0934786998');
+  });
+
+  it('tin báo NHÂN VIÊN có đủ tên + SĐT để người thật xử lý ngay', async () => {
+    await xuLyTinMedia({ ...CTX, content: DANH_THIEP }, 'qr_code');
+
+    const baoNv = vi.mocked(guiTin).mock.calls.map((c) => c[1]).find((t) => t.includes('0934786998'));
+    expect(baoNv).toBeTruthy();
+    expect(baoNv).toContain('Ledbinhnguyen');
+  });
+
+  it('danh thiếp trong NHÓM → không giữ chân (ồn), như voice/file', async () => {
+    const kq = await xuLyTinMedia({ ...CTX, content: DANH_THIEP, laNhom: true }, 'qr_code');
+
+    expect(kq).toBe(false);
+    expect(guiTin).not.toHaveBeenCalled();
+  });
+
+  it('danh thiếp do NICK SHOP gửi (isSelf) → bỏ qua, tránh bot tự nói với mình', async () => {
+    const kq = await xuLyTinMedia({ ...CTX, content: DANH_THIEP, isSelf: true }, 'qr_code');
+
+    expect(kq).toBe(false);
+    expect(guiTin).not.toHaveBeenCalled();
+  });
+
+  it('nhiều danh thiếp liên tiếp → throttle: vẫn chỉ MỘT lượt giữ chân + báo', async () => {
+    for (let i = 0; i < 4; i++) await xuLyTinMedia({ ...CTX, content: DANH_THIEP }, 'qr_code');
+
+    expect(guiTin).toHaveBeenCalledTimes(2);
+  });
+
+  it('contact_card (nhãn khác của cùng loại danh thiếp) cũng KHÔNG im lặng', async () => {
+    // detectContentType trả 'contact_card' khi msgType chứa "recommended"/"card"
+    // mà description không có qrCodeUrl. Cùng bản chất, cùng cách xử.
+    const kq = await xuLyTinMedia({ ...CTX, content: DANH_THIEP }, 'contact_card');
+
+    expect(kq).toBe(true);
+    expect(guiTin).toHaveBeenCalled();
+  });
+
+  it('sticker/gif VẪN bỏ qua — đừng phá cái vừa sửa xong', async () => {
+    expect(await xuLyTinMedia({ ...CTX, content: DANH_THIEP }, 'sticker')).toBe(true);
+    expect(await xuLyTinMedia({ ...CTX, content: DANH_THIEP }, 'gif')).toBe(true);
+    expect(guiTin).not.toHaveBeenCalled();
+  });
+
+  it('link VẪN giữ hành vi vừa sửa (11/08) — không bị danh thiếp làm hỏng', async () => {
+    const LINK = JSON.stringify({
+      title: 'https://docs.google.com/spreadsheets/d/abc/edit',
+      href: 'https://docs.google.com/spreadsheets/d/abc/edit',
+      action: 'recommened.link',
+      params: JSON.stringify({ src: 'docs.google.com', mediaTitle: 'Thông số sản phẩm LED NELIA' }),
+    });
+    const kq = await xuLyTinMedia({ ...CTX, content: LINK }, 'link');
+
+    expect(kq).toBe(true);
+    const guiKhach = vi.mocked(guiTin).mock.calls.map((c) => c[1]).find((t) => t.includes('em đã nhận được'));
+    expect(guiKhach).toContain('đường link');
+  });
+
+  it('BẢO MẬT: bot KHÔNG tự tải ảnh QR trong danh thiếp (chặn SSRF)', async () => {
+    // qrCodeUrl là URL do Zalo cấp, nhưng bot không có việc gì phải tải nó:
+    // thông tin cần (tên + SĐT) đã nằm sẵn trong text. Tải thêm chỉ mở rủi ro.
+    const fetchGiaLap = vi.spyOn(globalThis, 'fetch');
+
+    await xuLyTinMedia({ ...CTX, content: DANH_THIEP }, 'qr_code');
+
+    expect(fetchGiaLap).not.toHaveBeenCalled();
   });
 });
 
