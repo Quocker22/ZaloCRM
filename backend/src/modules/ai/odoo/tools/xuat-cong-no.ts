@@ -8,9 +8,32 @@
 // ⚠️ CHỈ REGISTRY NHÂN VIÊN. Công nợ là thông tin nội bộ; registry khách cố ý
 // không có cả `tra_khach_hang` lẫn tool này.
 //
-// KHÔNG TỰ CỘNG: số nợ đọc thẳng field `incokit_receivable_balance` của Odoo,
-// KHÔNG cộng amount_residual của các hoá đơn. Hai cách có thể lệch nhau (bút
-// toán thủ công, thanh toán treo) và Odoo mới là nguồn đúng.
+// ⚠️ SỐ TỔNG CỘNG TỪ CHÍNH DANH SÁCH IN RA — đây là điều kiện sống còn.
+//
+// BUG THẬT 16:09 11/08/2026 (nhóm Test-AI): hỏi công nợ "Lộc Beco Thanh Hóa"
+// (Odoo id=2293), bot báo "Công nợ hiện tại: 3.990.000đ" rồi in ngay bên dưới
+// 10 hoá đơn chưa trả cộng lại 144.796.039đ — riêng INV/2026/025127 đã
+// 100.100.000đ. Nhân viên tin số tổng đi đòi nợ là mất trắng 140 triệu.
+//
+// Vì sao: bản cũ đọc field TỰ VIẾT `incokit_receivable_balance` làm số tổng,
+// còn danh sách thì query từ account.move — HAI ĐƯỜNG TÍNH TÁCH RỜI nên không
+// gì bắt buộc chúng khớp nhau. Đo trên prod 11/08: field này SAI ở 29/40 khách
+// nợ nhiều nhất, báo thiếu tổng 3,92 TỶ đồng; có khách field=0 mà đang nợ thật,
+// có khách field còn báo THỪA (anh Hưng Huế: field 179tr, thực 12,6tr).
+//
+// NGUỒN ĐÚNG: tổng `amount_residual_signed` của các account.move chưa tất toán.
+// Kiểm chứng khách 2293 — ba nguồn độc lập đều ra 144.796.039đ:
+//   partner.credit = 144.796.039
+//   Σ amount_residual hoá đơn chưa trả = 144.796.039
+//   Σ amount_residual của account.move.line phải thu chưa đối trừ = 144.796.039
+// Dùng *_signed để hoá đơn hoàn trả (out_refund) TRỪ ra thay vì cộng vào —
+// ca "Anh Khoa Cabin": 261.580.240 HĐ bán − 2.480.000 hoàn = 259.100.240
+// đúng bằng partner.credit.
+//
+// Field `incokit_receivable_balance` KHÔNG bị xoá khỏi query: nó được giữ lại
+// làm ĐỐI CHỨNG. Lệch giữa nó và tổng HĐ là dấu hiệu sổ sách có bút toán tay
+// (ca "CTY 3S": HĐ 77,1tr nhưng sổ phải thu 44,6tr) — khi đó tool NÓI RA
+// thay vì im lặng trả một con số không ai kiểm được.
 
 import type { OdooClient } from '../client.js';
 import { tenKhopKhach } from './tao-don-nhap.js';
@@ -34,10 +57,21 @@ export interface CongNoKhach {
   ten: string;
   maKh: string;
   sdt: string;
+  /** Tổng nợ = Σ conNo của TOÀN BỘ chứng từ chưa tất toán (kể cả phần chưa liệt kê). */
   congNo: number;
   hoaDon: HoaDonNo[];
   /** Tổng số HĐ chưa trả (có thể lớn hơn số đã liệt kê). */
   tongSoHd: number;
+  /**
+   * Số dư Odoo tự báo (`incokit_receivable_balance`) — CHỈ để đối chứng.
+   * Lệch so với `congNo` là dấu hiệu sổ có bút toán tay; xem `lech`.
+   */
+  soDuOdoo: number;
+  /**
+   * Có lệch đáng kể giữa tổng hoá đơn và số dư Odoo hay không. Bật thì đầu ra
+   * phải cảnh báo — KHÔNG im lặng chọn một số (ca "CTY 3S" 11/08).
+   */
+  lech: boolean;
 }
 
 export type KetQuaCongNo =
@@ -128,19 +162,46 @@ export async function xuatCongNo(
   const k = khach[0];
   const khachId = Number(k.id);
 
-  // Hoá đơn bán CHƯA thanh toán hết. `payment_state != paid` bắt cả
-  // partial/in_payment — nhân viên cần thấy cả đơn trả một phần.
+  // Chứng từ bán CHƯA tất toán. `payment_state != paid` bắt cả partial/
+  // in_payment — nhân viên cần thấy cả đơn trả một phần.
+  //
+  // LẤY CẢ out_refund: hoá đơn hoàn trả làm GIẢM nợ. Bỏ sót nó là đòi khách
+  // số tiền đã trả lại cho họ. KHÔNG giới hạn kỳ thời gian — nợ cũ vẫn là nợ.
+  //
+  // KHÔNG limit: tổng phải tính trên TOÀN BỘ chứng từ, chỉ danh sách in ra mới
+  // cắt còn HD_TOI_DA. Bản cũ lấy limit=30 nên khách nhiều hoá đơn (prod có
+  // khách 318 HĐ) sẽ tính thiếu nếu cộng từ đây.
   const hd = await deps.odoo.searchRead<Record<string, unknown>>(
     'account.move',
     [
       ['partner_id', '=', khachId],
-      ['move_type', '=', 'out_invoice'],
+      ['move_type', 'in', ['out_invoice', 'out_refund']],
       ['state', '=', 'posted'],
       ['payment_state', '!=', 'paid'],
     ],
-    ['name', 'invoice_date', 'amount_total', 'amount_residual'],
-    { limit: HD_TOI_DA * 3, order: 'invoice_date desc' },
+    ['name', 'invoice_date', 'amount_total', 'amount_residual', 'amount_residual_signed', 'move_type'],
+    { order: 'invoice_date desc' },
   );
+
+  // MỘT nguồn duy nhất cho cả tổng lẫn danh sách: map trước, cộng trên chính
+  // mảng đã map. Không thể có chuyện tổng nói một đằng, danh sách một nẻo.
+  const dong: HoaDonNo[] = hd.map((h) => {
+    // `amount_residual_signed` đã mang dấu: out_refund ra ÂM. Odoo cũ/bản ghi
+    // thiếu field thì suy ra từ move_type để không âm thầm cộng nhầm dấu.
+    const raw = h.amount_residual_signed;
+    const conNo = raw === undefined || raw === null || raw === false
+      ? Number(h.amount_residual ?? 0) * (h.move_type === 'out_refund' ? -1 : 1)
+      : Number(raw);
+    return {
+      ma: String(h.name ?? ''),
+      ngay: String(h.invoice_date ?? ''),
+      conNo,
+      tong: Number(h.amount_total ?? 0) * (h.move_type === 'out_refund' ? -1 : 1),
+    };
+  });
+
+  const congNo = dong.reduce((a, d) => a + d.conNo, 0);
+  const soDuOdoo = Number(k.incokit_receivable_balance ?? 0);
 
   return {
     loai: 'ok',
@@ -149,15 +210,12 @@ export async function xuatCongNo(
       ten: String(k.name ?? ''),
       maKh: String(k.ref ?? ''),
       sdt: String(k.phone || k.mobile || ''),
-      // Đọc THẲNG field Odoo, không cộng amount_residual — xem đầu file.
-      congNo: Number(k.incokit_receivable_balance ?? 0),
-      hoaDon: hd.slice(0, HD_TOI_DA).map((h) => ({
-        ma: String(h.name ?? ''),
-        ngay: String(h.invoice_date ?? ''),
-        conNo: Number(h.amount_residual ?? 0),
-        tong: Number(h.amount_total ?? 0),
-      })),
-      tongSoHd: hd.length,
+      congNo,
+      hoaDon: dong.slice(0, HD_TOI_DA),
+      tongSoHd: dong.length,
+      soDuOdoo,
+      // Lệch quá 1đ (tránh nhiễu làm tròn) → đầu ra phải cảnh báo.
+      lech: Math.abs(congNo - soDuOdoo) > 1,
     },
   };
 }
@@ -216,8 +274,22 @@ export function dinhDangCongNo(kq: KetQuaCongNo): string {
   }
 
   const d = kq.duLieu;
-  if (d.congNo === 0 && d.hoaDon.length === 0) {
+  // "Hết nợ" chỉ khi CẢ HAI nguồn cùng nói hết. Không có hoá đơn nhưng sổ Odoo
+  // vẫn còn số dư (nợ từ bút toán tay) mà báo "hết nợ" là giấu nợ thật —
+  // đúng loại lỗi đang sửa, chỉ ngược chiều.
+  if (d.congNo === 0 && d.hoaDon.length === 0 && d.soDuOdoo === 0) {
     return `${d.ten}${d.maKh ? ` [${d.maKh}]` : ''}: KHÔNG còn công nợ.`;
+  }
+
+  // Không có hoá đơn nào nhưng sổ còn nợ → nêu số của sổ, nói rõ nguồn.
+  if (d.hoaDon.length === 0 && d.soDuOdoo !== 0) {
+    return [
+      `${d.ten}${d.maKh ? ` [${d.maKh}]` : ''}${d.sdt ? ` · ${d.sdt}` : ''}`,
+      `Công nợ: ${tien(d.soDuOdoo)}`,
+      '(công nợ không đến từ hoá đơn bán — có thể là bút toán thủ công)',
+      '',
+      'Nguồn: Số dư công nợ khách (Odoo)',
+    ].join('\n');
   }
 
   const dong = [
@@ -227,13 +299,28 @@ export function dinhDangCongNo(kq: KetQuaCongNo): string {
 
   if (d.hoaDon.length > 0) {
     dong.push('', 'Hoá đơn chưa thanh toán:');
+    // Tổng của riêng phần IN RA — để đối chiếu ngay trên màn hình khi bị cắt.
+    let tongDaIn = 0;
     for (const h of d.hoaDon) {
+      tongDaIn += h.conNo;
+      const hoan = h.conNo < 0;
       // Nêu cả tổng khi đã trả một phần — nhân viên cần biết để đối chiếu.
-      const motPhan = h.conNo < h.tong ? ` (đã trả ${tien(h.tong - h.conNo)})` : '';
-      dong.push(`- ${h.ma} · ${ngay(h.ngay)} · còn ${tien(h.conNo)}${motPhan}`);
+      const motPhan = !hoan && h.conNo < h.tong ? ` (đã trả ${tien(h.tong - h.conNo)})` : '';
+      dong.push(
+        hoan
+          // Hoàn trả hiển thị dấu TRỪ rõ ràng, không để đọc nhầm thành nợ thêm.
+          ? `- ${h.ma} · ${ngay(h.ngay)} · HOÀN TRẢ −${tien(Math.abs(h.conNo))}`
+          : `- ${h.ma} · ${ngay(h.ngay)} · còn ${tien(h.conNo)}${motPhan}`,
+      );
     }
-    if (d.tongSoHd > d.hoaDon.length) {
-      dong.push(`(còn ${d.tongSoHd - d.hoaDon.length} hoá đơn nữa)`);
+    const conLai = d.tongSoHd - d.hoaDon.length;
+    if (conLai > 0) {
+      // Nói rõ tổng đã gồm phần chưa liệt kê — nếu không, nhân viên tự cộng
+      // danh sách rồi tưởng con số tổng bị sai.
+      dong.push(
+        `(còn ${conLai} hoá đơn nữa — ${tien(d.congNo - tongDaIn)} chưa liệt kê; ` +
+        `tổng ${tien(d.congNo)} ĐÃ bao gồm)`,
+      );
     }
   } else {
     // Có nợ mà không có HĐ → nợ từ bút toán thủ công. Nói rõ, đừng để model
@@ -241,6 +328,19 @@ export function dinhDangCongNo(kq: KetQuaCongNo): string {
     dong.push('(công nợ không đến từ hoá đơn bán — có thể là bút toán thủ công)');
   }
 
-  dong.push('', 'Nguồn: Công nợ khách (Odoo)');
+  // ── HÀNG RÀO TỰ KIỂM ──────────────────────────────────────────────────────
+  // Tổng hoá đơn lệch số dư Odoo → KHÔNG im lặng. Bug 16:09 11/08 sống được
+  // chính vì hai con số lệch nhau 140 triệu mà không ai được báo.
+  if (d.lech) {
+    dong.push(
+      '',
+      `⚠️ LỆCH SỔ: tổng hoá đơn ${tien(d.congNo)} khác số dư Odoo tự báo ` +
+      `${tien(d.soDuOdoo)} (chênh ${tien(Math.abs(d.congNo - d.soDuOdoo))}). ` +
+      'Thường do bút toán tay đối trừ mà không đánh dấu hoá đơn đã trả. ' +
+      'BÁO nhân viên đối chiếu Odoo trước khi đi đòi nợ — ĐỪNG khẳng định một số.',
+    );
+  }
+
+  dong.push('', 'Nguồn: Hoá đơn chưa thanh toán (Odoo)');
   return dong.join('\n');
 }

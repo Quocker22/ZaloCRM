@@ -252,9 +252,10 @@ describe('xuat_cong_no — số liệu', () => {
     amount_total: 6114000, amount_residual: 6114000,
   }];
 
-  it('đọc THẲNG field công nợ, KHÔNG cộng amount_residual', async () => {
-    // Odoo trả nợ 9tr nhưng HĐ chỉ 6tr — hai số có thể lệch (bút toán tay).
-    // Tool phải lấy 9tr (field Odoo), không phải 6tr (tổng HĐ).
+  it('tổng công nợ CỘNG TỪ CHÍNH danh sách HĐ, không đọc field rời', async () => {
+    // ĐẢO NGƯỢC giả định cũ (xem ca thật 16:09 11/08 ở describe dưới):
+    // `incokit_receivable_balance` là field TỰ VIẾT, đo trên prod thấy sai ở
+    // 29/40 khách nợ nhiều nhất. Nguồn đúng là tổng amount_residual của HĐ.
     const o = fake({
       'res.partner': [{ ...KHACH[0], incokit_receivable_balance: 9000000 }],
       'account.move': HD,
@@ -262,7 +263,8 @@ describe('xuat_cong_no — số liệu', () => {
 
     const kq = await xuatCongNo({ odoo: o }, { khach_id: 3898 });
 
-    if (kq.loai === 'ok') expect(kq.duLieu.congNo).toBe(9000000);
+    // 6.114.000 = tổng HĐ thật, KHÔNG phải 9.000.000 của field hỏng.
+    if (kq.loai === 'ok') expect(kq.duLieu.congNo).toBe(6114000);
   });
 
   it('liệt kê hoá đơn chưa trả kèm ngày', async () => {
@@ -333,6 +335,150 @@ describe('xuat_cong_no — số liệu', () => {
     const s = dinhDangCongNo(await xuatCongNo({ odoo: fake({ 'res.partner': [] }) }, { ten: 'zzz' }));
 
     expect(s).toContain('Không tìm thấy khách');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe('xuat_cong_no — TÍNH SAI CÔNG NỢ (bug thật 16:09 11/08/2026)', () => {
+  // CA THẬT, nhóm Test-AI: hỏi công nợ "Lộc Beco Thanh Hóa" (Odoo id=2293
+  // "Anh Lộc Led Beco Thanh Hóa"). Bot báo "Công nợ hiện tại: 3.990.000đ"
+  // rồi in NGAY BÊN DƯỚI 10 hoá đơn chưa trả cộng lại 144.796.039đ — riêng
+  // INV/2026/025127 đã 100.100.000đ. Số tổng mâu thuẫn với chính danh sách.
+  //
+  // NGUYÊN NHÂN: tool đọc field TỰ VIẾT `incokit_receivable_balance`
+  // (=3.990.000) làm số tổng, còn danh sách in ra từ account.move — hai đường
+  // tính tách rời. Đo trên prod: field sai ở 29/40 khách nợ nhiều nhất, báo
+  // thiếu tổng 3,92 TỶ, có khách field=0 mà thực tế đang nợ.
+  // Ba nguồn độc lập cho khách 2293 đều ra 144.796.039: partner.credit,
+  // tổng amount_residual HĐ, và tổng amount_residual của account.move.line
+  // phải thu chưa đối trừ.
+
+  // Dữ liệu THẬT lấy từ Odoo prod ngày 11/08/2026.
+  const LOC_BECO = [{
+    id: 2293, name: 'Anh Lộc Led Beco Thanh Hóa', ref: 'KH001276',
+    phone: false, mobile: false, credit: 144796039,
+    incokit_receivable_balance: 3990000, // ← field hỏng, số bot đã báo
+  }];
+
+  const hd = (
+    name: string, invoice_date: string, amount_total: number, amount_residual: number,
+  ) => ({
+    name, invoice_date, move_type: 'out_invoice', amount_total, amount_residual,
+    amount_residual_signed: amount_residual,
+  });
+
+  const HD_THAT = [
+    hd('INV/2026/026149', '2026-07-21', 240000, 240000),
+    hd('INV/2026/026108', '2026-07-21', 3750000, 3750000),
+    hd('INV/2026/025989', '2026-07-18', 10146640, 10146640),
+    hd('INV/2026/025602', '2026-07-13', 3570000, 3570000),
+    hd('INV/2026/025491', '2026-07-08', 4500000, 4500000),
+    hd('INV/2026/025359', '2026-07-06', 2900000, 2900000),
+    hd('INV/2026/025299', '2026-07-04', 4500000, 4500000),
+    hd('INV/2026/025127', '2026-07-01', 100100000, 100100000),
+    hd('INV/2026/023866', '2026-06-10', 11250000, 11250000),
+    hd('INV/2026/023765', '2026-06-08', 6128400, 3839399),
+  ];
+
+  /** Tổng thật, đối chiếu được với partner.credit của Odoo. */
+  const TONG_THAT = 144796039;
+
+  it('KHÔNG báo 3.990.000đ khi danh sách cộng lại 144.796.039đ', async () => {
+    const o = fake({ 'res.partner': LOC_BECO, 'account.move': HD_THAT });
+
+    const kq = await xuatCongNo({ odoo: o }, { khach_id: 2293, ten_nhac: 'Lộc Beco Thanh Hóa' });
+
+    expect(kq.loai).toBe('ok');
+    if (kq.loai === 'ok') {
+      expect(kq.duLieu.congNo).not.toBe(3990000);
+      expect(kq.duLieu.congNo).toBe(TONG_THAT);
+    }
+  });
+
+  it('đầu ra in ra: số tổng KHỚP tổng danh sách, có HĐ 100 triệu', async () => {
+    const o = fake({ 'res.partner': LOC_BECO, 'account.move': HD_THAT });
+
+    const s = dinhDangCongNo(await xuatCongNo({ odoo: o }, { khach_id: 2293 }));
+
+    // Số tổng đứng đầu tin PHẢI là 144tr, không phải 3,99tr như bug.
+    expect(s).toContain('Công nợ: 144.796.039đ');
+    expect(s).not.toContain('Công nợ: 3.990.000đ');
+    expect(s).toContain('INV/2026/025127');
+    expect(s).toContain('100.100.000đ');
+    // 3.990.000 vẫn được nêu, nhưng CHỈ trong cảnh báo lệch sổ.
+    expect(s).toMatch(/LỆCH SỔ[\s\S]*3\.990\.000đ/);
+  });
+
+  it('BẤT BIẾN: tổng LUÔN bằng tổng các dòng in ra', async () => {
+    // Chốt chống tái phát: cấm tính tổng tách rời khỏi danh sách.
+    for (const bo of [HD_THAT, HD_THAT.slice(0, 3), [HD_THAT[7]], []]) {
+      const o = fake({ 'res.partner': LOC_BECO, 'account.move': bo });
+      const kq = await xuatCongNo({ odoo: o }, { khach_id: 2293 });
+
+      if (kq.loai === 'ok') {
+        const tongDong = kq.duLieu.hoaDon.reduce((a, h) => a + h.conNo, 0);
+        expect(kq.duLieu.congNo).toBe(tongDong);
+      }
+    }
+  });
+
+  it('HOÁ ĐƠN HOÀN TRẢ (out_refund) phải TRỪ, không cộng', async () => {
+    // Ca thật "Anh Khoa Cabin": HĐ bán 261.580.240 − hoàn trả 2.480.000
+    // = 259.100.240 đúng bằng partner.credit. Cộng nhầm dấu là đòi thừa
+    // 2 lần tiền đã hoàn cho khách.
+    const o = fake({
+      'res.partner': LOC_BECO,
+      'account.move': [
+        hd('INV/2026/025127', '2026-07-01', 100100000, 100100000),
+        {
+          name: 'RINV/2026/00054', invoice_date: '2026-08-03', move_type: 'out_refund',
+          amount_total: 2200000, amount_residual: 2200000, amount_residual_signed: -2200000,
+        },
+      ],
+    });
+
+    const kq = await xuatCongNo({ odoo: o }, { khach_id: 2293 });
+
+    if (kq.loai === 'ok') {
+      expect(kq.duLieu.congNo).toBe(97900000);
+      const tongDong = kq.duLieu.hoaDon.reduce((a, h) => a + h.conNo, 0);
+      expect(kq.duLieu.congNo).toBe(tongDong);
+    }
+  });
+
+  it('nhiều hơn 10 HĐ → tổng tính TRÊN TOÀN BỘ, nêu rõ phần chưa liệt kê', async () => {
+    const nhieu = Array.from({ length: 14 }, (_, i) =>
+      hd(`INV/${i}`, '2026-07-18', 1000000, 1000000));
+    const o = fake({ 'res.partner': LOC_BECO, 'account.move': nhieu });
+
+    const kq = await xuatCongNo({ odoo: o }, { khach_id: 2293 });
+    const s = dinhDangCongNo(kq);
+
+    if (kq.loai === 'ok') expect(kq.duLieu.congNo).toBe(14000000);
+    expect(s).toContain('14.000.000đ');
+    expect(s).toContain('còn 4 hoá đơn nữa');
+  });
+
+  it('LỆCH với sổ kế toán → CẢNH BÁO, không im lặng trả số', async () => {
+    // Ca thật "CTY 3S": HĐ cộng lại 77.100.000 nhưng sổ phải thu chỉ còn
+    // 44.600.000 (bút toán tay đối trừ mà không đánh dấu HĐ đã trả).
+    // Danh sách KHÔNG giải thích được số dư → phải nói ra để nhân viên tra tay.
+    const o = fake({
+      'res.partner': [{
+        id: 3846, name: 'CTY 3S', ref: 'KH009',
+        credit: 44600000, incokit_receivable_balance: 44600000,
+      }],
+      'account.move': [
+        hd('INV/A', '2026-07-01', 40000000, 40000000),
+        hd('INV/B', '2026-07-02', 37100000, 37100000),
+      ],
+    });
+
+    const s = dinhDangCongNo(await xuatCongNo({ odoo: o }, { khach_id: 3846 }));
+
+    expect(s).toContain('77.100.000đ');
+    expect(s).toMatch(/LỆCH|lệch/);
+    expect(s).toContain('44.600.000đ');
   });
 });
 
