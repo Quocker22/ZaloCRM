@@ -317,7 +317,18 @@ describe('buildStaffSystemPrompt', () => {
     // TRƯỚC lời nhắn + nhãn thành mệnh lệnh (luong-media.ts), và gom đơn trích
     // lại riêng khối ảnh khi model bỏ sót (gom-don/index.ts). Lần thứ TƯ cùng
     // bài học "prompt dặn rồi model vẫn quên" nên hàng rào thật nằm ở code.
-    expect(buildStaffSystemPrompt(BIZ_THAT).length).toBeLessThan(3800);
+    // 3.800 → 3.900 (12/08 tối, ca thật 18:34): 1 dòng định tuyến SỬA GIÁ
+    // TRONG ĐƠN. NV nhắn "sửa lại giá sản phẩm là 140k" ngay sau khi S13837
+    // vừa lên; model loay hoay 5 lượt lam_odoo sửa list_price catalog (bị Odoo
+    // chặn quyền) rồi bó tay báo "liên hệ quản trị viên" — mất 71 giây để
+    // thất bại, trong khi `sua_don` với don_gia có sẵn từ đầu.
+    //
+    // NĂNG LỰC MỚI: prompt chưa từng phân biệt "giá trong ĐƠN" với "giá niêm
+    // yết catalog" — không có dòng này thì không câu chữ nào cứu được. Kèm
+    // phanh CODE trong lam.ts (can_xac_nhan lyDo 'gia_niem_yet') nên dòng
+    // prompt chỉ là lối tắt cho ca thường, không phải hàng rào duy nhất.
+    // ĐÃ NÉN HAI VÒNG: 2 dòng/155 ký tự → 1 dòng/86 ký tự.
+    expect(buildStaffSystemPrompt(BIZ_THAT).length).toBeLessThan(3900);
   });
 
   // NHẬP HÀNG (11/08) — ca thật 22:09-22:11 nhóm Test-AI: NV nói "tạo phiếu

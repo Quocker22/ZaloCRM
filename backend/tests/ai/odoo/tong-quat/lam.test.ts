@@ -30,11 +30,90 @@ describe('lamOdoo — ghi thường thì làm luôn', () => {
   });
 
   it('sửa 1 bản ghi → write', async () => {
+    // ĐỔI VÍ DỤ 12/08: bản cũ dùng đúng product.template + list_price — ca đó
+    // giờ bị hàng rào giá niêm yết chặn CỐ Ý (xem describe bên dưới).
     const odoo = fake(1);
     const kq = await lamOdoo({ odoo } as never,
-      { bang: 'product.template', viec: 'sua', loc: [['id', '=', 5]], du_lieu: { list_price: 99000 } });
+      { bang: 'res.partner', viec: 'sua', loc: [['id', '=', 5]], du_lieu: { phone: '0900000000' } });
     expect(kq.trangThai).toBe('da_lam');
     expect(odoo.execute.mock.calls.some((c) => c[1] === 'write')).toBe(true);
+  });
+});
+
+describe('lamOdoo — PHANH GIÁ NIÊM YẾT catalog (ca thật 18:34 12/08)', () => {
+  // "sửa lại giá sản phẩm là 140k" sau khi đơn vừa lên = sửa giá DÒNG trong
+  // đơn. Model lại đè list_price catalog — 5 lượt tool, hôm đó thoát nạn chỉ
+  // nhờ Odoo chưa cấp quyền. Phanh ở CODE, nhưng là phanh XÁC NHẬN chứ không
+  // chặn chết — anh Quốc chốt "đừng siết chặt quá khó dùng" (xem PHANH 3):
+  // câu phanh chỉ đường sua_don cho ca thường, NV gật thật thì vẫn đổi được.
+  it.each([
+    ['product.template', 'list_price'],
+    ['product.product', 'lst_price'],
+  ])('sua %s.%s chưa gật → can_xac_nhan chỉ đường sua_don, KHÔNG write', async (bang, cot) => {
+    const odoo = fake(1);
+
+    const kq = await lamOdoo({ odoo } as never,
+      { bang, viec: 'sua', loc: [['id', '=', 1037]], du_lieu: { [cot]: 140000 } });
+
+    expect(kq.trangThai).toBe('can_xac_nhan');
+    if (kq.trangThai === 'can_xac_nhan') {
+      expect(kq.lyDo).toBe('gia_niem_yet');
+      expect(kq.moTa).toContain('sua_don');
+      expect(kq.moTa).toContain('don_gia');
+    }
+    expect(odoo.execute.mock.calls.some((c) => c[1] === 'write')).toBe(false);
+  });
+
+  it('model tự bịa xac_nhan=true KHÔNG có chìa Symbol → vẫn phanh', async () => {
+    const odoo = fake(1);
+
+    const kq = await lamOdoo({ odoo } as never, {
+      bang: 'product.template', viec: 'sua', loc: [['id', '=', 5]],
+      du_lieu: { list_price: 140000 }, xac_nhan: true,
+    });
+
+    expect(kq.trangThai).toBe('can_xac_nhan');
+    expect(odoo.execute.mock.calls.some((c) => c[1] === 'write')).toBe(false);
+  });
+
+  it('NGƯỜI gật thật (xac_nhan + chìa CHIA_XAC_NHAN) → chạy, có write', async () => {
+    const odoo = fake(1);
+
+    const kq = await lamOdoo({ odoo } as never, {
+      bang: 'product.template', viec: 'sua', loc: [['id', '=', 5]],
+      du_lieu: { list_price: 140000 }, xac_nhan: true, [CHIA_XAC_NHAN]: true,
+    });
+
+    expect(kq.trangThai).toBe('da_lam');
+    expect(odoo.execute.mock.calls.some((c) => c[1] === 'write')).toBe(true);
+  });
+
+  it('TẠO sản phẩm kèm list_price cũng phanh — không có cửa lách qua viec=tao', async () => {
+    const odoo = fake(0);
+
+    const kq = await lamOdoo({ odoo } as never,
+      { bang: 'product.template', viec: 'tao', du_lieu: { name: 'SP mới', list_price: 99000 } });
+
+    expect(kq.trangThai).toBe('can_xac_nhan');
+    expect(odoo.execute.mock.calls.some((c) => c[1] === 'create')).toBe(false);
+  });
+
+  it('sửa cột KHÁC trên product vẫn chạy thẳng — phanh hẹp đúng cột giá', async () => {
+    const odoo = fake(1);
+
+    const kq = await lamOdoo({ odoo } as never,
+      { bang: 'product.template', viec: 'sua', loc: [['id', '=', 5]], du_lieu: { default_code: 'NB12V300W-M' } });
+
+    expect(kq.trangThai).toBe('da_lam');
+  });
+
+  it('price_unit trên sale.order.line không bị vạ lây — đường sửa giá ĐƠN vẫn thông', async () => {
+    const odoo = fake(1);
+
+    const kq = await lamOdoo({ odoo } as never,
+      { bang: 'sale.order.line', viec: 'sua', loc: [['id', '=', 9]], du_lieu: { price_unit: 140000 } });
+
+    expect(kq.trangThai).toBe('da_lam');
   });
 });
 
@@ -55,13 +134,13 @@ describe('lamOdoo — PHANH', () => {
   it('sửa 21 bản ghi → xin xác nhận; 20 → chạy', async () => {
     const nhieu = fake(21);
     const kq1 = await lamOdoo({ odoo: nhieu } as never,
-      { bang: 'product.product', viec: 'sua', loc: [['id', '>', 0]], du_lieu: { list_price: 1 } });
+      { bang: 'product.product', viec: 'sua', loc: [['id', '>', 0]], du_lieu: { name: 'x' } });
     expect(kq1.trangThai).toBe('can_xac_nhan');
     expect(nhieu.execute.mock.calls.some((c) => c[1] === 'write')).toBe(false);
 
     const vua = fake(20);
     const kq2 = await lamOdoo({ odoo: vua } as never,
-      { bang: 'product.product', viec: 'sua', loc: [['id', '>', 0]], du_lieu: { list_price: 1 } });
+      { bang: 'product.product', viec: 'sua', loc: [['id', '>', 0]], du_lieu: { name: 'x' } });
     expect(kq2.trangThai).toBe('da_lam');
   });
 

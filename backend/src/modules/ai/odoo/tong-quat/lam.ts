@@ -81,7 +81,7 @@ export type KetQuaLam =
       /** Có mặt CHỈ KHI lệnh vừa đụng cột giá vốn / margin — xem DẤU VẾT. */
       cotNhayCam?: CotNhayCam[];
     }
-  | { trangThai: 'can_xac_nhan'; lyDo: 'xoa' | 'hang_loat'; soBanGhi: number; moTa: string }
+  | { trangThai: 'can_xac_nhan'; lyDo: 'xoa' | 'hang_loat' | 'gia_niem_yet'; soBanGhi: number; moTa: string }
   | { trangThai: 'loi'; lyDo: string };
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -185,9 +185,75 @@ function laLoiMarshalNone(err: unknown): boolean {
   return m.includes('cannot marshal None');
 }
 
+/**
+ * GIÁ NIÊM YẾT CATALOG — CẤM BOT GHI, CHẶN Ở CODE (12/08, ca thật 18:34).
+ *
+ * NV nhắn "sửa lại giá sản phẩm là 140k 1 cái" NGAY SAU khi đơn S13837 vừa
+ * lên — ý là sửa GIÁ DÒNG trong đơn. Model lại hiểu "giá sản phẩm" = giá gốc
+ * catalog và loay hoay 5 lượt tool (đo tool_call_logs 04:34-04:35): sửa
+ * product.template theo tên → theo default_code → product.product.lst_price
+ * → 2 lần kham_pha_odoo — toàn bị Odoo chặn quyền rồi bó tay báo "liên hệ
+ * quản trị viên".
+ *
+ * Hôm nay thoát nạn là NHỜ MAY: user bot chưa có quyền ghi product. Ngày nào
+ * đó ai cấp thêm quyền là câu nói về MỘT đơn sẽ đổi giá niêm yết của TOÀN
+ * catalog — mọi báo giá sau đó sai theo, sổ sách lệch mà không ai hay. Phanh
+ * phải nằm ở CODE, không được trông vào phân quyền Odoo — phân quyền là của
+ * người quản trị, đổi lúc nào không ai báo mình.
+ *
+ * VÌ SAO LÀ PHANH XÁC NHẬN CHỨ KHÔNG CHẶN CHẾT: anh Quốc đã chốt cho chính
+ * tool này (xem PHANH 3, lam-thu-lua.test.ts) — "đừng siết chặt quá khó
+ * dùng"; giá VỐN còn được ghi thẳng kèm dấu vết. Giá niêm yết nguy hơn giá
+ * vốn một bậc (một câu hiểu nhầm đổi giá TOÀN catalog, không phải một bản
+ * ghi) nên đáng một nhịp phanh — nhưng vẫn phải có CỬA: nhân viên thật sự
+ * muốn đổi giá niêm yết qua bot thì gật một lần là chạy, cùng cơ chế
+ * CHIA_XAC_NHAN của phanh xoá/hàng loạt. Câu phanh đồng thời CHỈ ĐƯỜNG sang
+ * `sua_don` cho ca thường gặp (sửa giá trong đơn) — model đi tiếp được ngay
+ * trong lượt, không bó tay.
+ */
+const BANG_SAN_PHAM = new Set(['product.template', 'product.product']);
+const COT_GIA_NIEM_YET = ['list_price', 'lst_price'];
+function dungGiaNiemYet(bang: string, duLieu?: Record<string, unknown>): string[] {
+  if (!BANG_SAN_PHAM.has(bang) || !duLieu) return [];
+  return COT_GIA_NIEM_YET.filter((c) => c in duLieu);
+}
+function moTaPhanhGia(cot: string[], bang: string): string {
+  return (
+    `${cot.join('/')} trên ${bang} là GIÁ NIÊM YẾT catalog — đổi nó là mọi báo giá sau ` +
+    'này đổi theo. Nếu ý nhân viên là sửa GIÁ TRONG MỘT ĐƠN thì dùng tool sua_don với ' +
+    'don_gia (giá NV báo thắng giá hệ thống), KHÔNG cần xác nhận gì. Còn nếu đúng là cần ' +
+    'đổi giá niêm yết catalog:'
+  );
+}
+
 export async function lamOdoo(deps: LamOdooDeps, input: LamOdooInput): Promise<KetQuaLam> {
   const bang = (input.bang ?? '').trim();
   if (!bang) return { trangThai: 'loi', lyDo: 'Thiếu tên bảng Odoo.' };
+
+  // Lời gật thật của NGƯỜI (code đặt kèm chìa Symbol ở lượt SAU) — tính một
+  // lần ở đây vì cả phanh giá niêm yết lẫn phanh xoá/hàng loạt đều dùng.
+  const nguoiDaGat = input.xac_nhan === true && input[CHIA_XAC_NHAN] === true;
+
+  // Phanh GIÁ NIÊM YẾT — trước mọi nhánh, 'tao' lẫn 'sua'. Đứng TRƯỚC phanh
+  // hàng loạt vì nó cụ thể hơn (câu phanh chỉ được đường sua_don); người đã
+  // gật thì cả hai phanh cùng nhả, không bắt gật hai lần.
+  const cotGia = dungGiaNiemYet(bang, input.du_lieu);
+  if (cotGia.length && !nguoiDaGat) {
+    return {
+      trangThai: 'can_xac_nhan',
+      lyDo: 'gia_niem_yet',
+      soBanGhi: 0,
+      moTa: moTaPhanhGia(cotGia, bang),
+    };
+  }
+  if (cotGia.length) {
+    // Đã gật → cho chạy, nhưng đổi giá niêm yết phải có vết grep được —
+    // cùng tinh thần dấu vết giá vốn.
+    logger.warn(
+      `[${NHAN_DAU_VET}] bot ghi GIA NIEM YET sau khi nhan vien gat`,
+      JSON.stringify({ bang, cot: cotGia, conversationId: deps.conversationId ?? null }),
+    );
+  }
 
   try {
     // ── TẠO: không đụng bản ghi cũ nên không cần phanh ──────────────────
@@ -234,11 +300,8 @@ export async function lamOdoo(deps: LamOdooDeps, input: LamOdooInput): Promise<K
       return { trangThai: 'loi', lyDo: `Không có bản ghi nào khớp điều kiện trên ${bang}.` };
     }
 
-    // Cờ vượt phanh CHỈ có hiệu lực khi kèm chìa khoá Symbol — tức lời gật đến
-    // từ NGƯỜI (code đọc tin thật của nhân viên ở lượt sau), không phải từ
-    // model tự điền trong cùng lượt. Xem CHIA_XAC_NHAN ở đầu file.
-    const nguoiDaGat = input.xac_nhan === true && input[CHIA_XAC_NHAN] === true;
-
+    // `nguoiDaGat` tính ở đầu hàm (dùng chung với phanh giá niêm yết) — cờ chỉ
+    // có hiệu lực kèm chìa Symbol, xem CHIA_XAC_NHAN.
     const phanh = quyetDinhPhanh({
       viec: input.viec,
       ...(input.nut ? { nut: input.nut } : {}),

@@ -72,7 +72,7 @@ describe('lam_odoo — model KHÔNG tự gật thay người được', () => {
     const odoo = fake(1257);
     const input = JSON.parse(JSON.stringify({
       bang: 'product.product', viec: 'sua',
-      loc: [['id', '>', 0]], du_lieu: { list_price: 1 }, xac_nhan: true,
+      loc: [['id', '>', 0]], du_lieu: { name: 'x' }, xac_nhan: true,
     })) as LamOdooInput;
 
     const kq = await lamOdoo({ odoo } as never, input);

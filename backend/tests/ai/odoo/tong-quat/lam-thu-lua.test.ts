@@ -76,7 +76,7 @@ describe('PHANH 2 — hơn 20 bản ghi phải xin phép', () => {
     const odoo = fake(21);
 
     const kq = await lamOdoo({ odoo } as never, {
-      bang: 'product.product', viec: 'sua', loc: [['id', '>', 0]], du_lieu: { list_price: 1 },
+      bang: 'product.product', viec: 'sua', loc: [['id', '>', 0]], du_lieu: { name: 'x' },
     });
 
     expect(kq.trangThai).toBe('can_xac_nhan');
@@ -90,7 +90,7 @@ describe('PHANH 2 — hơn 20 bản ghi phải xin phép', () => {
   it('đúng 20 → chạy (ranh giới nằm ở >20, không phải >=20)', async () => {
     const odoo = fake(20);
     const kq = await lamOdoo({ odoo } as never, {
-      bang: 'product.product', viec: 'sua', loc: [['id', '>', 0]], du_lieu: { list_price: 1 },
+      bang: 'product.product', viec: 'sua', loc: [['id', '>', 0]], du_lieu: { name: 'x' },
     });
     expect(kq.trangThai).toBe('da_lam');
     expect(daGoi(odoo)).toContain('write');
@@ -108,7 +108,7 @@ describe('PHANH 2 — hơn 20 bản ghi phải xin phép', () => {
   it('KHÔNG có loc → chặn ngay, không đụng Odoo (chống "sửa cả bảng")', async () => {
     const odoo = fake(9999);
     const kq = await lamOdoo({ odoo } as never, {
-      bang: 'product.product', viec: 'sua', du_lieu: { list_price: 1 },
+      bang: 'product.product', viec: 'sua', du_lieu: { name: 'x' },
     });
     expect(kq.trangThai).toBe('loi');
     expect(odoo.execute).not.toHaveBeenCalled();

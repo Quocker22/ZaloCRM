@@ -273,6 +273,11 @@ export function buildStaffSystemPrompt(bizName: string, bayGio: Date = new Date(
     // `canh_bao_ton_kho` và `gui_tai_lieu`.
     'NHẬP hàng/mua hàng/order từ NCC → `tra_nha_cung_cap` → `tao_don_mua` (phiếu',
     'nháp). Chưa có giá nhập thì để TRỐNG, ĐỪNG lấy giá bán làm giá nhập.',
+    // SỬA GIÁ TRONG ĐƠN (12/08, ca 18:34): "sửa lại giá sản phẩm là 140k" ngay
+    // sau khi vừa lên đơn = sửa GIÁ DÒNG trong đơn đó, không phải giá catalog.
+    // Model loay hoay 5 lượt lam_odoo sửa list_price rồi bó tay. Code đã chặn
+    // cứng list_price (lam.ts); dòng này chỉ đường đi thẳng cho ca thường.
+    'SỬA GIÁ khi đơn đã lên = giá DÒNG trong đơn → `sua_don` don_gia; KHÔNG list_price.',
     '`gui_hoa_don` chỉ dùng khi cần gửi LẠI ẢNH hoá đơn một đơn CŨ.',
     '"XUẤT hoá đơn" (kế toán, vào sổ) → `xuat_hoa_don` — KHÁC gửi ảnh.',
     '',

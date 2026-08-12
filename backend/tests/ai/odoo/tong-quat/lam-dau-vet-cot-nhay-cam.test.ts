@@ -74,7 +74,7 @@ describe('LỆNH VẪN CHẠY — dấu vết không được biến thành phan
 
     await lamOdoo({ odoo } as never, {
       bang: 'product.template', viec: 'sua', loc: [['id', '=', 5]],
-      du_lieu: { list_price: 99000 },
+      du_lieu: { default_code: 'X1' },
     });
 
     // Đúng như trước khi có dấu vết: search_count + write, cộng 1 searchRead lấy id.
@@ -138,7 +138,7 @@ describe('DẤU VẾT 1 — log grep được', () => {
       bang: 'sale.order', viec: 'goi_nut', nut: 'action_confirm', loc: [['name', '=', 'S1']],
     });
     await lamOdoo({ odoo } as never, {
-      bang: 'product.template', viec: 'sua', loc: [['id', '=', 5]], du_lieu: { list_price: 99000 },
+      bang: 'product.template', viec: 'sua', loc: [['id', '=', 5]], du_lieu: { default_code: 'X1' },
     });
 
     expect(warn).not.toHaveBeenCalled();
@@ -211,7 +211,7 @@ describe('DẤU VẾT 2 — câu trả lời cho nhân viên nói rõ', () => {
     const odoo = fake(1);
 
     const kq = await lamOdoo({ odoo } as never, {
-      bang: 'product.template', viec: 'sua', loc: [['id', '=', 5]], du_lieu: { list_price: 99000 },
+      bang: 'product.template', viec: 'sua', loc: [['id', '=', 5]], du_lieu: { default_code: 'X1' },
     });
 
     expect(dinhDangLam(kq)).toBe('Đã sửa 1 bản ghi trên product.template.');
