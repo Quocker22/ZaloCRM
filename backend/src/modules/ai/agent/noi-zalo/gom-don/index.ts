@@ -353,6 +353,10 @@ export interface GomDonDeps {
    * luật chữ tự do là việc của agent thường.
    */
   luatNhanVien?: string[];
+  /** Tra alias SP học được — null = chưa học, đi đường tra thường. */
+  traAliasSp?: (tuKhoa: string) => Promise<number | null>;
+  /** Ghi alias khi NV chọn từ danh sách GẦN ĐÚNG. Best-effort, không chặn luồng. */
+  ghiAliasSp?: (v: { tuKhoa: string; productId: number; tenSp: string }) => Promise<void>;
 }
 
 /** Đắp kết quả trích LLM vào phiên. Trả true nếu phiên có thay đổi nội dung. */
@@ -623,13 +627,45 @@ async function chayTraCuu(
     if (!dong) continue;
     viec.push((async () => {
       const t0 = Date.now();
+      // ALIAS HỌC ĐƯỢC (P1.3) đi trước: NV từng chọn tên gọi này rồi thì khớp
+      // thẳng — đọc lại tên/giá từ Odoo theo id, KHÔNG tin cache alias.
+      if (deps.traAliasSp) {
+        const aliasId = await deps.traAliasSp(tuKhoa);
+        if (aliasId != null) {
+          const sp = await deps.odoo.searchRead<Record<string, unknown>>(
+            'product.product',
+            [['id', '=', aliasId], ['active', '=', true], ['sale_ok', '=', true]],
+            ['id', 'name', 'list_price'], { limit: 1 });
+          if (sp.length) {
+            dong.daChot = { id: Number(sp[0].id), ten: String(sp[0].name ?? ''), gia: Number(sp[0].list_price ?? 0) };
+            deps.ghiLog({
+              toolName: 'tra_san_pham', input: { ten: tuKhoa },
+              output: `[alias học được] ${tuKhoa} → ${String(sp[0].name)}`,
+              thanhCong: true, durationMs: Date.now() - t0, iteration: 0,
+            });
+            return;
+          }
+          // SP của alias đã archive/đổi — bỏ qua alias, đi đường thường.
+        }
+      }
       const list = await traSanPham({ odoo: deps.odoo }, { ten: tuKhoa });
       deps.ghiLog({
         toolName: 'tra_san_pham', input: { ten: tuKhoa }, output: dinhDangSanPham(list, tuKhoa),
         thanhCong: true, durationMs: Date.now() - t0, iteration: 0,
       });
-      if (list.length === 1) dong.daChot = { id: list[0].id, ten: list[0].ten, gia: list[0].gia };
-      else if (list.length > 1) dong.ungVien = list;
+      // GẦN ĐÚNG (P1.2, 12/08): kết quả đến từ đường nới (tên gọi khác catalog
+      // — "Led hắt 6313" ra "3 Bóng Saso 6313") thì DÙ CHỈ MỘT kết quả cũng
+      // phải HỎI, không tự chốt: tự chốt hàng gần đúng là lên đơn sai mặt hàng.
+      const meta = list as import('../../../odoo/tools/tra-san-pham.js').SanPhamList;
+      const ganDung = meta.ganDung === true;
+      if (list.length === 1 && !ganDung) {
+        dong.daChot = { id: list[0].id, ten: list[0].ten, gia: list[0].gia };
+      } else if (list.length >= 1) {
+        dong.ungVien = list;
+        // Đáng học alias khi kết quả đến từ BẤT KỲ đường nới nào — tên gọi
+        // của NV lệch catalog thật sự, lựa chọn của họ là tri thức.
+        if (ganDung || meta.daNoiRong === true) dong.ungVienGanDung = true;
+      }
       else dong.khongThay = true;
     })());
   }
@@ -1023,6 +1059,16 @@ export async function xuLyGomDon(
 
   // 1. Map lựa chọn bằng CODE trước — "1a"/mã KH/SĐT không tốn lượt LLM nào.
   const daChon = phien ? apDungChon(phien, cauChon) : false;
+  // HỌC ALIAS (P1.3): NV vừa chọn một SP từ danh sách GẦN ĐÚNG → tên gọi đó
+  // từ nay khớp thẳng. Fire-and-forget — học trượt không được chặn đơn.
+  if (daChon && phien && deps.ghiAliasSp) {
+    for (const d of phien.dong) {
+      if (d.daChot && d.ungVienGanDung) {
+        void deps.ghiAliasSp({ tuKhoa: d.tuKhoa, productId: d.daChot.id, tenSp: d.daChot.ten });
+        delete d.ungVienGanDung;
+      }
+    }
+  }
   // Đã hỏi LLM ở cửa vào thì DÙNG LẠI kết quả — đừng gọi lần hai cho cùng câu.
   if (!daChon && !daHoiLlm) trich = await trichSlot(deps.generate, input.cau, phien);
 

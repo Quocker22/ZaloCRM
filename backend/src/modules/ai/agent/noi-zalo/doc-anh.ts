@@ -198,6 +198,15 @@ export function loiDanDocAnh(chuThich: string): string {
     '"tên hàng: số lượng đơn vị" (vd "P10 full out: 10.000 tấm"), có giá thì ghi',
     'thêm giá. Giữ ĐỦ SỐ LƯỢNG của mọi dòng — KHÔNG tóm tắt, KHÔNG gộp dòng,',
     'KHÔNG bỏ sót dòng nào, kể cả danh sách dài vài chục dòng.',
+    // ─── ẢNH BẢNG CÓ CỘT (P2, 12/08 — ca thật 21:41 "lấy data ở cột diễn
+    // Giải"): đơn in / screenshot hệ thống / bảng kê là BẢNG, không phải danh
+    // sách viết tay. Không dặn thì model chép theo HÀNG NGANG trộn cả cột
+    // ngày, số bút toán, thành tiền vào tên hàng — máy gom đơn không gỡ nổi.
+    'Nếu là BẢNG có cột (đơn in, chụp màn hình, bảng kê): xác định cột nào là',
+    'TÊN HÀNG / DIỄN GIẢI, cột nào là SỐ LƯỢNG, cột nào là ĐƠN GIÁ, rồi vẫn',
+    'xuất mỗi hàng thành một dòng "tên hàng: số lượng đơn vị, giá X" — BỎ các',
+    'cột không liên quan (STT, ngày, mã bút toán, thành tiền). Bảng có dòng',
+    'cộng/tổng ở cuối thì ghi "Tổng: ..." riêng, đừng biến nó thành hàng.',
     'KHÔNG đoán thứ không có trong ảnh.',
   ];
   if (chuThich) dan.push(`Người gửi kèm lời nhắn: "${chuThich}".`);

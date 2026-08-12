@@ -4281,6 +4281,27 @@ model AnhSanPham {
 // ── Guideline engine 2026-08-08 ─────────────────────────────────────────────
 // Rule nghiệp vụ của agent là DỮ LIỆU, không phải prompt văn xuôi.
 // Thiết kế + lý do: docs/THIET-KE-GUIDELINE-ENGINE.md
+/// Alias sản phẩm HỌC ĐƯỢC (P1.3, 12/08) — nhân viên chọn "Led hắt 6313" =
+/// "3 Bóng Saso 6313" MỘT lần (từ danh sách gần-đúng), lần sau máy khớp thẳng.
+/// Chỉ học từ lựa chọn trên đường GẦN ĐÚNG — ứng viên thường (chọn màu trong
+/// 3 màu) không phải alias, học nó là lần sau tự chốt sai màu.
+model SpAlias {
+  id        String   @id @default(cuid())
+  orgId     String   @map("org_id")
+  /// Tên gọi đã bỏ dấu + thường — khoá tra (boDau của tra-san-pham).
+  tenGoi    String   @map("ten_goi")
+  productId Int      @map("product_id")
+  /// Tên SP lúc học — để đọc log/soát, KHÔNG phải nguồn sự thật (giá/tên đọc
+  /// lại từ Odoo mỗi lần dùng).
+  tenSp     String   @map("ten_sp")
+  demDung   Int      @default(1) @map("dem_dung")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([orgId, tenGoi])
+  @@map("sp_alias")
+}
+
 model AiGuideline {
   id        String   @id @default(cuid())
   orgId     String   @map("org_id")

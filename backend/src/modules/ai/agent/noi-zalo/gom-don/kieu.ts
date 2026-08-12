@@ -29,6 +29,11 @@ export interface DongGom {
    */
   chietKhau?: number;
   /**
+   * Ứng viên đến từ đường GẦN ĐÚNG (P1.2) — NV chọn xong thì lựa chọn đó là
+   * ALIAS đáng học (sp-alias.ts). Ứng viên thường không có cờ này.
+   */
+  ungVienGanDung?: boolean;
+  /**
    * Dòng HÀNG TẶNG: giá 0đ và tên dòng gắn "(tặng)".
    *
    * Đo trên Odoo prod 11/08: 34/597 dòng có giá 0đ — nhưng KHÔNG phải quà tặng

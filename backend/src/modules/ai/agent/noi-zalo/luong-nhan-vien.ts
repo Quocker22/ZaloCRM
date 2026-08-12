@@ -7,6 +7,7 @@
 // Mọi lối thoát sớm đi qua `dung(lyDo)` — có log, grep `[agent/nv] dừng` là ra.
 import { prisma } from '../../../../shared/database/prisma-client.js';
 import { napLuatNhanVien, ghiLuat, quenLuat, type PrismaLuatNv } from '../luat-nhan-vien.js';
+import { traAliasSp, ghiAliasSp, type PrismaSpAlias } from '../sp-alias.js';
 import { logger } from '../../../../shared/utils/logger.js';
 import { chayLenhNhanVien } from '../staff-agent.js';
 import { nhanDienLenhNhanVien, coTagBot } from '../staff-command.js';
@@ -210,6 +211,9 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
       {
         prisma: prismaPhien, odoo: layOdoo(), generate, anhClient: layAnhClient() ?? null,
         luatNhanVien: luatNv,
+        // Alias SP học được (P1.3) — bot khớp thẳng tên gọi NV đã dạy một lần.
+        traAliasSp: (tuKhoa) => traAliasSp(prisma as unknown as PrismaSpAlias, ctx.orgId, tuKhoa),
+        ghiAliasSp: (v) => ghiAliasSp(prisma as unknown as PrismaSpAlias, { orgId: ctx.orgId, ...v }),
         // Prod luôn có URL công khai; thiếu (dev) thì link thành tương đối —
         // xấu nhưng không chặn luồng tạo đơn.
         odooUrl: odooUrlCongKhai() ?? '',

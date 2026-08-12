@@ -157,8 +157,20 @@ function laSoDem(t: string): boolean {
  * JS lại đòi tên phải chứa cả "đèn" nên vứt luôn SP đó.
  */
 export function tuKhoaTraSp(ten: string): string[] {
-  // Giữ token số dù 1 ký tự ("3", "4") — xem laSoDem().
-  const moiTu = ten.trim().split(/\s+/).filter((t) => t.length >= 2 || laSoDem(t));
+  // TÁCH TOKEN GẠCH NỐI (P1.1, 12/08 — đo 30 ngày prod): ảnh/nhân viên ghi
+  // "RY3-800W" nhưng catalog lưu "Nguồn 12V800W đổ keo ngoài trời
+  // RY3-12V800WYR" — tra nguyên chuỗi "RY3-800W" bằng ilike là trượt dù cả
+  // "RY3" lẫn "800W" đều nằm trong tên. Cách người ghép mã bằng gạch không
+  // bao giờ trùng khít cách catalog ghép, nên gạch nối là RANH GIỚI TỪ, không
+  // phải ký tự của từ. Tách rồi để cơ chế AND-từng-từ sẵn có làm việc.
+  //
+  // `default_code` KHÔNG ảnh hưởng: domainTimKiem vẫn tra mã bằng NGUYÊN
+  // chuỗi gốc (mã thật có gạch thì nhân viên gõ đủ mã).
+  const moiTu = ten
+    .trim()
+    .split(/\s+/)
+    .flatMap((t) => (/[-_]/.test(t) && /\d/.test(t) ? t.split(/[-_]+/) : [t]))
+    .filter((t) => t.length >= 2 || laSoDem(t));
   // TU_DEM không được phép loại số đếm.
   const tu = moiTu.filter((t) => laSoDem(t) || !TU_DEM.has(boDau(t)));
   // Query TOÀN từ đệm ("đèn led", "bóng") → không bỏ được từ nào, dùng lại tất cả.
@@ -349,7 +361,43 @@ export async function traSanPham(
 
   // Có mã mà lọc ra rỗng → trả rỗng, KHÔNG rơi về danh sách chưa lọc.
   // Thà nói "không tìm thấy" còn hơn báo giá sai sản phẩm.
-  const ketQua = maQuery.length > 0 && loc.length === 0 ? [] : loc;
+  let ketQua = maQuery.length > 0 && loc.length === 0 ? [] : loc;
+
+  // NỚI THEO MÃ MODEL (P1.2, 12/08 — đo 30 ngày prod: gần MỌI ca đơn-từ-ảnh
+  // chết ở "không tìm thấy sản phẩm" trong khi hàng CÓ dưới tên khác).
+  //
+  // Ca thật 19:43: ảnh ghi "QC-LH3B6313T Led hắt 3 bóng 6313 ngoài trời - Màu
+  // Trắng", catalog lưu "3 Bóng Saso 6313". Đường AND vỡ (không tên nào có
+  // "hắt"+"ngoài"+"trời"...), đường nới-OR thì "3"/"ngoài"/"trời" khớp nửa
+  // catalog nên 4 SP Saso 6313 rớt NGOÀI trần limit*4 trước khi lọc mã chạy.
+  //
+  // Trong catalog LED, MÃ MODEL là thông tin phân biệt nhất (chính lý do có
+  // `macModel`). Vậy khi mọi đường trên đã rỗng: tra THẲNG theo từng mã, ưu
+  // tiên mã SỐ THUẦN ("6313" — bền nhất qua mọi cách ghi) rồi mã dài. Mỗi mã
+  // một query nhỏ, dừng ở mã đầu tiên có kết quả. Kết quả coi là GẦN ĐÚNG
+  // (daNoiRong) — đi đường xếp-theo-khớp, và máy gom đơn sẽ HỎI thay vì tự chốt.
+  let noiTheoMa = false;
+  if (ketQua.length === 0 && maQuery.length > 0) {
+    const thuTuMa = [...maQuery].sort((a, b) => {
+      const soA = /^\d+$/.test(a) ? 0 : 1;
+      const soB = /^\d+$/.test(b) ? 0 : 1;
+      return soA - soB || b.length - a.length;
+    });
+    for (const ma of thuTuMa) {
+      const rowsMa = await deps.odoo.searchRead<Record<string, unknown>>(
+        'product.product',
+        [...domainGoc, '|', ['name', 'ilike', ma], ['default_code', 'ilike', ma]],
+        [...ALLOWED_FIELDS],
+        { limit: limit * 2 },
+      );
+      if (rowsMa.length > 0) {
+        ketQua = rowsMa.map(locFieldCam);
+        daNoiRong = true;
+        noiTheoMa = true;
+        break;
+      }
+    }
+  }
 
   // XẾP THEO ĐỘ KHỚP — chỉ khi đã nới sang OR (bug thật 2026-07-30).
   //
@@ -400,11 +448,20 @@ export async function traSanPham(
   // Gắn tổng số khớp lên mảng để dinhDangSanPham báo được "còn nữa".
   // KHÔNG cắt im lặng — model không biết bị cắt sẽ tự tin tóm tắt cái không có.
   (hienThi as SanPhamList).tongKhop = xepKhop.length;
+  // GẦN ĐÚNG = đã đi đường NỚI-THEO-MÃ — caller (máy gom đơn) sẽ HỎI CHỌN
+  // thay vì tự chốt, kể cả 1 kết quả: mã 6313 ra "Saso 6313" là hàng ĐOÁN
+  // theo mã, chưa ai xác nhận tên gọi. CHỈ đường theo-mã: nhánh nới-OR cũ
+  // (1 kq = chốt) đã sống ổn nhiều tuần, siết nó là regression (test replay
+  // 10/08 "led thanh tỏa Lixin" bắt được ngay khi em thử siết cả hai).
+  (hienThi as SanPhamList).ganDung = noiTheoMa;
+  // Đã đi BẤT KỲ đường nới nào — gom đơn dùng để quyết "lựa chọn của NV có
+  // đáng học thành alias không" (học cả từ nới-OR, không chỉ theo-mã).
+  (hienThi as SanPhamList).daNoiRong = daNoiRong;
   return hienThi;
 }
 
 /** Mảng kết quả có kèm tổng số khớp (để biết còn bị cắt hay không). */
-export type SanPhamList = SanPham[] & { tongKhop?: number };
+export type SanPhamList = SanPham[] & { tongKhop?: number; ganDung?: boolean; daNoiRong?: boolean };
 
 // VÌ SAO SP *KHÔNG* CÓ LUẬT TỰ CHỐT NHƯ KHÁCH HÀNG (hỏi 21:56 11/08, đã đo).
 //
