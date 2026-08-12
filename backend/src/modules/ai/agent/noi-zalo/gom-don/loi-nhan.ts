@@ -180,9 +180,23 @@ function khongThay(hd: Extract<HanhDong, { loai: 'khong_thay' }>, p: PhienGom): 
         : `Em không tìm thấy khách "${hd.khach}".`,
     );
   }
-  if (hd.sp.length > 0) phan.push(`Em không tìm thấy sản phẩm: ${hd.sp.map((s) => `"${s}"`).join(', ')}.`);
+  // GẠCH ĐẦU DÒNG từng SP không thấy (yêu cầu anh Quốc 22:06 12/08: "phải
+  // gạch đầu dòng những sản phẩm đó"). Gộp một câu dài là nhân viên không soát
+  // nổi đâu là món nào; xuống dòng từng món thì nhìn phát biết ngay.
+  // (Món nào có hàng GẦN GIỐNG đã thành danh sách chọn a/b/c ở nhánh khác —
+  // tới được đây nghĩa là tra cả bỏ-số-lô vẫn trắng tay.)
+  if (hd.sp.length > 0) {
+    phan.push(
+      'Em không tìm thấy các sản phẩm sau (đã tra cả tên gần giống):\n' +
+      hd.sp.map((s) => `- "${s}"`).join('\n'),
+    );
+  }
   if (!laNhap || hd.sp.length > 0) {
-    phan.push('Anh/chị gõ lại tên khác (hoặc SĐT/mã KH với khách) giúp em ạ.');
+    phan.push(
+      laNhap && hd.sp.length > 0
+        ? '\nAnh/chị gõ lại tên khác, hoặc nói "tạo mới <tên hàng>" để em tạo sản phẩm mới rồi đưa vào phiếu nhập ạ.'
+        : 'Anh/chị gõ lại tên khác (hoặc SĐT/mã KH với khách) giúp em ạ.',
+    );
   }
   return phan.join(' ');
 }

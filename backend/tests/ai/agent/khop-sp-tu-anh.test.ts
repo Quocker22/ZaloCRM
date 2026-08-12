@@ -162,3 +162,81 @@ describe('loiDanDocAnh — ảnh BẢNG có cột (P2)', () => {
     expect(dan).toMatch(/thành tiền/);
   });
 });
+
+describe('mã SỐ THUẦN khớp tuyệt đối — số lô không nuốt mã SP (siết 22:06)', () => {
+  it('"P5 Full Out 260727" KHÔNG được gợi "Led 2 bóng 2607" (260727 ⊃ 2607 là trùng hợp)', async () => {
+    const odoo = fakeOdoo();
+    // fakeOdoo không có SP 2607 — thêm test riêng với catalog có 2607:
+    const products = [
+      { id: 1056, name: 'Led 2 bóng 2607 màu Trắng (thanh)', default_code: '2607-12V-W', list_price: 1000, uom_id: [2, 'Thanh'] },
+    ];
+    const odoo2 = {
+      searchRead: vi.fn(async (_m: string, domain: unknown[], _f: unknown, opts?: { limit?: number }) =>
+        products.filter((p) => khopDomain(domain, (dk) => {
+          if (dk[0] === 'name' && dk[1] === 'ilike') return ilike(`%${String(dk[2])}%`, p.name);
+          if (dk[0] === 'default_code' && dk[1] === 'ilike') return ilike(`%${String(dk[2])}%`, p.default_code);
+          if (dk[0] === 'list_price' && dk[1] === '>') return p.list_price > Number(dk[2]);
+          if (dk[0] === 'list_price' && dk[1] === '<=') return p.list_price <= Number(dk[2]);
+          return true;
+        })).slice(0, opts?.limit ?? 10)),
+    };
+    void odoo;
+
+    const kq = await traSanPham({ odoo: odoo2 as never }, { ten: 'P5 Full Out 260727' });
+
+    expect(kq).toHaveLength(0);
+  });
+
+  it('chiều hợp lệ giữ nguyên: mã chữ+số "Nb12v100w" vẫn khớp SP "NB 12V100w"', async () => {
+    const products = [
+      { id: 1040, name: 'Nguồn NB Ngoài Trời 12V100W (cái)', default_code: 'NB 12V100w', list_price: 78000, uom_id: [1, 'Cái'] },
+    ];
+    const odoo = {
+      searchRead: vi.fn(async (_m: string, domain: unknown[], _f: unknown, opts?: { limit?: number }) =>
+        products.filter((p) => khopDomain(domain, (dk) => {
+          if (dk[0] === 'name' && dk[1] === 'ilike') return ilike(`%${String(dk[2])}%`, p.name);
+          if (dk[0] === 'default_code' && dk[1] === 'ilike') return ilike(`%${String(dk[2])}%`, p.default_code);
+          if (dk[0] === 'list_price' && dk[1] === '>') return p.list_price > Number(dk[2]);
+          if (dk[0] === 'list_price' && dk[1] === '<=') return p.list_price <= Number(dk[2]);
+          return true;
+        })).slice(0, opts?.limit ?? 10)),
+    };
+
+    const kq = await traSanPham({ odoo: odoo as never }, { ten: 'Nb12v100w' });
+
+    expect(kq).toHaveLength(1);
+    expect(kq[0].id).toBe(1040);
+  });
+});
+
+describe('hàng đợi tuần tự theo hội thoại (vá race 22:06)', () => {
+  it('hai lượt cùng hội thoại chạy NỐI ĐUÔI; hội thoại khác vẫn song song', async () => {
+    const { xepHangHoiThoai } = await import('../../../src/modules/ai/agent/noi-zalo/luong-nhan-vien.js');
+    const dau: string[] = [];
+    const cham = (nhan: string, ms: number) => async () => {
+      dau.push(`vao:${nhan}`);
+      await new Promise((r) => setTimeout(r, ms));
+      dau.push(`ra:${nhan}`);
+      return nhan;
+    };
+
+    const [a, b, c] = await Promise.all([
+      xepHangHoiThoai('conv-1', cham('anh', 30)),
+      xepHangHoiThoai('conv-1', cham('text', 5)),
+      xepHangHoiThoai('conv-2', cham('khac', 5)),
+    ]);
+
+    expect([a, b, c]).toEqual(['anh', 'text', 'khac']);
+    // conv-1: text chỉ được VÀO sau khi ảnh RA — không chồng nhau.
+    expect(dau.indexOf('ra:anh')).toBeLessThan(dau.indexOf('vao:text'));
+    // conv-2 không phải chờ conv-1.
+    expect(dau.indexOf('ra:khac')).toBeLessThan(dau.indexOf('ra:anh'));
+  });
+
+  it('lượt trước NÉM LỖI không chặn lượt sau', async () => {
+    const { xepHangHoiThoai } = await import('../../../src/modules/ai/agent/noi-zalo/luong-nhan-vien.js');
+
+    await expect(xepHangHoiThoai('conv-loi', async () => { throw new Error('nổ'); })).rejects.toThrow('nổ');
+    await expect(xepHangHoiThoai('conv-loi', async () => 'song')).resolves.toBe('song');
+  });
+});

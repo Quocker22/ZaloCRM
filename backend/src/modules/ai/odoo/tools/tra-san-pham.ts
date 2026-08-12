@@ -355,7 +355,13 @@ export async function traSanPham(
   const loc = maQuery.length > 0
     ? sach.filter((r) => {
         const maSp = macModel(`${r.name ?? ''} ${r.default_code ?? ''}`);
-        return maQuery.some((m) => maSp.some((s) => s === m || m.includes(s)));
+        // MÃ SỐ THUẦN khớp bằng NHAU TUYỆT ĐỐI (siết 22:06 12/08): luật
+        // m.includes(s) cũ cho "260727" (số lô trong ảnh) nuốt "2607" (mã SP
+        // thật) — hai thứ không liên quan mà thành gợi ý sai. Số chứa số là
+        // trùng hợp số học, không phải cùng dòng hàng. Mã CHỮ+SỐ giữ luật
+        // một-chiều cũ ("nb12v100w" chứa "12v100w" — tiền tố dòng hàng).
+        return maQuery.some((m) => maSp.some((sp) =>
+          sp === m || (!/^\d+$/.test(sp) && m.includes(sp))));
       })
     : sach;
 

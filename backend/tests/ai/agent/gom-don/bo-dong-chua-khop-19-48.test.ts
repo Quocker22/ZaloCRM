@@ -27,6 +27,7 @@ function fakeOdoo() {
   const kh = [{ id: 88, name: 'Công Ty Led Kim Long', ref: 'KH000088', phone: false }];
   const products = [
     { id: 701, name: 'Led Bulb 9W Trắng', default_code: 'SP000701', list_price: 50000, uom_id: [1, 'Cái'] },
+    { id: 810, name: 'p10 full out LLR 260330', default_code: 'P10FO-LLR', list_price: 175000, uom_id: [3, 'Tấm'] },
   ];
   const donDaGhi = new Map<string, { id: number; name: string }>();
   let idKe = 28001;
@@ -136,7 +137,9 @@ describe('ca thật 19:42-19:48 12/08 — "bỏ các SP không rõ ràng lên đ
 
     await goi('lên đơn cho anh Led Kim Long các sản phẩm trong ảnh', 19421);
     // Bot đã báo "không tìm thấy" các mã QC-* — phiên còn mở với khách + 1 dòng khớp.
-    expect(tinGui.join('\n')).toContain('không tìm thấy sản phẩm');
+    // Câu chữ mới 22:06 12/08: gạch đầu dòng từng SP (yêu cầu anh Quốc).
+    expect(tinGui.join('\n')).toContain('không tìm thấy các sản phẩm sau');
+    expect(tinGui.join('\n')).toContain('- "QC-LHR15W');
 
     const tinTruoc = tinGui.length;
     await goi('thôi bỏ các sản phẩm không rõ ràng lên đơn đi', 19482);
@@ -199,5 +202,86 @@ describe('luật chiết khấu NV dặn — ca MỘT LƯỢT (đơn ra ngay), v
     expect(taoDon, 'đơn phải được tạo trong lượt đầu').toBeTruthy();
     // Dòng hàng trong vals phải mang discount 5 từ luật.
     expect(JSON.stringify(taoDon![2])).toContain('"discount":5');
+  });
+});
+
+describe('gợi ý gần giống khi tay trắng — bỏ SỐ LÔ tra lại (yêu cầu 22:06)', () => {
+  it('"P10 Full Out 260626" (lô mới) → ứng viên "p10 full out LLR 260330", hỏi chọn', async () => {
+    const odoo = fakeOdoo();
+    const db = fakeDb();
+    const tinGui: string[] = [];
+    const gen: ToolAwareGenerate = async () => ({
+      text: '', stopReason: 'tool_use', raw: null, usage,
+      toolCalls: [{ id: 't1', name: 'ghi_slot', input: {
+        lenDon: true, khach: 'Led Kim Long', dong: [{ sp: 'P10 Full Out 260626', sl: 100 }],
+      } }],
+    });
+    const deps: GomDonDeps = {
+      prisma: db as never, odoo: odoo as never, generate: gen,
+      anhClient: null, odooUrl: 'https://odoo.example.com',
+      guiTin: async (t) => { tinGui.push(t); }, guiAnhHoaDon: async () => {}, ghiLog: () => {},
+    };
+    await xuLyGomDon(deps, { orgId: 'o1', conversationId: 'c-goi-y', seq: 41001, cau: 'lên đơn cho anh Led Kim Long 100 tấm P10 Full Out 260626', senderUid: 'u' });
+
+    const tin = tinGui.join('\n');
+    // KHÔNG bó tay, KHÔNG tự chốt — đưa hàng lô cũ ra hỏi.
+    expect(tin).not.toContain('không tìm thấy các sản phẩm');
+    expect(tin).toContain('LLR 260330');
+    expect(tin).toMatch(/a\)/);
+    // Không được lặng lẽ tạo đơn với hàng đoán.
+    const daTao = odoo.execute.mock.calls.filter((c) => String(c[1]) === 'create').length;
+    expect(daTao).toBe(0);
+  });
+});
+
+describe('lệnh "tạo mới <tên>" trong phiếu nhập (yêu cầu 22:06)', () => {
+  const dungMayNhap = (execute: ReturnType<typeof vi.fn>) => {
+    const odoo = fakeOdoo();
+    (odoo as { execute: unknown }).execute = execute;
+    const db = fakeDb();
+    const tinGui: string[] = [];
+    const gen: ToolAwareGenerate = async (a) => {
+      const nd = String(a.messages[0].content);
+      const input: Record<string, unknown> = nd.includes('phiếu nhập')
+        ? { nhapHang: true, khach: 'Led Kim Long', dong: [{ sp: 'QC-KHONG-CO-THAT', sl: 5 }] }
+        : {};
+      return { text: '', stopReason: 'tool_use', raw: null, usage, toolCalls: [{ id: 't1', name: 'ghi_slot', input }] };
+    };
+    const deps: GomDonDeps = {
+      prisma: db as never, odoo: odoo as never, generate: gen,
+      anhClient: null, odooUrl: 'https://odoo.example.com',
+      guiTin: async (t) => { tinGui.push(t); }, guiAnhHoaDon: async () => {}, ghiLog: () => {},
+    };
+    return {
+      goi: (cau: string, seq: number) => xuLyGomDon(deps, { orgId: 'o1', conversationId: 'c-tao-moi-' + seq, seq, cau, senderUid: 'u' }),
+      goiCung: (cid: string) => (cau: string, seq: number) => xuLyGomDon(deps, { orgId: 'o1', conversationId: cid, seq, cau, senderUid: 'u' }),
+      tinGui,
+    };
+  };
+
+  it('có quyền → tạo SP, chốt vào dòng, báo rõ đã tạo', async () => {
+    const execute = vi.fn(async (_m: string, method: string) => (method === 'create' ? 9001 : 1));
+    const { goiCung, tinGui } = dungMayNhap(execute);
+    const goi = goiCung('c-tm-ok');
+
+    await goi('tạo phiếu nhập cho Led Kim Long 5 cái QC-KHONG-CO-THAT', 51001);
+    await goi('tạo mới QC-KHONG-CO-THAT', 51002);
+
+    expect(execute.mock.calls.some((c) => String(c[1]) === 'create' && String(c[0]) === 'product.product')).toBe(true);
+    expect(tinGui.join('\n')).toContain('Em đã tạo mới 1 sản phẩm');
+  });
+
+  it('bị chặn quyền → nói thật + chỉ đường cấp quyền, KHÔNG im', async () => {
+    const execute = vi.fn(async (_m: string, method: string) => {
+      if (method === 'create') throw new Error('Liên hệ với quản trị viên');
+      return 1;
+    });
+    const { goiCung, tinGui } = dungMayNhap(execute);
+    const goi = goiCung('c-tm-chan');
+
+    await goi('tạo phiếu nhập cho Led Kim Long 5 cái QC-KHONG-CO-THAT', 52001);
+    await goi('tạo mới QC-KHONG-CO-THAT', 52002);
+
+    expect(tinGui.join('\n')).toContain('chưa được cấp quyền tạo sản phẩm');
   });
 });

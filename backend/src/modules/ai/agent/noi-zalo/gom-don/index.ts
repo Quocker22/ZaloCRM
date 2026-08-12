@@ -657,7 +657,12 @@ async function chayTraCuu(
       // — "Led hắt 6313" ra "3 Bóng Saso 6313") thì DÙ CHỈ MỘT kết quả cũng
       // phải HỎI, không tự chốt: tự chốt hàng gần đúng là lên đơn sai mặt hàng.
       const meta = list as import('../../../odoo/tools/tra-san-pham.js').SanPhamList;
-      const ganDung = meta.ganDung === true;
+      // MỌI kết quả từ ĐƯỜNG NỚI đều phải HỎI, kể cả 1 kết quả (siết 22:06
+      // 12/08 — CÓ CHỦ Ý, khác lần siết mù đã revert buổi tối): "P10 Full Out
+      // 260626" nới-OR ra đúng 1 SP "P10 3 màu LLR 260409" giá 170k và TỰ
+      // CHỐT — 10.000 tấm nhầm mặt hàng là 1,7 tỷ tiền sai. Hỏi thêm một
+      // lượt rẻ hơn vô hạn so với nhập nhầm kho.
+      const ganDung = meta.ganDung === true || meta.daNoiRong === true;
       if (list.length === 1 && !ganDung) {
         dong.daChot = { id: list[0].id, ten: list[0].ten, gia: list[0].gia };
       } else if (list.length >= 1) {
@@ -665,8 +670,30 @@ async function chayTraCuu(
         // Đáng học alias khi kết quả đến từ BẤT KỲ đường nới nào — tên gọi
         // của NV lệch catalog thật sự, lựa chọn của họ là tri thức.
         if (ganDung || meta.daNoiRong === true) dong.ungVienGanDung = true;
+      } else {
+        // GỢI Ý GẦN GIỐNG khi tay trắng (yêu cầu anh Quốc 22:06 12/08: "phải
+        // gạch đầu dòng những sản phẩm đó rồi tra trong dữ liệu xem có sản
+        // phẩm nào gần giống không thì gợi ý"). Ca thật: ảnh ghi "P10 Full
+        // Out 260626" — 260626 là SỐ LÔ, catalog lưu lô cũ "...LLR 260330".
+        // Bỏ mã số thuần dài (≥6 = số lô/ngày, không phải mã dòng hàng) rồi
+        // tra lại "P10 Full Out" → ra ứng viên thật để CHỌN thay vì bó tay.
+        // Kết quả vào ungVien + cờ học alias — chọn xong lần sau khớp thẳng.
+        const tenBoLo = tuKhoa.replace(/\b\d{6,}\b/g, ' ').replace(/\s{2,}/g, ' ').trim();
+        if (tenBoLo && tenBoLo !== tuKhoa && /[a-zà-ỹ]/i.test(tenBoLo)) {
+          const goiY = await traSanPham({ odoo: deps.odoo }, { ten: tenBoLo });
+          if (goiY.length) {
+            dong.ungVien = goiY;
+            dong.ungVienGanDung = true;
+            deps.ghiLog({
+              toolName: 'tra_san_pham', input: { ten: tenBoLo },
+              output: `[gợi ý gần giống, bỏ số lô] ${dinhDangSanPham(goiY, tenBoLo)}`,
+              thanhCong: true, durationMs: Date.now() - t0, iteration: 0,
+            });
+            return;
+          }
+        }
+        dong.khongThay = true;
       }
-      else dong.khongThay = true;
     })());
   }
   await Promise.all(viec);
@@ -1058,7 +1085,7 @@ export async function xuLyGomDon(
   }
 
   // 1. Map lựa chọn bằng CODE trước — "1a"/mã KH/SĐT không tốn lượt LLM nào.
-  const daChon = phien ? apDungChon(phien, cauChon) : false;
+  let daChon = phien ? apDungChon(phien, cauChon) : false;
   // HỌC ALIAS (P1.3): NV vừa chọn một SP từ danh sách GẦN ĐÚNG → tên gọi đó
   // từ nay khớp thẳng. Fire-and-forget — học trượt không được chặn đơn.
   if (daChon && phien && deps.ghiAliasSp) {
@@ -1069,6 +1096,60 @@ export async function xuLyGomDon(
       }
     }
   }
+
+  // TẠO SP MỚI THEO LỆNH TƯỜNG MINH (yêu cầu anh Quốc 22:06 12/08: "nếu người
+  // dùng muốn tạo mới thì tạo luôn"). CHỈ chế NHẬP + phiên đang mở — hàng nhập
+  // về là hàng thật sắp nằm kho, khác hẳn bot tự đẻ SP lúc bí (bài học "khách
+  // rác Long"). Lệnh phải TƯỜNG MINH "tạo mới <tên>" — đó là consent, regex
+  // bắt ở code, không nhờ model đoán ý.
+  //
+  // Quyền Odoo hiện CHẶN create (đo probe 22:1x) — bot nói thật + chỉ đường
+  // cấp quyền; ai cấp xong là chạy ngay, không cần deploy lại.
+  const lenhTaoMoi = phien?.che === 'nhap' ? cauChon.trim().match(/^tạo mới\s+(hết|het|(.{2,80}))$/i) : null;
+  if (lenhTaoMoi && phien) {
+    const taoHet = /^h[eế]t$/i.test(lenhTaoMoi[1]);
+    const dsCanTao = taoHet
+      ? phien.dong.filter((d) => d.khongThay).map((d) => d.tuKhoa)
+      : [lenhTaoMoi[1].trim()];
+    const daTao: string[] = [];
+    let biChanQuyen = false;
+    for (const tenTao of dsCanTao) {
+      try {
+        const id = await deps.odoo.execute<number>('product.product', 'create', [{
+          name: tenTao, purchase_ok: true, sale_ok: true,
+        }]);
+        // Dòng nào trong phiên khớp tên này thì chốt thẳng vào SP vừa tạo.
+        const d = phien.dong.find((x) => boDau(x.tuKhoa) === boDau(tenTao) || boDau(tenTao).includes(boDau(x.tuKhoa)));
+        if (d) {
+          d.daChot = { id, ten: tenTao, gia: 0 };
+          delete d.khongThay;
+        } else {
+          phien.dong.push({ tuKhoa: tenTao, sl: null, daChot: { id, ten: tenTao, gia: 0 } });
+        }
+        daTao.push(tenTao);
+      } catch {
+        biChanQuyen = true;
+        break;
+      }
+    }
+    if (biChanQuyen) {
+      await deps.guiTin(
+        'Em chưa được cấp quyền tạo sản phẩm trên Odoo ạ (hệ thống báo phải liên hệ quản trị '
+        + 'viên). Anh/chị nhờ kế toán tạo giúp, hoặc cấp quyền Tạo sản phẩm cho tài khoản bot '
+        + 'thì lần sau em tạo thẳng được ạ.',
+      );
+      if (daTao.length === 0) { await ghiPhien(phien); return true; }
+    }
+    if (daTao.length > 0) {
+      await deps.guiTin(`Em đã tạo mới ${daTao.length} sản phẩm: ${daTao.map((t) => `"${t}"`).join(', ')} (giá nhập điền sau ạ).`);
+      daChon = true; // câu đã xử bằng code — đừng đưa "tạo mới X" cho trích slot đoán
+    } else if (!biChanQuyen) {
+      await deps.guiTin('Em chưa thấy sản phẩm nào đang thiếu để tạo ạ — anh/chị nêu tên cụ thể: "tạo mới <tên hàng>".');
+      await ghiPhien(phien);
+      return true;
+    }
+  }
+
   // Đã hỏi LLM ở cửa vào thì DÙNG LẠI kết quả — đừng gọi lần hai cho cùng câu.
   if (!daChon && !daHoiLlm) trich = await trichSlot(deps.generate, input.cau, phien);
 

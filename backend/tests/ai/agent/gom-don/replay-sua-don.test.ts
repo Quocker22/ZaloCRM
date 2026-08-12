@@ -307,8 +307,13 @@ describe('replay 10/08 — gỡ phiên kẹt vì SP chưa có giá', () => {
   it('NV báo giá → SP giá 1đ VẪN lên đơn được, đơn ghi giá NV báo', async () => {
     const m = mayGiaAo();
     await m.goi('lên đơn cho anh Vấn 10 cái nguồn NB 12V400W x 170k, 300 thanh led tỏa Lixin 13k/thanh');
-    expect(m.tinGui[0]).toContain('1.700.000đ');        // 10 × 170k, KHÔNG phải 132k
-    expect(m.tinGui[0]).toContain('giá anh/chị báo');
+    // TỪ 22:06 12/08: "led thanh tỏa Lixin" khớp qua ĐƯỜNG NỚI → máy HỎI CHỌN
+    // thay vì tự chốt (ca "P10 Full Out 260626" tự chốt nhầm hàng 1,7 tỷ là lý
+    // do siết). NV chọn 'a' rồi tóm tắt mới hiện — thêm đúng một lượt bấm.
+    await m.goi('a');
+    const tomTat = m.tinGui.join('\n');
+    expect(tomTat).toContain('1.700.000đ');        // 10 × 170k, KHÔNG phải 132k
+    expect(tomTat).toContain('giá anh/chị báo');
     await m.goi('chốt');
     const payload = (m.execute.mock.calls[0][2] as Array<Record<string, unknown>>)[0];
     const lines = payload.order_line as Array<[number, number, Record<string, unknown>]>;

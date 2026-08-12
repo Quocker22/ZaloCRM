@@ -101,7 +101,37 @@ export async function dangChoTraLoiNv(input: {
  * Xử lý một tin nhân viên. Trả `true` nếu ĐÃ nhận việc (kể cả khi lỗi giữa
  * chừng) — caller không được để luồng khác trả lời chồng lên.
  */
+/**
+ * HÀNG ĐỢI TUẦN TỰ THEO HỘI THOẠI (vá 22:06 12/08).
+ *
+ * Ca thật: NV gửi ẢNH (22:06:19, đọc mất ~14s) rồi TEXT lệnh (22:06:25) —
+ * hai lượt chạy SONG SONG trên CÙNG phiên gom đơn: lượt text chốt NCC + hỏi
+ * hàng, lượt ảnh (xong sau) đè phiên, hỏi lại NCC lần nữa, hai tin bot chồng
+ * chéo trong 2 giây. Khoá việc `thuGiuViec` không đỡ được vì nó khoá theo
+ * (hội thoại + NỘI DUNG) — hai tin khác nội dung thì cùng qua.
+ *
+ * Mỗi hội thoại một hàng: lượt sau nối đuôi lượt trước, phiên chỉ có một tay
+ * ghi tại một thời điểm. Hội thoại KHÁC nhau vẫn song song như cũ.
+ */
+const hangTheoHoiThoai = new Map<string, Promise<unknown>>();
+export function xepHangHoiThoai<T>(key: string, viec: () => Promise<T>): Promise<T> {
+  const truoc = hangTheoHoiThoai.get(key) ?? Promise.resolve();
+  // Lượt trước lỗi không được chặn lượt sau — nuốt lỗi ở mắt xích nối.
+  const sau = truoc.then(viec, viec);
+  const duoi = sau.then(() => undefined, () => undefined);
+  hangTheoHoiThoai.set(key, duoi);
+  void duoi.then(() => {
+    // Dọn rác: mình vẫn là cuối hàng thì xoá key, tránh Map phình theo hội thoại chết.
+    if (hangTheoHoiThoai.get(key) === duoi) hangTheoHoiThoai.delete(key);
+  });
+  return sau;
+}
+
 export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
+  return xepHangHoiThoai(ctx.conversationId, () => xuLyTinNhanVienTuanTu(ctx));
+}
+
+async function xuLyTinNhanVienTuanTu(ctx: NgữCanhTin): Promise<boolean> {
   if (!batLuongNhanVien() || !duCauHinh()) {
     return dung('công tắc tắt hoặc thiếu cấu hình Odoo', {
       bat: batLuongNhanVien(), duCauHinh: duCauHinh(),
