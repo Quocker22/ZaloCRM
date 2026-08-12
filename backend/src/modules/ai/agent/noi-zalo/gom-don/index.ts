@@ -165,6 +165,17 @@ function dapSlot(p: PhienGom, trich: KetQuaTrich): boolean {
       delete p.khachUngVienConNua;
       delete p.khachKhongThay;
       doi = true;
+    } else if (p.khachKhongThay) {
+      // NHẮC LẠI ĐÚNG CÁI TÊN VỪA TRA HỤT → cho tra LẠI (vá 12/08).
+      //
+      // Ca thật 00:40-00:50: lượt 1 tra "Trung Quốc" hụt (bug tiền tố, đã sửa)
+      // nên phiên đọng cờ `khachKhongThay`. Lượt 2 nhân viên nhắc lại đúng tên
+      // đó — chuỗi TRÙNG nên nhánh trên không chạy, cờ hụt ở lại, và
+      // `buocTiepTheo` nhả thẳng `khong_thay` mà KHÔNG tra lại lần nào.
+      // Máy đã sửa được cách tra ở giữa hai lượt cũng vô ích: nó không bao giờ
+      // hỏi Odoo lần thứ hai. Xoá cờ để lượt này tra lại thật sự.
+      delete p.khachKhongThay;
+      doi = true;
     }
   }
   if (trich.khachMoi && !p.khachDaChot) {
@@ -792,8 +803,56 @@ export async function xuLyGomDon(
   // chuyển khoản, ảnh cái ghế) vẫn nhường agent thường như cũ; nếu không thì
   // mọi ảnh khách gửi đều bị lôi vào máy gom đơn.
   const anhGiuaPhien = phien != null && coKhoiAnh(input.cau);
-  if (!daChon && trich.ngoaiLe && !regexLen && !laLenhSua && !regexNhap && !anhGiuaPhien) {
+
+  // CÂU NGẮN KHI PHIÊN ĐANG CHỜ TRẢ LỜI (vá 12/08, ca thật 00:40-00:50).
+  //
+  // Bước 3 của ca hỏng LẦN THỨ BA. Đo prod với phiên đang ở chế 'nhap':
+  //   "ncc là Trung Quốc"  -> khach="Trung Quốc"  nhapHang=true  ĐÚNG
+  //   "Trung Quốc" TRẦN    -> khach=undefined     ngoaiLe=true   HỎNG
+  // Cùng một cái tên, chỉ khác chỗ có nhãn "ncc" dẫn đường hay không. Model
+  // thấy hai chữ trơ trọi không có động từ nào thì đoán là chuyện phiếm.
+  //
+  // Nhưng phiên ĐANG MỞ MIỆNG HỎI đúng câu đó ("Phiếu nhập này của nhà cung cấp
+  // nào ạ?"). Khi máy vừa hỏi xong, câu kế của nhân viên là CÂU TRẢ LỜI — gọi
+  // nó "không liên quan đơn hàng" là câu trả lời tự mâu thuẫn, y hệt lập luận
+  // của hàng rào lệnh-lên-đơn-rõ-ràng (15:06 11/08) và hàng rào khối ảnh
+  // (23:22 11/08, commit f4a3c93b). Đây là lần thứ BA cùng một bài học nên
+  // dựng hàng rào ở CODE, không vá prompt: prompt đã dặn rồi mà model vẫn
+  // trả ngoaiLe cho ca này (đo prod, không phải phỏng đoán).
+  //
+  // HẸP có chủ ý, đủ bốn điều kiện mới cứu:
+  //   1. có phiên đang mở, chưa chốt khách/NCC, không phải chế 'sua';
+  //   2. phiên CHƯA CÓ TỪ KHOÁ NÀO (`khachTuKhoa == null`) — tức máy vừa hỏi
+  //      "của nhà cung cấp nào ạ?" và còn tay trắng. Đây là vế QUYẾT ĐỊNH:
+  //      phiên đã có từ khoá rồi thì câu ngắn giữa chừng là chuyện khác
+  //      ("tồn kho NB còn nhiêu?" — kịch bản #2 của replay 07/08) và PHẢI
+  //      tiếp tục nhường agent thường như cũ;
+  //   3. câu NGẮN (≤6 từ) — đúng hình dạng một câu trả lời cộc lốc;
+  //   4. câu có CHỮ (không phải toàn số/ký hiệu) — số đã có `apDungChon` lo.
+  // Nhờ vậy "báo cáo doanh số hôm nay" hay "gửi lại hoá đơn" giữa phiên vẫn
+  // rơi xuống agent thường đúng như trước.
+  const dangChoChotKhach =
+    phien != null && !phien.khachDaChot && phien.che !== 'sua'
+    && phien.khachTuKhoa == null && !phien.khachUngVien?.length;
+  const cauNganTraLoi =
+    dangChoChotKhach
+    && cauChon.trim().split(/\s+/).length <= 6
+    && /[a-zà-ỹ]/i.test(cauChon);
+
+  if (
+    !daChon && trich.ngoaiLe && !regexLen && !laLenhSua && !regexNhap
+    && !anhGiuaPhien && !cauNganTraLoi
+  ) {
     return false;
+  }
+
+  // Câu ngắn được cứu ở trên nhưng model KHÔNG trích ra tên nào (nó bận gắn
+  // ngoaiLe) → lấy CHÍNH CÂU đó làm tên để tra. Không làm bước này thì phiên
+  // vào tới `dapSlot` với tay trắng, `buocTiepTheo` lại hỏi đúng câu vừa hỏi,
+  // và nhân viên gõ "Trung Quốc" mười lần cũng vẫn nhận một câu hỏi.
+  if (cauNganTraLoi && trich.ngoaiLe && !trich.khach && !trich.khachMoi) {
+    trich = { ...trich, khach: cauChon.trim() };
+    delete trich.ngoaiLe;
   }
 
   // Chế phiên: câu có dấu hiệu sửa (regex HOẶC model trích sua=true) → 'sua'.
@@ -859,7 +918,23 @@ export async function xuLyGomDon(
   // ĐƯỜNG THOÁT 4 (bug 16:15 11/08): đang chờ chọn khách mà câu không map được
   // và LLM trích không đem lại từ khoá mới → thử chính CÂU của NV: nếu là "tên
   // rõ hơn" ("Anh Long Led" khi đang tra "Long") thì tra lại bằng tên đó.
-  if (!daChon && phien.khachUngVien && !phien.khachDaChot && phien.khachTuKhoa) {
+  //
+  // `!trich.khach` LÀ ĐIỀU KIỆN BẮT BUỘC, không phải phòng xa (ca thật 00:50:23
+  // ngày 12/08 — hỏng LẦN THỨ BA). Chú thích trên vẫn viết "LLM trích không đem
+  // lại từ khoá mới" nhưng CODE chưa bao giờ kiểm điều đó, nên đường thoát chạy
+  // cả khi model đã trích ĐÚNG rồi và GHI ĐÈ đè lên kết quả sạch:
+  //   NV : "ncc là Trung Quốc"
+  //   LLM: khach="Trung Quốc"        ← trích đúng, dapSlot đã đắp vào phiên
+  //   ĐT4: tachTenRoHon("ncc là Trung Quốc","Trung Quốc") = "ncc là Trung Quốc"
+  //        (câu ≤6 từ, CHỨA từ khoá cũ, DÀI HƠN nó → khớp hết mọi điều kiện)
+  //        → khachTuKhoa := "ncc là Trung Quốc"   ← ĐÈ MẤT TÊN SẠCH
+  //   Odoo: mẫu `l_ tr_ng q__c` -> 0 kết quả (đo prod; "tr_ng q__c" ra 2 NCC).
+  // Bot báo không-thấy rồi quay về câu hỏi mở đầu — đúng lượt 00:50:26.
+  //
+  // Đường thoát này sinh ra cho ca model trích THIẾU ("Anh Long Led" → "Long").
+  // Model trích ĐỦ thì nó không có việc gì để làm: câu thô của nhân viên luôn
+  // nhiễu hơn tên model đã bóc sạch, đè vào chỉ có thể làm tệ đi.
+  if (!daChon && !trich.khach && phien.khachUngVien && !phien.khachDaChot && phien.khachTuKhoa) {
     const tenRoHon = tachTenRoHon(cauChon, phien.khachTuKhoa);
     if (tenRoHon) {
       phien.khachTuKhoa = tenRoHon;
@@ -877,7 +952,11 @@ export async function xuLyGomDon(
   //    Trần 3 vòng: tra_cuu chỉ có thể xảy ra 1 lần cho mỗi loạt từ khoá mới,
   //    vòng sau chắc chắn ra hành động nói/tạo — trần chỉ là hàng rào lập trình sai.
   let hd = buocTiepTheo(phien);
+  // Lượt này có thật sự hỏi Odoo lần nào không — dùng ở guard chống lặp cuối
+  // hàm để phân biệt "danh sách vừa tra ra" với "NV gõ thứ máy không hiểu".
+  let daTraLuotNay = false;
   for (let i = 0; hd.loai === 'tra_cuu' && i < 3; i++) {
+    daTraLuotNay = true;
     await chayTraCuu(deps, phien, hd, {
       conversationId: input.conversationId,
       ...(trich.maDon ? { maDon: trich.maDon } : {}),
@@ -982,7 +1061,28 @@ export async function xuLyGomDon(
   // bot "điếc" — NV gõ gì cũng nhận một tường chữ. Trùng thì đổi thành câu
   // ngắn chỉ rõ các đường thoát. So với tin ĐÃ GỬI gần nhất nên hai lượt liên
   // tiếp không bao giờ giống hệt nhau.
-  if (tin === phien.tinCuoi) {
+  //
+  // TRỪ KHI NHÂN VIÊN VỪA NHẮC LẠI ĐÚNG TÊN ĐANG CHỜ CHỌN (sửa 12/08).
+  //
+  // Ca thật 00:50:23 — lượt cuối của chuỗi hỏng LẦN THỨ BA:
+  //   00:40:37  Bot: "Có 2 nhà cung cấp tên Trung Quốc: 1) … 2) … chọn giúp em"
+  //   00:50:23  NV : "ncc là Trung Quốc"        ← nhắc lại chính cái tên đó
+  //   00:50:26  Bot: "Em vẫn chưa khớp được … chọn SỐ THỨ TỰ trong DANH SÁCH TRÊN"
+  //
+  // Guard sinh ra cho ca "NV gõ thứ máy không hiểu" (16:15 11/08) — lúc đó lặp
+  // lại tường chữ là vô ích. Nhưng đây KHÔNG phải ca đó: nhân viên trả lời đúng
+  // trọng tâm, chỉ là chưa chọn số. Danh sách vẫn đang treo và VẪN LÀ câu trả
+  // lời đúng cho họ; nuốt nó đi rồi bảo "chọn trong danh sách trên" là chỉ tới
+  // một chỗ vừa bị chính mình xoá — nhân viên nhìn lên không thấy gì để chọn.
+  //
+  // Điều kiện HẸP, đủ hai vế mới tha:
+  //   · lượt này ra `hoi_chon` (danh sách đang thật sự treo), VÀ
+  //   · câu của NV có mang tên khớp từ khoá đang tra (`trich.khach`) hoặc lượt
+  //     này vừa chạy tra cứu — tức NV nói đúng việc, không phải gõ linh tinh.
+  // Câu vô nghĩa lặp lại không thoả vế hai nên vẫn rơi vào guard như cũ; test
+  // "danh sách trên" khoá đúng chỗ đó.
+  const nhacLaiDungViec = hd.loai === 'hoi_chon' && (daTraLuotNay || trich.khach != null);
+  if (tin === phien.tinCuoi && !nhacLaiDungViec) {
     // ĐƯỜNG THOÁT PHẢI ĐÚNG NGỮ CẢNH (sửa 11/08).
     //
     // Ca thật 23:16:18: bot đang hỏi NHÀ CUNG CẤP nhưng đọc nguyên văn câu của
@@ -991,12 +1091,25 @@ export async function xuLyGomDon(
     // được phép tự tạo NCC (gắn điều khoản thanh toán, công nợ phải trả, MST),
     // nên bày cho nhân viên một đường thoát không tồn tại.
     const laNhap = phien.che === 'nhap';
+    // CHỈ MỜI "CHỌN SỐ THỨ TỰ" KHI THẬT SỰ CÓ DANH SÁCH ĐÁNH SỐ (sửa 12/08).
+    //
+    // Ca thật 00:50:26: bot bảo "Anh/chị chọn SỐ THỨ TỰ trong danh sách trên"
+    // trong khi CHƯA TỪNG in danh sách nào — cả hai lượt trước đều là câu hỏi
+    // trơ ("Phiếu nhập này của nhà cung cấp nào ạ?"). Nhân viên nhìn ngược lên
+    // không thấy số nào để gõ; câu hướng dẫn chỉ tới một chỗ không tồn tại và
+    // họ kẹt luôn ở đó 10 phút.
+    //
+    // `khachUngVien` là nguồn sự thật DUY NHẤT cho câu mời đó: chính nó sinh ra
+    // danh sách đánh số trong `renderLoiNhan`. Không có nó thì đường thoát phải
+    // là "gõ lại tên / gõ mã", tức thứ nhân viên làm được ngay.
+    const coDanhSachDanhSo = Boolean(phien.khachUngVien?.length);
+    const moiChonSo = coDanhSachDanhSo ? 'chọn SỐ THỨ TỰ trong danh sách trên, hoặc ' : '';
     tin = laNhap
       ? `Em vẫn chưa khớp được "${cauChon.slice(0, 80)}" với nhà cung cấp nào ạ. ` +
-        'Anh/chị chọn SỐ THỨ TỰ trong danh sách trên, hoặc gõ mã NCC (vd NCC000001), ' +
+        `Anh/chị ${moiChonSo}gõ lại TÊN NCC có dấu đầy đủ hoặc mã NCC (vd NCC000001), ` +
         'hoặc "huỷ" để làm lại giúp em. NCC chưa có trong hệ thống thì nhờ kế toán tạo trước ạ.'
       : `Em vẫn chưa khớp được "${cauChon.slice(0, 80)}" với lựa chọn nào ạ. ` +
-        'Anh/chị chọn SỐ THỨ TỰ trong danh sách trên, gõ SĐT hoặc mã KH của khách, ' +
+        `Anh/chị ${moiChonSo}gõ SĐT hoặc mã KH của khách, ` +
         'nói "khách mới" nếu khách chưa có, hoặc "huỷ" để làm lại giúp em.';
   }
   phien.tinCuoi = tin;

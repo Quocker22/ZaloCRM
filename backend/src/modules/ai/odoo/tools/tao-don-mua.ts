@@ -356,20 +356,42 @@ export type KetQuaTimNcc =
  */
 const TIEN_TO_NCC = /^(nha\s+cung\s+cap|ncc|nha\s+cc|ben|cty|cong\s+ty|nha\s+may|shop|hang)\s+/;
 
+/**
+ * TỪ NỐI đứng giữa nhãn loại và tên — bỏ NGAY SAU khi bỏ tiền tố.
+ *
+ * CA THẬT 00:40-00:50 NGÀY 12/08 (hỏng LẦN THỨ BA cùng chỗ). Nhân viên nói
+ * "nhà cung cấp LÀ Trung Quốc" và "ncc LÀ Trung Quốc" — hai câu tự nhiên nhất
+ * tiếng Việt. Bản vá 11/08 mới chỉ cắt được nhãn loại, chữ "là" ở lại:
+ *   "nhà cung cấp là Trung Quốc" -> "là Trung Quốc"   ← rồi tra bằng chuỗi này
+ *   "ncc là Trung Quốc"          -> "là Trung Quốc"
+ * Mà mẫu không dấu của "là Trung Quốc" là `l_ tr_ng q__c`, KHÔNG khớp tên thật
+ * "Trung Quốc" trong DB (đo prod: 0 kết quả, trong khi "tr_ng q__c" ra 2 NCC
+ * NCC000001 + NCC000290). Nên bot báo không-thấy rồi quay về hỏi lại từ đầu,
+ * đúng hai lượt 00:40:37 và 00:50:26.
+ *
+ * Tách RIÊNG khỏi TIEN_TO_NCC chứ không nhét thêm nhánh vào đó: "là"/"tên là"
+ * chỉ hợp lệ khi ĐỨNG SAU một nhãn loại. Một NCC tên thật bắt đầu bằng "Là…"
+ * mà nhân viên gõ trống trơn thì phải giữ nguyên, không được cắt.
+ */
+const TU_NOI_SAU_TIEN_TO = /^(?:la|ten\s+la|ten|:)\s*/;
+
 /** Bỏ mọi tiền tố loại NCC ở đầu câu, lặp cho "ncc cty X". Giữ nguyên DẤU của phần tên. */
 export function boTienToNcc(ten: string): string {
   let s = ten.trim();
+  const khongDauCua = (x: string): string =>
+    x.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd');
   // So trên bản KHÔNG DẤU để bắt cả "nhà cung cấp" lẫn "nha cung cap", nhưng
   // CẮT trên chuỗi gốc để phần tên còn lại giữ nguyên dấu.
   for (;;) {
-    const khongDau = s
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[̀-ͯ]/g, '')
-      .replace(/đ/g, 'd');
+    const khongDau = khongDauCua(s);
     const m = khongDau.match(TIEN_TO_NCC);
     if (!m) break;
     s = s.slice(m[0].length).trim();
+    // Ngay sau nhãn loại, nuốt luôn từ nối ("là", "tên là", ":") — ca thật
+    // 00:40 12/08 "nhà cung cấp LÀ Trung Quốc". Chỉ cắt ở ĐÂY, tức chỉ khi nó
+    // đứng sau nhãn loại; "là" đầu câu trống trơn vẫn được giữ làm tên.
+    const noi = khongDauCua(s).match(TU_NOI_SAU_TIEN_TO);
+    if (noi && noi[0].length < s.length) s = s.slice(noi[0].length).trim();
   }
   // Cắt sạch thành rỗng ("nhà cung cấp" trơ trọi) → trả nguyên văn, để caller
   // xử nhánh không-tìm-thấy thay vì tra bằng chuỗi rỗng (lôi về cả bảng).
