@@ -144,12 +144,19 @@ function fakeOdoo() {
  * gắn thêm `khach` bằng chính mẩu chữ đầu ảnh vì tưởng đó là tên đối tác. Test
  * cho model trả đúng như vậy — chỗ nào model sai thì CODE phải đỡ.
  */
-function fakeGenerate(): ToolAwareGenerate {
+function fakeGenerate(hong = false): ToolAwareGenerate {
   return async (a) => {
     const nd = String(a.messages[0].content);
     let input: Record<string, unknown> = {};
     if (nd.includes('tạo phiếu nhập hàng giúp tôi nhà cung cấp')) {
       input = { nhapHang: true, khach: 'Trung Quốc' };
+    } else if (hong && nd.includes('đây lấy từ trong ảnh ra')) {
+      // HÌNH DẠNG THẬT LÚC 11:51:13 (đo prod, không đoán): câu chỉ có "đây lấy
+      // từ trong ảnh ra" — không động từ, không tên hàng ngoài chữ viết tay —
+      // nên model gọi cả lượt là chuyện phiếm và KHÔNG trích ra dòng hàng nào.
+      // Phiên vào `buocTiepTheo` với `dong` rỗng, lại ra `hoi_thieu: sp`, render
+      // TRÙNG câu lượt trước, và rơi vào guard chống lặp — chỗ đẻ ra tin sai.
+      input = { ngoaiLe: true };
     } else if (nd.includes('đây lấy từ trong ảnh ra')) {
       // Lượt 11:51:13 — model trích ĐỦ các dòng hàng trong ảnh, và bịa thêm một
       // ô `khach` từ mẩu chữ đầu ảnh (đo prod: đây là cách nó hay sai).
@@ -185,12 +192,12 @@ function fakeDb() {
   };
 }
 
-function dungMay(conversationId = 'c-anh') {
+function dungMay(conversationId = 'c-anh', hong = false) {
   const odoo = fakeOdoo();
   const db = fakeDb();
   const tinGui: string[] = [];
   const deps: GomDonDeps = {
-    prisma: db as never, odoo: odoo as never, generate: fakeGenerate(),
+    prisma: db as never, odoo: odoo as never, generate: fakeGenerate(hong),
     anhClient: null, odooUrl: 'https://odoo.example.com',
     guiTin: async (t) => { tinGui.push(t); },
     guiAnhHoaDon: async () => {},
@@ -243,7 +250,11 @@ describe('ca thật 11:50–11:52 12/08 — ảnh danh sách hàng giữa phiế
   });
 
   it('LỖI C: NCC đã chốt ở lượt trước → gửi ảnh hàng hoá KHÔNG làm hỏi lại NCC', async () => {
-    const { goi, tinGui, db } = dungMay('c-giu');
+    // Dựng đúng hình dạng hỏng: model KHÔNG trích ra dòng hàng nào từ ảnh, nên
+    // câu hỏi "nhập những hàng gì ạ?" lặp lại nguyên văn và guard chống lặp vào
+    // cuộc. Trước bản vá, guard chỉ nhìn `che === 'nhap'` và nhả câu của bước
+    // NCC — kéo nhân viên ngược về bước đã chốt xong từ lượt trước.
+    const { goi, tinGui, db } = dungMay('c-giu', true);
 
     await goi(CAU_11_50, 31);
     // Chốt NCC số 1 — đúng lượt 11:50:51 của ca thật.
@@ -263,6 +274,27 @@ describe('ca thật 11:50–11:52 12/08 — ảnh danh sách hàng giữa phiế
     const tinSauAnh = tinGui.slice(tinTruocAnh).join('\n');
     expect(tinSauAnh).not.toContain('của nhà cung cấp nào ạ');
     expect(tinSauAnh).not.toContain('với nhà cung cấp nào ạ');
+    // Cũng không được bày đường thoát của bước NCC (gõ lại tên/mã NCC).
+    expect(tinSauAnh).not.toContain('TÊN NCC');
+    expect(tinSauAnh).not.toContain('mã NCC');
+    // Đường thoát phải chỉ đúng việc đang treo: HÀNG HOÁ.
+    expect(tinSauAnh).toContain('TÊN HÀNG');
+  });
+
+  it('CA NGƯỢC: NCC CHƯA chốt → đường thoát vẫn hỏi NCC như cũ', async () => {
+    // Hàng rào mới không được vá chết đường thoát cũ. Chưa chốt NCC mà nhân viên
+    // gõ thứ máy không hiểu hai lượt liền thì vẫn phải được chỉ cách gõ tên/mã
+    // NCC — đúng như trước bản vá.
+    const { goi, tinGui } = dungMay('c-chua', true);
+
+    await goi(CAU_11_50, 51);
+    // KHÔNG chốt số nào. Gõ hai lượt câu vô nghĩa để chạm guard chống lặp.
+    const tinTruoc = tinGui.length;
+    await goi(CAU_11_51, 52);
+    await goi(CAU_11_51, 53);
+
+    const tinSau = tinGui.slice(tinTruoc).join('\n');
+    expect(tinSau).toContain('NCC');
   });
 
   it('ảnh danh sách hàng → gom được NHIỀU dòng hàng, không phải 1 dòng', async () => {

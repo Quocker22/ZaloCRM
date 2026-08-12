@@ -1198,6 +1198,27 @@ export async function xuLyGomDon(
     // của luồng khách) — đường thoát phải khớp việc ĐANG treo.
     const chiConSpTreo =
       !coDanhSachDanhSo && phien.dong.some((d) => d.ungVien?.length);
+    // NCC/KHÁCH ĐÃ CHỐT THÌ ĐƯỜNG THOÁT KHÔNG ĐƯỢC HỎI LẠI NCC/KHÁCH (vá 12/08).
+    //
+    // ĐÂY LÀ GỐC CỦA CA "PHIÊN LÙI BƯỚC" 11:50→11:52 12/08 — không phải đường
+    // thoát 4 như chẩn đoán trước (đường thoát 4 đã có `!phien.khachDaChot` từ
+    // trước, đo lại thấy nó KHÔNG chạy trong ca này):
+    //
+    //   11:50:51  Bot: "Anh/chị nhập những hàng gì ạ?"   ← NCC đã chốt xong
+    //   11:51:13  NV : [ảnh 20 dòng hàng] "đây lấy từ trong ảnh ra"
+    //             model trả `ngoaiLe` (đo prod) → KHÔNG trích được dòng hàng nào
+    //             → `buocTiepTheo` lại ra `hoi_thieu: sp`, render RA ĐÚNG câu cũ
+    //             → `tin === phien.tinCuoi` → rơi vào guard chống lặp này
+    //   11:52:46  Bot: 'Em vẫn chưa khớp được "…" với NHÀ CUNG CẤP nào ạ…'
+    //
+    // Guard chỉ nhìn `che === 'nhap'` rồi đọc nguyên văn lời của bước NCC, bất kể
+    // NCC đã chốt từ lượt trước. Phiên KHÔNG mất NCC (`khachDaChot` còn nguyên
+    // trong DB) — chỉ có TIN GỬI RA kéo nhân viên ngược về bước đã xong, nên họ
+    // gõ lại tên NCC và vòng hỏi kéo dài thêm mấy phút.
+    //
+    // Cùng một bài học với hai hàng rào ngay trên (`chiConSpTreo`, `moiChonSo`):
+    // đường thoát phải khớp việc ĐANG treo. Ở đây việc đang treo là HÀNG HOÁ.
+    const khachDaXong = phien.khachDaChot != null;
     // Trích lời NHÂN VIÊN, không phải chuỗi thô: chuỗi thô mang cả khối
     // `[Khách gửi ảnh…]` nội bộ và bị chặt giữa chữ — xem `trichLoiNhanVien`.
     // Nhân viên chỉ gửi mỗi ảnh (không kèm chữ) thì phần trích rỗng: bỏ luôn vế
@@ -1205,14 +1226,17 @@ export async function xuLyGomDon(
     const loiNv = trichLoiNhanVien(cauChon);
     const chuaKhop = (cai: string): string =>
       loiNv ? `Em vẫn chưa khớp được "${loiNv}" với ${cai} nào ạ. ` : `Em chưa rõ ${cai} ạ. `;
-    tin = laNhap
-      ? chuaKhop('nhà cung cấp') +
-        `Anh/chị ${moiChonSo}gõ lại TÊN NCC có dấu đầy đủ hoặc mã NCC (vd NCC000001), ` +
-        'hoặc "huỷ" để làm lại giúp em. NCC chưa có trong hệ thống thì nhờ kế toán tạo trước ạ.'
-      : chiConSpTreo
-        ? chuaKhop('loại hàng') +
-          'Anh/chị gõ CHỮ CÁI đầu dòng trong danh sách trên (vd: a), hoặc gõ lại tên hàng ' +
-          'đầy đủ hơn, hoặc "huỷ" để làm lại giúp em.'
+    tin = khachDaXong
+      ? chuaKhop('hàng nào') +
+        (chiConSpTreo
+          ? 'Anh/chị gõ CHỮ CÁI đầu dòng trong danh sách trên (vd: a), hoặc gõ lại tên hàng ' +
+            'đầy đủ hơn, hoặc "huỷ" để làm lại giúp em.'
+          : 'Anh/chị gõ giúp em TÊN HÀNG + SỐ LƯỢNG (mỗi món một dòng, vd: "nguồn NB-12V400W ' +
+            '3030 cái"), hoặc "huỷ" để làm lại giúp em.')
+      : laNhap
+        ? chuaKhop('nhà cung cấp') +
+          `Anh/chị ${moiChonSo}gõ lại TÊN NCC có dấu đầy đủ hoặc mã NCC (vd NCC000001), ` +
+          'hoặc "huỷ" để làm lại giúp em. NCC chưa có trong hệ thống thì nhờ kế toán tạo trước ạ.'
         : chuaKhop('lựa chọn') +
           `Anh/chị ${moiChonSo}gõ SĐT hoặc mã KH của khách, ` +
           'nói "khách mới" nếu khách chưa có, hoặc "huỷ" để làm lại giúp em.';
