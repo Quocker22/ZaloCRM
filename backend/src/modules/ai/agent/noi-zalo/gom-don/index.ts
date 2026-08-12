@@ -98,6 +98,54 @@ const coKhoiAnh = (cau: string): boolean => cau.includes('[Khách gửi ảnh');
  * chịu được chuỗi CŨ (`[Khách gửi ảnh, nội dung trong ảnh: …]`) để tin đang
  * bay giữa chừng lúc deploy không rơi mất.
  */
+/**
+ * BÓC DÒNG HÀNG TỪ NỘI DUNG ẢNH BẰNG CODE — không nhờ model chép lại nữa.
+ *
+ * ─── VÌ SAO CODE CHỨ KHÔNG PHẢI TRÍCH SLOT LẦN HAI (đo 18:39-18:41 12/08) ───
+ * Hàng rào cũ khi model bỏ sót hàng trong ảnh là gọi `trichSlot` LẦN HAI với
+ * riêng khối ảnh. Đo tận tay trên prod (bọc generate, in tool call): model
+ * chính nhìn thẳng danh sách trần "- P10 full out: 10000 tấm\n…" mà VẪN trả
+ * `{khach, nhapHang}` với 0 dòng — hai lượt liền. Cùng chuỗi đó lúc khác lại
+ * trả đủ 17 dòng. Model rẻ KHÔNG TẤT ĐỊNH cho việc chép danh sách dài qua
+ * tool call; xây tính năng trên nó là xây trên cát.
+ *
+ * Trong khi đó nội dung ảnh KHÔNG phải chữ tự do: `loiDanDocAnh` đã ép model
+ * đọc ảnh xuất đúng dạng `"tên hàng: số lượng đơn vị"` mỗi dòng — đó là HỢP
+ * ĐỒNG format của chính mình. Dữ liệu có hợp đồng thì parse bằng code: chạy
+ * một tỉ lần ra một kết quả. Model chỉ còn là fallback cho dòng lệch chuẩn.
+ *
+ * Chịu các biến thể đo từ ảnh thật 12/08:
+ *   "- P10 full out: 10.000 tấm | 242 thùng"  → sp="P10 full out", sl=10000
+ *   "- DM: 12V400W: 1616"                     → sp="DM: 12V400W", sl=1616
+ *     (HAI dấu ':' — cắt ở dấu CUỐI, tên hàng được chứa ':')
+ *   "Tổng: 242 thùng"                         → BỎ (dòng tổng kết, không phải hàng)
+ *   "- 5V60A mỏng: 1131"                      → sp="5V60A mỏng", sl=1131
+ * Số kiểu VN: "10.000" là mười nghìn (chấm ngăn nghìn), giữ đúng.
+ */
+const TEN_KHONG_PHAI_HANG = /^(tổng|tong|cộng|cong|tổng cộng|total|ghi chú|note)$/i;
+export function bocDongTuKhoiAnh(chiAnh: string): Array<{ sp: string; sl?: number }> {
+  const dong: Array<{ sp: string; sl?: number }> = [];
+  for (const tho of chiAnh.split('\n')) {
+    // Bỏ bullet đầu dòng model hay thêm ("- ", "• ", "* ").
+    const d = tho.replace(/^\s*[-•*]\s*/, '').trim();
+    if (!d) continue;
+    // Cắt ở dấu ':' CUỐI — tên hàng thật có ':' bên trong ("DM: 12V400W").
+    const viTri = d.lastIndexOf(':');
+    if (viTri <= 0) continue;
+    const ten = d.slice(0, viTri).trim();
+    if (!ten || TEN_KHONG_PHAI_HANG.test(ten)) continue;
+    // Phần số: lấy TRƯỚC dấu '|' (phần sau là ghi chú phụ "| 242 thùng"),
+    // rồi bóc số ĐẦU TIÊN. "10.000 tấm" → 10000; không có số → dòng mô tả, bỏ.
+    const phanSo = d.slice(viTri + 1).split('|')[0].trim();
+    const soKhop = phanSo.match(/\d[\d.,]*/);
+    if (!soKhop) continue;
+    const sl = Number(soKhop[0].replace(/[.,](?=\d{3}\b)/g, '').replace(',', '.'));
+    if (!Number.isFinite(sl) || sl <= 0) continue;
+    dong.push({ sp: ten, sl });
+  }
+  return dong;
+}
+
 export function chiLayKhoiAnh(cau: string): string {
   const batDau = cau.indexOf('[Khách gửi ảnh');
   if (batDau < 0) return '';
@@ -999,17 +1047,35 @@ export async function xuLyGomDon(
   if (coKhoiAnh(input.cau) && daNhanViec && !trich.dong?.length && !trich.boDong?.length) {
     const chiAnh = chiLayKhoiAnh(input.cau);
     if (chiAnh) {
-      const lai = await trichSlot(deps.generate, chiAnh, phien);
-      if (lai.dong?.length) {
+      // CODE TRƯỚC, MODEL SAU (đổi 12/08 tối, đo ca 18:39-18:41). Bản đầu của
+      // hàng rào gọi trichSlot lần hai — đo prod: model nhìn danh sách trần
+      // vẫn trả 0 dòng hai lượt liền, không tất định. Nội dung ảnh có hợp
+      // đồng format từ `loiDanDocAnh` nên parse bằng code là đường chính;
+      // trichSlot lần hai chỉ còn đỡ dòng lệch chuẩn (chữ tự do, không ':').
+      let dongAnh: Array<{ sp: string; sl?: number; gia?: number }> = bocDongTuKhoiAnh(chiAnh);
+      let nguon = 'code';
+      if (!dongAnh.length) {
+        const lai = await trichSlot(deps.generate, chiAnh, phien);
+        dongAnh = lai.dong ?? [];
+        nguon = 'model';
+      }
+      if (dongAnh.length) {
         logger.info(
-          { conversationId: input.conversationId, soDong: lai.dong.length },
-          '[gom-don] trích lại riêng khối ảnh — model bỏ sót hàng trong ảnh',
+          { conversationId: input.conversationId, soDong: dongAnh.length, nguon },
+          '[gom-don] lấy dòng hàng từ khối ảnh — model lượt đầu bỏ sót',
         );
-        // CHỈ lấy `dong` từ lượt trích lại. Ý định/tên khách đã chốt ở lượt
-        // đầu (từ lời nhắn) — lượt này chỉ nhìn mỗi ảnh nên `khach` nó đoán ra
-        // thường là mẩu chữ đầu ảnh, đúng kiểu bịa đã thấy ở ca 11:51.
-        trich = { ...trich, dong: lai.dong };
+        // CHỈ lấy `dong`. Ý định/tên khách đã chốt ở lượt đầu (từ lời nhắn) —
+        // khối ảnh không mang tên NCC, đoán từ đó là bịa (ca 11:51).
+        trich = { ...trich, dong: dongAnh };
         delete trich.ngoaiLe;
+      } else {
+        // THẤT BẠI PHẢI CÓ VẾT (bài học cả buổi chiều 12/08): cả code lẫn
+        // model đều không ra dòng nào từ khối ảnh — câu hỏi "nhập những hàng
+        // gì" sắp lặp lại và log này là đầu mối duy nhất.
+        logger.warn(
+          { conversationId: input.conversationId, chiAnh: chiAnh.slice(0, 120) },
+          '[gom-don] khối ảnh có mặt nhưng KHÔNG bóc được dòng hàng nào',
+        );
       }
     }
   }

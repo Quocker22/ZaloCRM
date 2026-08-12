@@ -277,8 +277,12 @@ describe('ca thật 11:50–11:52 12/08 — ảnh danh sách hàng giữa phiế
     // Cũng không được bày đường thoát của bước NCC (gõ lại tên/mã NCC).
     expect(tinSauAnh).not.toContain('TÊN NCC');
     expect(tinSauAnh).not.toContain('mã NCC');
-    // Đường thoát phải chỉ đúng việc đang treo: HÀNG HOÁ.
-    expect(tinSauAnh).toContain('TÊN HÀNG');
+    // Đường thoát phải chỉ đúng việc đang treo: HÀNG HOÁ. Từ 12/08 tối, parser
+    // code (`bocDongTuKhoiAnh`) bóc được dòng hàng từ khối ảnh kể cả khi model
+    // trả ngoaiLe, nên máy không xin gõ tay nữa mà đi thẳng tới tra SP — câu
+    // trả lời giờ là "không tìm thấy sản phẩm …" cho các mã ngoài catalog.
+    // Cả hai dạng đều là nói về HÀNG, không phải NCC — đúng tinh thần test.
+    expect(tinSauAnh).toMatch(/TÊN HÀNG|sản phẩm/);
   });
 
   it('CA NGƯỢC: NCC CHƯA chốt → đường thoát vẫn hỏi NCC như cũ', async () => {

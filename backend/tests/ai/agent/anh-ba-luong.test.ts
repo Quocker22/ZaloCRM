@@ -187,3 +187,66 @@ describe('bóc mention khỏi CHÚ THÍCH ẢNH — ca thật 18:31 12/08', () =
     expect(bocMention('tạo phiếu nhập', [])).toBe('tạo phiếu nhập');
   });
 });
+
+describe('bocDongTuKhoiAnh — parse dòng hàng bằng CODE, không nhờ model (18:39 12/08)', () => {
+  // Đo prod: model chính nhìn danh sách trần vẫn trả 0 dòng hai lượt liền.
+  // Nội dung ảnh có hợp đồng format từ loiDanDocAnh → parse code là đường
+  // chính. Các ca dưới lấy NGUYÊN VĂN từ ảnh thật 12/08.
+  it('dạng chuẩn "tên: số đơn vị" → sp + sl', async () => {
+    const { bocDongTuKhoiAnh } = await import('../../../src/modules/ai/agent/noi-zalo/gom-don/index.js');
+
+    const dong = bocDongTuKhoiAnh('- P5 full out: 1460 tấm\n- Quạt gió: 160 cái');
+
+    expect(dong).toEqual([{ sp: 'P5 full out', sl: 1460 }, { sp: 'Quạt gió', sl: 160 }]);
+  });
+
+  it('số kiểu VN "10.000" = mười nghìn, phần "| 242 thùng" là ghi chú phụ', async () => {
+    const { bocDongTuKhoiAnh } = await import('../../../src/modules/ai/agent/noi-zalo/gom-don/index.js');
+
+    const dong = bocDongTuKhoiAnh('- P10 full out: 10.000 tấm | 242 thùng');
+
+    expect(dong).toEqual([{ sp: 'P10 full out', sl: 10000 }]);
+  });
+
+  it('tên hàng chứa ":" ("DM: 12V400W: 1616") → cắt ở dấu CUỐI', async () => {
+    const { bocDongTuKhoiAnh } = await import('../../../src/modules/ai/agent/noi-zalo/gom-don/index.js');
+
+    const dong = bocDongTuKhoiAnh('- DM: 12V400W: 1616\n- NB-12V400W: 3030');
+
+    expect(dong).toEqual([{ sp: 'DM: 12V400W', sl: 1616 }, { sp: 'NB-12V400W', sl: 3030 }]);
+  });
+
+  it('dòng "Tổng: 242 thùng" là tổng kết, KHÔNG phải hàng → bỏ', async () => {
+    const { bocDongTuKhoiAnh } = await import('../../../src/modules/ai/agent/noi-zalo/gom-don/index.js');
+
+    const dong = bocDongTuKhoiAnh('- P5 full out: 1460 tấm\nTổng: 242 thùng');
+
+    expect(dong).toEqual([{ sp: 'P5 full out', sl: 1460 }]);
+  });
+
+  it('dòng không có số / không có ":" → bỏ, không bịa', async () => {
+    const { bocDongTuKhoiAnh } = await import('../../../src/modules/ai/agent/noi-zalo/gom-don/index.js');
+
+    const dong = bocDongTuKhoiAnh('Danh sách hàng nhập\n- Cabin 960*960*120: 80 cái\nghi chú: hàng về kho A');
+
+    expect(dong).toEqual([{ sp: 'Cabin 960*960*120', sl: 80 }]);
+  });
+
+  it('ảnh thật đủ 15 dòng → ra đủ 15, không sót', async () => {
+    const { bocDongTuKhoiAnh } = await import('../../../src/modules/ai/agent/noi-zalo/gom-don/index.js');
+    const anhThat = [
+      '- P10 full out: 10.000 tấm | 242 thùng', '- P5 full out: 1460 tấm',
+      '- Cabin 960*960*120: 80 cái', '- Quạt gió: 160 cái', '- RY3-800W: 109',
+      '- 12V600W: 1263', '- DM: 12V400W: 1616', '- NB-12V400W: 3030',
+      '- NB-12V60W: 970', '- NB-12V100W: 873', '- NB-12V200W: 556',
+      '- 5V60A mỏng: 1131', '- Led thanh toả 12V lixin trong nhà: 20 thùng',
+      '- Led thanh toả 12V lixin ngoài trời: 15 thùng', '- 4B 220V lixin trong nhà: 30 thùng',
+    ].join('\n');
+
+    const dong = bocDongTuKhoiAnh(anhThat);
+
+    expect(dong).toHaveLength(15);
+    expect(dong[0]).toEqual({ sp: 'P10 full out', sl: 10000 });
+    expect(dong[14]).toEqual({ sp: '4B 220V lixin trong nhà', sl: 30 });
+  });
+});
