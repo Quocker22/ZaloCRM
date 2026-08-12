@@ -285,3 +285,29 @@ describe('lệnh "tạo mới <tên>" trong phiếu nhập (yêu cầu 22:06)', 
     expect(tinGui.join('\n')).toContain('chưa được cấp quyền tạo sản phẩm');
   });
 });
+
+describe('huỷ phải chắc như nút ESC (ca 08:59 12/08 — "bỏ đơn này đi" bị giam)', () => {
+  it('"bỏ đơn này đi" → xoá phiên NGAY, một phát ăn luôn', async () => {
+    const { goi, tinGui, db } = dungMay('c-huy-chac');
+
+    await goi('lên đơn cho anh Led Kim Long các sản phẩm trong ảnh', 61001);
+    expect(db.rows.has('c-huy-chac')).toBe(true);
+
+    await goi('bỏ đơn này đi', 61002);
+
+    expect(tinGui.join('\n')).toContain('Em huỷ đơn đang gom rồi ạ');
+    expect(db.rows.has('c-huy-chac')).toBe(false);
+  });
+
+  it('"bỏ sản phẩm Card HD ra khỏi đơn" KHÔNG phải huỷ — không có tin huỷ nào', async () => {
+    // Câu có tên hàng chen giữa "bỏ ... đơn" là lệnh BỎ DÒNG, không phải
+    // thoát. (Phiên có thể kết thúc vì RA ĐƠN với dòng còn lại — đó là luật
+    // "đủ slot = lên luôn" của anh Quốc, không phải huỷ.)
+    const { goi, tinGui } = dungMay('c-bo-dong-1');
+
+    await goi('lên đơn cho anh Led Kim Long các sản phẩm trong ảnh', 62001);
+    await goi('bỏ sản phẩm Card HD ra khỏi đơn', 62002);
+
+    expect(tinGui.join('\n')).not.toContain('Em huỷ đơn đang gom');
+  });
+});

@@ -52,7 +52,7 @@ function khopTenDayDu<T>(
 }
 
 /** Phiên có danh sách nào đang treo chờ nhân viên chọn không. */
-function dangChoChon(p: PhienGom): boolean {
+export function dangChoChon(p: PhienGom): boolean {
   return Boolean(
     p.khachUngVien?.length || p.donUngVien?.length || p.dong.some((d) => d.ungVien?.length),
   );
@@ -140,12 +140,57 @@ export function apDungChon(p: PhienGom, cauTho: string): boolean {
   // thật 16:16 11/08 (tên khách nằm ngoài trang đầu, phải tra lại bằng tên đầy
   // đủ); nuốt nó là dựng lại đúng bug cũ. Câu chọn thật luôn là những mẩu MỘT
   // ký tự: "1a", "a", "a, b", "1 a".
+  // "1aaaaaa" / "1 a a a a" / "tất cả a" — CHỌN HÀNG LOẠT (vá 22:54 12/08).
+  //
+  // Ca thật: bot hỏi NCC (2 lựa chọn) + 6 nhóm SP một lượt; anh Quốc gõ
+  // "1aaaaaa theo thứ tự từ trên xuống" — ý rõ như ban ngày (1 cho NCC, sáu
+  // chữ a cho sáu nhóm) mà máy từ chối vì regex chỉ cho MỘT chữ mỗi token.
+  // Đã dồn nhiều câu hỏi vào một tin thì phải nhận được câu trả lời gộp.
+  //
+  // AN TOÀN GIỮ NGUYÊN (bug "Anh Long Led" 16:16 11/08): chuỗi chữ liền chỉ
+  // được coi là câu chọn khi TỪNG CHỮ nằm đúng phạm vi ứng viên của nhóm
+  // tương ứng — "anh" có 'n','h' vượt phạm vi a-c nên vẫn đi đường tra tên
+  // như cũ, không bị nuốt.
+  const nhomTreo = p.dong.filter((d) => d.ungVien?.length);
+  const chuHopLe = (chu: string, viTri: number): boolean => {
+    const ung = nhomTreo[viTri]?.ungVien;
+    if (!ung?.length) return false;
+    const idx = chu.charCodeAt(0) - 97;
+    return idx >= 0 && idx < ung.length;
+  };
+
+  // "tất cả a" / "chọn hết a" / "toàn bộ a" → chữ đó áp cho MỌI nhóm đang treo.
+  const catCa = boDau(cau).match(/^(tat ca|chon het|toan bo|het)\s+([a-z])$/);
+  if (catCa && nhomTreo.length > 0 && nhomTreo.every((_, i) => chuHopLe(catCa[2], i))) {
+    for (const dong of nhomTreo) {
+      const idx = catCa[2].charCodeAt(0) - 97;
+      const s = dong.ungVien![idx];
+      dong.daChot = { id: s.id, ten: s.ten, gia: s.gia };
+      delete dong.ungVien;
+    }
+    gopDongTrung(p);
+    return true;
+  }
+
   const tuChon = cau.toLowerCase().split(/[\s,.+&]+|\bvà\b/).filter(Boolean);
+  // Token hợp lệ: "1", "1a", "a" như cũ, HOẶC số+nhiều chữ ("1aaaaaa") /
+  // chuỗi chữ liền ("aab") — hai dạng mới phải qua kiểm phạm vi bên dưới.
   const laMauChon = tuChon.length > 0
-    && tuChon.every((t) => /^\d{1,2}[a-z]?$|^[a-z]$/.test(t));
+    && tuChon.every((t) => /^\d{1,2}[a-z]*$|^[a-z]+$/.test(t));
   const gon = laMauChon ? tuChon.join('') : '';
   const soChu = laMauChon ? gon.match(/^(\d{1,2})?([a-z]*)$/) : null;
-  const chuChon = soChu?.[2] ?? '';
+  let chuChon = soChu?.[2] ?? '';
+  // KIỂM PHẠM VI cho chuỗi >1 chữ: từng chữ phải chỉ đúng một ứng viên có
+  // thật của nhóm tương ứng. Một chữ lệch → cả câu KHÔNG phải câu chọn
+  // ("anh", "ok"…) — trả về đường tra tên/LLM, tuyệt đối không nuốt.
+  if (chuChon.length > 1) {
+    const khopPhamVi = chuChon.length <= nhomTreo.length
+      && [...chuChon].every((c, i) => chuHopLe(c, i));
+    // Lệch phạm vi → phần chữ VÔ HIỆU nhưng KHÔNG return sớm: "anh long led"
+    // phải chảy tiếp xuống các tầng dò-tên bên dưới (tầng 3 tra lại tên đầy
+    // đủ — ca 16:15 11/08); return ở đây là cắt cụt đường cứu đó.
+    if (!khopPhamVi) chuChon = '';
+  }
   if (soChu && (soChu[1] || chuChon)) {
     if (soChu[1] && p.khachUngVien) {
       const k = p.khachUngVien[Number(soChu[1]) - 1];

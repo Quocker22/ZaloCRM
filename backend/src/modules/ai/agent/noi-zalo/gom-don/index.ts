@@ -29,7 +29,8 @@ import { linkXuLyDon, linkXuLyDonMua, type HoaDonAnhClient, type AnhHoaDon } fro
 import { laXacNhanNgan } from '../cam-xuc.js';
 import { KHO, type PhienGom, type HanhDong, type DonSua } from './kieu.js';
 import { buocTiepTheo } from './buoc-tiep-theo.js';
-import { apDungChon } from './chon.js';
+import { apDungChon, dangChoChon } from './chon.js';
+import { laMaKh } from '../../../odoo/tools/tra-khach-hang.js';
 import { renderLoiNhan } from './loi-nhan.js';
 import { trichSlot, type KetQuaTrich } from './trich-slot.js';
 import { docPhien, luuPhien, xoaPhien, type DbPhienGomDon } from './phien-store.js';
@@ -1150,8 +1151,37 @@ export async function xuLyGomDon(
     }
   }
 
+  // HUỶ PHẢI CHẮC — REGEX Ở CODE, TRƯỚC MODEL (vá 22:59 12/08). Ca thật:
+  //   08:59:43  "bỏ đơn này đi"   → bot LẶP danh sách chọn, không huỷ
+  //   08:59:53  "bỏ đơn này"      → vẫn không thoát
+  // NV muốn ra mà máy giam lại là cảm giác tệ nhất của cả chuỗi. Lệnh thoát
+  // là cửa an toàn — phải tất định như nút ESC, không được nhờ model đoán.
+  // HẸP: câu CHỈ gồm động từ huỷ + "đơn/phiếu (này) (đi)" — "bỏ sản phẩm Card
+  // HD khỏi đơn" có tên hàng chen giữa nên KHÔNG khớp, vẫn là bỏ dòng.
+  const lenhHuy = phien != null && (
+    /^(bỏ|bo|huỷ|huy|hủy|thôi|thoi)\s*(cái|cai)?\s*(đơn|don|phiếu|phieu)\s*(này|nay|nhập|nhap)?\s*(đi|di|nhé|nhe|nha|luôn|luon)?$/i
+      .test(boQuote(input.cau).trim())
+    || /làm lại từ đầu|lam lai tu dau/i.test(boDau(input.cau))
+  );
+  if (lenhHuy && phien) {
+    await xoaPhien(deps.prisma, input.conversationId);
+    await deps.guiTin('Em huỷ đơn đang gom rồi ạ. Cần lên lại anh/chị cứ nhắn nhé.');
+    return true;
+  }
+
+
   // Đã hỏi LLM ở cửa vào thì DÙNG LẠI kết quả — đừng gọi lần hai cho cùng câu.
   if (!daChon && !daHoiLlm) trich = await trichSlot(deps.generate, input.cau, phien);
+
+  // ĐANG TREO CHỌN KHÁCH/NCC thì câu lạ KHÔNG được thành từ khoá tra mới
+  // (vá 22:59 12/08). Ca thật 08:56: "1aaaaaa theo thứ tự từ trên xuống" bị
+  // model trích thành tên NCC → máy đi tra → "chưa khớp được ... với nhà cung
+  // cấp nào". Khi bot vừa đưa danh sách 1)/2), câu trả lời tự nhiên là LỰA
+  // CHỌN — muốn tra người khác thật thì gõ mã KH/SĐT (vẫn cho qua).
+  if (phien?.khachUngVien?.length && trich.khach && /\d/.test(trich.khach)
+      && !laMaKh(trich.khach) && !/^0\d{9,10}$/.test(trich.khach.replace(/[\s.]/g, ''))) {
+    delete trich.khach;
+  }
 
   if (trich.huy && phien) {
     await xoaPhien(deps.prisma, input.conversationId);
