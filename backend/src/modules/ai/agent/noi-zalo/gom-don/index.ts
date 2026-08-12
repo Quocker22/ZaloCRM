@@ -1130,13 +1130,28 @@ export async function xuLyGomDon(
     // là "gõ lại tên / gõ mã", tức thứ nhân viên làm được ngay.
     const coDanhSachDanhSo = Boolean(phien.khachUngVien?.length);
     const moiChonSo = coDanhSachDanhSo ? 'chọn SỐ THỨ TỰ trong danh sách trên, hoặc ' : '';
+    // KHÁCH ĐÃ CHỐT, CHỈ CÒN SP TREO → ĐỪNG BÀY ĐƯỜNG THOÁT CỦA KHÁCH (12/08).
+    //
+    // Ca thật 11:53-11:58: sau khi "1" chốt xong khách, thứ duy nhất còn treo là
+    // danh sách a/b/c của sản phẩm. Câu thoát cũ vẫn đọc nguyên văn luồng khách
+    // — "gõ SĐT hoặc mã KH của khách", "nói khách mới nếu khách chưa có" — trong
+    // khi khách đã xong từ lượt trước. Nhân viên đang bí ở chỗ CHỌN HÀNG mà bot
+    // chỉ họ đi làm lại phần đã xong; đó là một lượt vứt đi và là lý do vòng hỏi
+    // kéo tới 5 phút. Cùng họ lỗi với ca 23:16:18 11/08 (bot hỏi NCC mà đọc lời
+    // của luồng khách) — đường thoát phải khớp việc ĐANG treo.
+    const chiConSpTreo =
+      !coDanhSachDanhSo && phien.dong.some((d) => d.ungVien?.length);
     tin = laNhap
       ? `Em vẫn chưa khớp được "${cauChon.slice(0, 80)}" với nhà cung cấp nào ạ. ` +
         `Anh/chị ${moiChonSo}gõ lại TÊN NCC có dấu đầy đủ hoặc mã NCC (vd NCC000001), ` +
         'hoặc "huỷ" để làm lại giúp em. NCC chưa có trong hệ thống thì nhờ kế toán tạo trước ạ.'
-      : `Em vẫn chưa khớp được "${cauChon.slice(0, 80)}" với lựa chọn nào ạ. ` +
-        `Anh/chị ${moiChonSo}gõ SĐT hoặc mã KH của khách, ` +
-        'nói "khách mới" nếu khách chưa có, hoặc "huỷ" để làm lại giúp em.';
+      : chiConSpTreo
+        ? `Em vẫn chưa khớp được "${cauChon.slice(0, 80)}" với loại hàng nào ạ. ` +
+          'Anh/chị gõ CHỮ CÁI đầu dòng trong danh sách trên (vd: a), hoặc gõ lại tên hàng ' +
+          'đầy đủ hơn, hoặc "huỷ" để làm lại giúp em.'
+        : `Em vẫn chưa khớp được "${cauChon.slice(0, 80)}" với lựa chọn nào ạ. ` +
+          `Anh/chị ${moiChonSo}gõ SĐT hoặc mã KH của khách, ` +
+          'nói "khách mới" nếu khách chưa có, hoặc "huỷ" để làm lại giúp em.';
   }
   phien.tinCuoi = tin;
   await deps.guiTin(tin);

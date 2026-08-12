@@ -51,6 +51,47 @@ function khopTenDayDu<T>(
   return dung.length === 1 ? dung[0] : null;
 }
 
+/** Phiên có danh sách nào đang treo chờ nhân viên chọn không. */
+function dangChoChon(p: PhienGom): boolean {
+  return Boolean(
+    p.khachUngVien?.length || p.donUngVien?.length || p.dong.some((d) => d.ungVien?.length),
+  );
+}
+
+/**
+ * Gộp các dòng đã chốt về CÙNG một sản phẩm thật (cùng `product_id`).
+ *
+ * Ca thật 11:58:16 ngày 12/08: bot hỏi "lấy mấy cái led thanh 1m 5054 trắng
+ * (thanh), led thanh 1m 5054 trắng (thanh) ạ?" — MỘT sản phẩm in hai lần, vì
+ * bug B ở trên đã đẻ ra hai dòng gom ("led thanh 1m" và "led thanh 1") rồi cả
+ * hai cùng chốt về id 101. Để nguyên là đơn Odoo có hai dòng y hệt nhau, tức
+ * bán gấp đôi số hàng nhân viên định bán.
+ *
+ * Gộp ở ĐÂY chứ không ở lúc tạo đơn: nhân viên phải THẤY con số đúng ngay
+ * trong câu hỏi/tóm tắt, không phải phát hiện sau khi đơn đã lên.
+ *
+ * Quy tắc gộp — giữ thứ tự dòng ĐẦU, và không bao giờ làm mất dữ liệu:
+ *   · SL: lấy tổng nếu cả hai đều có số; một bên trống thì lấy bên có.
+ *     Hai dòng chồng nhau do bug thì một bên luôn trống → ra đúng SL gốc.
+ *   · giá/chiết khấu: dòng sau chỉ đắp vào ô dòng đầu còn TRỐNG.
+ *   · dòng TẶNG không bao giờ gộp với dòng BÁN (luật 11/08) — "10 cái giá
+ *     2300k tặng 1 cái" là hai dòng thật, gộp là mất 10 cái đang bán.
+ */
+function gopDongTrung(p: PhienGom): void {
+  const giu: PhienGom['dong'] = [];
+  for (const d of p.dong) {
+    const cu = d.daChot
+      ? giu.find((x) => x.daChot?.id === d.daChot!.id && Boolean(x.tang) === Boolean(d.tang))
+      : undefined;
+    if (!cu) { giu.push(d); continue; }
+    if (cu.sl == null) cu.sl = d.sl;
+    else if (d.sl != null) cu.sl += d.sl;
+    if (cu.donGia == null && d.donGia != null) cu.donGia = d.donGia;
+    if (cu.chietKhau == null && d.chietKhau != null) cu.chietKhau = d.chietKhau;
+  }
+  p.dong = giu;
+}
+
 function khopDuyNhat<T>(ds: T[] | undefined, manh: string[], ten: (x: T) => string): T | null {
   if (!ds || manh.length === 0) return null;
   const du = ds.filter((x) => manh.every((m) => boDau(ten(x)).includes(m)));
@@ -85,10 +126,27 @@ export function apDungChon(p: PhienGom, cauTho: string): boolean {
     }
   }
 
-  // ── "1a", "2", "b", "1 a" — số chốt khách, chữ chốt SP dòng đầu còn chờ ──
-  const gon = cau.toLowerCase().replace(/\s+/g, '');
-  const soChu = gon.match(/^(\d{1,2})?([a-z])?$/);
-  if (soChu && (soChu[1] || soChu[2])) {
+  // ── "1a", "2", "b", "1 a", "a, b" — số chốt khách, chữ chốt SP ──
+  //
+  // MỘT CHỮ ỨNG VỚI MỘT NHÓM HỎI, theo thứ tự (sửa 12/08). Trước đây mọi chữ
+  // đều đổ vào `p.dong.find(...)` — tức luôn là nhóm ĐẦU TIÊN còn chờ — nên
+  // "a, b" chốt hai lần lên cùng một dòng, chữ sau đè chữ trước. Bot in danh
+  // sách a/b/c cho TỪNG nhóm thì chữ phải đếm theo nhóm mới khớp cái nhân viên
+  // nhìn thấy.
+  //
+  // MỖI CHỮ PHẢI ĐỨNG RIÊNG (regex dưới đọc theo TỪ, không gộp cả câu rồi bóc
+  // chữ). "Anh Long Led" bỏ hết dấu cách ra "anhlonged" — toàn chữ cái, nên nếu
+  // gộp trước thì nó lọt vào đây và bị coi là câu chọn a/n/h/l/o/n/g… Đó là ca
+  // thật 16:16 11/08 (tên khách nằm ngoài trang đầu, phải tra lại bằng tên đầy
+  // đủ); nuốt nó là dựng lại đúng bug cũ. Câu chọn thật luôn là những mẩu MỘT
+  // ký tự: "1a", "a", "a, b", "1 a".
+  const tuChon = cau.toLowerCase().split(/[\s,.+&]+|\bvà\b/).filter(Boolean);
+  const laMauChon = tuChon.length > 0
+    && tuChon.every((t) => /^\d{1,2}[a-z]?$|^[a-z]$/.test(t));
+  const gon = laMauChon ? tuChon.join('') : '';
+  const soChu = laMauChon ? gon.match(/^(\d{1,2})?([a-z]*)$/) : null;
+  const chuChon = soChu?.[2] ?? '';
+  if (soChu && (soChu[1] || chuChon)) {
     if (soChu[1] && p.khachUngVien) {
       const k = p.khachUngVien[Number(soChu[1]) - 1];
       if (k) {
@@ -97,17 +155,39 @@ export function apDungChon(p: PhienGom, cauTho: string): boolean {
         map = true;
       }
     }
-    if (soChu[2]) {
-      const dong = p.dong.find((d) => d.ungVien?.length);
-      const idx = dong?.ungVien?.findIndex((_, i) => chuCai(i) === soChu[2]) ?? -1;
-      const s = idx >= 0 ? dong?.ungVien?.[idx] : undefined;
-      if (dong && s) {
+    // Chữ thứ i ứng với nhóm hỏi thứ i (nhóm = dòng còn `ungVien`).
+    const nhom = p.dong.filter((d) => d.ungVien?.length);
+    for (let i = 0; i < chuChon.length && i < nhom.length; i++) {
+      const dong = nhom[i];
+      const idx = dong.ungVien?.findIndex((_, j) => chuCai(j) === chuChon[i]) ?? -1;
+      const s = idx >= 0 ? dong.ungVien?.[idx] : undefined;
+      if (s) {
         dong.daChot = { id: s.id, ten: s.ten, gia: s.gia };
         delete dong.ungVien;
         map = true;
       }
     }
-    if (map) return true;
+    if (map) { gopDongTrung(p); return true; }
+
+    // CÂU CHỌN KHÔNG KHỚP ĐƯỢC GÌ VẪN LÀ CÂU CHỌN — NUỐT, ĐỪNG TRẢ VỀ LLM.
+    //
+    // Ca thật 11:53:54 ngày 12/08 (anh Quốc: "càng sửa càng lỗi à"). Bot vừa
+    // hỏi 'chọn giúp em (vd: 1a)'; lượt trước nhân viên gõ "1" đã chốt khách
+    // nên `khachUngVien` biến mất. Lượt sau họ gõ "1" lần nữa: số không còn
+    // nhánh nào để chạy → hàm trả FALSE → orchestrator hỏi LLM → model thấy
+    // "1" trơ trọi giữa phiên đang hỏi "led thanh 1m…" nên trả về
+    // `dong:[{sp:"led thanh 1"}]`. `dapSlot` đẩy thêm một dòng gom, và bot đẻ
+    // ra nhóm hỏi THỨ HAI cho cùng món hàng (11:54:05). Từ đó mỗi lượt chọn
+    // lại sinh thêm một nhóm — nhân viên không bao giờ thoát được vòng hỏi.
+    //
+    // Một câu chỉ gồm số/chữ cái đơn, gõ đúng lúc danh sách đang treo, KHÔNG
+    // BAO GIỜ là tên sản phẩm. Nuốt nó (trả true) là mất một lượt, còn thả cho
+    // model đoán là hỏng cả phiên. Trả true cũng khiến luồng in lại danh sách
+    // đang treo — đúng thứ nhân viên cần nhìn để chọn lại cho đúng.
+    //
+    // HẸP có chủ ý: chỉ nuốt khi THẬT SỰ có danh sách đang chờ. Phiên không
+    // chờ chọn gì thì "1" vẫn về LLM như cũ ("1 cái nữa em" phải chạy được).
+    if (dangChoChon(p)) return true;
   }
 
   // ── Mã KH / MÃ NCC / SĐT khớp đúng một ứng viên ──
@@ -212,12 +292,12 @@ export function apDungChon(p: PhienGom, cauTho: string): boolean {
   // ứng viên không chứa "moi" nên chỉ trơ ra (bot lặp lại danh sách), nhưng
   // khách thật tên "Mới"/"Khánh" là chốt nhầm luôn — cùng họ lỗi S13814.
   // Trả nguyên trạng để LLM trích ra `khachMoi` và máy đi nhánh tạo khách.
-  if (LA_KHACH_MOI.test(boDau(cau))) return map;
+  if (LA_KHACH_MOI.test(boDau(cau))) { if (map) gopDongTrung(p); return map; }
 
   const manh = boDau(cau)
     .split(/\s+/)
     .filter((t) => t.length >= 2);
-  if (manh.length > 4) return map;
+  if (manh.length > 4) { if (map) gopDongTrung(p); return map; }
   if (p.khachUngVien) {
     const k = khopDuyNhat(p.khachUngVien, manh, (x) => x.ten);
     if (k) {
@@ -234,5 +314,6 @@ export function apDungChon(p: PhienGom, cauTho: string): boolean {
       map = true;
     }
   }
+  if (map) gopDongTrung(p);
   return map;
 }
