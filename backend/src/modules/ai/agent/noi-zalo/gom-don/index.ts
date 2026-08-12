@@ -85,6 +85,63 @@ const boQuote = (cau: string): string =>
  */
 const coKhoiAnh = (cau: string): boolean => cau.includes('[Khách gửi ảnh');
 
+/**
+ * Trích lại lời nhân viên để ĐƯA VÀO TIN GỬI RA ("Em vẫn chưa khớp được …").
+ *
+ * CA THẬT 11:52:46 ngày 12/08 — nhân viên gửi ảnh danh sách hàng viết tay kèm
+ * lời "đây lấy từ trong ảnh ra", bot nhắn lại:
+ *
+ *   Em vẫn chưa khớp được "@Tiểu Mã Nelia đây lấy từ trong ảnh ra
+ *   [Khách gửi ảnh, nội dung trong ảnh: P10 f" với nhà cung cấp nào ạ.
+ *
+ * Câu đó vô nghĩa với người đọc, vì `cauChon.slice(0, 80)` mắc HAI lỗi cùng lúc:
+ *
+ *   1. Cắt CỨNG ở ký tự thứ 80 — rơi đúng giữa chữ "full" của dòng đầu ảnh
+ *      ("P10 full out: 10.000 tấm"). Đo lại: chuỗi trong ca thật dài đúng 80.
+ *   2. Không bóc khối `[Khách gửi ảnh…]`. Khối đó là NỘI BỘ, `luong-media` ghép
+ *      để model trích slot biết đâu là chữ đọc từ ảnh. Nó không bao giờ được
+ *      xuất hiện trong tin gửi cho người.
+ *
+ * Anh Quốc nhìn câu này tưởng model đọc ảnh hụt, định đổi sang minimax-m3. ĐO
+ * RỒI: model đọc ĐỦ cả 20 dòng — chỗ cắt nằm ở phía ta, trong tin gửi ra. Đổi
+ * model không chữa được lỗi này. Đừng đi lại đường đó.
+ *
+ * Nên: bóc khối ảnh, bóc tag bot, rồi cắt ở RANH GIỚI TỪ. Trả chuỗi rỗng thì
+ * caller phải bỏ luôn phần trích — hỏi trống còn hơn hỏi bằng câu cụt.
+ */
+export function trichLoiNhanVien(cau: string, tran = 80): string {
+  // Khối ảnh nằm sau lời nhắn (`<lời nhắn>\n[Khách gửi ảnh…]`) nên cắt từ đó
+  // trở đi là đủ; ảnh không kèm lời nhắn thì còn lại rỗng — đúng ý.
+  const batDauKhoi = cau.indexOf('[Khách gửi ảnh');
+  const thoCoTag = batDauKhoi >= 0 ? cau.slice(0, batDauKhoi) : cau;
+  // Tag bot ("@Tiểu Mã Nelia") là thứ nhân viên gõ để gọi bot, không phải nội
+  // dung — để lại chỉ tổ chiếm chỗ trong 80 ký tự ít ỏi.
+  //
+  // Mention Zalo là TÊN HIỂN THỊ CÓ DẤU CÁCH, nên `@\S+` sót đuôi. Nhưng nuốt
+  // mọi từ viết hoa sau `@` thì ăn lẹm sang lời nhân viên: câu thật
+  // "@Tiểu Mã Nelia đây lấy từ trong ảnh ra" mất luôn chữ "đây" (Đ hoa), và
+  // "@bot Anh Long Led" mất tên khách — đúng bug 16:15 11/08.
+  //
+  // Chốt: chỉ bóc ở ĐẦU câu (mention Zalo luôn đứng đầu), và TÁCH HAI NHÁNH —
+  // đây là chỗ dễ sai nhất, đã dính khi viết:
+  //   `@bot` / `@ai`  → tên trọn vẹn, KHÔNG nuốt thêm gì. Nuốt tiếp là mất tên
+  //                     khách: "@bot Anh Long Led" → "Led" (đúng bug 16:15 11/08).
+  //   `@Tên Hiển Thị` → tên có dấu cách, nuốt thêm tối đa 2 từ hoa cho đủ
+  //                     "Tiểu Mã Nelia", không đủ để lẹm sang câu lệnh.
+  // Cùng bài toán mà `laChiCoTag` trong gop-tin.ts đã giải; chỗ này cần giữ
+  // phần đuôi nên tách riêng thay vì dùng chung.
+  const tho = thoCoTag
+    .replace(/^\s*@\s*(?:(?:bot|ai)\b|[\p{Lu}][\p{L}]*(?:\s+[\p{Lu}][\p{L}]*){0,2})/u, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (tho.length <= tran) return tho;
+  // Cắt ở khoảng trắng cuối cùng trước trần. Không có khoảng trắng nào (một từ
+  // dài ngoằng) thì đành cắt cứng — nhưng vẫn báo bằng dấu … cho người biết.
+  const cat = tho.slice(0, tran);
+  const khoangTrang = cat.lastIndexOf(' ');
+  return `${(khoangTrang > 0 ? cat.slice(0, khoangTrang) : cat).trimEnd()}…`;
+}
+
 /** Xưng hô đầu câu + đuôi lịch sự — bóc ra để lấy phần TÊN thật. */
 const XUNG_HO_DAU = /^(?:anh|chị|chi|em|bác|bac|cô|co|chú|chu|ông|ong|bà|ba)\s+/i;
 const DUOI_LICH_SU = /\s+(?:nhé|nhe|nha|nhá|ạ|đi|ơi|nè)\.?$/i;
@@ -1141,15 +1198,22 @@ export async function xuLyGomDon(
     // của luồng khách) — đường thoát phải khớp việc ĐANG treo.
     const chiConSpTreo =
       !coDanhSachDanhSo && phien.dong.some((d) => d.ungVien?.length);
+    // Trích lời NHÂN VIÊN, không phải chuỗi thô: chuỗi thô mang cả khối
+    // `[Khách gửi ảnh…]` nội bộ và bị chặt giữa chữ — xem `trichLoiNhanVien`.
+    // Nhân viên chỉ gửi mỗi ảnh (không kèm chữ) thì phần trích rỗng: bỏ luôn vế
+    // 'Em vẫn chưa khớp được "…"' thay vì nhắn ra một cặp ngoặc trống.
+    const loiNv = trichLoiNhanVien(cauChon);
+    const chuaKhop = (cai: string): string =>
+      loiNv ? `Em vẫn chưa khớp được "${loiNv}" với ${cai} nào ạ. ` : `Em chưa rõ ${cai} ạ. `;
     tin = laNhap
-      ? `Em vẫn chưa khớp được "${cauChon.slice(0, 80)}" với nhà cung cấp nào ạ. ` +
+      ? chuaKhop('nhà cung cấp') +
         `Anh/chị ${moiChonSo}gõ lại TÊN NCC có dấu đầy đủ hoặc mã NCC (vd NCC000001), ` +
         'hoặc "huỷ" để làm lại giúp em. NCC chưa có trong hệ thống thì nhờ kế toán tạo trước ạ.'
       : chiConSpTreo
-        ? `Em vẫn chưa khớp được "${cauChon.slice(0, 80)}" với loại hàng nào ạ. ` +
+        ? chuaKhop('loại hàng') +
           'Anh/chị gõ CHỮ CÁI đầu dòng trong danh sách trên (vd: a), hoặc gõ lại tên hàng ' +
           'đầy đủ hơn, hoặc "huỷ" để làm lại giúp em.'
-        : `Em vẫn chưa khớp được "${cauChon.slice(0, 80)}" với lựa chọn nào ạ. ` +
+        : chuaKhop('lựa chọn') +
           `Anh/chị ${moiChonSo}gõ SĐT hoặc mã KH của khách, ` +
           'nói "khách mới" nếu khách chưa có, hoặc "huỷ" để làm lại giúp em.';
   }
