@@ -76,6 +76,17 @@ export interface KetQuaTrich {
   nhapHang?: boolean;
   /** Mã đơn NV nhắc ("sửa đơn S13820") — dạng S + số. */
   maDon?: string;
+  /**
+   * LỰA CHỌN MỀM từ danh sách bot vừa hỏi (12/08 tối — "tai linh động").
+   *
+   * "1aaaaaa"/"a b" đã có đường CODE tất định (apDungChon). Hai ô này dành
+   * cho cách nói NGƯỜI: "lấy loại rẻ nhất", "cái đầu tiên ấy", "chọn loại có
+   * giá đi" — model đọc danh sách bot vừa hỏi (kèm giá) rồi quy ra số/chữ.
+   * Code VALIDATE lại bằng chính apDungChon — model chỉ đề xuất, phạm vi và
+   * an toàn vẫn do code giữ.
+   */
+  chonKhach?: number;
+  chonSp?: string[];
 }
 
 const ghiSlotDefinition: ToolDefinition = {
@@ -181,6 +192,20 @@ const ghiSlotDefinition: ToolDefinition = {
           'hoặc có chữ nhập/mua/order hàng về. Khi nhapHang=true thì tên trong ô `khach` ' +
           'là tên NHÀ CUNG CẤP.',
       },
+      chon_khach: {
+        type: 'number',
+        description:
+          'KHI bot vừa hỏi danh sách khách/NCC đánh số 1) 2)...: số nhân viên chọn, kể cả nói ' +
+          'mềm ("lấy cái đầu", "NCC thứ nhất" → 1). Không chắc thì BỎ TRỐNG.',
+      },
+      chon_sp: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          'KHI bot vừa hỏi các nhóm hàng a) b) c): chữ nhân viên chọn cho TỪNG NHÓM theo đúng ' +
+          'THỨ TỰ trong câu hỏi ("loại rẻ nhất cho cả hai" → nhìn giá trong danh sách mà quy ra, ' +
+          'vd ["a","c"]). Nhóm nào không rõ thì dùng "?" giữ chỗ. Không chắc toàn bộ thì BỎ TRỐNG.',
+      },
       maDon: { type: 'string', description: 'Mã đơn nhân viên nhắc, dạng S13820' },
       huy: { type: 'boolean', description: 'true khi nhân viên muốn huỷ đơn đang gom' },
       xacNhan: { type: 'boolean', description: 'true khi nhân viên gật/đồng ý (ok, đúng rồi, giá đó chuẩn)' },
@@ -276,6 +301,18 @@ export function lamSachTrich(raw: Record<string, unknown>): KetQuaTrich {
   if (raw.huy === true) kq.huy = true;
   if (raw.xacNhan === true || raw.xac_nhan === true) kq.xacNhan = true;
   if (raw.ngoaiLe === true || raw.ngoai_le === true) kq.ngoaiLe = true;
+  // LỰA CHỌN MỀM — chỉ nhận hình dạng sạch: số 1-99, chữ a-j đơn (hoặc "?"
+  // giữ chỗ nhóm chưa rõ). Model bịa gì khác thì vứt ô đó, các ô còn lại giữ.
+  const ck = Number(raw.chon_khach ?? raw.chonKhach);
+  if (Number.isInteger(ck) && ck >= 1 && ck <= 99) kq.chonKhach = ck;
+  const cs = raw.chon_sp ?? raw.chonSp;
+  if (Array.isArray(cs)) {
+    const sach = cs
+      .filter((x): x is string => typeof x === 'string')
+      .map((x) => x.trim().toLowerCase())
+      .filter((x) => /^[a-j?]$/.test(x));
+    if (sach.length > 0 && sach.length === cs.length) kq.chonSp = sach;
+  }
   return kq;
 }
 
@@ -367,6 +404,11 @@ export async function trichSlot(
     'bot quay ra hỏi lại thứ đã nằm sẵn trong ảnh (ca thật 23:22 11/08).',
     'Khối ảnh đứng MỘT MÌNH (không kèm lời nhắn) là nhân viên gửi ảnh BỔ SUNG cho',
     'việc đang gom → vẫn trích hàng vào `dong`, KHÔNG phải ngoaiLe.',
+    'LỰA CHỌN MỀM: nếu khối "Bot vừa hỏi" bên dưới là DANH SÁCH đánh số/chữ thì',
+    'câu nhân viên nhiều khả năng là LỰA CHỌN — kể cả nói kiểu người: "lấy loại',
+    'rẻ nhất" (nhìn giá trong danh sách), "cái đầu tiên", "loại có giá ấy",',
+    '"số 2 nhé" → điền chon_khach/chon_sp. KHÔNG điền khach/dong mới khi câu',
+    'chỉ là lựa chọn. Không chắc thì bỏ trống hai ô đó.',
     'Chỉ trích cái CÓ trong câu — không đoán, không bịa. Bỏ xưng hô (anh/chị/em/bác)',
     'khỏi tên khách, nhưng GIỮ NGUYÊN biệt danh chứa từ ngành hàng — khách buôn hay',
     'tên kiểu "Long Led", "Hoa Đèn": "lên đơn cho anh Long Led" → khach="Long Led",',
@@ -377,7 +419,11 @@ export async function trichSlot(
     'giá ("xuất hoá đơn", "gửi lại hoá đơn") cũng là ngoaiLe=true — "hoá đơn"',
     'KHÔNG BAO GIỜ là tên sản phẩm.',
   ].join(' ');
-  const nguoiDung = `Đang gom: ${taDangCo(phien)}\nCâu nhân viên: "${cau}"`;
+  // NGỮ CẢNH SỐNG CÒN (12/08 tối): câu trả lời chỉ có nghĩa khi model THẤY
+  // câu hỏi. "1aaaaaa"/"lấy loại rẻ nhất" đặt cạnh danh sách a/b/c kèm giá
+  // thì model nào cũng hiểu; thiếu nó thì mọi lựa chọn mềm là câu đố.
+  const botVuaHoi = phien?.tinCuoi ? `\nBot vừa hỏi:\n${phien.tinCuoi.slice(0, 700)}` : '';
+  const nguoiDung = `Đang gom: ${taDangCo(phien)}${botVuaHoi}\nCâu nhân viên: "${cau}"`;
 
   try {
     const turn = await generate({

@@ -29,7 +29,7 @@ import { linkXuLyDon, linkXuLyDonMua, type HoaDonAnhClient, type AnhHoaDon } fro
 import { laXacNhanNgan } from '../cam-xuc.js';
 import { KHO, type PhienGom, type HanhDong, type DonSua } from './kieu.js';
 import { buocTiepTheo } from './buoc-tiep-theo.js';
-import { apDungChon, dangChoChon } from './chon.js';
+import { apDungChon, apChonDeXuat, dangChoChon } from './chon.js';
 import { laMaKh } from '../../../odoo/tools/tra-khach-hang.js';
 import { renderLoiNhan } from './loi-nhan.js';
 import { trichSlot, type KetQuaTrich } from './trich-slot.js';
@@ -1089,14 +1089,16 @@ export async function xuLyGomDon(
   let daChon = phien ? apDungChon(phien, cauChon) : false;
   // HỌC ALIAS (P1.3): NV vừa chọn một SP từ danh sách GẦN ĐÚNG → tên gọi đó
   // từ nay khớp thẳng. Fire-and-forget — học trượt không được chặn đơn.
-  if (daChon && phien && deps.ghiAliasSp) {
+  const hocAliasSauChon = (): void => {
+    if (!phien || !deps.ghiAliasSp) return;
     for (const d of phien.dong) {
       if (d.daChot && d.ungVienGanDung) {
         void deps.ghiAliasSp({ tuKhoa: d.tuKhoa, productId: d.daChot.id, tenSp: d.daChot.ten });
         delete d.ungVienGanDung;
       }
     }
-  }
+  };
+  if (daChon) hocAliasSauChon();
 
   // TẠO SP MỚI THEO LỆNH TƯỜNG MINH (yêu cầu anh Quốc 22:06 12/08: "nếu người
   // dùng muốn tạo mới thì tạo luôn"). CHỈ chế NHẬP + phiên đang mở — hàng nhập
@@ -1178,9 +1180,18 @@ export async function xuLyGomDon(
   // model trích thành tên NCC → máy đi tra → "chưa khớp được ... với nhà cung
   // cấp nào". Khi bot vừa đưa danh sách 1)/2), câu trả lời tự nhiên là LỰA
   // CHỌN — muốn tra người khác thật thì gõ mã KH/SĐT (vẫn cho qua).
-  if (phien?.khachUngVien?.length && trich.khach && /\d/.test(trich.khach)
+  if (phien?.khachUngVien?.length && trich.khach && /\d/.test(trich.khach) && /[a-z]/i.test(boDau(trich.khach))
       && !laMaKh(trich.khach) && !/^0\d{9,10}$/.test(trich.khach.replace(/[\s.]/g, ''))) {
     delete trich.khach;
+  }
+
+  // LỰA CHỌN MỀM model đề xuất ("lấy loại rẻ nhất" → chon_sp) — validate và
+  // áp bằng luật phạm vi của chon.ts; áp được thì cũng HỌC ALIAS như chọn tay.
+  if (!daChon && phien && (trich.chonKhach != null || trich.chonSp?.length)) {
+    if (apChonDeXuat(phien, trich.chonKhach, trich.chonSp)) {
+      daChon = true;
+      hocAliasSauChon();
+    }
   }
 
   if (trich.huy && phien) {

@@ -102,6 +102,43 @@ function khopDuyNhat<T>(ds: T[] | undefined, manh: string[], ten: (x: T) => stri
 }
 
 /**
+ * ÁP LỰA CHỌN DO MODEL ĐỀ XUẤT (kênh chon_khach/chon_sp — "tai linh động",
+ * 12/08 tối). Model đọc câu mềm ("lấy loại rẻ nhất") + danh sách bot vừa hỏi
+ * rồi quy ra số/chữ; hàm này VALIDATE từng đề xuất bằng đúng luật phạm vi của
+ * apDungChon — đề xuất lệch phạm vi thì bỏ qua ô đó, không phá gì.
+ * '?' là giữ-chỗ cho nhóm model không chắc — nhảy qua, giữ đúng THỨ TỰ nhóm.
+ */
+export function apChonDeXuat(
+  p: PhienGom,
+  chonKhach?: number,
+  chonSp?: string[],
+): boolean {
+  let map = false;
+  if (chonKhach != null && p.khachUngVien?.length) {
+    const k = p.khachUngVien[chonKhach - 1];
+    if (k) {
+      p.khachDaChot = { id: k.id, ten: k.ten, ma: k.ma, dienThoai: k.dienThoai };
+      delete p.khachUngVien;
+      map = true;
+    }
+  }
+  const nhomTreo = p.dong.filter((d) => d.ungVien?.length);
+  (chonSp ?? []).forEach((chu, i) => {
+    if (chu === '?') return;
+    const ung = nhomTreo[i]?.ungVien;
+    const idx = chu.charCodeAt(0) - 97;
+    if (ung && idx >= 0 && idx < ung.length) {
+      const sChon = ung[idx];
+      nhomTreo[i].daChot = { id: sChon.id, ten: sChon.ten, gia: sChon.gia };
+      delete nhomTreo[i].ungVien;
+      map = true;
+    }
+  });
+  if (map) gopDongTrung(p);
+  return map;
+}
+
+/**
  * Áp câu của NV vào các lựa chọn đang chờ. Mutate phiên khi chốt được.
  * Trả `true` nếu map được ít nhất một lựa chọn.
  */

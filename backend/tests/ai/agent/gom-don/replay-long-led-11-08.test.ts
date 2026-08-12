@@ -23,13 +23,18 @@ const usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteT
 function fakeGenerate(): ToolAwareGenerate {
   return async (a) => {
     const nd = String(a.messages[0].content);
-    const input = nd.includes('lên đơn cho Anh long led')
+    // Match trên phần "Câu nhân viên" — từ 12/08 tối, nd còn chứa khối
+    // "Bot vừa hỏi" (chính danh sách ứng viên, trong đó có tên "Anh Long
+    // Led") nên match trên nguyên nd là dính chuỗi của BOT chứ không phải
+    // câu của nhân viên.
+    const cauNv = nd.slice(nd.indexOf('Câu nhân viên:'));
+    const input = cauNv.includes('lên đơn cho Anh long led')
       ? {
           lenDon: true,
           khach: 'Long', // ← trích SAI có chủ ý (tầng 1 thất bại)
           dong: [{ sp: 'nguồn 5v60a không quạt', sl: 100, gia: 230000 }],
         }
-      : nd.includes('Anh Long Led')
+      : cauNv.includes('Anh Long Led')
         ? { khach: 'Long' } // ← lượt 2 vẫn cắt "Led"
         : {};
     return {

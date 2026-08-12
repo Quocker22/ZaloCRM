@@ -80,3 +80,52 @@ describe('apDungChon — "1aaaaaa" và họ hàng', () => {
     expect(p.dong.every((d) => d.ungVien?.length === 3)).toBe(true);
   });
 });
+
+describe('apChonDeXuat — kênh lựa chọn mềm của model, code validate', () => {
+  it('đề xuất hợp lệ {khach:1, sp:[a,c]} → chốt đúng, NCC + 2 nhóm', async () => {
+    const { apChonDeXuat } = await import('../../../../src/modules/ai/agent/noi-zalo/gom-don/chon.js');
+    const p = phienCaThat();
+    p.dong = p.dong.slice(0, 2);
+
+    expect(apChonDeXuat(p, 1, ['a', 'c'])).toBe(true);
+    expect(p.khachDaChot?.ma).toBe('NCC000001');
+    expect(p.dong[0].daChot?.ten).toBe('SP 0-a');
+    expect(p.dong[1].daChot?.ten).toBe('SP 1-c');
+  });
+
+  it('"?" giữ chỗ nhóm chưa chắc → nhóm đó còn treo, thứ tự các nhóm sau KHÔNG lệch', async () => {
+    const { apChonDeXuat } = await import('../../../../src/modules/ai/agent/noi-zalo/gom-don/chon.js');
+    const p = phienCaThat();
+    p.dong = p.dong.slice(0, 3);
+
+    apChonDeXuat(p, undefined, ['a', '?', 'b']);
+
+    expect(p.dong[0].daChot?.ten).toBe('SP 0-a');
+    expect(p.dong[1].ungVien?.length).toBe(3); // vẫn treo
+    expect(p.dong[2].daChot?.ten).toBe('SP 2-b');
+  });
+
+  it('model bịa chữ ngoài phạm vi ("z") / số ngoài danh sách (9) → bỏ ô đó, không phá', async () => {
+    const { apChonDeXuat } = await import('../../../../src/modules/ai/agent/noi-zalo/gom-don/chon.js');
+    const p = phienCaThat();
+    p.dong = p.dong.slice(0, 2);
+
+    expect(apChonDeXuat(p, 9, ['z', 'b'])).toBe(true); // chỉ 'b' nhóm 2 ăn
+    expect(p.khachUngVien?.length).toBe(2);
+    expect(p.dong[0].ungVien?.length).toBe(3);
+    expect(p.dong[1].daChot?.ten).toBe('SP 1-b');
+  });
+});
+
+describe('lamSachTrich — ô chon_khach/chon_sp chống model bịa', () => {
+  it('nhận số 1-99 + mảng chữ a-j/? — vứt hình dạng lạ', async () => {
+    const { lamSachTrich } = await import('../../../../src/modules/ai/agent/noi-zalo/gom-don/trich-slot.js');
+
+    expect(lamSachTrich({ chon_khach: 2, chon_sp: ['a', '?', 'b'] }))
+      .toMatchObject({ chonKhach: 2, chonSp: ['a', '?', 'b'] });
+    expect(lamSachTrich({ chon_khach: 0 }).chonKhach).toBeUndefined();
+    expect(lamSachTrich({ chon_khach: 'một' }).chonKhach).toBeUndefined();
+    // Một phần tử bẩn → vứt CẢ mảng (thứ tự nhóm mà lệch là chọn nhầm hàng).
+    expect(lamSachTrich({ chon_sp: ['a', 'xyz'] }).chonSp).toBeUndefined();
+  });
+});
