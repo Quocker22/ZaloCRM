@@ -103,3 +103,69 @@ describe('loiDanDocAnh — ảnh DANH SÁCH HÀNG phải ra đủ tên + số l�
     expect(dan).toContain('tạo phiếu nhập hàng giúp tôi');
   });
 });
+
+// ─── CA THẬT 17:37 12/08 — MODEL TRẢ RỖNG, BOT CÂM KHÔNG MỘT DÒNG LOG ───
+//
+// Model đọc ảnh dạng SUY LUẬN đốt token vào phần nghĩ trước khi viết. Trần
+// max_tokens 500 → finish_reason='length', reasoning_tokens=500, content=''
+// (đo tận tay trên prod bằng chính ảnh + key thật; nâng 3000 thì cùng ảnh ra
+// 803 ký tự, finish='stop'). API trả RỖNG chứ không lỗi, nên đường cũ
+// `return sach || null` nuốt luôn — null không log là thứ đã ăn mất cả buổi
+// chiều truy vết. Hai test này khoá cả hai đầu: rỗng phải THẤY được, và trần
+// token của cú gọi nhìn ảnh không được quay về 500.
+import { docAnh } from '../../../src/modules/ai/agent/noi-zalo/doc-anh.js';
+import { vi } from 'vitest';
+import { logger } from '../../../src/shared/utils/logger.js';
+
+describe('docAnh — model trả RỖNG không được câm', () => {
+  const taiAnhGia = async () => ({ duLieu: Buffer.from('x'), kieu: 'image/jpeg' });
+
+  it('content rỗng → null VÀ có log cảnh báo (trước vá: null im lặng)', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
+
+    const kq = await docAnh(
+      { goiModel: async () => '', taiAnh: taiAnhGia },
+      { url: 'http://x/a.jpg' },
+    );
+
+    expect(kq).toBeNull();
+    const daBao = warn.mock.calls.some((c) => JSON.stringify(c).includes('RỖNG'));
+    expect(daBao).toBe(true);
+    warn.mockRestore();
+  });
+
+  it('content toàn khoảng trắng cũng là rỗng → null + log', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
+
+    const kq = await docAnh(
+      { goiModel: async () => '  \n  ', taiAnh: taiAnhGia },
+      { url: 'http://x/a.jpg' },
+    );
+
+    expect(kq).toBeNull();
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('model trả chữ thật → vẫn ra nguyên văn như cũ', async () => {
+    const kq = await docAnh(
+      { goiModel: async () => 'P10 full out: 10.000 tấm' , taiAnh: taiAnhGia },
+      { url: 'http://x/a.jpg' },
+    );
+
+    expect(kq).toBe('P10 full out: 10.000 tấm');
+  });
+});
+
+describe('goiModelNhinAnh — trần token cú gọi nhìn ảnh', () => {
+  it('luong-media truyền maxTokens 3000, không rơi về mặc định 500', async () => {
+    // Đọc thẳng source: goiModelNhinAnh là hàm nội bộ không export, nhưng
+    // trần token là HỢP ĐỒNG sống còn (500 = bot câm với model suy luận).
+    // Test chữ trong file để ai hạ số này xuống phải đi qua đây.
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync(
+      new URL('../../../src/modules/ai/agent/noi-zalo/luong-media.ts', import.meta.url), 'utf8');
+
+    expect(src).toMatch(/maxTokens:\s*3000/);
+  });
+});

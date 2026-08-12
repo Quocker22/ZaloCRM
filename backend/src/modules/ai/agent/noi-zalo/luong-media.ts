@@ -219,9 +219,43 @@ export async function xuLyTinMedia(
     // Đọc không được → rơi xuống đường báo nhân viên bên dưới, KHÔNG im lặng.
   }
 
-  // Từ đây là loại CHƯA đọc được (voice/video/file) hoặc ảnh đọc hỏng.
-  // Nhóm thì không giữ chân — giữa nhóm đông người vừa vô nghĩa vừa ồn.
-  if (ctx.laNhom) return false;
+  // ẢNH ĐỌC HỎNG MÀ CÓ TAG BOT TRONG NHÓM → PHẢI NÓI MỘT CÂU (vá 12/08).
+  //
+  // CA THẬT 17:3x 12/08 — anh Quốc gửi ảnh + "@Tiểu Mã Nelia tạo phiếu nhập
+  // hàng… NCC Trung Quốc" trong nhóm, bot IM HOÀN TOÀN. Nặng hơn lỗi 16:53
+  // (lúc đó còn trả lời sai, giờ câm hẳn).
+  //
+  // Đường hỏng: đọc ảnh lỗi (model 404 / tải ảnh lỗi / gateway chậm) → `docAnh`
+  // trả null → `docVaChuyenTiep` trả false → rơi xuống đây → `laNhom` → thoát
+  // im lặng. Trong nhóm KHÔNG có lưới an toàn nào phía sau.
+  //
+  // Luật "nhóm thì không giữ chân" ĐÚNG cho ảnh vu vơ giữa nhóm đông người —
+  // giữ nguyên. Nhưng khi người ta TAG ĐÍCH DANH bot thì họ đang đứng chờ một
+  // câu trả lời: im lặng lúc đó không phải là "không ồn", mà là mất việc. Đó
+  // đúng bài học đã ghi ở đầu file này cho ảnh chuyển khoản (06/08): im lặng
+  // là mất tiền thật, không phải mất lịch sự.
+  //
+  // HẸP có chủ ý: chỉ nói khi CÓ TAG. Không tag thì giữ nguyên im lặng như cũ.
+  if (ctx.laNhom && !ctx.daTagBot) return false;
+  if (ctx.laNhom) {
+    const dichNhom = await timDich(ctx.conversationId);
+    if (!dichNhom) return false;
+    try {
+      await guiTin(
+        dichNhom,
+        'Dạ em chưa đọc được ảnh này ạ. Anh/chị chụp lại rõ hơn, hoặc gõ giúp em '
+        + 'nội dung cần làm (tên hàng + số lượng) để em xử lý ngay ạ.',
+        true,
+      );
+    } catch (err) {
+      logger.warn({ err, conversationId: ctx.conversationId }, '[agent/khach] báo đọc ảnh hỏng lỗi');
+    }
+    logger.info(
+      { conversationId: ctx.conversationId, contentType },
+      '[agent/khach] ảnh đọc hỏng trong nhóm CÓ TAG — đã báo, không im lặng',
+    );
+    return true;
+  }
 
   const loai = LOAI_CAN_NGUOI[contentType];
   if (!loai) return false; // loại lạ — để pipeline cũ tự xử
@@ -411,5 +445,12 @@ async function goiModelNhinAnh(orgId: string, args: {
     loiDan: loiDanDocAnh(args.chuThich),
     anhBase64: args.anhBase64,
     kieuAnh: args.kieuAnh,
+    // TRẦN TOKEN 3000, KHÔNG DÙNG MẶC ĐỊNH 500 (đo tận tay 12/08 trên prod):
+    // model đọc ảnh dạng SUY LUẬN đốt token vào phần nghĩ TRƯỚC khi viết câu
+    // trả lời. Trần 500 → nghĩ chưa xong đã hết quota → API trả content RỖNG
+    // (không phải lỗi, không throw) → docAnh trả null → nhóm thì bot im hẳn.
+    // Đó chính là ca 17:37/18:14 12/08: docAnh chạy 9,9s rồi NULL không một
+    // dòng log. 3000 token ~0,0018$/ảnh — đủ cả nghĩ lẫn chép 20 dòng hàng.
+    maxTokens: 3000,
   });
 }

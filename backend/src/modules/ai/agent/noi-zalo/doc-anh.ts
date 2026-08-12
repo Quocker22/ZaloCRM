@@ -147,7 +147,17 @@ export async function docAnh(
       chuThich: (input.chuThich ?? '').trim(),
     });
     const sach = String(mo ?? '').trim();
-    return sach || null;
+    // MODEL TRẢ RỖNG PHẢI CÓ VẾT (12/08). Ca thật 17:37: model suy luận đốt
+    // sạch trần token vào phần nghĩ, API trả content rỗng KHÔNG lỗi — đường
+    // này trước đây return null KHÔNG MỘT DÒNG LOG, nên bot câm suốt buổi mà
+    // grep 'doc-anh' ra 0, mất cả buổi chiều mới lần ra. Rỗng không phải
+    // "không có gì để nói" — nó luôn là triệu chứng (trần token, model lỗi
+    // thầm) và phải nhìn thấy được trong log.
+    if (!sach) {
+      logger.warn({ url: input.url }, '[doc-anh] model trả RỖNG — nghi trần token, nhường đường báo người');
+      return null;
+    }
+    return sach;
   } catch (err) {
     logger.warn({ err, url: input.url }, '[doc-anh] đọc ảnh lỗi — nhường đường báo người');
     return null;
