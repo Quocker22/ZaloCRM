@@ -299,7 +299,10 @@ export function buildCustomerRegistry(deps: {
             // phải đơn mới — cùng bug đã nổ ở luồng nhân viên (05/08).
             chanDonLienKeGiay: chot.chanDonLienKeGiay,
           },
-          input as Parameters<typeof taoDonNhap>[1],
+          // Input THÔ của LLM — mọi field đều được `taoDonNhap` tự kiểm lại
+          // (id khách, id SP, số lượng). Qua `unknown` vì `Record<string,
+          // unknown>` không phủ được kiểu đích, không phải vì bỏ kiểm.
+          input as unknown as Parameters<typeof taoDonNhap>[1],
         );
         // CHỈ báo đơn MỚI: 'da_ton_tai' nghĩa là khoá chống trùng đã bắt, gửi
         // QR lần nữa là khách tưởng phải chuyển hai lần.

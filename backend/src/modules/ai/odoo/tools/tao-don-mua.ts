@@ -36,7 +36,7 @@
 //     đó. Không tìm thấy NCC thì BÁO, không tự tạo.
 import type { OdooClient } from '../client.js';
 import type { ToolDefinition } from '../../agent/types.js';
-import { sinhKhoaDon } from '../idempotency.js';
+import { sinhKhoaDon, noiDuoiTheoKhoa } from '../idempotency.js';
 import {
   locKhopBoDau, coDauTiengViet, boDau, dieuKienBienTheDauCum,
 } from '../tim-khong-dau.js';
@@ -134,7 +134,32 @@ export function tenKhopNcc(tenNhac: string, tenPartner: string): boolean {
  * nhân viên nói rõ bao nhiêu dòng cần điền giá. Thiếu thông tin mà im là bẫy;
  * thiếu thông tin mà nói rõ thì người xử được.
  */
+/**
+ * Tạo phiếu nhập nháp — CÙNG BỆNH với đơn bán, cùng thuốc.
+ *
+ * Ca thật 11:15-11:16 12/08 nổ ở đơn BÁN (S13834 + S13835 trùng nhau), nhưng
+ * phiếu nhập đi qua đúng máy gom đơn đó và cũng chốt bằng câu xác nhận ngắn
+ * ("ok", "đúng rồi"). Hai tin cùng ý cách vài giây thì hai lượt chồng nhau,
+ * cùng tra `origin` thấy trống, rồi cùng create → hai phiếu nhập trùng.
+ *
+ * Nối đuôi theo khoá để bước "tra rồi ghi" thành nguyên tử — xem
+ * `noiDuoiTheoKhoa` trong idempotency.ts. Vá cùng lúc với đơn bán CÓ CHỦ Ý:
+ * vá một đường mà bỏ đường kia là lỗi đã lặp nhiều lần ở file này.
+ */
 export async function taoDonMua(
+  deps: TaoDonMuaDeps,
+  input: { nha_cung_cap_id: number; dong: DongDonMua[]; ten_ncc?: string },
+): Promise<KetQuaTaoDonMua> {
+  let khoaHang: string;
+  try {
+    khoaHang = sinhKhoaDon(deps.conversationId, deps.seq);
+  } catch {
+    return taoDonMuaThan(deps, input); // khoá hỏng → thân hàm trả câu lỗi đúng
+  }
+  return noiDuoiTheoKhoa(khoaHang, () => taoDonMuaThan(deps, input));
+}
+
+async function taoDonMuaThan(
   deps: TaoDonMuaDeps,
   input: { nha_cung_cap_id: number; dong: DongDonMua[]; ten_ncc?: string },
 ): Promise<KetQuaTaoDonMua> {

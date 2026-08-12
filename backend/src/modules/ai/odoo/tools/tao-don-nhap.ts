@@ -16,7 +16,7 @@
 
 import type { OdooClient } from '../client.js';
 import type { ToolDefinition } from '../../agent/types.js';
-import { sinhKhoaDon, IDEMPOTENCY_PREFIX } from '../idempotency.js';
+import { sinhKhoaDon, IDEMPOTENCY_PREFIX, noiDuoiTheoKhoa } from '../idempotency.js';
 import { NGUONG_GIA_AO } from './tra-san-pham.js';
 import { lechVoLy } from '../../agent/noi-zalo/gom-don/gia-bat-thuong.js';
 
@@ -176,27 +176,56 @@ export function tenKhopKhach(tenNhac: string, tenPartner: string): boolean {
   return tuNhac.every((t) => tenP.includes(t));
 }
 
-export async function taoDonNhap(
+/**
+ * Đầu vào của `taoDonNhap` — tách khỏi chữ ký hàm để bọc hàng đợi mà không
+ * phải chép lại kiểu ở hai chỗ (chép là sẽ lệch).
+ */
+export interface VaoTaoDon {
+  khach_hang_id: number; dong: DongDon[]; y_dinh?: 'moi' | 'sua'; ten_khach?: string;
+  /**
+   * Kho xuất hàng (sale.order.warehouse_id). Cùng cổng `choPhepDatGia`: khách
+   * không có việc gì phải quyết kho của công ty.
+   *
+   * KHÔNG truyền = giữ nguyên hành vi cũ, Odoo tự lấy kho mặc định. Đo prod
+   * 11/08: 291/300 đơn gần nhất dùng kho TT, nên mặc định vốn đã đúng cho
+   * gần như mọi đơn — chỉ đặt khi nhân viên nói rõ.
+   */
+  kho_id?: number;
+  /**
+   * VAT cho CẢ ĐƠN (id account.tax) — nhân viên nói "có VAT" là nói cho cả
+   * đơn, không phải cho một món. Dòng nào tự khai `thue_id` thì thắng.
+   *
+   * Lấy từ traThueBan(), cùng cổng `choPhepDatGia`. Xem DongDon.thue_id.
+   */
+  thue_id?: number;
+}
+
+/**
+ * Tạo đơn nháp — CỬA DUY NHẤT, và là HÀNG RÀO CUỐI chống đơn trùng.
+ *
+ * Mọi lượt cùng một khoá chống trùng đi NỐI ĐUÔI (xem `noiDuoiTheoKhoa`): bước
+ * "tra rồi ghi" bên trong không nguyên tử, nên hai lượt chồng nhau mà chạy song
+ * song thì cùng thấy "chưa có đơn" rồi cùng create — đúng ca 11:15-11:16 12/08
+ * đẻ ra S13834 + S13835. Xếp hàng xong thì lượt sau tra THẤY đơn lượt trước
+ * vừa ghi và trả `da_ton_tai`.
+ *
+ * Khoá trống (conversationId rỗng → `sinhKhoaDon` ném lỗi) vẫn phải vào thân
+ * hàm để trả đúng câu lỗi cũ, nên hàng đợi lấy khoá theo cách "cố gắng", hỏng
+ * thì chạy thẳng.
+ */
+export async function taoDonNhap(deps: TaoDonDeps, input: VaoTaoDon): Promise<KetQuaTaoDon> {
+  let khoaHang: string;
+  try {
+    khoaHang = sinhKhoaDon(deps.conversationId, deps.seq);
+  } catch {
+    return taoDonNhapThan(deps, input); // khoá hỏng → thân hàm trả câu lỗi đúng
+  }
+  return noiDuoiTheoKhoa(khoaHang, () => taoDonNhapThan(deps, input));
+}
+
+async function taoDonNhapThan(
   deps: TaoDonDeps,
-  input: {
-    khach_hang_id: number; dong: DongDon[]; y_dinh?: 'moi' | 'sua'; ten_khach?: string;
-    /**
-     * Kho xuất hàng (sale.order.warehouse_id). Cùng cổng `choPhepDatGia`: khách
-     * không có việc gì phải quyết kho của công ty.
-     *
-     * KHÔNG truyền = giữ nguyên hành vi cũ, Odoo tự lấy kho mặc định. Đo prod
-     * 11/08: 291/300 đơn gần nhất dùng kho TT, nên mặc định vốn đã đúng cho
-     * gần như mọi đơn — chỉ đặt khi nhân viên nói rõ.
-     */
-    kho_id?: number;
-    /**
-     * VAT cho CẢ ĐƠN (id account.tax) — nhân viên nói "có VAT" là nói cho cả
-     * đơn, không phải cho một món. Dòng nào tự khai `thue_id` thì thắng.
-     *
-     * Lấy từ traThueBan(), cùng cổng `choPhepDatGia`. Xem DongDon.thue_id.
-     */
-    thue_id?: number;
-  },
+  input: VaoTaoDon,
 ): Promise<KetQuaTaoDon> {
   const partnerId = Number(input.khach_hang_id);
   if (!Number.isInteger(partnerId) || partnerId <= 0) {

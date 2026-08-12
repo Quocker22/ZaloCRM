@@ -173,6 +173,35 @@ export interface PhienGom {
    * đọc các ô đó — tách ô là phải nhân đôi cả năm thứ, mỗi cái một chỗ quên.
    */
   che?: 'len' | 'sua' | 'nhap';
+  /**
+   * SỐ HIỆU VIỆC — khoá chống trùng của đơn/phiếu mà phiên này sẽ ghi.
+   *
+   * ── VÌ SAO PHẢI CÓ (ca thật 11:15-11:16 ngày 12/08/2026) ────────────────
+   *   11:15:52  NV : "đúng rồi"                    ← tin 1
+   *   11:16:00  NV : "@Tiểu Mã Nelia đúng rồi"     ← tin 2, cách 8 GIÂY
+   *   11:16:13  Bot: "Đã lên đơn nháp S13834 ..."  ← đơn 1 (id 26751)
+   *   11:16:24  Bot: "Đã lên đơn nháp S13835 ..."  ← đơn 2 (id 26752) TRÙNG
+   * HAI ĐƠN THẬT vào Odoo: cùng khách KH000027, cùng 10 × Led F5, cùng 1 triệu.
+   *
+   * Trước đây `seq` (thành phần khoá chống trùng `zalo:<conv>:<seq>`) sinh từ
+   * messageId — HAI TIN thì HAI seq, nên hai lượt ra HAI khoá khác nhau và
+   * hàng rào idempotency của `tao_don_nhap` không thấy gì trùng. Khoá đáng ra
+   * phải nhận diện VIỆC, mà việc ở đây là "cái phiên đang gom này", không phải
+   * "cái tin vừa gõ".
+   *
+   * Đặt MỘT LẦN lúc mở phiên rồi giữ nguyên suốt phiên: mọi lượt xác nhận của
+   * cùng một phiên ghi ra CÙNG một khoá, nên lượt thứ hai nhận `da_ton_tai`.
+   * Phiên bị xoá (đơn đã lên, huỷ, đè bằng lệnh mới) → phiên sau sinh số mới,
+   * nên nhân viên lên đơn thứ hai thật vẫn ra đơn thứ hai thật.
+   *
+   * ĐỪNG dùng lại `seq` từ messageId cho đường ghi. Xem thêm khoa-viec.ts:
+   * khoá theo NỘI DUNG CÂU không chặn nổi ca này vì "đúng rồi" và
+   * "[Trả lời tin: ...] đúng rồi" băm ra hai mã khác nhau.
+   *
+   * Thiếu (phiên cũ trong DB trước bản vá) → rơi về `seq` của tin, đúng hành
+   * vi cũ; không cần migrate dữ liệu.
+   */
+  viecId?: number;
   /** Đơn đã chốt để sửa. */
   donSua?: DonSua;
   /** Nhiều đơn nháp trong hội thoại → chờ NV chọn. */

@@ -468,7 +468,10 @@ export function buildStaffRegistry(deps: {
             // mới — bug thật 05/08, xem cong-tac.ts:chanDonLienKeGiay.
             chanDonLienKeGiay: deps.chanDonLienKeGiay,
           },
-          input as Parameters<typeof taoDonNhap>[1],
+          // Input THÔ của LLM — `taoDonNhap` tự kiểm lại từng field (id khách,
+          // id SP, số lượng). Qua `unknown` vì `Record<string, unknown>` không
+          // phủ được kiểu đích, không phải vì bỏ kiểm.
+          input as unknown as Parameters<typeof taoDonNhap>[1],
         );
 
         // HOÁ ĐƠN TỰ ĐỘNG (06/08/2026): gửi ảnh đơn là bước CHẮC CHẮN sau khi

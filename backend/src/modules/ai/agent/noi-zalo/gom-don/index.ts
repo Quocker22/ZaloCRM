@@ -470,7 +470,19 @@ async function taoDonVaBaoGia(
   };
   const kq = await taoDonNhap(
     {
-      odoo: deps.odoo, conversationId: input.conversationId, seq: input.seq, choPhepDatGia: true,
+      odoo: deps.odoo, conversationId: input.conversationId,
+      // KHOÁ CHỐNG TRÙNG THEO VIỆC, KHÔNG THEO TIN (vá 12/08).
+      //
+      // Ca thật 11:15-11:16 12/08: hai tin "đúng rồi" cách 8 giây → hai `seq`
+      // khác nhau → hai khoá khác nhau → Odoo nhận CẢ HAI lệnh create, ra
+      // S13834 (id 26751) và S13835 (id 26752) trùng hoàn toàn.
+      //
+      // `p.viecId` do phiên giữ, không đổi theo tin, nên mọi lượt xác nhận của
+      // cùng một phiên ghi ra CÙNG khoá và lượt sau nhận `da_ton_tai`. Phiên
+      // cũ trong DB chưa có ô này thì rơi về `input.seq` như trước — không cần
+      // migrate. ĐỪNG đổi ngược lại: xem PhienGom.viecId.
+      seq: p.viecId ?? input.seq,
+      choPhepDatGia: true,
       // Nhân viên đã trả lời câu hỏi giá lệch ở máy gom đơn rồi → đừng bắt họ
       // xác nhận lần thứ hai ở cổng tool. Hỏi hai lần cho cùng một con số là
       // kiểu bot "điếc" mà hàng rào này sinh ra để tránh.
@@ -568,7 +580,14 @@ async function taoPhieuNhapVaBao(
     dong,
   };
   const kq = await taoDonMua(
-    { odoo: deps.odoo, conversationId: input.conversationId, seq: input.seq },
+    {
+      odoo: deps.odoo, conversationId: input.conversationId,
+      // CÙNG BỆNH với đơn bán — xem chú thích ở `taoDonVaBaoGia`. Phiếu nhập
+      // cũng chốt bằng câu xác nhận ngắn ("ok", "đúng rồi"), nên hai tin cùng ý
+      // cách vài giây cũng đẻ ra hai PHIẾU NHẬP trùng nếu khoá vẫn theo tin.
+      // Khoá theo VIỆC (phiên) thì lượt sau nhận `da_ton_tai`.
+      seq: p.viecId ?? input.seq,
+    },
     vao,
   );
   deps.ghiLog({
@@ -863,6 +882,13 @@ export async function xuLyGomDon(
   phien ??= {
     khachTuKhoa: null,
     dong: [],
+    // SỐ HIỆU VIỆC — đặt MỘT LẦN lúc mở phiên, giữ nguyên tới lúc phiên chết.
+    // Đây là thứ chặn ca 11:15-11:16 12/08 (hai tin "đúng rồi" cách 8 giây đẻ
+    // ra S13834 + S13835): mọi lượt của CÙNG phiên ghi ra cùng một khoá chống
+    // trùng, nên lượt thứ hai nhận `da_ton_tai` thay vì tạo đơn mới. Xem
+    // PhienGom.viecId. Lấy `seq` của tin MỞ phiên làm số hiệu: nó đã là số
+    // nguyên không âm sẵn (băm từ messageId) và duy nhất theo tin mở phiên.
+    viecId: input.seq,
     ...(laLenhNhap
       ? { che: 'nhap' as const }
       : laLenhSua || trich.sua ? { che: 'sua' as const } : {}),
