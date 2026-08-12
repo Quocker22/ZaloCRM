@@ -6,6 +6,7 @@
 //
 // Mọi lối thoát sớm đi qua `dung(lyDo)` — có log, grep `[agent/nv] dừng` là ra.
 import { prisma } from '../../../../shared/database/prisma-client.js';
+import { napLuatNhanVien, ghiLuat, quenLuat, type PrismaLuatNv } from '../luat-nhan-vien.js';
 import { logger } from '../../../../shared/utils/logger.js';
 import { chayLenhNhanVien } from '../staff-agent.js';
 import { nhanDienLenhNhanVien, coTagBot } from '../staff-command.js';
@@ -225,6 +226,9 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
     // Log từng chặng: treo ở đâu thì dòng cuối cùng chỉ thẳng ra chỗ đó.
     logger.info({ soTin: lichSu.length }, '[agent/nv] đã lấy lịch sử');
     const triThuc = await timTriThuc(ctx.orgId);
+    // LUAT NHAN VIEN DAN (12/08) — tri nho dai han, nap moi luot. DB loi thi
+    // [] — luat khong bao gio la ly do bot cam.
+    const luatNv = await napLuatNhanVien(prisma as unknown as PrismaLuatNv, ctx.orgId);
     // Kho FILE tài liệu — tách hẳn khỏi tri thức (chữ). Bug 03:17 11/08 chính
     // là bot có cái thứ nhất mà không có cái thứ hai, rồi kết luận "chưa có file".
     const khoTaiLieu = await khoTaiLieuCuaOrg(ctx.orgId);
@@ -249,6 +253,17 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
         odooUrl: odooUrlCongKhai(),
         timDoanTriThuc: triThuc,
         lietTaiLieu: khoTaiLieu,
+        luatNhanVien: luatNv,
+        luatStore: {
+          ghi: (v) => ghiLuat(prisma as unknown as PrismaLuatNv, {
+            orgId: ctx.orgId, noiDung: v.noiDung,
+            ...(v.phamVi ? { phamVi: v.phamVi } : {}),
+            conversationId: ctx.conversationId,
+          }),
+          quen: (v) => quenLuat(prisma as unknown as PrismaLuatNv, {
+            orgId: ctx.orgId, tuKhoa: v.tuKhoa,
+          }),
+        },
       },
       {
         bizName: ctx.bizName,

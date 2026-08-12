@@ -116,6 +116,7 @@ import { bangRaAnh } from '../odoo/anh-bang.js';
 import { docOdoo, docOdooDefinition, dinhDangDoc } from '../odoo/tong-quat/doc.js';
 import { lamOdoo, lamOdooDefinition, dinhDangLam, CHIA_XAC_NHAN } from '../odoo/tong-quat/lam.js';
 import { khamPhaOdoo, khamPhaOdooDefinition, dinhDangKhamPha } from '../odoo/tong-quat/kham-pha.js';
+import { ghiLuatDefinition, quenLuatDefinition, khoiLuatChoPrompt, type KetQuaGhiLuat, type KetQuaQuenLuat } from './luat-nhan-vien.js';
 
 /**
  * Dấu nhận biết bot ĐÃ xin xác nhận cho một lệnh nguy hiểm ở lượt TRƯỚC.
@@ -200,6 +201,13 @@ export interface StaffAgentDeps {
    * 11/08).
    */
   lietTaiLieu?: () => Promise<TaiLieu[]>;
+  /** Luat nhan vien dan — da nap san tu DB (napLuatNhanVien), chen vao nga canh moi luot. */
+  luatNhanVien?: string[];
+  /** Kho ghi/quen luat — truyen xuong registry de mo tool ghi_luat/quen_luat. */
+  luatStore?: {
+    ghi: (input: { noiDung: string; phamVi?: string }) => Promise<KetQuaGhiLuat>;
+    quen: (input: { tuKhoa: string }) => Promise<KetQuaQuenLuat>;
+  };
 }
 
 export interface StaffAgentInput {
@@ -389,6 +397,15 @@ export function buildStaffRegistry(deps: {
   taiTaiLieu?: (t: TaiLieu) => Promise<string>;
   /** Nhận file tài liệu đã tải — caller gửi qua Zalo sau phần text. */
   nhanTaiLieu?: (t: { tieuDe: string; duongDanCucBo: string }) => void;
+  /**
+   * Kho luat nhan vien dan (12/08) — CHI luong nhan vien cap. Luong khach
+   * khong bao gio co: khach ma dan duoc luat cho bot la prompt injection
+   * co ghi vao DB.
+   */
+  luatStore?: {
+    ghi: (input: { noiDung: string; phamVi?: string }) => Promise<KetQuaGhiLuat>;
+    quen: (input: { tuKhoa: string }) => Promise<KetQuaQuenLuat>;
+  };
   /**
    * NGƯỜI THẬT vừa gật cho lệnh nguy hiểm mà bot hỏi ở LƯỢT TRƯỚC.
    *
@@ -689,6 +706,34 @@ export function buildStaffRegistry(deps: {
     });
   }
 
+  // LUẬT NHÂN VIÊN DẶN (12/08) — trí nhớ dài hạn: "nhớ là khách X luôn giảm
+  // 5%" nói MỘT lần, áp cho mọi lượt sau. Chỉ đăng ký khi caller cấp store
+  // (luồng nhân viên); luồng khách không bao giờ có — khách mà dặn được luật
+  // cho bot là prompt injection có ghi vào DB.
+  if (deps.luatStore) {
+    const store = deps.luatStore;
+    r.register({
+      definition: ghiLuatDefinition,
+      run: async (input) => {
+        const vao = input as { luat: string; pham_vi?: string };
+        const kq = await store.ghi({ noiDung: vao.luat, phamVi: vao.pham_vi });
+        return kq.ok
+          ? `Em nhớ rồi: "${vao.luat}"${vao.pham_vi ? ` (khi: ${vao.pham_vi})` : ''}. Từ giờ em áp dụng cho mọi hội thoại. Muốn bỏ thì nói "quên luật ..." kèm vài chữ trong luật.`
+          : `Không ghi được: ${kq.loi}`;
+      },
+    });
+    r.register({
+      definition: quenLuatDefinition,
+      run: async (input) => {
+        const vao = input as { tu_khoa: string };
+        const kq = await store.quen({ tuKhoa: vao.tu_khoa });
+        return kq.ok
+          ? `Em đã quên ${kq.daTat.length} luật: ${kq.daTat.map((l) => `"${l}"`).join('; ')}`
+          : `Không quên được: ${kq.loi}`;
+      },
+    });
+  }
+
   // GỬI FILE TÀI LIỆU (11/08/2026) — sửa bug 03:17-03:18 cùng ngày: nhân viên
   // nói "a muốn e gửi cho a dạng tài liệu cattalog", bot đáp "hiện chưa có sẵn
   // file" TRONG KHI 8 datasheet PDF nằm sẵn trên đĩa server. Bot có tri thức
@@ -856,6 +901,7 @@ export async function chayLenhNhanVien(
     odooUrl: deps.odooUrl,
     timDoanTriThuc: deps.timDoanTriThuc,
     lietTaiLieu: deps.lietTaiLieu,
+    luatStore: deps.luatStore,
     // Bot gọi gui_hoa_don nhiều lần thì lấy cái CUỐI — đó là đơn nó đang nói tới.
     nhanHoaDon: (kq) => { hoaDon = kq; },
     nhanTepBaoCao: (tep) => { tepBaoCao.push(tep); },
@@ -875,7 +921,10 @@ export async function chayLenhNhanVien(
 
   const kq = await runAgent({
     system: buildStaffSystemPrompt(input.bizName),
-    userMessage: ghepLichSuNhanVien(input.history, lenh.noiDung),
+    // Khối luật đứng TRƯỚC lịch sử + tin mới: lời dặn lâu dài là nền, tin
+    // mới ghi đè khi mâu thuẫn (chính khối luật tự nói điều đó).
+    userMessage: [khoiLuatChoPrompt(deps.luatNhanVien ?? []), ghepLichSuNhanVien(input.history, lenh.noiDung)]
+      .filter(Boolean).join('\n\n'),
     tools: registry.definitions(),
     execute: registry.executor(dungLai),
     generate: deps.generate,
