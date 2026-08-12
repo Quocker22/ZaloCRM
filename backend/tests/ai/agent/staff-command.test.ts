@@ -297,7 +297,27 @@ describe('buildStaffSystemPrompt', () => {
     //   · nén lại: gộp 2 luật kỳ, rút gọn 3 dòng đã có (−49)
     // Ký tự tĩnh vẫn rẻ 4x nhờ implicit cache — và dòng ngày CỐ Ý chỉ có NGÀY,
     // không có giờ/phút, để prefix cache chỉ đổi 1 lần/24h thay vì mỗi lượt.
-    expect(buildStaffSystemPrompt(BIZ_THAT).length).toBeLessThan(3600);
+    // 3.600 → 3.800 (12/08, ca thật 16:53): luật ĐỌC KHỐI ẢNH. NV gửi ảnh danh
+    // sách hàng kèm lệnh "tạo phiếu nhập hàng… NCC Trung Quốc"; bot dùng lệnh
+    // nhưng BỎ QUA ảnh rồi hỏi lại "nhập những hàng gì ạ?" — đúng thứ đã nằm
+    // trong ảnh. Đo 12/08: lời dặn về khối ảnh CHỈ có ở `gom-don/trich-slot`;
+    // prompt NÀY và luồng khách KHÔNG có dòng nào (grep "Khách gửi ảnh" ra 0).
+    // Nghĩa là ảnh + "tra tồn kho mấy cái này" / "công nợ khách này" rơi vào
+    // vùng trống hoàn toàn — chưa ai báo lỗi chỉ vì chưa ai thử.
+    //
+    // NĂNG LỰC MỚI, không phải diễn giải thêm: prompt chưa từng nhắc khối ảnh
+    // thì không câu chữ nào cứu được — cùng dạng với lần nới "ngày hôm nay"
+    // (11/08) và "nhập hàng" (11/08), đều là chỗ prompt câm hẳn.
+    //
+    // ĐÃ NÉN TRƯỚC KHI NỚI, hai vòng: bản đầu 6 dòng/+436 ký tự → 3 dòng/+204
+    // → 3 dòng ngắn hơn/+170. Sự tích dồn hết vào comment, phần vào prompt chỉ
+    // giữ câu lệnh trần. Ký tự tĩnh vẫn rẻ 4x nhờ implicit cache.
+    //
+    // Vá đi kèm ở CODE (không chỉ prompt): `ghepCauTuAnh` đưa nội dung ảnh lên
+    // TRƯỚC lời nhắn + nhãn thành mệnh lệnh (luong-media.ts), và gom đơn trích
+    // lại riêng khối ảnh khi model bỏ sót (gom-don/index.ts). Lần thứ TƯ cùng
+    // bài học "prompt dặn rồi model vẫn quên" nên hàng rào thật nằm ở code.
+    expect(buildStaffSystemPrompt(BIZ_THAT).length).toBeLessThan(3800);
   });
 
   // NHẬP HÀNG (11/08) — ca thật 22:09-22:11 nhóm Test-AI: NV nói "tạo phiếu

@@ -31,6 +31,14 @@
 // 90s). Đổi được bằng env AI_MODEL_DOC_ANH nếu muốn thử lại.
 // Chi phí đo thật: ~5,2đ/ảnh → ~780đ/tháng ở 5 ảnh/ngày. Không đáng kể, nên
 // chọn theo ĐỘ TIN CẬY chứ không theo giá.
+//
+// ─── ĐỔI SANG gpt-5.6-luna (12/08, anh Quốc chốt) ───
+// Kiểm trên OpenRouter trước khi ghi vào đây (không đoán tên model):
+//   input_modalities = ['file','image','text']  → nhìn được ảnh
+//   context 1.050.000 token
+//   giá 0,1$/1M prompt + 0,6$/1M completion — RẺ HƠN gpt-4.1-mini ~3 lần
+// Lưu ý tên: có cả `openai/gpt-5.6-luna-pro`. Ta dùng bản THƯỜNG.
+// Rollback 1 dòng: đặt env AI_MODEL_DOC_ANH=openai/gpt-4.1-mini, không cần deploy.
 import { logger } from '../../../../shared/utils/logger.js';
 
 /** Loại tin gửi cho model nhìn được. Voice/video/file vẫn đi đường báo người. */
@@ -38,7 +46,7 @@ const LOAI_ANH = new Set(['image', 'photo']);
 
 /** Model nhìn ảnh — đổi được bằng env, không cần deploy. */
 export function modelDocAnh(env: NodeJS.ProcessEnv = process.env): string {
-  return env.AI_MODEL_DOC_ANH?.trim() || 'openai/gpt-4.1-mini';
+  return env.AI_MODEL_DOC_ANH?.trim() || 'openai/gpt-5.6-luna';
 }
 
 /** Trần kích thước ảnh tải về (MB) — ảnh Zalo thường 15-500KB. */

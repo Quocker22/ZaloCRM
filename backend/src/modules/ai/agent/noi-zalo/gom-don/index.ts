@@ -86,6 +86,30 @@ const boQuote = (cau: string): string =>
 const coKhoiAnh = (cau: string): boolean => cau.includes('[Khách gửi ảnh');
 
 /**
+ * Lấy RIÊNG phần chữ đọc từ ảnh, bỏ hết lời nhắn và nhãn quanh nó.
+ *
+ * Dùng cho lượt TRÍCH LẠI khi model bỏ sót hàng trong ảnh (xem khối lý do ở
+ * `xuLyGomDon`). Đưa mỗi danh sách hàng trần cho model — không lời nhắn, không
+ * nhãn — thì nó không còn gì để bám vào mà coi khối ảnh là văn bản nền.
+ *
+ * Nhãn do `ghepCauTuAnh` (luong-media.ts) dựng, dạng:
+ *   `[Khách gửi ảnh — ĐÂY LÀ NỘI DUNG THẬT …:\n<chữ đọc từ ảnh>]`
+ * Dấu `:` cuối nhãn là ranh giới; nội dung ảnh chạy tới `]` cuối cùng. Cũng
+ * chịu được chuỗi CŨ (`[Khách gửi ảnh, nội dung trong ảnh: …]`) để tin đang
+ * bay giữa chừng lúc deploy không rơi mất.
+ */
+export function chiLayKhoiAnh(cau: string): string {
+  const batDau = cau.indexOf('[Khách gửi ảnh');
+  if (batDau < 0) return '';
+  const ketKhoi = cau.lastIndexOf(']');
+  const trongKhoi = ketKhoi > batDau ? cau.slice(batDau, ketKhoi) : cau.slice(batDau);
+  // Bỏ phần nhãn: cắt từ dấu ':' ĐẦU TIÊN — nội dung ảnh có thể chứa ':'
+  // ("P10 full out: 10.000 tấm") nên phải lấy dấu đầu, không phải dấu cuối.
+  const sauNhan = trongKhoi.indexOf(':');
+  return (sauNhan >= 0 ? trongKhoi.slice(sauNhan + 1) : trongKhoi).trim();
+}
+
+/**
  * Trích lại lời nhân viên để ĐƯA VÀO TIN GỬI RA ("Em vẫn chưa khớp được …").
  *
  * CA THẬT 11:52:46 ngày 12/08 — nhân viên gửi ảnh danh sách hàng viết tay kèm
@@ -110,10 +134,26 @@ const coKhoiAnh = (cau: string): boolean => cau.includes('[Khách gửi ảnh');
  * caller phải bỏ luôn phần trích — hỏi trống còn hơn hỏi bằng câu cụt.
  */
 export function trichLoiNhanVien(cau: string, tran = 80): string {
-  // Khối ảnh nằm sau lời nhắn (`<lời nhắn>\n[Khách gửi ảnh…]`) nên cắt từ đó
-  // trở đi là đủ; ảnh không kèm lời nhắn thì còn lại rỗng — đúng ý.
+  // BÓC KHỐI ẢNH DÙ NÓ NẰM TRƯỚC HAY SAU LỜI NHẮN (sửa 12/08).
+  //
+  // Bản cũ giả định khối ảnh luôn ở CUỐI (`<lời nhắn>\n[Khách gửi ảnh…]`) nên
+  // chỉ cần `slice(0, batDauKhoi)`. Từ 12/08 `ghepCauTuAnh` đảo lại — ảnh đi
+  // TRƯỚC để model đọc kỹ hơn (xem khối lý do ở `luong-media.ts`). Giữ nguyên
+  // bản cũ thì `batDauKhoi === 0`, lời nhắn bị vứt sạch và mọi câu "Em vẫn chưa
+  // khớp được …" mất phần trích — hỏng đúng thứ nó sinh ra để chữa.
+  //
+  // Khối ảnh luôn đóng bằng `]` ở CUỐI khối và nội dung ảnh không chứa `]` cuối
+  // dòng (mô tả model trả về là text thuần), nên cắt tới dấu `]` cuối cùng là
+  // đủ chắc. Không thấy dấu đóng (model trả chuỗi dị) → bỏ từ khối trở đi, giữ
+  // hành vi an toàn cũ: thà mất phần trích còn hơn nhả khối nội bộ ra ngoài.
   const batDauKhoi = cau.indexOf('[Khách gửi ảnh');
-  const thoCoTag = batDauKhoi >= 0 ? cau.slice(0, batDauKhoi) : cau;
+  let thoCoTag = cau;
+  if (batDauKhoi >= 0) {
+    const ketKhoi = cau.lastIndexOf(']');
+    thoCoTag = ketKhoi > batDauKhoi
+      ? `${cau.slice(0, batDauKhoi)} ${cau.slice(ketKhoi + 1)}`
+      : cau.slice(0, batDauKhoi);
+  }
   // Tag bot ("@Tiểu Mã Nelia") là thứ nhân viên gõ để gọi bot, không phải nội
   // dung — để lại chỉ tổ chiếm chỗ trong 80 ký tự ít ỏi.
   //
@@ -929,6 +969,49 @@ export async function xuLyGomDon(
   if (cauNganTraLoi && trich.ngoaiLe && !trich.khach && !trich.khachMoi) {
     trich = { ...trich, khach: cauChon.trim() };
     delete trich.ngoaiLe;
+  }
+
+  // ẢNH CÓ HÀNG MÀ MODEL TRÍCH RỖNG → TRÍCH LẠI RIÊNG KHỐI ẢNH (vá 12/08).
+  //
+  // CA THẬT 16:53:09 — ảnh danh sách hàng gửi KÈM NGAY LƯỢT ĐẦU:
+  //   16:53:09  NV : [Ảnh ~20 dòng hàng] "tạo phiếu nhập hàng … NCC Trung Quốc"
+  //   16:53:44  Bot: "Anh/chị nhập những hàng gì ạ?"   ← hỏi thứ đã có trong ảnh
+  // Đo bằng test (`anh-luot-dau-16-53.test.ts`): đường ghép chuỗi media LÀNH,
+  // câu vào máy có ĐỦ cả ý định lẫn danh sách hàng. Model lấy ý định + tên NCC
+  // từ lời nhắn rồi BỎ QUA khối ảnh → `dong` rỗng → `buocTiepTheo` ra
+  // `hoi_thieu:'sp'` → đúng câu 16:53:44.
+  //
+  // `anhGiuaPhien` ở trên KHÔNG cứu được ca này: nó đòi `phien != null`, mà ở
+  // lượt ĐẦU chưa có phiên nào. Đó là lỗ hổng còn lại sau vá 11/08.
+  //
+  // VÌ SAO LÀ CODE CHỨ KHÔNG PHẢI PROMPT — lần thứ TƯ cùng một bài học (lệnh
+  // lên đơn 15:06, khối ảnh 23:22, câu ngắn 00:40, giờ là đây). `trich-slot` ĐÃ
+  // có ~10 dòng dặn về khối ảnh từ 11/08 mà 12/08 vẫn hỏng y hệt. Lời dặn nằm
+  // cuối một prompt ~60 dòng chạy trên model rẻ thì không giữ được. Code thì giữ.
+  //
+  // HẸP có chủ ý: chỉ chạy khi câu CÓ khối ảnh, máy ĐÃ nhận việc (lên đơn/nhập/
+  // sửa, qua regex hoặc model), và `dong` RỖNG. Ảnh vu vơ giữa câu chuyện khác
+  // không chạm vào đây. Trích lần hai chỉ tốn thêm ~1 lần gọi model cho đúng ca
+  // hỏng, không phải mọi ảnh.
+  const daNhanViec =
+    regexLen || regexNhap || laLenhSua || trich.lenDon || trich.nhapHang || trich.sua
+    || phien != null;
+  if (coKhoiAnh(input.cau) && daNhanViec && !trich.dong?.length && !trich.boDong?.length) {
+    const chiAnh = chiLayKhoiAnh(input.cau);
+    if (chiAnh) {
+      const lai = await trichSlot(deps.generate, chiAnh, phien);
+      if (lai.dong?.length) {
+        logger.info(
+          { conversationId: input.conversationId, soDong: lai.dong.length },
+          '[gom-don] trích lại riêng khối ảnh — model bỏ sót hàng trong ảnh',
+        );
+        // CHỈ lấy `dong` từ lượt trích lại. Ý định/tên khách đã chốt ở lượt
+        // đầu (từ lời nhắn) — lượt này chỉ nhìn mỗi ảnh nên `khach` nó đoán ra
+        // thường là mẩu chữ đầu ảnh, đúng kiểu bịa đã thấy ở ca 11:51.
+        trich = { ...trich, dong: lai.dong };
+        delete trich.ngoaiLe;
+      }
+    }
   }
 
   // Chế phiên: câu có dấu hiệu sửa (regex HOẶC model trích sua=true) → 'sua'.

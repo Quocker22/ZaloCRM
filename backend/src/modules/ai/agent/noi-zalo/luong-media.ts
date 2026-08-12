@@ -294,6 +294,47 @@ export async function xuLyTinMedia(
 }
 
 /**
+ * GHÉP CÂU TỪ ẢNH — nút thắt DUY NHẤT mọi ảnh đi qua trước khi vào các luồng.
+ *
+ * ─── VÌ SAO SỬA Ở ĐÂY CHỨ KHÔNG SỬA PROMPT (12/08, ca 16:53) ───
+ * Ảnh chảy vào BA luồng: gom đơn (`trich-slot`), agent thường
+ * (`staff-command`), và luồng khách (`luong-khach`). Đo 12/08: CHỈ `trich-slot`
+ * có lời dặn về khối ảnh (~10 dòng, vá 11/08); hai luồng kia KHÔNG CÓ MỘT DÒNG
+ * NÀO. Nghĩa là ảnh + "tra tồn kho mấy cái này" hay ảnh + "công nợ khách này"
+ * đi vào vùng trống hoàn toàn — chưa ai báo lỗi chỉ vì chưa ai thử.
+ *
+ * Vá prompt thì phải vá BA CHỖ, và mỗi luồng viết sau lại quên một chỗ. Vá ở
+ * đây thì cả ba luồng hưởng, và luồng viết sau này tự có. Một chỗ sửa, không
+ * phải ba chỗ nhớ.
+ *
+ * HAI THAY ĐỔI so với chuỗi cũ, đều có lý do đo được:
+ *
+ * 1. NỘI DUNG ẢNH ĐI TRƯỚC LỜI NHẮN. Chuỗi cũ để ảnh ở CUỐI
+ *    (`<lời nhắn>\n[Khách gửi ảnh…]`). Model đọc đầu câu kỹ hơn cuối câu, nên
+ *    khối ảnh nằm cuối bị coi là văn bản nền — đúng cái đã xảy ra 16:53 (model
+ *    lấy được ý định "nhập hàng" + tên NCC từ lời nhắn, BỎ QUA danh sách hàng
+ *    trong ảnh, rồi bot quay ra hỏi "nhập những hàng gì ạ?").
+ *
+ * 2. NHÃN LÀ MỆNH LỆNH, KHÔNG PHẢI CHÚ THÍCH. "[Khách gửi ảnh, nội dung trong
+ *    ảnh: …]" đọc như ghi chú kỹ thuật nên model đối xử như nền. Nhãn mới nói
+ *    thẳng đây là NỘI DUNG THẬT phải dùng, ngang lời người gõ.
+ *
+ * GIỮ NGUYÊN tiền tố `[Khách gửi ảnh` ở đầu nhãn: `gom-don/index.ts` dò đúng
+ * chuỗi này (`coKhoiAnh`, `trichLoiNhanVien` — hàm bóc khối nội bộ khỏi tin gửi
+ * ra). Đổi tiền tố là khối nội bộ lọt thẳng vào tin nhắn cho nhân viên, đúng
+ * lỗi B của ca 11:50. Test `luong-media-ghep-cau.test.ts` khoá điều này.
+ */
+export function ghepCauTuAnh(chuThich: string, moTa: string): string {
+  const khoi =
+    `[Khách gửi ảnh — ĐÂY LÀ NỘI DUNG THẬT ĐỌC ĐƯỢC TỪ ẢNH, coi như chính người ` +
+    `gửi vừa gõ ra, PHẢI DÙNG để làm việc họ yêu cầu (tên hàng, số lượng, mã, ` +
+    `số tiền… trong ảnh đều là dữ liệu thật):\n${moTa}]`;
+  // Ảnh TRƯỚC, lời nhắn SAU: lời nhắn cho Ý ĐỊNH, ảnh cho DỮ LIỆU. Để lời nhắn
+  // ở cuối cũng giúp nó là thứ model đọc gần chỗ trả lời nhất.
+  return chuThich ? `${khoi}\n${chuThich}` : khoi;
+}
+
+/**
  * Đọc ảnh → chữ → ném vào ĐÚNG luồng như một tin chữ bình thường.
  *
  * Trả `true` nếu đã xử xong (đọc được và đã chuyển tiếp); `false` để caller đi
@@ -326,12 +367,7 @@ async function docVaChuyenTiep(
     '[doc-anh] đã đọc ảnh',
   );
 
-  // Câu đưa cho luồng thường: nói rõ đây là nội dung TỪ ẢNH để model không
-  // tưởng khách gõ ra, và giữ lời nhắn kèm ảnh (thường mới là ý định thật:
-  // "cái này bao nhiêu?", "lên đơn cái này").
-  const cau = chuThich
-    ? `${chuThich}\n[Khách gửi ảnh, nội dung trong ảnh: ${moTa}]`
-    : `[Khách gửi ảnh, nội dung trong ảnh: ${moTa}]`;
+  const cau = ghepCauTuAnh(chuThich, moTa);
 
   const ctxChu: NgữCanhTin = {
     orgId: ctx.orgId,

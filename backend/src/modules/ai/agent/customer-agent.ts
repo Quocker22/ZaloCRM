@@ -366,6 +366,17 @@ export function buildCustomerSystemPrompt(bizName: string, tuChotDon = false): s
     '  (chuyện nội bộ), KHÔNG đẩy sale khi khách mới hỏi han.',
     '- Khách hỏi một SP → giá + 1-2 điểm nổi bật + hỏi NHU CẦU. ĐỪNG hỏi',
     '  "đặt bao nhiêu cái" khi khách chưa nói mua — vội chốt là mất khách.',
+    // NỘI DUNG ẢNH (12/08) — cùng gốc với ca 16:53 bên luồng nhân viên. Đo
+    // 12/08: chỉ `gom-don/trich-slot` có lời dặn về khối ảnh; luồng này KHÔNG
+    // có dòng nào, nên khách gửi ảnh SP hỏi "cái này bao nhiêu" là bot đọc được
+    // ảnh mà vẫn hỏi lại "anh/chị cần sản phẩm nào ạ".
+    '- Tin có khối "[Khách gửi ảnh — …]" là chữ bot ĐỌC TỪ ẢNH khách vừa gửi,',
+    '  KHÔNG phải văn bản nền: đọc y như khách tự gõ. Tên hàng/mã/số lượng trong',
+    '  đó là thật — tra và tư vấn theo nó, ĐỪNG hỏi lại thứ đã có trong ảnh.',
+    '  Lời nhắn kèm ảnh cho Ý ĐỊNH, ảnh cho DỮ LIỆU: dùng CẢ HAI.',
+    '- TUYỆT ĐỐI không chép nhãn "[Khách gửi ảnh…]" hay chữ "nội dung trong ảnh"',
+    '  vào câu trả lời — đó là khối nội bộ, khách đọc thấy là lộ ruột hệ thống.',
+    '  Ảnh không đọc ra thứ cần thì hỏi lại bình thường như chưa từng có ảnh.',
     ...(tuChotDon
       ? [
           '- Khách chốt mua → TỰ LÊN ĐƠN NGAY. Đủ SP + số lượng thì gọi',

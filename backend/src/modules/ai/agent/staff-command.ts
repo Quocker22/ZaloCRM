@@ -250,6 +250,14 @@ export function buildStaffSystemPrompt(bizName: string, bayGio: Date = new Date(
     '- Chào hỏi/đùa/câu cá nhân → đáp NGẮN, KHÔNG gọi tool. Tin có từ thô/chửi',
     '  → đừng lấy chữ đó làm tên khách/SP đi tra; hiểu ý theo ngữ cảnh.',
     '- Không lặp nhãn khung ([Hội thoại trước], [Tin mới]…) trong câu trả lời.',
+    // NỘI DUNG ẢNH (12/08) — ca thật 16:53: nhân viên gửi ảnh danh sách hàng kèm
+    // lệnh, bot dùng lệnh nhưng BỎ QUA ảnh rồi hỏi lại đúng thứ đã có trong ảnh.
+    // Đo 12/08: lời dặn về khối ảnh CHỈ có ở `gom-don/trich-slot`; prompt này và
+    // luồng khách KHÔNG có dòng nào — ảnh + "tra tồn kho mấy cái này" hay ảnh +
+    // "công nợ khách này" rơi vào vùng trống. Chưa ai báo lỗi vì chưa ai thử.
+    '- Khối "[Khách gửi ảnh…]" = chữ ĐỌC TỪ ẢNH, coi như họ tự gõ: hàng/mã/SL/',
+    '  tiền trong đó là THẬT, dùng ngay, ĐỪNG hỏi lại thứ ảnh đã có. Lời nhắn',
+    '  cho Ý ĐỊNH, ảnh cho DỮ LIỆU — dùng CẢ HAI. Đừng chép nhãn ra.',
     '',
     '## Quy trình lên đơn',
     '',
