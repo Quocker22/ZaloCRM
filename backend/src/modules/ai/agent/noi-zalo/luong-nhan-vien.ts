@@ -201,9 +201,15 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
     // phiên đang mở là việc của máy trạng thái (code quyết hỏi gì, LLM chỉ
     // trích slot). Máy trả false = tin là việc khác → agent thường xử như cũ.
     // Lỗi trong máy rơi xuống catch dưới — nhân viên luôn được báo, không im.
+    // LUAT NHAN VIEN DAN (12/08) — nap TRUOC may gom don: ca 20:32 cung ngay,
+    // luat "chiet khau 5%" vua ghi xong ma don S13839 ra khong chiet khau vi
+    // luat chi den agent thuong (chay SAU gom don). DB loi -> [] — khong cam.
+    const luatNv = await napLuatNhanVien(prisma as unknown as PrismaLuatNv, ctx.orgId);
+
     const gomDonNhan = await chayCoHanGio('nv', xuLyGomDon(
       {
         prisma: prismaPhien, odoo: layOdoo(), generate, anhClient: layAnhClient() ?? null,
+        luatNhanVien: luatNv,
         // Prod luôn có URL công khai; thiếu (dev) thì link thành tương đối —
         // xấu nhưng không chặn luồng tạo đơn.
         odooUrl: odooUrlCongKhai() ?? '',
@@ -226,9 +232,6 @@ export async function xuLyTinNhanVien(ctx: NgữCanhTin): Promise<boolean> {
     // Log từng chặng: treo ở đâu thì dòng cuối cùng chỉ thẳng ra chỗ đó.
     logger.info({ soTin: lichSu.length }, '[agent/nv] đã lấy lịch sử');
     const triThuc = await timTriThuc(ctx.orgId);
-    // LUAT NHAN VIEN DAN (12/08) — tri nho dai han, nap moi luot. DB loi thi
-    // [] — luat khong bao gio la ly do bot cam.
-    const luatNv = await napLuatNhanVien(prisma as unknown as PrismaLuatNv, ctx.orgId);
     // Kho FILE tài liệu — tách hẳn khỏi tri thức (chữ). Bug 03:17 11/08 chính
     // là bot có cái thứ nhất mà không có cái thứ hai, rồi kết luận "chưa có file".
     const khoTaiLieu = await khoTaiLieuCuaOrg(ctx.orgId);

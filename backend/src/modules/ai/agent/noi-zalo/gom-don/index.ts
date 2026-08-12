@@ -277,6 +277,53 @@ export function mapKho(noi: string): number | null {
   return null;
 }
 
+/**
+ * ÁP LUẬT CHIẾT KHẤU NV DẶN VÀO PHIÊN — bằng CODE, mỗi phiên một lần.
+ *
+ * Ca thật 20:31-20:33 12/08 — NGAY sau khi memory luật vừa lên:
+ *   20:31  NV : "nhớ là khách Led Kim Long luôn chiết khấu 5%"  → ghi_luat OK
+ *   20:32  NV : "lên đơn cho Led Kim Long 10 cái nguồn NB"
+ *   20:32  Bot: đơn S13839 = 1.260.000đ — KHÔNG chiết khấu
+ *   20:33  NV : "sao không có chiết khấu 5%"
+ * Luật nạp vào agent thường, nhưng ĐƠN do máy gom đơn tạo — máy trạng thái
+ * không đọc prompt nên luật phải vào bằng CODE: match luật theo TÊN KHÁCH đã
+ * chốt, parse "chiết khấu X%" bằng regex trên bản không dấu.
+ *
+ * Hai ranh giới cố ý:
+ *   - Chỉ áp cho dòng CHƯA có chiết khấu: NV nói số khác trong phiên thì số
+ *     của NV thắng (cùng luật "giá NV báo thắng giá hệ thống").
+ *   - Cờ `daApLuatCk` chốt một lần mỗi phiên: NV xoá tay chiết khấu rồi thì
+ *     lượt sau máy không tự điền lại.
+ */
+export function apLuatChietKhau(phien: PhienGom, luat: string[] | undefined): boolean {
+  if (!luat?.length || phien.daApLuatCk || !phien.khachDaChot) return false;
+  const tenKhach = boDau(phien.khachDaChot.ten);
+  if (!tenKhach) return false;
+  let doi = false;
+  for (const l of luat) {
+    const khongDau = boDau(l);
+    // Luật phải NHẮC TỚI khách này (chứa nhau hai chiều — "Led Kim Long" vs
+    // "Công Ty Led Kim Long") — luật chung chung không tự áp tiền.
+    if (!khongDau.includes(tenKhach) && !tenKhach.includes(khongDau)) {
+      const coTen = tenKhach.split(/\s+/).filter((w) => w.length > 2);
+      if (!coTen.length || !coTen.every((w) => khongDau.includes(w))) continue;
+    }
+    const m = khongDau.match(/chiet khau\s+(\d+(?:[.,]\d+)?)\s*%/);
+    if (!m) continue;
+    const ck = Number(m[1].replace(",", "."));
+    if (!Number.isFinite(ck) || ck <= 0 || ck > 100) continue;
+    for (const d of phien.dong) {
+      if (d.tang || d.chietKhau != null) continue;
+      d.chietKhau = ck;
+      doi = true;
+    }
+    phien.daApLuatCk = true;
+    logger.info({ ck, khach: phien.khachDaChot.ten }, "[gom-don] áp chiết khấu theo luật NV dặn");
+    break;
+  }
+  return doi;
+}
+
 export interface GomDonDeps {
   prisma: DbPhienGomDon;
   odoo: Pick<OdooClient, 'searchRead' | 'execute'>;
@@ -287,6 +334,12 @@ export interface GomDonDeps {
   guiTin: (text: string) => Promise<void>;
   guiAnhHoaDon: (anh: AnhHoaDon) => Promise<void>;
   ghiLog: (l: ToolCallLog) => void;
+  /**
+   * Luật NV dặn (12/08) — caller nạp sẵn từ AiGuideline vai='nhanvien'. Máy
+   * chỉ ăn các luật PARSE ĐƯỢC BẰNG CODE (hiện: "chiết khấu X%" theo khách);
+   * luật chữ tự do là việc của agent thường.
+   */
+  luatNhanVien?: string[];
 }
 
 /** Đắp kết quả trích LLM vào phiên. Trả true nếu phiên có thay đổi nội dung. */
@@ -1162,6 +1215,10 @@ export async function xuLyGomDon(
       '[gom-don] bỏ các dòng chưa khớp theo yêu cầu — giữ phần đã chốt đi tiếp',
     );
   }
+
+  // Luật chiết khấu NV dặn — chạy MỖI lượt (khách có thể chốt ở lượt sau),
+  // hàm tự chặn bằng cờ daApLuatCk + điều kiện khachDaChot.
+  apLuatChietKhau(phien, deps.luatNhanVien);
 
   // ── VAT: nối `trich.vat` với danh mục thuế Odoo (sửa 11/08/2026) ────────
   //

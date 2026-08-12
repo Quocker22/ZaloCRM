@@ -69,6 +69,11 @@ export interface DonSua {
 }
 
 export interface PhienGom {
+  /**
+   * Đã áp luật chiết khấu NV dặn cho phiên này (12/08) — áp đúng MỘT lần,
+   * không ghi đè con số NV chủ động nói trong phiên.
+   */
+  daApLuatCk?: boolean;
   khachTuKhoa: string | null;
   khachDaChot?: Pick<KhachHang, 'id' | 'ten' | 'ma' | 'dienThoai'>;
   khachUngVien?: KhachHang[];

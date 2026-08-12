@@ -155,3 +155,61 @@ describe('an toàn phân vai — luồng khách KHÔNG có tool luật', () => {
     expect(srcKhach).not.toContain('ghi_luat');
   });
 });
+
+describe('apLuatChietKhau — máy gom đơn ăn luật bằng CODE (ca thật 20:32 12/08)', () => {
+  // Luật vừa ghi xong, lên đơn ngay cho đúng khách đó mà S13839 ra KHÔNG
+  // chiết khấu — luật chỉ đến agent thường, máy gom đơn không đọc prompt.
+  const phienMau = () => ({
+    khachTuKhoa: 'Led Kim Long',
+    khachDaChot: { id: 88, ma: 'KH001564', ten: 'Led Kim Long', dienThoai: null },
+    dong: [
+      { tuKhoa: 'nguồn nb', sl: 10 },
+      { tuKhoa: 'quà', sl: 1, tang: true },
+    ],
+    viecId: 1,
+  });
+  const LUAT = ['Khách Led Kim Long luôn chiết khấu 5% (khi: khách Led Kim Long)'];
+
+  it('khách khớp luật → dòng thường ăn 5%, dòng TẶNG miễn, cờ chốt một lần', async () => {
+    const { apLuatChietKhau } = await import('../../../src/modules/ai/agent/noi-zalo/gom-don/index.js');
+    const p = phienMau() as never as Parameters<typeof apLuatChietKhau>[0];
+
+    expect(apLuatChietKhau(p, LUAT)).toBe(true);
+    expect(p.dong[0].chietKhau).toBe(5);
+    expect(p.dong[1].chietKhau).toBeUndefined();
+    expect(p.daApLuatCk).toBe(true);
+    // Lượt sau gọi lại → không áp lần hai (NV xoá tay thì máy không điền lại).
+    p.dong[0].chietKhau = undefined as never;
+    expect(apLuatChietKhau(p, LUAT)).toBe(false);
+  });
+
+  it('NV đã nói chiết khấu 8% trong phiên → số của NV THẮNG, luật không đè', async () => {
+    const { apLuatChietKhau } = await import('../../../src/modules/ai/agent/noi-zalo/gom-don/index.js');
+    const p = phienMau() as never as Parameters<typeof apLuatChietKhau>[0];
+    p.dong[0].chietKhau = 8;
+
+    apLuatChietKhau(p, LUAT);
+
+    expect(p.dong[0].chietKhau).toBe(8);
+  });
+
+  it('khách KHÁC luật → không áp một đồng nào', async () => {
+    const { apLuatChietKhau } = await import('../../../src/modules/ai/agent/noi-zalo/gom-don/index.js');
+    const p = phienMau() as never as Parameters<typeof apLuatChietKhau>[0];
+    p.khachDaChot = { id: 9, ma: 'KH9', ten: 'Anh Hoàng', dienThoai: null } as never;
+
+    expect(apLuatChietKhau(p, LUAT)).toBe(false);
+    expect(p.dong[0].chietKhau).toBeUndefined();
+  });
+
+  it('chưa chốt khách / luật không có % / luật rỗng → đứng yên', async () => {
+    const { apLuatChietKhau } = await import('../../../src/modules/ai/agent/noi-zalo/gom-don/index.js');
+    const chuaChot = { ...phienMau(), khachDaChot: undefined } as never as Parameters<typeof apLuatChietKhau>[0];
+    expect(apLuatChietKhau(chuaChot, LUAT)).toBe(false);
+
+    const p = phienMau() as never as Parameters<typeof apLuatChietKhau>[0];
+    expect(apLuatChietKhau(p, ['Khách Led Kim Long thích giao buổi sáng'])).toBe(false);
+    expect(apLuatChietKhau(p, [])).toBe(false);
+    expect(apLuatChietKhau(p, undefined)).toBe(false);
+  });
+});
