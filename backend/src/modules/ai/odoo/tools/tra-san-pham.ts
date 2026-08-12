@@ -352,14 +352,21 @@ export async function traSanPham(
   // oan chính SP đúng. Mã query CHỨA mã SP thì nhận ("nb" chỉ là tiền tố dòng
   // hàng). KHÔNG so chiều ngược lại: "p10" không được khớp "p104".
   const maQuery = macModel(ten);
+  // MÃ SỐ THUẦN LÀ ĐIỀU KIỆN CỨNG (siết 2 vòng, 22:06→22:4x 12/08):
+  //
+  // Vòng 1: "260727" nuốt "2607" qua m.includes(s) — số chứa số là trùng hợp
+  // số học, đổi sang khớp === . Vòng 2 (đo e2e prod ngay sau): "P10 Full Out
+  // 260626" VẪN ra "P10 3 màu LLR 260409" vì luật `some` — mã chữ "p10" khớp
+  // là cho qua, số lô 260626 vs 260409 không ai xét. Với người ghi số lô, SỐ
+  // là thứ họ phân biệt hàng; khớp mỗi tiền tố dòng ("p10") mà sai số là SAI
+  // MẶT HÀNG. Luật chốt: query CÓ mã số thuần → SP phải khớp === ít nhất một
+  // số đó; trượt hết thì thà RỖNG — để nhánh gợi-ý-bỏ-số-lô của gom đơn tra
+  // lại "P10 Full Out" và đưa đúng dòng hàng (đúng loại, khác lô) ra hỏi.
+  const soThuanQuery = maQuery.filter((m) => /^\d+$/.test(m));
   const loc = maQuery.length > 0
     ? sach.filter((r) => {
         const maSp = macModel(`${r.name ?? ''} ${r.default_code ?? ''}`);
-        // MÃ SỐ THUẦN khớp bằng NHAU TUYỆT ĐỐI (siết 22:06 12/08): luật
-        // m.includes(s) cũ cho "260727" (số lô trong ảnh) nuốt "2607" (mã SP
-        // thật) — hai thứ không liên quan mà thành gợi ý sai. Số chứa số là
-        // trùng hợp số học, không phải cùng dòng hàng. Mã CHỮ+SỐ giữ luật
-        // một-chiều cũ ("nb12v100w" chứa "12v100w" — tiền tố dòng hàng).
+        if (soThuanQuery.length > 0 && !soThuanQuery.some((m) => maSp.includes(m))) return false;
         return maQuery.some((m) => maSp.some((sp) =>
           sp === m || (!/^\d+$/.test(sp) && m.includes(sp))));
       })
@@ -384,7 +391,13 @@ export async function traSanPham(
   // (daNoiRong) — đi đường xếp-theo-khớp, và máy gom đơn sẽ HỎI thay vì tự chốt.
   let noiTheoMa = false;
   if (ketQua.length === 0 && maQuery.length > 0) {
-    const thuTuMa = [...maQuery].sort((a, b) => {
+    // Query CÓ mã số thuần → CHỈ thử các số đó (cùng luật với lọc mã ở trên):
+    // số là thứ người ghi dùng để phân biệt hàng. Số không ra mà mò tiếp theo
+    // mã chữ ("p10") là vớ hàng cùng dòng KHÁC LÔ/KHÁC LOẠI — chính ca "P10
+    // Full Out 260626" ra "P10 3 màu LLR 260409". Thà rỗng để nhánh bỏ-số-lô
+    // của gom đơn gợi đúng dòng hàng.
+    const nguon = soThuanQuery.length > 0 ? soThuanQuery : maQuery;
+    const thuTuMa = [...nguon].sort((a, b) => {
       const soA = /^\d+$/.test(a) ? 0 : 1;
       const soB = /^\d+$/.test(b) ? 0 : 1;
       return soA - soB || b.length - a.length;
