@@ -83,6 +83,9 @@ function fakeGenerate(): ToolAwareGenerate {
           { sp: 'QC-LH3B6313T Led hắt 3 bóng', sl: 30 },
         ],
       };
+    } else if (nd.includes('10 cái led bulb')) {
+      // Ca MỘT LƯỢT: mọi dòng đều khớp catalog → đủ slot, đơn ra ngay.
+      input = { lenDon: true, khach: 'Led Kim Long', dong: [{ sp: 'Led Bulb 9W Trắng', sl: 10 }] };
     } else if (nd.includes('bỏ các sản phẩm không rõ ràng')) {
       // Hình dạng thật: model thấy "lên đơn" thì bật lenDon; "các sản phẩm
       // không rõ ràng" không phải tên hàng nên boDong trống.
@@ -108,7 +111,7 @@ function fakeDb() {
   };
 }
 
-function dungMay(cid = 'c-19-48') {
+function dungMay(cid = 'c-19-48', luatNhanVien?: string[]) {
   const odoo = fakeOdoo();
   const db = fakeDb();
   const tinGui: string[] = [];
@@ -117,6 +120,7 @@ function dungMay(cid = 'c-19-48') {
     anhClient: null, odooUrl: 'https://odoo.example.com',
     guiTin: async (t) => { tinGui.push(t); },
     guiAnhHoaDon: async () => {}, ghiLog: () => {},
+    ...(luatNhanVien ? { luatNhanVien } : {}),
   };
   return {
     goi: (cau: string, seq: number) => xuLyGomDon(deps, {
@@ -176,5 +180,24 @@ describe('ca thật 19:42-19:48 12/08 — "bỏ các SP không rõ ràng lên đ
     const daTao = odoo.execute.mock.calls.filter(
       (c) => String(c[0]) === 'sale.order' && String(c[1]) === 'create').length;
     expect(daTao).toBe(0);
+  });
+});
+
+describe('luật chiết khấu NV dặn — ca MỘT LƯỢT (đơn ra ngay), vá lần 2 12/08', () => {
+  // E2E prod bắt được: lời gọi sau dapSlot chạy TRƯỚC vòng tra khách, ca
+  // 1-lượt thì khách chốt xong là đơn ra luôn — luật chưa kịp áp (S13840
+  // không chiết khấu). Lời gọi thứ hai ở đầu nhánh tao_don chữa đúng ca này.
+  it('"lên đơn cho Led Kim Long 10 cái..." → đơn ra NGAY đã kèm 5%', async () => {
+    const { goi, odoo } = dungMay('c-ck-1-luot',
+      ['Khách Led Kim Long luôn chiết khấu 5% (khi: khách Led Kim Long)']);
+
+    // Mọi dòng đều khớp catalog → khách chốt + đủ slot → đơn ra CÙNG lượt.
+    await goi('lên đơn cho anh Led Kim Long 10 cái led bulb', 31001);
+
+    const taoDon = odoo.execute.mock.calls.find(
+      (c) => String(c[0]) === 'sale.order' && String(c[1]) === 'create');
+    expect(taoDon, 'đơn phải được tạo trong lượt đầu').toBeTruthy();
+    // Dòng hàng trong vals phải mang discount 5 từ luật.
+    expect(JSON.stringify(taoDon![2])).toContain('"discount":5');
   });
 });

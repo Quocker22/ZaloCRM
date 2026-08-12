@@ -295,19 +295,32 @@ export function mapKho(noi: string): number | null {
  *   - Cờ `daApLuatCk` chốt một lần mỗi phiên: NV xoá tay chiết khấu rồi thì
  *     lượt sau máy không tự điền lại.
  */
+/**
+ * Tiền tố pháp nhân/xưng hô hay dính vào tên khách Odoo mà nhân viên không
+ * bao giờ gõ khi dặn luật: luật nói "Led Kim Long", Odoo lưu "Công Ty Led
+ * Kim Long" (đo test 12/08 — match trượt vì chữ "công ty").
+ */
+const TIEN_TO_TEN = /^(cong ty|cty|tnhh|cua hang|shop|anh|chi|a|c)\s+/;
+function lociTenKhach(ten: string): string {
+  let t = boDau(ten).trim();
+  for (let i = 0; i < 3; i++) {
+    const sau = t.replace(TIEN_TO_TEN, '');
+    if (sau === t) break;
+    t = sau;
+  }
+  return t;
+}
+
 export function apLuatChietKhau(phien: PhienGom, luat: string[] | undefined): boolean {
   if (!luat?.length || phien.daApLuatCk || !phien.khachDaChot) return false;
-  const tenKhach = boDau(phien.khachDaChot.ten);
-  if (!tenKhach) return false;
+  const tenKhach = lociTenKhach(phien.khachDaChot.ten);
+  if (!tenKhach || tenKhach.split(/\s+/).length < 2) return false; // tên 1 từ quá dễ match nhầm
   let doi = false;
   for (const l of luat) {
     const khongDau = boDau(l);
-    // Luật phải NHẮC TỚI khách này (chứa nhau hai chiều — "Led Kim Long" vs
-    // "Công Ty Led Kim Long") — luật chung chung không tự áp tiền.
-    if (!khongDau.includes(tenKhach) && !tenKhach.includes(khongDau)) {
-      const coTen = tenKhach.split(/\s+/).filter((w) => w.length > 2);
-      if (!coTen.length || !coTen.every((w) => khongDau.includes(w))) continue;
-    }
+    // Luật phải NHẮC TỚI khách này: tên khách (đã bóc tiền tố pháp nhân)
+    // nằm trong luật. Luật chung chung không tự áp tiền.
+    if (!khongDau.includes(tenKhach)) continue;
     const m = khongDau.match(/chiet khau\s+(\d+(?:[.,]\d+)?)\s*%/);
     if (!m) continue;
     const ck = Number(m[1].replace(",", "."));
@@ -1386,6 +1399,15 @@ export async function xuLyGomDon(
     //
     // Đủ slot = lên đơn. Tóm tắt vẫn in, nhưng nằm trong tin BÁO ĐƠN ĐÃ LÊN
     // (xem taoDonVaBaoGia) chứ không phải một lượt chờ gật riêng.
+    //
+    // LUẬT CHIẾT KHẤU NV DẶN — GỌI LẠI NGAY TRƯỚC KHI BUILD ĐƠN (vá lần 2
+    // trong ngày 12/08, e2e bắt được trước khi báo): lời gọi sau dapSlot chạy
+    // TRƯỚC vòng tra_cuu, mà ca 1-lượt ("lên đơn cho Led Kim Long 10 cái…")
+    // thì khách chỉ được CHỐT bên trong vòng tra đó rồi đơn ra luôn cùng
+    // lượt — luật chưa kịp áp. Đây là điểm hội tụ cuối: khách chắc chắn đã
+    // chốt, dòng đơn chưa build. Cờ daApLuatCk giữ cho hai lời gọi không
+    // giẫm nhau.
+    apLuatChietKhau(phien, deps.luatNhanVien);
     const kq = await taoDonVaBaoGia(deps, phien, input, daBoPhienCu);
     if (kq === 'xong') {
       await xoaPhien(deps.prisma, input.conversationId);
