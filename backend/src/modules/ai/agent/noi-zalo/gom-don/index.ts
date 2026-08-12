@@ -913,12 +913,46 @@ export async function xuLyGomDon(
   // Lệnh NHẬP HÀNG cũng đè, VÀ đè cả phiên chế khác: đang gom đơn bán dở mà
   // nhân viên quay sang "tạo phiếu nhập hàng" là đổi hẳn việc — giữ phiên cũ
   // thì tên NCC rơi vào ô khách của đơn bán, ra đơn sai hoàn toàn.
+  //
+  // ─── ĐÈ PHIÊN PHẢI THẤY KHÁCH MỚI KHÁC (vá 12/08, ca 11:41 + 19:48) ───
+  //
+  // Regex chỉ đọc được ĐỘNG TỪ, không đọc được có KHÁCH MỚI hay không. Hai ca
+  // thật cùng ngày, cùng một vết:
+  //   11:43:56  "đúng rồi lên đơn đi"                     → câu GẬT
+  //   19:48:29  "thôi bỏ các sản phẩm không rõ ràng lên đơn đi" → câu CHỐT
+  // Cả hai chứa "lên đơn" → đường thoát cũ xoá phiên → mất "Led Kim Long" đã
+  // cho từ đầu + mọi dòng đã khớp, bot hỏi lại "lên cho khách nào ạ?". Anh
+  // Quốc: "rõ ràng là đã có thông tin khách hàng là led kim long rồi mà" /
+  // "cảm giác nó tù tù... không linh động".
+  //
+  // Luật mới: lệnh LÊN ĐƠN chỉ đè phiên khi câu mang KHÁCH MỚI THẬT SỰ KHÁC
+  // khách đang gom (trích slot rồi so, không đoán bằng regex). Không có khách
+  // trong câu, hoặc khách TRÙNG → là nói tiếp việc cũ, phiên giữ nguyên.
+  // Ràng buộc ngược 17:22 10/08 giữ nguyên: "lên đơn cho anh Hoàng" giữa
+  // phiên Led Kim Long vẫn phải đè.
+  //
+  // Muốn so khách thì phải TRÍCH TRƯỚC khi quyết — nên trichSlot dời lên đây
+  // cho nhánh này (có phiên + regex khớp lệnh). `daHoiLlm` bật để không gọi
+  // lần hai cho cùng câu ở dưới.
   let daBoPhienCu = false;
   const doiChe = phien != null && laLenhNhap && phien.che !== 'nhap';
   if (phien && ((laLenhLen && phien.che !== 'sua') || doiChe)) {
-    await xoaPhien(deps.prisma, input.conversationId);
-    phien = null;
-    daBoPhienCu = true;
+    if (!daHoiLlm) {
+      trich = await trichSlot(deps.generate, input.cau, phien);
+      daHoiLlm = true;
+    }
+    const khachPhien = phien.khachDaChot?.ten ?? phien.khachTuKhoa ?? '';
+    const khachCau = trich.khachMoi?.ten ?? trich.khach ?? '';
+    const trungKhach =
+      khachCau !== '' && khachPhien !== '' &&
+      (boDau(khachPhien).includes(boDau(khachCau)) || boDau(khachCau).includes(boDau(khachPhien)));
+    // Đổi chế (bán↔nhập) là đổi hẳn việc — đè không cần hỏi khách, như cũ.
+    const khachMoiKhac = khachCau !== '' && !trungKhach;
+    if (doiChe || khachMoiKhac) {
+      await xoaPhien(deps.prisma, input.conversationId);
+      phien = null;
+      daBoPhienCu = true;
+    }
   }
 
   // 1. Map lựa chọn bằng CODE trước — "1a"/mã KH/SĐT không tốn lượt LLM nào.
@@ -1100,6 +1134,34 @@ export async function xuLyGomDon(
       : laLenhSua || trich.sua ? { che: 'sua' as const } : {}),
   };
   const doiNoiDung = dapSlot(phien, trich);
+
+  // BỎ CÁC DÒNG CHƯA KHỚP RỒI ĐI TIẾP (vá 12/08, ca thật 19:48).
+  //
+  //   19:42  NV : [ảnh] "lên đơn cho anh Led Kim Long các sản phẩm trong ảnh"
+  //   19:43  Bot: 'Em không tìm thấy sản phẩm: "QC-LHR15W...", ...'
+  //   19:48  NV : "thôi bỏ các sản phẩm không rõ ràng lên đơn đi"
+  //
+  // Ý nhân viên: vứt mấy dòng máy không khớp được, chốt đơn với phần còn lại.
+  // "Các sản phẩm không rõ ràng" không phải TÊN hàng nào nên `boDong` của model
+  // không với tới — phải hiểu bằng code: dòng "không rõ ràng" = dòng chưa chốt
+  // (khongThay / đang treo ứng viên / chưa tra ra). Anh Quốc: "cảm giác nó tù
+  // tù... không linh động" — đây chính là cái tù: người thật hiểu ngay câu đó,
+  // máy bắt gõ lại từng tên.
+  //
+  // HẸP có chủ ý: chỉ chạy khi (1) câu nói BỎ + cụm "không rõ/chưa khớp/không
+  // thấy…", (2) phiên có dòng chưa chốt, VÀ (3) còn ít nhất MỘT dòng đã chốt —
+  // bỏ đến rỗng đơn thì để máy hỏi tiếp như thường, không lặng lẽ ra đơn 0 dòng.
+  const cauKhongDau = boDau(cauChon);
+  const boDongMoHo =
+    /\bbo\b.{0,40}(khong (ro|khop|thay|chot)|chua (ro|khop|thay|chot|co))/i.test(cauKhongDau);
+  if (boDongMoHo && phien.dong.some((d) => !d.daChot) && phien.dong.some((d) => d.daChot)) {
+    const truoc = phien.dong.length;
+    phien.dong = phien.dong.filter((d) => d.daChot);
+    logger.info(
+      { conversationId: input.conversationId, boDi: truoc - phien.dong.length, conLai: phien.dong.length },
+      '[gom-don] bỏ các dòng chưa khớp theo yêu cầu — giữ phần đã chốt đi tiếp',
+    );
+  }
 
   // ── VAT: nối `trich.vat` với danh mục thuế Odoo (sửa 11/08/2026) ────────
   //
