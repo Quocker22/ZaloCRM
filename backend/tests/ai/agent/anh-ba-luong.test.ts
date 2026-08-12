@@ -154,3 +154,36 @@ describe('CẢ BA LUỒNG phải có luật đọc khối ảnh', () => {
     expect(src).toContain('NỘI DUNG ẢNH');
   });
 });
+
+describe('bóc mention khỏi CHÚ THÍCH ẢNH — ca thật 18:31 12/08', () => {
+  // Tin ảnh thật: title "Nelia tạo phiếu nhập hàng, nhà cung cấp Trung Quốc
+  // @Tiểu Mã Nelia", mentions [{pos:51,len:14}]. Không bóc → model trích slot
+  // lấy "Tiểu Mã Nelia" (TÊN BOT) làm tên NCC, bot đáp 'không tìm thấy NCC
+  // "Tiểu Mã Nelia"'. Đường text bóc từ 06/08; đường ảnh 12/08 mới theo kịp.
+  it('bocMention áp lên title cắt đúng tag theo pos/len', async () => {
+    const { bocMention } = await import('../../../src/modules/ai/agent/noi-zalo/boc-mention.js');
+    const title = 'Nelia tạo phiếu nhập hàng, nhà cung cấp Trung Quốc @Tiểu Mã Nelia';
+
+    const sach = bocMention(title, [{ uid: '630640428799521839', pos: 51, len: 14 }]);
+
+    expect(sach).not.toContain('@Tiểu Mã Nelia');
+    expect(sach).toContain('nhà cung cấp Trung Quốc');
+  });
+
+  it('xuLyTinMedia nhận mentions và chú thích tới model KHÔNG còn tag', async () => {
+    // Khoá hợp đồng ở tầng source: docVaChuyenTiep phải bóc mention trước khi
+    // đưa chú thích cho model — grep chuỗi gọi trong luong-media.ts.
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync(
+      new URL('../../../src/modules/ai/agent/noi-zalo/luong-media.ts', import.meta.url), 'utf8');
+
+    expect(src).toMatch(/bocMention\(bocChuThich\(/);
+  });
+
+  it('mentions rỗng/null → chú thích giữ nguyên, không ném lỗi', async () => {
+    const { bocMention } = await import('../../../src/modules/ai/agent/noi-zalo/boc-mention.js');
+
+    expect(bocMention('tạo phiếu nhập', null)).toBe('tạo phiếu nhập');
+    expect(bocMention('tạo phiếu nhập', [])).toBe('tạo phiếu nhập');
+  });
+});

@@ -22,6 +22,7 @@ import { chiCoEmoji } from './chi-co-emoji.js';
 import { layCauHinhLlm } from './llm.js';
 import { nhinAnhOpenaiCompat } from '../../providers/openai-compat.js';
 import { bocUrlAnh, bocChuThich, docAnh, laLoaiDocDuoc, loiDanDocAnh } from './doc-anh.js';
+import { bocMention, type MentionZalo } from './boc-mention.js';
 import { xuLyTinNhanVien } from './luong-nhan-vien.js';
 import { xuLyTinKhach } from './luong-khach.js';
 import { timDich, guiTin } from './gui-zalo.js';
@@ -180,6 +181,15 @@ export async function xuLyTinMedia(
     senderUid?: string | null;
     isSelf?: boolean;
     daTagBot?: boolean;
+    /**
+     * Mention Zalo của tin — pos/len trỏ vào TITLE (chú thích ảnh), đo tin
+     * thật 18:31 12/08: title "…Trung Quốc @Tiểu Mã Nelia", mention
+     * {pos:51,len:14} khớp đúng chuỗi tag. Thiếu nó thì tag bot lọt nguyên
+     * vào câu cho model trích slot — ca thật: model lấy "Tiểu Mã Nelia"
+     * (TÊN BOT) làm tên NCC, bot đáp 'không tìm thấy NCC "Tiểu Mã Nelia"'.
+     * Đường TEXT đã bóc từ 06/08 (boc-mention.ts); đường ẢNH bị bỏ sót.
+     */
+    mentions?: MentionZalo[] | null;
   },
   contentType: string,
 ): Promise<boolean> {
@@ -382,6 +392,7 @@ export function ghepCauTuAnh(chuThich: string, moTa: string): string {
 async function docVaChuyenTiep(
   ctx: Pick<NgữCanhTin, 'orgId' | 'conversationId' | 'messageId' | 'laNhom'> & {
     content?: string; senderUid?: string | null; isSelf?: boolean; daTagBot?: boolean;
+    mentions?: MentionZalo[] | null;
   },
   contentType: string,
 ): Promise<boolean> {
@@ -391,7 +402,12 @@ async function docVaChuyenTiep(
     return false;
   }
 
-  const chuThich = bocChuThich(ctx.content ?? '');
+  // BÓC MENTION KHỎI CHÚ THÍCH (12/08) — pos/len của mention trong tin ảnh
+  // trỏ vào TITLE, nên bóc ngay trên chú thích vừa lấy ra. Không bóc thì tag
+  // "@Tiểu Mã Nelia" lọt vào câu trích slot và model lấy TÊN BOT làm tên NCC
+  // (ca thật 18:31-18:32: bot đáp 'không tìm thấy NCC "Tiểu Mã Nelia"').
+  // Đường text đã bóc từ 06/08 — đường ảnh giờ mới theo kịp.
+  const chuThich = bocMention(bocChuThich(ctx.content ?? ''), ctx.mentions);
   const t0 = Date.now();
   const moTa = await docAnh({ goiModel: (a) => goiModelNhinAnh(ctx.orgId, a) }, { url, chuThich });
   if (!moTa) return false;

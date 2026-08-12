@@ -758,6 +758,10 @@ export async function handleIncomingMessage(
             senderUid: msg.senderUid,
             isSelf: msg.isSelf,
             daTagBot,
+            // Mention của tin ảnh trỏ pos/len vào TITLE (chú thích) — luồng
+            // media cần nó để bóc tag bot khỏi chú thích trước khi trích slot
+            // (12/08: thiếu thì model lấy "Tiểu Mã Nelia" làm tên NCC).
+            mentions: msg.mentions,
           },
           message.contentType,
         ).catch((err) => logger.warn({ err }, '[agent] luồng media lỗi (bỏ qua)'));
