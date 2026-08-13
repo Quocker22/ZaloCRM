@@ -112,7 +112,7 @@ const ghiSlotDefinition: ToolDefinition = {
           properties: {
             sp: { type: 'string', description: 'Tên/từ khoá sản phẩm' },
             sl: { type: 'number', description: 'Số lượng nếu câu có nói' },
-            gia: { type: 'number', description: 'Đơn giá nhân viên báo, ĐỔI RA ĐỒNG: "170k"→170000, "13k/thanh"→13000, "1tr2"→1200000' },
+            gia: { type: 'number', description: 'Đơn giá nhân viên báo, ĐỔI RA ĐỒNG khi CÓ hậu tố: "170k"→170000, "1tr2"→1200000. Số TRẦN không hậu tố ("x1700", "giá 1800đ") là ĐỒNG sẵn — GIỮ NGUYÊN 1700/1800, TUYỆT ĐỐI không nhân nghìn.' },
             chietKhau: {
               type: 'number',
               description:
@@ -327,6 +327,59 @@ function taDangCo(p: PhienGom | null): string {
   ].join(' · ');
 }
 
+/**
+ * GUARD GIÁ NHÂN-NGHÌN-BỪA (vá 13/08 — ca thật 19:54 12/08, đơn 16 TỶ).
+ *
+ *   NV : "led Vũ Minh 9600 3b 6214 trắng x1700"
+ *   Bot: 9600 × 1.700.000đ = 16.320.000.000đ   ← "x1700" bị dịch thành 1,7 TRIỆU
+ *
+ * Lời dặn "170k→170000" đúng cho số CÓ hậu tố; số TRẦN ("x1700") thì model
+ * lúc giữ nguyên lúc tự nhân nghìn — không tất định. Hàng rào giá-lệch không
+ * cứu được vì SP "chưa có giá" trong hệ thống, không có mốc so.
+ *
+ * Mốc so THẬT nằm ngay trong CÂU: nếu model trả giá X*1000 mà câu chứa đúng
+ * số X đứng TRẦN (không hậu tố k/tr/nghìn... ngay sau) và KHÔNG chứa dạng đầy
+ * đủ X*1000 → model đã nhân bừa, trả về X. Code tất định, chạy triệu lần như
+ * một.
+ */
+const HAU_TO_NGHIN = /^(k|tr|m|củ|cu|nghìn|nghin|ngàn|ngan|triệu|trieu)/i;
+export function suaGiaNhanBua(cau: string, trich: KetQuaTrich): void {
+  if (!trich.dong?.length) return;
+  const c = cau.toLowerCase();
+  for (const d of trich.dong) {
+    if (d.gia == null || d.gia < 1000 || d.gia % 1000 !== 0) continue;
+    const goc = d.gia / 1000;
+    const chuoiGoc = String(goc);
+    // Câu chứa dạng ĐẦY ĐỦ ("1700000" / "1.700.000") → model dịch đúng, đừng đụng.
+    const dayDu = String(d.gia);
+    const dayDuCham = dayDu.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    if (c.includes(dayDu) || c.includes(dayDuCham)) continue;
+    // Tìm mọi vị trí số gốc đứng nguyên trong câu (không phải phần của số dài hơn).
+    let coTran = false;
+    let coHauTo = false;
+    for (let i = c.indexOf(chuoiGoc); i >= 0; i = c.indexOf(chuoiGoc, i + 1)) {
+      const truoc = i > 0 ? c[i - 1] : ' ';
+      const sauIdx = i + chuoiGoc.length;
+      // "Phần của số khác" = dính chữ số, hoặc dấu chấm NGĂN NGHÌN (chấm theo
+      // sau bởi số — "1700.000"). Chấm CUỐI CÂU ("x1700. 36 cái") không tính.
+      const sau = c[sauIdx] ?? ' ';
+      const laSoDai = /\d/.test(truoc) || /\d/.test(sau)
+        || (sau === '.' && /\d/.test(c[sauIdx + 1] ?? ' '));
+      if (laSoDai) continue;
+      const duoi = c.slice(sauIdx).replace(/^\s+/, '');
+      if (HAU_TO_NGHIN.test(duoi)) coHauTo = true;
+      else coTran = true;
+    }
+    if (coTran && !coHauTo) {
+      logger.warn(
+        { giaCu: d.gia, giaMoi: goc, sp: d.sp },
+        '[trich-slot] model nhân nghìn bừa cho số trần — trả về đúng số trong câu',
+      );
+      d.gia = goc;
+    }
+  }
+}
+
 export async function trichSlot(
   generate: ToolAwareGenerate,
   cau: string,
@@ -434,7 +487,9 @@ export async function trichSlot(
     });
     const call = turn.toolCalls.find((c) => c.name === 'ghi_slot');
     if (!call) return { ngoaiLe: true };
-    return lamSachTrich(call.input);
+    const kq = lamSachTrich(call.input);
+    suaGiaNhanBua(cau, kq);
+    return kq;
   } catch (err) {
     // LLM sập không được làm máy sập: nhường agent thường xử câu này.
     logger.warn({ err }, '[gom-don] trichSlot lỗi — coi là ngoại lệ');

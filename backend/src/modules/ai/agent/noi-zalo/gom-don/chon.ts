@@ -209,7 +209,10 @@ export function apDungChon(p: PhienGom, cauTho: string): boolean {
     return true;
   }
 
-  const tuChon = cau.toLowerCase().split(/[\s,.+&]+|\bvà\b/).filter(Boolean);
+  // '-' cũng là dấu ngăn lựa chọn (ca thật 19:53 12/08: NV gõ "1-b" bị từ
+  // chối rồi lặp danh sách). "NB-12V400W" không bị ảnh hưởng: tách ra
+  // ["nb","12v400w"] vẫn trượt mẫu chọn nên đi đường tra tên như cũ.
+  const tuChon = cau.toLowerCase().split(/[\s,.+&-]+|\bvà\b/).filter(Boolean);
   // Token hợp lệ: "1", "1a", "a" như cũ, HOẶC số+nhiều chữ ("1aaaaaa") /
   // chuỗi chữ liền ("aab") — hai dạng mới phải qua kiểm phạm vi bên dưới.
   const laMauChon = tuChon.length > 0

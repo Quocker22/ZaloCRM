@@ -129,3 +129,59 @@ describe('lamSachTrich — ô chon_khach/chon_sp chống model bịa', () => {
     expect(lamSachTrich({ chon_sp: ['a', 'xyz'] }).chonSp).toBeUndefined();
   });
 });
+
+describe('suaGiaNhanBua — đơn 16 TỶ vì "x1700" thành 1,7 triệu (ca 19:54 12/08)', () => {
+  it('"x1700" model trả 1700000 → sửa về 1700 (số trần trong câu, không hậu tố)', async () => {
+    const { suaGiaNhanBua } = await import('../../../../src/modules/ai/agent/noi-zalo/gom-don/trich-slot.js');
+    const trich = { dong: [{ sp: '3b 6214 trắng', sl: 9600, gia: 1700000 }] };
+
+    suaGiaNhanBua('led Vũ Minh 9600 3b 6214 trắng x1700. 36 cái 12v400w ATX x250k', trich as never);
+
+    expect(trich.dong[0].gia).toBe(1700);
+  });
+
+  it('"x250k" CÓ hậu tố → 250000 giữ nguyên, không bị chia ngược', async () => {
+    const { suaGiaNhanBua } = await import('../../../../src/modules/ai/agent/noi-zalo/gom-don/trich-slot.js');
+    const trich = { dong: [{ sp: 'nguồn ATX', sl: 36, gia: 250000 }] };
+
+    suaGiaNhanBua('36 cái 12v400w ATX x250k', trich as never);
+
+    expect(trich.dong[0].gia).toBe(250000);
+  });
+
+  it('câu ghi ĐẦY ĐỦ "1.700.000" → model dịch đúng, không đụng', async () => {
+    const { suaGiaNhanBua } = await import('../../../../src/modules/ai/agent/noi-zalo/gom-don/trich-slot.js');
+    const trich = { dong: [{ sp: 'x', gia: 1700000 }] };
+
+    suaGiaNhanBua('giá 1.700.000 một bóng', trich as never);
+
+    expect(trich.dong[0].gia).toBe(1700000);
+  });
+
+  it('"giá 1800đ" model lỡ trả 1800000 → về 1800', async () => {
+    const { suaGiaNhanBua } = await import('../../../../src/modules/ai/agent/noi-zalo/gom-don/trich-slot.js');
+    const trich = { dong: [{ sp: '3B 6214 trắng ấm', sl: 3000, gia: 1800000 }] };
+
+    suaGiaNhanBua('3000 3B 6214 trắng ấm x 1800đ', trich as never);
+
+    expect(trich.dong[0].gia).toBe(1800);
+  });
+});
+
+describe('"1-b" có gạch — dấu ngăn lựa chọn (ca 19:53 12/08)', () => {
+  it('"1-b" → khách 1 + nhóm đầu chọn b', () => {
+    const p = phienCaThat();
+    p.dong = p.dong.slice(0, 1);
+
+    expect(apDungChon(p, '1-b')).toBe(true);
+    expect(p.khachDaChot?.ma).toBe('NCC000001');
+    expect(p.dong[0].daChot?.ten).toBe('SP 0-b');
+  });
+
+  it('"NB-12V400W" khi đang treo KHÔNG bị nuốt thành chọn', () => {
+    const p = phienCaThat();
+
+    expect(apDungChon(p, 'NB-12V400W')).toBe(false);
+    expect(p.dong.every((d) => d.ungVien?.length === 3)).toBe(true);
+  });
+});

@@ -229,7 +229,9 @@ export const suaVatDefinition: ToolDefinition = {
         type: 'number',
         description:
           'Mức VAT theo con số nhân viên nói: 8, 10, 4... Dùng 0 để BỎ VAT khỏi đơn. ' +
-          'ĐỪNG tự chọn mức — thuế là tiền thật trên sổ, phải theo con số nhân viên nói.',
+          'Nhân viên chỉ nói "thêm VAT" KHÔNG kèm mức → dùng 8 (mức mặc định công ty, ' +
+          'đo 175/175 đơn có VAT đều 8%). ĐỪNG tự bịa mức nào khác — thuế là tiền thật ' +
+          'trên sổ. Ca thật 19:55 12/08: "thêm VAT" bị model đoán 10% rồi phải sửa lại.',
       },
     },
     required: ['phan_tram'],
