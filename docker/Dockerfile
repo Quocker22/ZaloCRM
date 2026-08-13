@@ -8,8 +8,8 @@ COPY frontend/package.json frontend/package-lock.json ./
 # Cache còn thì layer cũ (đã có binding) che bug — mất cache là mọi build fail.
 # Cài rõ binding ĐÚNG VERSION của rolldown đang dùng ngay sau npm ci.
 RUN npm ci --legacy-peer-deps \
-  && npm i --no-save "@rolldown/binding-linux-x64-musl@$(node -p "require('rolldown/package.json').version")" \
-  || npm i --no-save @rolldown/binding-linux-x64-musl
+  && npm i --no-save --legacy-peer-deps "@rolldown/binding-linux-x64-musl@$(node -p "require('rolldown/package.json').version")" \
+  || npm i --no-save --legacy-peer-deps @rolldown/binding-linux-x64-musl
 COPY frontend/ ./
 RUN npm run build
 
