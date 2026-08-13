@@ -12,7 +12,7 @@ import type { ToolCallLog } from '../../staff-agent.js';
 import type { OdooClient } from '../../../odoo/client.js';
 import { traKhachHang, dinhDangKhachHang } from '../../../odoo/tools/tra-khach-hang.js';
 import { taoKhachHang, dinhDangTaoKhach, CHIA_BO_PHANH } from '../../../odoo/tools/tao-khach-hang.js';
-import { traSanPham, dinhDangSanPham, boDau } from '../../../odoo/tools/tra-san-pham.js';
+import { traSanPham, dinhDangSanPham, boDau, xungDotBienThe } from '../../../odoo/tools/tra-san-pham.js';
 import { taoDonNhap, dinhDangTaoDon } from '../../../odoo/tools/tao-don-nhap.js';
 // PHIẾU NHẬP HÀNG (11/08) — ca thật 22:09-22:11: bot đáp "chưa có tool tạo
 // phiếu nhập hàng ... nằm ngoài phạm vi em hỗ trợ" dù quyền ghi purchase.order
@@ -60,6 +60,20 @@ const NHAN_LENH_NHAP_HANG =
  */
 const NHAN_LENH_SUA_DON =
   /(?:^|\s)(?:sửa|sua|thêm|them|bớt|bot|đổi|doi)\s+(?:\S+\s+){0,4}?(?:đơn|don)\b|(?:^|\s)(?:sửa|sua)\s+(?:đơn|don)\b/i;
+
+/**
+ * Câu THAM CHIẾU SỬA — chỉ có nghĩa khi hội thoại VỪA lên đơn xong (dấu
+ * `daXong`, cửa sổ 15'). Ca thật 06:21-06:29 13/08, ba câu liên tiếp cùng một
+ * ý "sửa cái đơn vừa lên" mà không câu nào chứa chữ "đơn":
+ *   "6214 trắng ấm mà ???"          → đuôi "mà" + ? (trách máy làm sai)
+ *   "xuất lại báo giá cho đúng đi"  → "xuất lại" / "cho đúng"
+ *   "giá 1800 đó"                   → "giá … đó" (đọc giá cho dòng đang bàn)
+ * Máy hiểu thành lệnh LÊN ĐƠN MỚI → hỏi "khách nào ạ?" → đơn trùng S13849.
+ * Chạy trên chuỗi ĐÃ boDau (thường, không dấu). "sai(?! gon)" để "sài gòn"
+ * không thành "sai". Đuôi "mà" bắt buộc kèm ?/! — "cho xin mã" thì không khớp.
+ */
+const NHAN_THAM_CHIEU_SUA =
+  /(?:^|\s)(?:sua|sai(?! gon)|nham|xuat lai|lam lai|in lai|gui lai|cho dung|doi (?:lai|gia|sang))(?=\s|$)|(?:^|\s)(?:gia|giam|chiet khau|vat)\b.{0,30}\b(?:do|day)[\s?!.~]*$|\bma\s*[?!]+[\s?!.~]*$/;
 
 /**
  * Bỏ khối quote-reply mà message-handler chèn (`[Trả lời tin: "…"] câu thật`).
@@ -637,7 +651,12 @@ async function chayTraCuu(
             'product.product',
             [['id', '=', aliasId], ['active', '=', true], ['sale_ok', '=', true]],
             ['id', 'name', 'list_price'], { limit: 1 });
-          if (sp.length) {
+          // BIẾN THỂ XUNG KHẮC → KHÔNG tin alias (ca 06:05 13/08): alias học
+          // sai "3b 6214 trắng ấm"→"…trắng (thanh)" tự chốt im lặng 3000 cái
+          // sai màu vào S13848. Từ khoá nói "ấm" mà tên SP không có "ấm" thì
+          // rơi xuống đường tra thường — nó sẽ liệt kê để NV chọn, và lựa
+          // chọn mới ĐÈ alias cũ (ghiAliasSp upsert) — alias sai tự lành.
+          if (sp.length && !xungDotBienThe(tuKhoa, String(sp[0].name ?? ''))) {
             dong.daChot = { id: Number(sp[0].id), ten: String(sp[0].name ?? ''), gia: Number(sp[0].list_price ?? 0) };
             deps.ghiLog({
               toolName: 'tra_san_pham', input: { ten: tuKhoa },
@@ -646,7 +665,13 @@ async function chayTraCuu(
             });
             return;
           }
-          // SP của alias đã archive/đổi — bỏ qua alias, đi đường thường.
+          if (sp.length) {
+            logger.info(
+              { tuKhoa, tenAlias: String(sp[0].name ?? '') },
+              '[gom-don] alias có biến thể xung khắc — bỏ qua, tra thường',
+            );
+          }
+          // SP của alias đã archive/đổi (hoặc xung khắc) — đi đường thường.
         }
       }
       const list = await traSanPham({ odoo: deps.odoo }, { ten: tuKhoa });
@@ -814,6 +839,7 @@ async function taoDonVaBaoGia(
     `${daGuiAnh ? ' Báo giá ở ảnh trên.' : ''} Link xử lý: ${linkXuLyDon(deps.odooUrl, kq.donId)}` +
     '\nSai chỗ nào anh/chị nhắn "sửa đơn ..." em sửa ngay ạ.',
   );
+  p.daXong = { maDon: kq.maDon, tenKhach: p.khachDaChot!.ten };
   return 'xong';
 }
 
@@ -898,6 +924,7 @@ async function taoPhieuNhapVaBao(
     `Em đã tạo phiếu NHÁP, chưa nhập kho và chưa ghi công nợ.${thieuGia}\n` +
     `Link kiểm tra rồi bấm Xác nhận: ${linkXuLyDonMua(deps.odooUrl, kq.donId)}`,
   );
+  p.daXong = { maDon: kq.maDon, tenKhach: p.khachDaChot!.ten };
   return 'xong';
 }
 
@@ -965,6 +992,7 @@ async function suaDonVaBao(deps: GomDonDeps, p: PhienGom): Promise<'xong' | 'loi
       logger.warn({ err, donId: kq.donId }, '[gom-don] gửi ảnh sau sửa đơn lỗi (đã có text)');
     }
   }
+  p.daXong = { maDon: kq.maDon, tenKhach: p.khachDaChot?.ten ?? '' };
   return 'xong';
 }
 
@@ -997,13 +1025,32 @@ export async function xuLyGomDon(
     });
   };
 
+  // Đơn xong → phiên chết nhưng để lại DẤU (xem PhienGom.daXong): 15 phút sau
+  // đó câu "giá 1800 đó" còn biết mình đang nói về đơn nào.
+  const ketThucPhien = async (p: PhienGom): Promise<void> => {
+    if (p.daXong) {
+      await ghiPhien({ khachTuKhoa: null, dong: [], viecId: p.viecId, daXong: p.daXong });
+    } else {
+      await xoaPhien(deps.prisma, input.conversationId);
+    }
+  };
+
   let phien = await docPhien(deps.prisma, input.conversationId);
+  // ĐƠN VỪA LÊN XONG (13/08) — dấu `daXong` đi chung bảng phiên nhưng KHÔNG
+  // phải phiên mở: tách ra đây rồi coi phien = null để mọi nhánh cũ giữ nguyên.
+  const donVuaLen = phien?.daXong ?? null;
+  if (donVuaLen) phien = null;
   // NHẬP HÀNG kiểm TRƯỚC lên đơn: hai regex chồng nhau ở "tạo đơn mua" —
   // `NHAN_LENH_LEN_DON` bắt "tạo đơn" nên câu đó sẽ thành đơn BÁN nếu để nó
   // chạy trước. Ca thật 22:09 ("tạo phiếu nhập hàng") phải ra chế 'nhap'.
   const regexNhap = NHAN_LENH_NHAP_HANG.test(cauChon);
-  const laLenhSua = !regexNhap && NHAN_LENH_SUA_DON.test(cauChon);
-  const regexLen = !regexNhap && NHAN_LENH_LEN_DON.test(cauChon);
+  // Tham chiếu sửa CHỈ sống trong cửa sổ đơn-vừa-lên và thua mọi lệnh tường
+  // minh: "lên đơn cho anh Hà" ngay sau đơn cũ vẫn là lệnh lên đơn MỚI.
+  const thamChieuSua =
+    donVuaLen != null && !regexNhap && !NHAN_LENH_LEN_DON.test(cauChon)
+    && NHAN_THAM_CHIEU_SUA.test(boDau(cauChon));
+  const laLenhSua = !regexNhap && (NHAN_LENH_SUA_DON.test(cauChon) || thamChieuSua);
+  const regexLen = !regexNhap && !thamChieuSua && NHAN_LENH_LEN_DON.test(cauChon);
 
   // ── CỬA VÀO: regex CHỈ là lối tắt, LLM mới là người quyết ──────────────────
   //
@@ -1491,7 +1538,10 @@ export async function xuLyGomDon(
     daTraLuotNay = true;
     await chayTraCuu(deps, phien, hd, {
       conversationId: input.conversationId,
-      ...(trich.maDon ? { maDon: trich.maDon } : {}),
+      // NV không đọc mã thì lấy mã ĐƠN VỪA LÊN — chính là cái đơn họ đang bàn
+      // ("giá 1800 đó" ngay sau S13848 là sửa S13848, không phải đơn nào khác).
+      ...(trich.maDon ? { maDon: trich.maDon }
+        : phien.che === 'sua' && donVuaLen ? { maDon: donVuaLen.maDon } : {}),
     });
     hd = buocTiepTheo(phien);
   }
@@ -1533,7 +1583,7 @@ export async function xuLyGomDon(
   // Chế SỬA: đủ rõ thì ghi THẲNG, không cổng chốt (anh Quốc chốt 08/08).
   if (hd.loai === 'sua_don') {
     const kq = await suaDonVaBao(deps, phien);
-    if (kq === 'xong') await xoaPhien(deps.prisma, input.conversationId);
+    if (kq === 'xong') await ketThucPhien(phien);
     else await ghiPhien(phien);
     return true;
   }
@@ -1543,7 +1593,7 @@ export async function xuLyGomDon(
   if (hd.loai === 'tao_don_mua') {
     const kq = await taoPhieuNhapVaBao(deps, phien, input, daBoPhienCu);
     if (kq === 'xong') {
-      await xoaPhien(deps.prisma, input.conversationId);
+      await ketThucPhien(phien);
       return true;
     }
     // ĐƯỜNG THOÁT 3 — lỗi hai lần liên tiếp thì bỏ phiên (chống kẹt 10/08).
@@ -1578,7 +1628,7 @@ export async function xuLyGomDon(
     apLuatChietKhau(phien, deps.luatNhanVien);
     const kq = await taoDonVaBaoGia(deps, phien, input, daBoPhienCu);
     if (kq === 'xong') {
-      await xoaPhien(deps.prisma, input.conversationId);
+      await ketThucPhien(phien);
       return true;
     }
     // ĐƯỜNG THOÁT 3 — tạo đơn LỖI hai lần liên tiếp thì bỏ phiên.

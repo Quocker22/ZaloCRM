@@ -48,6 +48,39 @@ export function boDau(s: string): string {
 }
 
 /**
+ * TỪ BIẾN THỂ — màu/chỗ lắp phân biệt hai SP cùng dòng. Chọn nhầm biến thể là
+ * nhầm mặt hàng thật (kho xuất sai màu), nên alias/khớp tự động phải soi.
+ *
+ * Ca thật 06:05 13/08: alias học sai "3b 6214 trắng ấm" → "3 bóng 6214 trắng
+ * (thanh)" rồi TỰ CHỐT IM LẶNG 3000 cái sai màu vào đơn S13848. "trắng ấm" là
+ * MỘT màu (warm white) — gộp về "ấm" trước khi so, kẻo "trắng" trong đó lại
+ * khớp nhầm với SP trắng.
+ */
+const GOP_BIEN_THE: Array<[RegExp, string]> = [
+  [/(^|\s)trang am(?=\s|$)/g, '$1am'],
+  [/(^|\s)vang am(?=\s|$)/g, '$1am'],
+];
+const TU_BIEN_THE = [
+  'am', 'trang', 'vang', 'xanh', 'do', 'hong', 'tim',
+  'ngoai troi', 'trong nha',
+];
+
+/**
+ * Từ khoá của NV có từ biến thể mà TÊN SP không có → xung đột: đừng tự chốt,
+ * đưa ra hỏi. Không có từ biến thể nào trong từ khoá thì không bao giờ chặn
+ * (alias kiểu "led hắt 6313" → "3 Bóng Saso 6313" vẫn khớp thẳng như cũ).
+ */
+export function xungDotBienThe(tuKhoa: string, tenSp: string): boolean {
+  const chuan = (s: string): string =>
+    GOP_BIEN_THE.reduce((t, [re, thay]) => t.replace(re, thay), ` ${boDau(s)} `);
+  const q = chuan(tuKhoa);
+  const sp = chuan(tenSp);
+  const co = (chuoi: string, tu: string): boolean =>
+    new RegExp(`(^|[^a-z0-9])${tu}([^a-z0-9]|$)`).test(chuoi);
+  return TU_BIEN_THE.some((tu) => co(q, tu) && !co(sp, tu));
+}
+
+/**
  * Tách mã model trong tên SP: token có chữ số, dài ≥3, không phải đơn vị đơn lẻ.
  * Vd "P10", "2835", "12V400W" là mã; "12v", "5a" thì không.
  *

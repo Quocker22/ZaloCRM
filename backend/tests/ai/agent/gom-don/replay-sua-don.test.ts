@@ -154,8 +154,10 @@ describe('sửa đơn — đủ rõ thì ghi thẳng', () => {
     expect(m.tinGui[0]).toContain('S13820');
     // KHÔNG hỏi chốt
     expect(m.tinGui.join('\n')).not.toMatch(/em sửa nhé|chốt/i);
-    // Phiên xoá sau khi xong
-    expect(m.db.rows.has('c1')).toBe(false);
+    // Phiên gom chết sau khi xong — chỉ còn DẤU đơn-vừa-sửa (13/08).
+    const luu = m.db.rows.get('c1')?.slots as { dong?: unknown[]; daXong?: { maDon: string } } | undefined;
+    expect(luu?.dong ?? []).toHaveLength(0);
+    expect(luu?.daXong?.maDon).toBe('S13820');
   });
 
   it('nói rõ mã đơn → dùng đúng đơn đó', async () => {

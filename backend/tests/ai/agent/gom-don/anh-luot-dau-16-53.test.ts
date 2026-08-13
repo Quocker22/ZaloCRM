@@ -201,6 +201,10 @@ describe('ca thật 16:53 12/08 — ảnh kèm NGAY lượt đầu của phiếu
 
     expect(tinGui.join('\n')).not.toContain('nhập những hàng gì');
     const phien = phienDangLuu(db, 'c-bo-qua');
-    if (phien) expect(((phien.dong ?? []) as unknown[]).length).toBeGreaterThan(1);
+    // Phiếu đã TẠO XONG thì row chỉ còn dấu đơn-vừa-lên (daXong, 13/08) —
+    // dòng hàng lúc đó đã nằm trong Odoo, không cần nằm trong phiên nữa.
+    if (phien && !phien.daXong) {
+      expect(((phien.dong ?? []) as unknown[]).length).toBeGreaterThan(1);
+    }
   });
 });

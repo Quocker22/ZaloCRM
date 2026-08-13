@@ -151,7 +151,11 @@ describe('replay chat 21:07 07/08 — lên đơn anh Hưng 10 cái nguồn NB', 
     expect(m.tinGui[2]).toContain('1.850.000đ');
     expect(m.tinGui[2]).toContain('S13888');
     expect(m.tinGui[2]).toContain('https://odoo.example.com'); // link xử lý
-    expect(m.db.rows.has('c1')).toBe(false);
+    // Đơn xong: phiên GOM chết, nhưng để lại DẤU đơn-vừa-lên (13/08 — câu
+    // "giá 1800 đó" ngay sau đó phải biết mình nói về đơn nào).
+    const luu = m.db.rows.get('c1')?.slots as { dong?: unknown[]; daXong?: { maDon: string } } | undefined;
+    expect(luu?.dong ?? []).toHaveLength(0);
+    expect(luu?.daXong?.maDon).toBe('S13888');
 
     // Hợp đồng số 1: KHÔNG lượt nào hỏi "bao nhiêu" — SL có từ câu đầu
     expect(m.tinGui.join('\n')).not.toMatch(/bao nhiêu/i);

@@ -218,6 +218,19 @@ export interface PhienGom {
   donUngVien?: DonSua[];
   /** Tra rồi không có đơn nháp nào sửa được. */
   donKhongThay?: boolean;
+  /**
+   * DẤU "ĐƠN VỪA LÊN XONG" (13/08). Phiên chết sau khi tạo/sửa đơn, nhưng câu
+   * chuyện thì chưa: ca thật 06:21-06:29 13/08 — NV phát hiện đơn S13848 sai
+   * hàng, nhắn "xuất lại báo giá cho đúng đi" rồi "giá 1800 đó", máy mở phiên
+   * MỚI tay trắng và hỏi "Đơn này lên cho khách nào ạ?" → NV điên tiết, cuối
+   * cùng ra thêm đơn TRÙNG S13849 + khách trùng "Dương".
+   *
+   * Sau khi đơn xong, thay vì xoá phiên, lưu lại dấu này (TTL 15' của bảng
+   * phiên tự dọn). Câu tham-chiếu-sửa trong cửa sổ đó ép chế 'sua' với đúng
+   * mã đơn — docPhien vẫn trả phiên chứa dấu, xuLyGomDon tự tách ra và coi
+   * như KHÔNG có phiên mở (mọi nhánh `!phien` giữ nguyên hành vi cũ).
+   */
+  daXong?: { maDon: string; tenKhach: string };
   /** Số lần tạo đơn thất bại liên tiếp — 2 lần thì bỏ phiên (chống kẹt 10/08). */
   soLanLoi?: number;
   /**

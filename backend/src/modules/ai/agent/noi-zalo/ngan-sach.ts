@@ -78,7 +78,23 @@ export function tomTatDoDang(
   const dung = daTra.filter((t) => t.thanhCong && String(t.output ?? '').trim());
   if (dung.length === 0) return null;
   const cuoi = dung[dung.length - 1];
-  const noi = cuoi.output.trim();
+  const noi = boChiDanNoiBo(cuoi.output.trim());
+  if (!noi) return null;
   // Cắt cho vừa một tin Zalo — quá dài thì nhân viên cũng không đọc.
   return noi.length > 1200 ? `${noi.slice(0, 1200)}…` : noi;
+}
+
+/**
+ * Output tool có hai phần: DỮ LIỆU (cho người) và LỜI DẶN MODEL ("LƯU Ý: …
+ * KHÔNG báo 0đ … CHUYỂN SALE NGAY"). Bình thường model đọc lời dặn rồi soạn
+ * câu; đường hết-giờ thì output đi THẲNG ra Zalo — ca thật 06:28:12 13/08 bot
+ * dán nguyên "id=452 | … LƯU Ý: … Hãy thử LẠI ĐÚNG MỘT LẦN…" vào nhóm, nhân
+ * viên đọc như bùa chú. Bóc lời dặn + nhãn `id=` trước khi gửi.
+ */
+export function boChiDanNoiBo(s: string): string {
+  let t = s;
+  const iLuuY = t.search(/\bLƯU Ý:/);
+  if (iLuuY >= 0) t = t.slice(0, iLuuY).trimEnd();
+  t = t.replace(/^id=\d+ \| /gm, '- ');
+  return t.trim();
 }
