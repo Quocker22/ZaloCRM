@@ -83,6 +83,65 @@ export function bocUrlAnh(content: string): string | null {
   return null;
 }
 
+/** Trần file PDF tải về (MB) — phiếu nhập P04520 thật chỉ ~150KB. */
+const TRAN_PDF_MB = 15;
+
+export interface DocPdfDeps {
+  goiModelFile: (args: {
+    model: string;
+    fileBase64: string;
+    tenFile: string;
+    chuThich: string;
+  }) => Promise<string>;
+  taiFile?: (url: string) => Promise<Buffer | null>;
+}
+
+/**
+ * Đọc FILE PDF → chữ, cùng khế ước với docAnh: null = không đọc được, caller
+ * đi đường báo người, tuyệt đối không im. Đo 13/08 trên "Phiếu nhập hàng
+ * P04520.pdf" thật: model đọc ra từng dòng tên hàng + SL + giá.
+ */
+export async function docPdf(
+  deps: DocPdfDeps,
+  input: { url: string; tenFile: string; chuThich?: string },
+): Promise<string | null> {
+  try {
+    const tai = deps.taiFile ?? (async (url: string) => {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length > TRAN_PDF_MB * 1024 * 1024) {
+        logger.warn({ url, mb: (buf.length / 1048576).toFixed(1) }, '[doc-pdf] file quá lớn');
+        return null;
+      }
+      return buf;
+    });
+    const buf = await tai(input.url);
+    if (!buf) return null;
+    // Magic bytes %PDF — đuôi tên file giả mạo được, 5 byte đầu thì không.
+    // Check NGOÀI hàm tải để áp cho MỌI nguồn (kể cả taiFile test/tuỳ biến).
+    if (buf.slice(0, 5).toString() !== '%PDF-') {
+      logger.warn({ url: input.url }, '[doc-pdf] không phải PDF thật');
+      return null;
+    }
+    const mo = await deps.goiModelFile({
+      model: modelDocAnh(),
+      fileBase64: buf.toString('base64'),
+      tenFile: input.tenFile,
+      chuThich: (input.chuThich ?? '').trim(),
+    });
+    const sach = String(mo ?? '').trim();
+    if (!sach) {
+      logger.warn({ url: input.url }, '[doc-pdf] model trả RỖNG — nhường đường báo người');
+      return null;
+    }
+    return sach;
+  } catch (err) {
+    logger.warn({ err, url: input.url }, '[doc-pdf] đọc file lỗi — nhường đường báo người');
+    return null;
+  }
+}
+
 /** Câu chú thích người gửi gõ kèm ảnh (nếu có) — cũng là ngữ cảnh cần đọc. */
 export function bocChuThich(content: string): string {
   try {

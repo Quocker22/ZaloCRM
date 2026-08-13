@@ -427,6 +427,56 @@ function docPhanHoi(raw: unknown): AgentTurn {
  * Ảnh đi bằng data: URI thay vì link: link media của Zalo/MinIO nằm sau mạng
  * nội bộ, OpenRouter không với tới được.
  */
+/**
+ * Gửi FILE (PDF) cho model đọc — cùng khuôn nhinAnhOpenaiCompat, khác content
+ * part: `file` thay vì `image_url`. Đo 13/08 trên chính "Phiếu nhập hàng
+ * P04520.pdf" của prod: luna đọc ra từng dòng tên hàng + SL + giá.
+ */
+export async function nhinFileOpenaiCompat(args: {
+  url: string;
+  apiKey: string;
+  model: string;
+  loiDan: string;
+  fileBase64: string;
+  tenFile: string;
+  kieuFile?: string;
+  maxTokens?: number;
+  timeoutMs?: number;
+}): Promise<string> {
+  const res = await fetch(args.url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${args.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: args.model,
+      max_tokens: args.maxTokens ?? 3000,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text: args.loiDan },
+          {
+            type: 'file',
+            file: {
+              filename: args.tenFile,
+              file_data: `data:${args.kieuFile ?? 'application/pdf'};base64,${args.fileBase64}`,
+            },
+          },
+        ],
+      }],
+    }),
+    signal: AbortSignal.timeout(args.timeoutMs ?? 90_000),
+  });
+
+  const j = (await docJson(res)) as {
+    error?: { message?: string };
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+  if (j.error) throw new Error(`đọc file lỗi: ${j.error.message ?? 'không rõ'}`);
+  return String(j.choices?.[0]?.message?.content ?? '').trim();
+}
+
 export async function nhinAnhOpenaiCompat(args: {
   /** URL ĐẦY ĐỦ tới /chat/completions — dùng chung duongDanChat() với luồng chat. */
   url: string;

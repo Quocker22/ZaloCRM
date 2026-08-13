@@ -20,12 +20,13 @@ import { logger } from '../../../../shared/utils/logger.js';
 import { batLuongKhach } from './cong-tac.js';
 import { chiCoEmoji } from './chi-co-emoji.js';
 import { layCauHinhLlm } from './llm.js';
-import { nhinAnhOpenaiCompat } from '../../providers/openai-compat.js';
-import { bocUrlAnh, bocChuThich, docAnh, laLoaiDocDuoc, loiDanDocAnh } from './doc-anh.js';
+import { nhinAnhOpenaiCompat, nhinFileOpenaiCompat } from '../../providers/openai-compat.js';
+import { bocUrlAnh, bocChuThich, docAnh, docPdf, laLoaiDocDuoc, loiDanDocAnh } from './doc-anh.js';
 import { bocMention, type MentionZalo } from './boc-mention.js';
 import { xuLyTinNhanVien } from './luong-nhan-vien.js';
 import { xuLyTinKhach } from './luong-khach.js';
 import { timDich, guiTin } from './gui-zalo.js';
+import { layLichSu } from './du-lieu.js';
 import { baoNhanVien } from './bao-nhan-vien.js';
 import { LOAI_VIEC } from './dich-bao.js';
 import type { NgữCanhTin } from './types.js';
@@ -223,8 +224,16 @@ export async function xuLyTinMedia(
   // được với ảnh mà không phải viết lại đường nào.
   //
   // Anh chốt: MỌI ảnh trong nhóm đều đọc, không cần tag.
-  if (laLoaiDocDuoc(contentType)) {
-    const daXu = await docVaChuyenTiep(ctx, contentType);
+  // FILE PDF — ĐỌC ĐƯỢC (13/08). Ca thật 09:04-09:05 12/08: NV tag "đọc cái
+  // này đi báo cáo lại cho tao" rồi gửi "Phiếu nhập hàng P04520.pdf" 3 giây
+  // sau — bot chỉ biết báo người. Đo 13/08: model đọc ảnh hiện tại nhận được
+  // FILE trực tiếp (probe trên chính P04520.pdf ra từng dòng hàng + giá).
+  // Cùng kiến trúc ảnh: PDF → chữ → luồng cũ. File KHÔNG phải PDF (xlsx,
+  // docx, rar...) vẫn đi đường báo người như trước.
+  const tenFile = bocChuThich(ctx.content ?? '');
+  const laPdfFile = contentType === 'file' && /\.pdf\s*$/i.test(tenFile);
+  if (laLoaiDocDuoc(contentType) || laPdfFile) {
+    const daXu = await docVaChuyenTiep(ctx, contentType, laPdfFile);
     if (daXu) return true;
     // Đọc không được → rơi xuống đường báo nhân viên bên dưới, KHÔNG im lặng.
   }
@@ -395,11 +404,68 @@ async function docVaChuyenTiep(
     mentions?: MentionZalo[] | null;
   },
   contentType: string,
+  laPdf = false,
 ): Promise<boolean> {
   const url = bocUrlAnh(ctx.content ?? '');
   if (!url) {
     logger.info({ conversationId: ctx.conversationId }, '[doc-anh] không tìm được URL ảnh');
     return false;
+  }
+
+  // ── NHÁNH PDF (13/08) ──────────────────────────────────────────────────
+  // Khác ảnh một điểm cốt tử: `title` của tin file là TÊN FILE ("Phiếu nhập
+  // hàng P04520.pdf"), KHÔNG phải lời nhắn — Zalo không cho caption khi gửi
+  // file. Lệnh của nhân viên nằm ở TIN TRƯỚC ("đọc cái này đi báo cáo lại",
+  // gửi 3 giây trước file — ca thật 09:04). Nên: lấy tin text gần nhất của
+  // CÙNG người gửi làm lời nhắn, và nếu tin đó có tag bot thì lượt file này
+  // thừa hưởng tag — không thì file trong nhóm không bao giờ qua được cổng.
+  if (laPdf) {
+    const tenFile = bocChuThich(ctx.content ?? '');
+    let loiNhanTruoc = '';
+    try {
+      const lichSu = await layLichSu(ctx.conversationId, ctx.messageId);
+      for (let i = lichSu.length - 1; i >= 0 && i >= lichSu.length - 5; i--) {
+        const m = lichSu[i];
+        if (m.senderUid && m.senderUid === (ctx.senderUid ?? '')) {
+          loiNhanTruoc = m.content.slice(0, 200);
+          break;
+        }
+      }
+    } catch (err) {
+      logger.warn({ err }, '[doc-pdf] đọc lịch sử lỗi — xử file không kèm lời nhắn');
+    }
+    const t0Pdf = Date.now();
+    const moTaPdf = await docPdf(
+      { goiModelFile: (a) => goiModelDocFile(ctx.orgId, a) },
+      { url, tenFile, chuThich: loiNhanTruoc },
+    );
+    if (!moTaPdf) return false;
+    logger.info(
+      { conversationId: ctx.conversationId, ms: Date.now() - t0Pdf, tenFile, moTa: moTaPdf.slice(0, 80) },
+      '[doc-pdf] đã đọc file',
+    );
+    const chuThichPdf = [loiNhanTruoc, `(kèm file ${tenFile})`].filter(Boolean).join(' ');
+    const cauPdf = ghepCauTuAnh(chuThichPdf, moTaPdf);
+    // Tag thừa hưởng từ tin lệnh: tin trước có mention bot (bản DB giữ nguyên
+    // chuỗi mention) hoặc chính tin file được tag.
+    const tagThuaHuong = ctx.daTagBot === true || /@/.test(loiNhanTruoc);
+    const ctxPdf: NgữCanhTin = {
+      orgId: ctx.orgId, bizName: '', conversationId: ctx.conversationId,
+      messageId: ctx.messageId, content: cauPdf,
+      senderUid: ctx.senderUid ?? null, isSelf: ctx.isSelf ?? false,
+      laNhom: ctx.laNhom, daTagBot: tagThuaHuong,
+    };
+    try {
+      if (await xuLyTinNhanVien(ctxPdf)) return true;
+    } catch (err) {
+      logger.warn({ err }, '[doc-pdf] luồng nhân viên lỗi khi xử file');
+    }
+    try {
+      if (await xuLyTinKhach(ctxPdf)) return true;
+    } catch (err) {
+      logger.warn({ err }, '[doc-pdf] luồng khách lỗi khi xử file');
+    }
+    return true;
   }
 
   // BÓC MENTION KHỎI CHÚ THÍCH (12/08) — pos/len của mention trong tin ảnh
@@ -446,6 +512,23 @@ async function docVaChuyenTiep(
   // Đọc được ảnh nhưng không luồng nào nhận (vd nhóm không tag, câu không phải
   // việc của bot) → coi như đã xử, đừng báo nhân viên vì chẳng có gì cần người.
   return true;
+}
+
+/** Gọi provider đọc FILE (PDF) — cùng nguồn key/model với đường ảnh. */
+async function goiModelDocFile(orgId: string, args: {
+  model: string; fileBase64: string; tenFile: string; chuThich: string;
+}): Promise<string> {
+  const cfg = await layCauHinhLlm(orgId);
+  if (!cfg) throw new Error('chưa cấu hình LLM');
+  return nhinFileOpenaiCompat({
+    url: cfg.url,
+    apiKey: cfg.apiKey,
+    model: args.model,
+    loiDan: loiDanDocAnh(args.chuThich),
+    fileBase64: args.fileBase64,
+    tenFile: args.tenFile,
+    maxTokens: 3000,
+  });
 }
 
 /** Gọi provider nhìn ảnh — lấy key/URL từ cùng nguồn với luồng chat. */

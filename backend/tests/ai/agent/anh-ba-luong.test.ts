@@ -250,3 +250,49 @@ describe('bocDongTuKhoiAnh — parse dòng hàng bằng CODE, không nhờ model
     expect(dong[14]).toEqual({ sp: '4B 220V lixin trong nhà', sl: 30 });
   });
 });
+
+describe('đọc file PDF (13/08 — ca "Phiếu nhập hàng P04520.pdf")', () => {
+  it('docPdf: PDF thật → chữ; magic bytes sai → null (đuôi tên giả mạo được, 5 byte đầu thì không)', async () => {
+    const { docPdf } = await import('../../../src/modules/ai/agent/noi-zalo/doc-anh.js');
+
+    const that = await docPdf(
+      { goiModelFile: async () => 'Led Dây chữ S 6mm: 6.000, 8.300đ', taiFile: async () => Buffer.from('%PDF-1.4 abc') },
+      { url: 'http://x/a.pdf', tenFile: 'P04520.pdf' },
+    );
+    expect(that).toContain('Led Dây');
+
+    const gia = await docPdf(
+      { goiModelFile: async () => 'x', taiFile: async () => Buffer.from('MZjunk-khong-phai-pdf') },
+      { url: 'http://x/a.pdf', tenFile: 'gia.pdf' },
+    );
+    expect(gia).toBeNull();
+  });
+
+  it('model trả rỗng → null + có log (không câm)', async () => {
+    const { docPdf } = await import('../../../src/modules/ai/agent/noi-zalo/doc-anh.js');
+    const { logger } = await import('../../../src/shared/utils/logger.js');
+    const { vi } = await import('vitest');
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
+
+    const kq = await docPdf(
+      { goiModelFile: async () => '', taiFile: async () => Buffer.from('%PDF-1.4') },
+      { url: 'http://x/a.pdf', tenFile: 'a.pdf' },
+    );
+
+    expect(kq).toBeNull();
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('nhận diện PDF theo TÊN FILE trong title — file khác (xlsx) vẫn đường báo người', async () => {
+    // Khoá hợp đồng nhận diện trong luong-media (đuôi .pdf trên title).
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync(
+      new URL('../../../src/modules/ai/agent/noi-zalo/luong-media.ts', import.meta.url), 'utf8');
+
+    expect(src).toMatch(/laPdfFile = contentType === 'file'/);
+    expect(src).toMatch(/\\.pdf/);
+    // Tag thừa hưởng từ tin lệnh trước — không có thì file trong nhóm chết ở cổng.
+    expect(src).toMatch(/tagThuaHuong/);
+  });
+});
