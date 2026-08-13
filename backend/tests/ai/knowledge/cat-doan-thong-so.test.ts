@@ -9,11 +9,11 @@ import { describe, it, expect } from 'vitest';
 import { catDoanThongSo } from '../../../src/modules/ai/knowledge/kho-tai-lieu.js';
 
 const HEADER = 'Shenzhen Leader Optoelectronic Technology Co., LTD Product Specifications '
-  + 'Company address: 3rd and 4th floors, Building B, Fengzheng Industrial Park. '.repeat(6);
+  + 'Company address: 3rd and 4th floors, Building B, Fengzheng Industrial Park. '.repeat(30);
 const MUC_LUC = 'Catalogue catalogue…………………… 2 1。 scope of application………… 3 '
   + '4Product Technical Requirements………………………… 6 7Installation Guide………… 8 ';
 const THAN = '1. Scope of Application: This technical manual applies to rear cover series. '
-  + 'Matters need attention: do not bend. '.repeat(8);
+  + 'Matters need attention: do not bend. '.repeat(30);
 const SPEC = '4 Product Technical Requirements: Pixel pitch 10mm, resolution 32*16, '
   + 'brightness 5500cd/m2, refresh rate 1920Hz, power consumption 350W/m2, IP65.';
 
@@ -24,10 +24,10 @@ describe('catDoanThongSo — nhảy tới bảng thông số, bỏ qua header + 
     expect(ra).not.toContain('Fengzheng Industrial Park');
   });
 
-  it('không có dấu hiệu thông số → lấy 900 đầu như cũ (đỡ hơn là rỗng)', () => {
+  it('không có dấu hiệu thông số → vẫn trả một cửa sổ, không rỗng', () => {
     const noi = 'Tài liệu hướng dẫn lắp đặt chung chung. '.repeat(60);
     const ra = catDoanThongSo(noi);
-    expect(ra.length).toBeLessThanOrEqual(900);
+    expect(ra.length).toBeLessThanOrEqual(1200);
     expect(ra.length).toBeGreaterThan(0);
   });
 

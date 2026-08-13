@@ -237,34 +237,28 @@ export async function trichNoiDungTaiLieu(orgId: string, tieuDe: string): Promis
 }
 
 /**
- * Dấu hiệu đoạn THÔNG SỐ trong datasheet (Anh/Trung/Việt lẫn lộn — file từ
- * nhà máy TQ). Đo trên prod 13/08: 900 ký tự ĐẦU của "LLR -P10 -RGB OPLUNG"
- * toàn header công ty + mục lục, bảng thông số nằm ở mục "Product Technical
- * Requirements" sâu phía sau — cắt đầu là tóm tắt toàn địa chỉ nhà máy.
+ * Từ khoá chấm ĐIỂM MẬT ĐỘ thông số. Hai lần đo prod 13/08 dạy bài này:
+ *   - Cắt 900 đầu → ra header + địa chỉ nhà máy Baoan District.
+ *   - Nhảy tới từ khoá ĐẦU TIÊN → dính chữ "brightness" trong đoạn "lưu ý
+ *     khi lắp đặt" (nằm TRƯỚC bảng thông số).
+ * Bảng thông số thật dày đặc đơn vị (mm/Hz/W/cd/m²/IP65) — đoạn văn cảnh báo
+ * thì thưa. Nên chấm mật độ theo cửa sổ trượt và lấy cửa sổ đặc nhất.
  */
-const DAU_THONG_SO =
-  /technical requirement|technical parameter|product parameter|pixel (?:pitch|density|composition)|resolution|brightness|refresh|scan(?:ning)? (?:mode|rate)|power consumption|working voltage|thong so ky thuat|thông số kỹ thuật|độ sáng|điểm ảnh/i;
+const TU_SPEC =
+  /technical requirement|pixel|resolution|brightness|refresh|scan|power|voltage|current|density|gray|module size|cd\/?m|\bhz\b|ip6[0-9]|\bmm\b|\bkg\b|w\/m|≥|thong so|thông số|độ sáng|điểm ảnh|kích thước|quét/gi;
 
 /**
- * Cắt đoạn đáng-tóm-tắt nhất của tài liệu: từ dấu hiệu thông số đầu tiên lấy
- * 1200 ký tự (lùi 80 để giữ tiêu đề mục); không thấy thì đành lấy 900 đầu.
- * Thuần để test được (`kho-tai-lieu.func`).
+ * Cắt đoạn đáng-tóm-tắt nhất: cửa sổ 1200 ký tự có MẬT ĐỘ từ khoá thông số
+ * cao nhất (bước nhảy 400). Thuần để test được (`cat-doan-thong-so.test`).
  */
 export function catDoanThongSo(noi: string): string {
-  // Dòng MỤC LỤC cũng chứa đúng chữ này ("Technical Requirements………… 6") —
-  // nhận ra nhờ chuỗi chấm/ellipsis ngay sau, bỏ qua để tới mục thật.
-  const re = new RegExp(DAU_THONG_SO.source, 'gi');
-  let viTri = -1;
-  for (const m of noi.matchAll(re)) {
-    const sau = noi.slice(m.index, (m.index ?? 0) + 90);
-    if (/[.…]{4,}/.test(sau)) {
-      if (viTri < 0) viTri = m.index ?? -1; // toàn mục lục thì đành lấy nó
-      continue;
-    }
-    viTri = m.index ?? -1;
-    break;
+  if (noi.length <= 1200) return noi;
+  let tot = 0;
+  let diemTot = -1;
+  for (let i = 0; i < noi.length; i += 400) {
+    const cua = noi.slice(i, i + 1200);
+    const diem = (cua.match(TU_SPEC) ?? []).length;
+    if (diem > diemTot) { diemTot = diem; tot = i; }
   }
-  if (viTri < 0) return noi.slice(0, 900);
-  const tu = Math.max(0, viTri - 80);
-  return noi.slice(tu, tu + 1200);
+  return noi.slice(tot, tot + 1200);
 }
