@@ -150,14 +150,19 @@ describe('traSanPham — chống nhầm sản phẩm', () => {
     expect(kq[0].id).toBe(2);
   });
 
-  it('có mã nhưng KHÔNG SP nào khớp → trả RỖNG, không rơi về danh sách chưa lọc', async () => {
-    // Thà nói "không tìm thấy" còn hơn báo giá sai sản phẩm.
+  it('có mã nhưng KHÔNG SP nào khớp → chỉ được trả GỢI Ý gắn cờ, không tự chốt', async () => {
+    // Hợp đồng ĐỔI 12/08 (anh Quốc 22:06: "tra trong dữ liệu xem có sản phẩm
+    // nào gần giống không thì gợi ý"): trước trả RỖNG tuyệt đối; giờ đường nới
+    // ĐƯỢC PHÉP đưa hàng gần giống ra — nhưng bắt buộc gắn cờ ganDung/daNoiRong
+    // để máy gom đơn HỎI thay vì tự chốt (khoá ở khop-sp-tu-anh.test.ts).
+    // Nỗi sợ gốc "báo giá sai sản phẩm" vẫn được canh — chỉ đổi chỗ canh.
     const odoo = fakeOdoo([sp({ name: 'Đèn LED P4', default_code: 'P4' })]);
 
     const kq = await traSanPham({ odoo }, { ten: 'P10' });
 
-    // toHaveLength thay vì toEqual([]): mảng có thêm thuộc tính tongKhop.
-    expect(kq).toHaveLength(0);
+    if (kq.length > 0) {
+      expect(kq.ganDung === true || kq.daNoiRong === true).toBe(true);
+    }
     expect(kq.tongKhop).toBe(0);
   });
 

@@ -160,7 +160,10 @@ describe('buildCustomerSystemPrompt — ranh giới', () => {
     const BIZ_THAT = 'LEDNELIA - shop đèn LED & phụ kiện điện';
     // 2.800 → 2.950 (08/08): 2 rule từ chat thật 16:42 — SP chưa giá vẫn tư vấn
     // (không lộ nội bộ, không đẩy sale sớm) + đừng hỏi số lượng khi khách chưa mua.
-    expect(buildCustomerSystemPrompt(BIZ_THAT).length).toBeLessThan(2950);
+    // 2.950 → 3.500 (13/08): d897ec55 thêm luật đọc ảnh cho luồng khách (ảnh
+    // vào ba luồng, 12/08) — nội dung có chủ ý, không phải phình vô thức.
+    // NỢ KỸ THUẬT: lần THÊM sau phải NÉN trước khi nới trần tiếp.
+    expect(buildCustomerSystemPrompt(BIZ_THAT).length).toBeLessThan(3500);
   });
 
   it('luật KHÔNG MARKDOWN nằm ngay đầu prompt (model đọc kỹ nhất chỗ đó)', () => {

@@ -179,3 +179,32 @@ describe('ĐỊNH NGHĨA tool', () => {
     expect(guiTaiLieuDefinition.description).toMatch(/FILE|PDF/);
   });
 });
+
+describe('CA 17:14-17:18 13/08 — nêu đích danh tên file phải GỬI, không hỏi vòng vô hạn', () => {
+  // NV chọn "2" trong danh sách, model gọi lại với đúng tên file — mà chấm
+  // điểm ra 6 vs 5 (hai tên chỉ khác MỘT token) < CACH_BIET nên tool cứ trả
+  // danh sách mãi, bot bó tay xin lỗi giữa nhóm.
+  it('nguyên văn "LLR -P10 -RGB OPLUNG.pdf" → gửi ngay, không đòi cách biệt điểm', async () => {
+    const d = deps();
+    const kq = await guiTaiLieu(d, { yeu_cau: 'LLR -P10 -RGB OPLUNG.pdf' });
+    expect(kq.loai).toBe('da_gui');
+    if (kq.loai === 'da_gui') expect(kq.taiLieu.tieuDe).toBe('LLR -P10 -RGB OPLUNG.pdf');
+  });
+
+  it('tên nằm trong câu, "ốp lưng" rời vẫn khớp "OPLUNG" dính liền', async () => {
+    const kq = await guiTaiLieu(deps(), { yeu_cau: 'gửi file llr p10 rgb ốp lưng cho anh' });
+    expect(kq.loai).toBe('da_gui');
+    if (kq.loai === 'da_gui') expect(kq.taiLieu.tieuDe).toBe('LLR -P10 -RGB OPLUNG.pdf');
+  });
+
+  it('file "họ hàng" một-token-khác: nêu đích danh 4S thì ra đúng 4S', async () => {
+    const kq = await guiTaiLieu(deps(), { yeu_cau: 'LLR -P10- RGB -4S.pdf' });
+    expect(kq.loai).toBe('da_gui');
+    if (kq.loai === 'da_gui') expect(kq.taiLieu.tieuDe).toBe('LLR -P10- RGB -4S.pdf');
+  });
+
+  it('câu mơ hồ "gửi cattalog p10 full outdoor" vẫn HỎI như cũ (một lần, có danh sách)', async () => {
+    const kq = await guiTaiLieu(deps(), { yeu_cau: 'gửi cattalog p10 full outdoor' });
+    expect(kq.loai).toBe('nhieu_ket_qua');
+  });
+});

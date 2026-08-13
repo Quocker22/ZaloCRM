@@ -222,6 +222,14 @@ export type KetQuaGuiTaiLieu =
   | { loai: 'khong_thay'; yeuCau: string }
   | { loai: 'loi'; tieuDe: string; lyDo: string };
 
+/**
+ * Chuẩn tên để so NGUYÊN VĂN: bỏ dấu, bỏ đuôi file, bỏ mọi ký tự ngăn cách.
+ * "LLR -P10 -RGB OPLUNG.pdf" và "llr p10 rgb ốp lưng" đều về "llrp10rgboplung".
+ */
+function chuanTen(s: string): string {
+  return boDau(s).replace(/\.[a-z0-9]{2,4}$/, '').replace(/[^a-z0-9]/g, '');
+}
+
 export async function guiTaiLieu(
   deps: GuiTaiLieuDeps,
   input: { yeu_cau: string },
@@ -229,6 +237,35 @@ export async function guiTaiLieu(
   const yeuCau = input.yeu_cau?.trim() ?? '';
   const kho = await deps.liet();
   if (kho.length === 0) return { loai: 'khong_thay', yeuCau };
+
+  const guiFile = async (t: TaiLieu): Promise<KetQuaGuiTaiLieu> => {
+    try {
+      return { loai: 'da_gui', taiLieu: t, duongDanCucBo: await deps.taiVe(t) };
+    } catch (err) {
+      return { loai: 'loi', tieuDe: t.tieuDe, lyDo: err instanceof Error ? err.message : String(err) };
+    }
+  };
+
+  // ═══ TÊN NGUYÊN VĂN THẮNG TUYỆT ĐỐI (ca thật 17:14-17:18 13/08) ═══════════
+  // NV chọn "2", model gọi lại với ĐÚNG tên "LLR -P10 -RGB OPLUNG.pdf" — mà
+  // chấm điểm token ra 6 vs 5 so với "LLR -P10- RGB -4S" (cách 1 < CACH_BIET)
+  // → tool lại trả danh sách → hỏi vòng vô hạn, bot bó tay xin lỗi. Tên hai
+  // file này chỉ khác nhau MỘT token, chấm-điểm-rồi-đòi-cách-biệt không bao
+  // giờ phân thắng nổi; còn "ốp lưng" tách "op"+"lung" không khớp "OPLUNG"
+  // dính liền. So NGUYÊN VĂN sau chuẩn hoá thì cả hai vấn đề biến mất: người
+  // (hoặc model chép lại lựa chọn của người) đã nêu ĐÍCH DANH file nào thì
+  // gửi ngay file đó, không hỏi thêm câu nào nữa.
+  const yc = chuanTen(yeuCau);
+  if (yc.length >= 6) {
+    const trungTen = kho.filter((t) => {
+      const ten = chuanTen(t.tieuDe);
+      // Bằng hệt, hoặc cả tên file nằm gọn trong câu ("gửi file LLR P10 RGB
+      // OPLUNG cho anh"). Chiều ngược (câu nằm trong tên) đòi câu đủ dài để
+      // "p10" trần không khớp bừa cả họ P10.
+      return ten === yc || yc.includes(ten) || (yc.length >= 8 && ten.includes(yc));
+    });
+    if (trungTen.length === 1) return guiFile(trungTen[0]);
+  }
 
   const xep = kho
     .map((t) => ({ t, d: diemKhopTaiLieu(yeuCau, t) }))
@@ -263,16 +300,7 @@ export async function guiTaiLieu(
   // TẢI VỀ THẬT rồi mới báo "đã gửi". Tải lỗi (CDN Zalo hết hạn, file bị xoá)
   // phải thành 'loi' — báo "đã gửi" khi file chưa đi là đúng kiểu bịa mà cả ba
   // hàng rào khoeDaGhi/khoeDaGuiAnh/khoeDaGuiTaiLieu đang chống.
-  try {
-    const duongDanCucBo = await deps.taiVe(dau.t);
-    return { loai: 'da_gui', taiLieu: dau.t, duongDanCucBo };
-  } catch (err) {
-    return {
-      loai: 'loi',
-      tieuDe: dau.t.tieuDe,
-      lyDo: err instanceof Error ? err.message : String(err),
-    };
-  }
+  return guiFile(dau.t);
 }
 
 export const guiTaiLieuDefinition: ToolDefinition = {
