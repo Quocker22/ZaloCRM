@@ -246,3 +246,29 @@ describe('render đánh số nhóm khi ≥2 nhóm (đi cặp với parser)', () 
     expect(tin).not.toContain('1) "nhóm 1"');
   });
 });
+
+describe('tachSlDinhDauSp — "9600 3b 6214" model nhét SL vào tên hàng (ca 10:49 13/08)', () => {
+  it('dòng thiếu sl + tên bắt đầu bằng số ≥3 chữ số → tách sl, tên sạch', async () => {
+    const { tachSlDinhDauSp } = await import('../../../../src/modules/ai/agent/noi-zalo/gom-don/trich-slot.js');
+    const trich = { dong: [{ sp: '9600 3b 6214 trắng' }] };
+
+    tachSlDinhDauSp(trich as never);
+
+    expect(trich.dong[0]).toMatchObject({ sp: '3b 6214 trắng', sl: 9600 });
+  });
+
+  it('dòng ĐÃ có sl → không đụng; "3b 6214" (số giữa chuỗi/mã hàng) → không đụng', async () => {
+    const { tachSlDinhDauSp } = await import('../../../../src/modules/ai/agent/noi-zalo/gom-don/trich-slot.js');
+    const trich = { dong: [
+      { sp: '9600 3b 6214', sl: 100 },
+      { sp: '3b 6214 trắng' },
+      { sp: 'nguồn NB 12V400W' },
+    ] };
+
+    tachSlDinhDauSp(trich as never);
+
+    expect(trich.dong[0]).toMatchObject({ sp: '9600 3b 6214', sl: 100 });
+    expect(trich.dong[1].sl).toBeUndefined();
+    expect(trich.dong[2].sl).toBeUndefined();
+  });
+});

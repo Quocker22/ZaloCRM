@@ -343,6 +343,26 @@ function taDangCo(p: PhienGom | null): string {
  * một.
  */
 const HAU_TO_NGHIN = /^(k|tr|m|củ|cu|nghìn|nghin|ngàn|ngan|triệu|trieu)/i;
+/**
+ * TÁCH SỐ LƯỢNG DÍNH ĐẦU TÊN HÀNG (vá 10:49 13/08). Model gộp "9600 3b 6214
+ * trắng" thành MỘT tên sp, dòng thiếu sl → máy hỏi lại "lấy mấy cái" thứ đã
+ * nằm sẵn trong câu (anh Quốc: "cái 9600 đó thì AI cũng phải nhận biết được
+ * chứ?"). Số THUẦN ≥3 chữ số đứng ĐẦU tên hàng, khi dòng chưa có sl, gần như
+ * chắc chắn là số lượng — "3b"/"6214" giữa chuỗi không bị đụng (mã hàng).
+ */
+export function tachSlDinhDauSp(trich: KetQuaTrich): void {
+  for (const d of trich.dong ?? []) {
+    if (d.sl != null) continue;
+    const m = d.sp.match(/^(\d{3,})\s+(.{3,})$/);
+    if (!m) continue;
+    const so = Number(m[1]);
+    if (!Number.isFinite(so) || so <= 0) continue;
+    logger.info({ sp: d.sp, sl: so }, '[trich-slot] tách số lượng dính đầu tên hàng');
+    d.sl = so;
+    d.sp = m[2].trim();
+  }
+}
+
 export function suaGiaNhanBua(cau: string, trich: KetQuaTrich): void {
   if (!trich.dong?.length) return;
   const c = cau.toLowerCase();
@@ -462,6 +482,10 @@ export async function trichSlot(
     'rẻ nhất" (nhìn giá trong danh sách), "cái đầu tiên", "loại có giá ấy",',
     '"số 2 nhé" → điền chon_khach/chon_sp. KHÔNG điền khach/dong mới khi câu',
     'chỉ là lựa chọn. Không chắc thì bỏ trống hai ô đó.',
+    'CÂU TRỤ NHÂN VIÊN HAY GÕ: "khách SL tên-hàng xGIÁ" — "led Vũ Minh 9600 3b',
+    '6214 trắng x1700" → khach="Vũ Minh" (led là ngành hàng dính tên), dong=',
+    '[{sp:"3b 6214 trắng", sl:9600, gia:1700}]. SỐ ĐỨNG TRƯỚC TÊN HÀNG là SỐ',
+    'LƯỢNG — đừng nhét số lượng hay tên khách vào sp; sp chỉ chứa TÊN HÀNG.',
     'Chỉ trích cái CÓ trong câu — không đoán, không bịa. Bỏ xưng hô (anh/chị/em/bác)',
     'khỏi tên khách, nhưng GIỮ NGUYÊN biệt danh chứa từ ngành hàng — khách buôn hay',
     'tên kiểu "Long Led", "Hoa Đèn": "lên đơn cho anh Long Led" → khach="Long Led",',
@@ -489,6 +513,7 @@ export async function trichSlot(
     if (!call) return { ngoaiLe: true };
     const kq = lamSachTrich(call.input);
     suaGiaNhanBua(cau, kq);
+    tachSlDinhDauSp(kq);
     return kq;
   } catch (err) {
     // LLM sập không được làm máy sập: nhường agent thường xử câu này.
