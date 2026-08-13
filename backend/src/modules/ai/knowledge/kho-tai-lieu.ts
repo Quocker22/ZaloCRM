@@ -229,11 +229,42 @@ export async function trichNoiDungTaiLieu(orgId: string, tieuDe: string): Promis
     });
     const noi = doc?.content?.replace(/\s+/g, ' ').trim();
     if (!noi) return null;
-    // 900 ký tự ĐẦU: datasheet dồn thông số chính lên đầu; đưa cả 45K vào
-    // prompt là nuốt ngữ cảnh vô ích.
-    return noi.length > 900 ? noi.slice(0, 900) : noi;
+    return catDoanThongSo(noi);
   } catch (err) {
     logger.warn({ err, tieuDe }, '[kho-tai-lieu] trích nội dung tài liệu lỗi — bỏ qua tóm tắt');
     return null;
   }
+}
+
+/**
+ * Dấu hiệu đoạn THÔNG SỐ trong datasheet (Anh/Trung/Việt lẫn lộn — file từ
+ * nhà máy TQ). Đo trên prod 13/08: 900 ký tự ĐẦU của "LLR -P10 -RGB OPLUNG"
+ * toàn header công ty + mục lục, bảng thông số nằm ở mục "Product Technical
+ * Requirements" sâu phía sau — cắt đầu là tóm tắt toàn địa chỉ nhà máy.
+ */
+const DAU_THONG_SO =
+  /technical requirement|technical parameter|product parameter|pixel (?:pitch|density|composition)|resolution|brightness|refresh|scan(?:ning)? (?:mode|rate)|power consumption|working voltage|thong so ky thuat|thông số kỹ thuật|độ sáng|điểm ảnh/i;
+
+/**
+ * Cắt đoạn đáng-tóm-tắt nhất của tài liệu: từ dấu hiệu thông số đầu tiên lấy
+ * 1200 ký tự (lùi 80 để giữ tiêu đề mục); không thấy thì đành lấy 900 đầu.
+ * Thuần để test được (`kho-tai-lieu.func`).
+ */
+export function catDoanThongSo(noi: string): string {
+  // Dòng MỤC LỤC cũng chứa đúng chữ này ("Technical Requirements………… 6") —
+  // nhận ra nhờ chuỗi chấm/ellipsis ngay sau, bỏ qua để tới mục thật.
+  const re = new RegExp(DAU_THONG_SO.source, 'gi');
+  let viTri = -1;
+  for (const m of noi.matchAll(re)) {
+    const sau = noi.slice(m.index, (m.index ?? 0) + 90);
+    if (/[.…]{4,}/.test(sau)) {
+      if (viTri < 0) viTri = m.index ?? -1; // toàn mục lục thì đành lấy nó
+      continue;
+    }
+    viTri = m.index ?? -1;
+    break;
+  }
+  if (viTri < 0) return noi.slice(0, 900);
+  const tu = Math.max(0, viTri - 80);
+  return noi.slice(tu, tu + 1200);
 }
