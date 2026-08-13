@@ -28,6 +28,13 @@ export interface DocOdooInput {
   loc?: unknown[];
   cot?: string[];
   nhom_theo?: string[];
+  /**
+   * HAVING phía client (13/08 — ca "khách hàng tên trùng nhau"): chỉ giữ nhóm
+   * có __count >= mức này. Odoo read_group KHÔNG có HAVING; model đã thử
+   * ["__count",">",1] trong loc (hướng đúng!) nhưng Odoo không hiểu — loay
+   * hoay 8 lượt rồi dump 200 nhóm toàn __count=1.
+   */
+  dem_toi_thieu?: number;
   do?: string[];
   sap_xep?: string;
   gioi_han?: number;
@@ -64,6 +71,20 @@ export async function docOdoo(deps: DocOdooDeps, input: DocOdooInput): Promise<K
   try {
     // ── Có nhóm → read_group: mọi báo cáo tổng hợp đi đường này ──
     if (input.nhom_theo && input.nhom_theo.length > 0) {
+      // "__count" trong loc là ý HAVING của model — Odoo domain không hiểu
+      // aggregate, để nguyên là nổ. Rút ra, quy về dem_toi_thieu tương đương.
+      let demToiThieu = Number(input.dem_toi_thieu) >= 2 ? Number(input.dem_toi_thieu) : 0;
+      const locSach = (input.loc ?? []).filter((dk) => {
+        if (Array.isArray(dk) && dk[0] === '__count') {
+          const n = Number(dk[2]);
+          if (Number.isFinite(n)) {
+            const min = dk[1] === '>' ? n + 1 : dk[1] === '>=' ? n : n;
+            demToiThieu = Math.max(demToiThieu, min);
+          }
+          return false;
+        }
+        return true;
+      });
       // Tham số 2 của read_group là các cột CẦN CỘNG (+ cột nhóm), KHÔNG phải
       // `cot`. Bug thật 19:03 10/08: model truyền cả `cot` lẫn `do` → Odoo ném
       // "too many values to unpack" và bot mò tiếp cho tới khi hết 90s.
@@ -74,10 +95,18 @@ export async function docOdoo(deps: DocOdooDeps, input: DocOdooInput): Promise<K
       const dong = await deps.odoo.execute<Array<Record<string, unknown>>>(
         bang,
         'read_group',
-        [input.loc ?? [], fields, input.nhom_theo],
-        { lazy: false, limit: gioiHan, ...(input.sap_xep ? { orderby: input.sap_xep } : {}) },
+        [locSach, fields, input.nhom_theo],
+        // Có HAVING: limit của Odoo áp TRƯỚC lọc — nhóm thoả có thể nằm ngoài
+        // trang đầu, nên lấy hết rồi lọc/cắt phía mình.
+        { lazy: false, ...(demToiThieu >= 2 ? {} : { limit: gioiHan }), ...(input.sap_xep ? { orderby: input.sap_xep } : {}) },
       );
-      const ds = Array.isArray(dong) ? dong : [];
+      let ds = Array.isArray(dong) ? dong : [];
+      if (demToiThieu >= 2) {
+        ds = ds
+          .filter((d) => Number(d.__count ?? 0) >= demToiThieu)
+          .sort((a, b) => Number(b.__count ?? 0) - Number(a.__count ?? 0))
+          .slice(0, gioiHan);
+      }
       return { trangThai: 'ok', dong: ds, soDong: ds.length };
     }
 
@@ -113,7 +142,9 @@ export function dinhDangDoc(kq: KetQuaDoc): string {
   const hien = kq.dong.slice(0, DONG_HIEN).map((d) => {
     const cap = Object.entries(d)
       .filter(([k]) => k !== '__domain' && k !== '__context' && k !== '__range')
-      .map(([k, v]) => `${k}=${gonGang(v)}`);
+      // "__count=3" là nhãn kỹ thuật — người đọc cần "× 3" (ca 00:21 13/08:
+      // 200 dòng "name=... · __count=1" đổ thẳng vào Zalo, không ai đọc nổi).
+      .map(([k, v]) => (k === '__count' ? `× ${gonGang(v)}` : `${k}=${gonGang(v)}`));
     return '- ' + cap.join(' · ');
   });
   const con = kq.soDong > DONG_HIEN ? `\n(còn ${kq.soDong - DONG_HIEN} dòng nữa)` : '';
@@ -144,6 +175,12 @@ export const docOdooDefinition: ToolDefinition = {
       do: { type: 'array', items: { type: 'string' }, description: 'Cột cần cộng khi nhóm: price_total, product_uom_qty' },
       sap_xep: { type: 'string', description: 'vd "price_total desc"' },
       gioi_han: { type: 'integer', description: `Số dòng, mặc định ${MAC_DINH_DONG}, tối đa ${TRAN_DONG}` },
+      dem_toi_thieu: {
+        type: 'integer',
+        description:
+          'Chỉ giữ nhóm xuất hiện >= mức này (HAVING). Câu "trùng nhau"/"bị lặp" ' +
+          '→ nhom_theo cột đó + dem_toi_thieu: 2. KHÔNG nhét __count vào loc.',
+      },
     },
     required: ['bang'],
   },

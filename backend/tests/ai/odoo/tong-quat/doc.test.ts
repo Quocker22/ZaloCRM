@@ -79,3 +79,55 @@ describe('docOdoo', () => {
     expect(s.toLowerCase()).not.toContain('lỗi');
   });
 });
+
+describe('dem_toi_thieu — HAVING phía client (ca "tên trùng nhau" 13/08)', () => {
+  const nhomGia = [
+    { name: 'Nguyễn Văn A', __count: 3 },
+    { name: 'Trần B', __count: 1 },
+    { name: 'Lê C', __count: 2 },
+    { name: '0974775886', __count: 1 },
+  ];
+  const odooNhom = () => ({
+    searchRead: vi.fn(async () => []),
+    execute: vi.fn(async () => nhomGia),
+  });
+
+  it('dem_toi_thieu: 2 → chỉ nhóm trùng, sort theo count giảm dần', async () => {
+    const { docOdoo } = await import('../../../../src/modules/ai/odoo/tong-quat/doc.js');
+
+    const kq = await docOdoo({ odoo: odooNhom() as never }, {
+      bang: 'res.partner', nhom_theo: ['name'], do: ['id'], dem_toi_thieu: 2,
+    });
+
+    expect(kq.trangThai).toBe('ok');
+    if (kq.trangThai === 'ok') {
+      expect(kq.dong.map((d) => d.name)).toEqual(['Nguyễn Văn A', 'Lê C']);
+    }
+  });
+
+  it('model nhét ["__count",">",1] vào loc → tự rút thành HAVING, domain sạch không nổ', async () => {
+    const { docOdoo } = await import('../../../../src/modules/ai/odoo/tong-quat/doc.js');
+    const odoo = odooNhom();
+
+    const kq = await docOdoo({ odoo: odoo as never }, {
+      bang: 'res.partner', nhom_theo: ['name'], do: ['__count'],
+      loc: [['name', '!=', false], ['__count', '>', 1]],
+    });
+
+    // Domain gửi Odoo không còn __count.
+    const domainGui = odoo.execute.mock.calls[0][2] as unknown[][];
+    expect(JSON.stringify(domainGui[0])).not.toContain('__count');
+    if (kq.trangThai === 'ok') {
+      expect(kq.dong.every((d) => Number(d.__count) >= 2)).toBe(true);
+    }
+  });
+
+  it('định dạng: "__count" hiện thành "× N", không lộ nhãn kỹ thuật', async () => {
+    const { dinhDangDoc } = await import('../../../../src/modules/ai/odoo/tong-quat/doc.js');
+
+    const ra = dinhDangDoc({ trangThai: 'ok', soDong: 1, dong: [{ name: 'Nguyễn Văn A', __count: 3 }] } as never);
+
+    expect(ra).toContain('× 3');
+    expect(ra).not.toContain('__count=');
+  });
+});
