@@ -2,7 +2,14 @@
 FROM node:20-alpine AS frontend-builder
 WORKDIR /app/frontend
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci --legacy-peer-deps
+# BUG npm optional-deps (npm/cli#4828, lộ 13/08 khi layer cache bị prune):
+# `npm ci` với lock tạo trên macOS/arm64 KHÔNG cài native binding musl của
+# rolldown → vite build chết "Cannot find module @rolldown/binding-linux-x64-musl".
+# Cache còn thì layer cũ (đã có binding) che bug — mất cache là mọi build fail.
+# Cài rõ binding ĐÚNG VERSION của rolldown đang dùng ngay sau npm ci.
+RUN npm ci --legacy-peer-deps \
+  && npm i --no-save "@rolldown/binding-linux-x64-musl@$(node -p "require('rolldown/package.json').version")" \
+  || npm i --no-save @rolldown/binding-linux-x64-musl
 COPY frontend/ ./
 RUN npm run build
 
