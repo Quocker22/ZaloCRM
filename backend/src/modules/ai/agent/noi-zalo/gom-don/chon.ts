@@ -212,6 +212,36 @@ export function apDungChon(p: PhienGom, cauTho: string): boolean {
   // '-' cũng là dấu ngăn lựa chọn (ca thật 19:53 12/08: NV gõ "1-b" bị từ
   // chối rồi lặp danh sách). "NB-12V400W" không bị ảnh hưởng: tách ra
   // ["nb","12v400w"] vẫn trượt mẫu chọn nên đi đường tra tên như cũ.
+  // CẶP SỐ-NHÓM + CHỮ: "1b", "1-b", "1b 2a" (vá 09:53 13/08). NV Quyết gõ
+  // "1-b" với nghĩa "nhóm 1 chọn b" — trực giác hoàn toàn tự nhiên khi bot
+  // vừa in 2 nhóm. CHỈ hiểu kiểu cặp khi KHÔNG còn danh sách khách/NCC treo:
+  // lúc đó số không thể là khách, chỉ có thể là SỐ NHÓM. Còn khách đang treo
+  // thì giữ quy ước cũ (số = khách, chữ lần lượt nhóm — "1 a b"), ví dụ
+  // trong tin bot in đúng theo từng tình huống nên NV nhìn là biết.
+  if (!p.khachUngVien?.length && nhomTreo.length > 0) {
+    const tokens0 = cau.toLowerCase().split(/[\s,.+&]+|\bvà\b/).filter(Boolean);
+    const laCap = tokens0.length > 0 && tokens0.every((t) => /^\d{1,2}-?[a-z]$/.test(t));
+    if (laCap) {
+      let mapCap = false;
+      for (const t of tokens0) {
+        const m = t.match(/^(\d{1,2})-?([a-z])$/)!;
+        const nhomIdx = Number(m[1]) - 1;
+        const ung = nhomTreo[nhomIdx]?.ungVien;
+        const idx = m[2].charCodeAt(0) - 97;
+        if (ung && idx >= 0 && idx < ung.length) {
+          const sChon = ung[idx];
+          nhomTreo[nhomIdx].daChot = { id: sChon.id, ten: sChon.ten, gia: sChon.gia };
+          delete nhomTreo[nhomIdx].ungVien;
+          mapCap = true;
+        }
+      }
+      if (mapCap) { gopDongTrung(p); return true; }
+      // Cặp đúng dạng mà không khớp nhóm/chữ nào → vẫn là câu chọn, nuốt để
+      // danh sách in lại (cùng lý do nhánh nuốt bên dưới).
+      return true;
+    }
+  }
+
   const tuChon = cau.toLowerCase().split(/[\s,.+&-]+|\bvà\b/).filter(Boolean);
   // Token hợp lệ: "1", "1a", "a" như cũ, HOẶC số+nhiều chữ ("1aaaaaa") /
   // chuỗi chữ liền ("aab") — hai dạng mới phải qua kiểm phạm vi bên dưới.

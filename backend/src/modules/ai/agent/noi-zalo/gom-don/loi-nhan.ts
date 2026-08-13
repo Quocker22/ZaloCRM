@@ -30,17 +30,30 @@ function danhSachChon(p: PhienGom): string {
       phan.push('Danh sách CHƯA ĐỦ — còn khách trùng khác. Không thấy đúng người, anh/chị gõ tên đầy đủ hơn hoặc SĐT giúp em.');
     }
   }
-  for (const d of p.dong) {
-    if (!d.ungVien?.length) continue;
+  // ĐÁNH SỐ NHÓM khi có TỪ HAI nhóm hàng trở lên (vá 09:53 13/08). Ca thật:
+  // bot in 2 nhóm không đánh số, ví dụ ghi mỗi "vd: a" — NV Quyết gõ "1-b"
+  // theo trực giác "nhóm 1 chọn b" và máy hiểu lệch. Người ta đánh số cho
+  // mình thì mình phải in số ra — và ví dụ phải khớp đúng tình huống.
+  const nhomSp = p.dong.filter((d) => d.ungVien?.length);
+  const coSoNhom = nhomSp.length >= 2 && !p.khachUngVien?.length;
+  nhomSp.forEach((d, iNhom) => {
     phan.push(
-      `"${d.tuKhoa}" có ${d.ungVien.length} loại:`,
-      ...d.ungVien.map((s, i) =>
+      `${coSoNhom ? `${iNhom + 1}) ` : ''}"${d.tuKhoa}" có ${d.ungVien!.length} loại:`,
+      ...d.ungVien!.map((s, i) =>
         `${chuCai(i)}) ${s.ten} · ${s.gia > NGUONG_AO ? tien(s.gia) : 'chưa có giá'}`),
     );
-  }
+  });
   const canSo = Boolean(p.khachUngVien?.length);
-  const canChu = p.dong.some((d) => d.ungVien?.length);
-  const goiY = canSo && canChu ? 'vd: 1a' : canSo ? 'vd: 1' : 'vd: a';
+  const canChu = nhomSp.length > 0;
+  // Ví dụ theo đúng tình huống đang hỏi:
+  //   khách + nhóm hàng  → "1 a b" (số cho khách, chữ lần lượt từng nhóm)
+  //   ≥2 nhóm, không khách → "1b 2a" (cặp SỐ NHÓM + chữ)
+  //   1 nhóm              → "a"
+  const goiY = canSo && canChu
+    ? `vd: 1 ${nhomSp.map(() => 'a').join(' ')}`
+    : coSoNhom
+      ? 'vd: 1b 2a — số là NHÓM, chữ là lựa chọn'
+      : canSo ? 'vd: 1' : 'vd: a';
   phan.push(`Anh/chị chọn giúp em (${goiY}) ạ.`);
   return phan.join('\n');
 }

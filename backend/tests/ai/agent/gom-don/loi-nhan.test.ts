@@ -26,7 +26,7 @@ describe('renderLoiNhan', () => {
     expect(s).toContain('2) Trần Hưng · KH000022 · 0987654321');
     expect(s).toContain('a) Nguồn NB 12V100W · 185.000đ');
     expect(s).toContain('b) Nguồn NB 24V200W · 320.000đ');
-    expect(s.toLowerCase()).toContain('vd: 1a');
+    expect(s.toLowerCase()).toContain('vd: 1 a');
     expect(s).not.toContain('undefined');
     expect(s).not.toContain('bao nhiêu'); // cấm hỏi lại SL đã có
   });

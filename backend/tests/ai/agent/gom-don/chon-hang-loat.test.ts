@@ -185,3 +185,64 @@ describe('"1-b" có gạch — dấu ngăn lựa chọn (ca 19:53 12/08)', () =>
     expect(p.dong.every((d) => d.ungVien?.length === 3)).toBe(true);
   });
 });
+
+describe('cặp SỐ-NHÓM "1-b"/"1b 2a" khi KHÔNG còn khách treo (ca 09:53 13/08)', () => {
+  const phienKhongKhach = () => {
+    const p = phienCaThat();
+    delete (p as { khachUngVien?: unknown }).khachUngVien;
+    p.khachDaChot = { id: 9, ma: 'KH1', ten: 'Led Vũ Minh', dienThoai: null } as never;
+    p.dong = p.dong.slice(0, 2);
+    return p;
+  };
+
+  it('"1-b" → NHÓM 1 chọn b, nhóm 2 GIỮ NGUYÊN (không lệch sang nhóm khác)', () => {
+    const p = phienKhongKhach();
+
+    expect(apDungChon(p, '1-b')).toBe(true);
+    expect(p.dong[0].daChot?.ten).toBe('SP 0-b');
+    expect(p.dong[1].ungVien?.length).toBe(3);
+  });
+
+  it('"1b 2a" → cả hai nhóm chốt đúng', () => {
+    const p = phienKhongKhach();
+
+    expect(apDungChon(p, '1b 2a')).toBe(true);
+    expect(p.dong[0].daChot?.ten).toBe('SP 0-b');
+    expect(p.dong[1].daChot?.ten).toBe('SP 1-a');
+  });
+
+  it('khách CÒN treo → "1-b" giữ quy ước cũ (số=khách, chữ=nhóm đầu)', () => {
+    const p = phienCaThat();
+    p.dong = p.dong.slice(0, 2);
+
+    expect(apDungChon(p, '1-b')).toBe(true);
+    expect(p.khachDaChot?.ma).toBe('NCC000001');
+    expect(p.dong[0].daChot?.ten).toBe('SP 0-b');
+  });
+});
+
+describe('render đánh số nhóm khi ≥2 nhóm (đi cặp với parser)', () => {
+  it('2 nhóm không khách → "1) ..." "2) ..." + vd "1b 2a"', async () => {
+    const { renderLoiNhan } = await import('../../../../src/modules/ai/agent/noi-zalo/gom-don/loi-nhan.js');
+    const p = phienCaThat();
+    delete (p as { khachUngVien?: unknown }).khachUngVien;
+    p.dong = p.dong.slice(0, 2);
+
+    const tin = renderLoiNhan({ loai: 'hoi_chon' } as never, p);
+
+    expect(tin).toContain('1) "nhóm 1"');
+    expect(tin).toContain('2) "nhóm 2"');
+    expect(tin).toContain('vd: 1b 2a');
+  });
+
+  it('khách + nhóm → ví dụ "1 a a" (số cho khách), KHÔNG đánh số nhóm', async () => {
+    const { renderLoiNhan } = await import('../../../../src/modules/ai/agent/noi-zalo/gom-don/loi-nhan.js');
+    const p = phienCaThat();
+    p.dong = p.dong.slice(0, 2);
+
+    const tin = renderLoiNhan({ loai: 'hoi_chon' } as never, p);
+
+    expect(tin).toContain('vd: 1 a a');
+    expect(tin).not.toContain('1) "nhóm 1"');
+  });
+});

@@ -275,7 +275,8 @@ describe('replay 11:52-11:58 12/08 — nhân viên chọn mà bot không thoát 
     expect(m.tinGui).toHaveLength(1);
     expect(m.tinGui[0]).toContain('2 khách tên');
     expect(m.tinGui[0]).toContain('2 loại');
-    expect(m.tinGui[0]).toContain('vd: 1a');
+    // Format 13/08: khách + nhóm → "vd: 1 a" (số cách chữ — khớp parser hàng loạt).
+    expect(m.tinGui[0]).toContain('vd: 1 a');
   });
 
   it('A. gõ "1" → chốt khách, KHÔNG in lại nguyên câu hỏi cũ', async () => {
