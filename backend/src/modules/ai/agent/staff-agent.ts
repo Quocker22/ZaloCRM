@@ -67,7 +67,7 @@ import {
   traTriThuc, traTriThucDefinition, dinhDangTriThuc,
 } from '../odoo/tools/tra-tri-thuc.js';
 import {
-  guiTaiLieu, guiTaiLieuDefinition, dinhDangGuiTaiLieu, type TaiLieu,
+  guiTaiLieu, guiTaiLieuDefinition, dinhDangGuiTaiLieu, khoiNoiDungKemFile, type TaiLieu,
 } from '../odoo/tools/gui-tai-lieu.js';
 import {
   baoCaoTongQuan, baoCaoTongQuanDefinition, dinhDangBaoCaoTongQuan,
@@ -201,6 +201,8 @@ export interface StaffAgentDeps {
    * 11/08).
    */
   lietTaiLieu?: () => Promise<TaiLieu[]>;
+  /** Trích nội dung thô của tài liệu (RAG) để nhắn kèm tóm tắt sau khi gửi file. */
+  trichTaiLieu?: (tieuDe: string) => Promise<string | null>;
   /** Luat nhan vien dan — da nap san tu DB (napLuatNhanVien), chen vao nga canh moi luot. */
   luatNhanVien?: string[];
   /** Kho ghi/quen luat — truyen xuong registry de mo tool ghi_luat/quen_luat. */
@@ -393,6 +395,8 @@ export function buildStaffRegistry(deps: {
    * đúng bug 03:17-03:18 ngày 11/08.
    */
   lietTaiLieu?: () => Promise<TaiLieu[]>;
+  /** Trích nội dung thô của tài liệu (RAG) để nhắn kèm tóm tắt sau khi gửi file. */
+  trichTaiLieu?: (tieuDe: string) => Promise<string | null>;
   /** Tải tài liệu về đường dẫn cục bộ. Mặc định dùng `taiTaiLieuVe` của kho. */
   taiTaiLieu?: (t: TaiLieu) => Promise<string>;
   /** Nhận file tài liệu đã tải — caller gửi qua Zalo sau phần text. */
@@ -754,7 +758,14 @@ export function buildStaffRegistry(deps: {
         if (kq.loai === 'da_gui') {
           deps.nhanTaiLieu?.({ tieuDe: kq.taiLieu.tieuDe, duongDanCucBo: kq.duongDanCucBo });
         }
-        return dinhDangGuiTaiLieu(kq);
+        let ra = dinhDangGuiTaiLieu(kq);
+        // Kèm TRÍCH nội dung để model tóm thông số trong cùng tin báo — chỉ
+        // "Em đã gửi file..." thì cụt ngủn (anh Quốc 17:41 13/08). Best-effort.
+        if (kq.loai === 'da_gui' && deps.trichTaiLieu) {
+          const trich = await deps.trichTaiLieu(kq.taiLieu.tieuDe).catch(() => null);
+          if (trich) ra += khoiNoiDungKemFile(trich);
+        }
+        return ra;
       },
     });
   }
@@ -901,6 +912,7 @@ export async function chayLenhNhanVien(
     odooUrl: deps.odooUrl,
     timDoanTriThuc: deps.timDoanTriThuc,
     lietTaiLieu: deps.lietTaiLieu,
+    trichTaiLieu: deps.trichTaiLieu,
     luatStore: deps.luatStore,
     // Bot gọi gui_hoa_don nhiều lần thì lấy cái CUỐI — đó là đơn nó đang nói tới.
     nhanHoaDon: (kq) => { hoaDon = kq; },

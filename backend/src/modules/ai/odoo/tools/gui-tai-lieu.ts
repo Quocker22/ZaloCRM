@@ -225,9 +225,28 @@ export type KetQuaGuiTaiLieu =
 /**
  * Chuẩn tên để so NGUYÊN VĂN: bỏ dấu, bỏ đuôi file, bỏ mọi ký tự ngăn cách.
  * "LLR -P10 -RGB OPLUNG.pdf" và "llr p10 rgb ốp lưng" đều về "llrp10rgboplung".
+ * Export cho kho-tai-lieu dò KnowledgeDocument cùng tên (title = tên file
+ * bỏ .pdf nhưng khác nhau dấu cách/gạch).
  */
-function chuanTen(s: string): string {
+export function chuanTen(s: string): string {
   return boDau(s).replace(/\.[a-z0-9]{2,4}$/, '').replace(/[^a-z0-9]/g, '');
+}
+
+/**
+ * Khối đính sau kết quả 'da_gui' khi có TRÍCH NỘI DUNG tài liệu (từ RAG).
+ *
+ * Anh Quốc 17:41 13/08: chỉ báo 'Em đã gửi file …' thì "hơi cụt ngủn" — muốn
+ * kèm tóm tắt nội dung chính. Trích thô đưa vào ngữ cảnh để model TÓM,
+ * không bắt model tự nhớ tài liệu (nó không nhớ) hay tự gọi thêm tool (bước
+ * thừa, hay quên).
+ */
+export function khoiNoiDungKemFile(trich: string): string {
+  return (
+    `\n\nTRÍCH NỘI DUNG TÀI LIỆU (thô, chưa gọt): """${trich}"""\n` +
+    'Trong CÙNG tin báo đã gửi file, nhắn kèm 3-4 gạch đầu dòng thông số then chốt ' +
+    '(kích thước/pixel, độ sáng, công suất, IP, tần số quét…) rút từ phần trích trên. ' +
+    'Viết NGẮN; số nào không có trong trích thì ĐỪNG bịa.'
+  );
 }
 
 export async function guiTaiLieu(

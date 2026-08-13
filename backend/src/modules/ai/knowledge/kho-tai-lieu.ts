@@ -28,7 +28,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { prisma } from '../../../shared/database/prisma-client.js';
 import { logger } from '../../../shared/utils/logger.js';
-import { locGiaNoiBo, type TaiLieu } from '../odoo/tools/gui-tai-lieu.js';
+import { locGiaNoiBo, chuanTen, type TaiLieu } from '../odoo/tools/gui-tai-lieu.js';
 
 /** Gốc thư mục file upload — cùng giá trị config.uploadDir. */
 const THU_MUC_FILE = process.env.UPLOAD_DIR || '/var/lib/zalo-crm/files';
@@ -201,5 +201,39 @@ export async function khoTaiLieuCuaOrg(
   } catch (err) {
     logger.warn({ err, orgId }, '[kho-tai-lieu] không đếm được file — tắt gửi tài liệu lượt này');
     return undefined;
+  }
+}
+
+/**
+ * Trích NỘI DUNG THÔ của tài liệu vừa gửi — để bot nhắn kèm tóm tắt thông số
+ * (anh Quốc 17:41 13/08: chỉ "Em đã gửi file..." thì "hơi cụt ngủn").
+ *
+ * Nguồn: KnowledgeDocument (RAG đã nạp sẵn text của datasheet, title = tên
+ * file bỏ .pdf). Khớp bằng `chuanTen` — cùng bộ chuẩn hoá với tầng khớp
+ * nguyên văn của gui_tai_lieu, nên file nào gửi được là dò được document đó.
+ * Best-effort: lỗi/không thấy → null, tin báo gửi file vẫn đi như thường.
+ */
+export async function trichNoiDungTaiLieu(orgId: string, tieuDe: string): Promise<string | null> {
+  try {
+    const docs = await prisma.knowledgeDocument.findMany({
+      where: { orgId },
+      select: { id: true, title: true },
+    });
+    const yc = chuanTen(tieuDe);
+    if (!yc) return null;
+    const khop = docs.find((d) => chuanTen(d.title) === yc);
+    if (!khop) return null;
+    const doc = await prisma.knowledgeDocument.findUnique({
+      where: { id: khop.id },
+      select: { content: true },
+    });
+    const noi = doc?.content?.replace(/\s+/g, ' ').trim();
+    if (!noi) return null;
+    // 900 ký tự ĐẦU: datasheet dồn thông số chính lên đầu; đưa cả 45K vào
+    // prompt là nuốt ngữ cảnh vô ích.
+    return noi.length > 900 ? noi.slice(0, 900) : noi;
+  } catch (err) {
+    logger.warn({ err, tieuDe }, '[kho-tai-lieu] trích nội dung tài liệu lỗi — bỏ qua tóm tắt');
+    return null;
   }
 }

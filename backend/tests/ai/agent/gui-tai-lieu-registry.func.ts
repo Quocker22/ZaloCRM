@@ -132,3 +132,32 @@ describe('CHỈ file TÀI LIỆU — không phải mọi thứ nhân viên từn
     expect(locGiaNoiBo(kho)).toHaveLength(0);
   });
 });
+
+describe('TRÍCH NỘI DUNG kèm tin "đã gửi file" (anh Quốc 17:41 13/08: đừng cụt ngủn)', () => {
+  const chay = async (trichTaiLieu?: (t: string) => Promise<string | null>) => {
+    const r = buildStaffRegistry({
+      odoo: fakeOdoo(), conversationId: 'c1', seq: 1, ghiNhanChuyenSale: vi.fn(),
+      lietTaiLieu: khoTaiLieu,
+      taiTaiLieu: async () => '/tmp/f.pdf',
+      ...(trichTaiLieu ? { trichTaiLieu } : {}),
+    });
+    const kq = await r.executor()({
+      id: 't1', name: 'gui_tai_lieu', input: { yeu_cau: 'LLR - P4 3840-7680HZ.pdf' },
+    });
+    return String(kq.content);
+  };
+
+  it('có trích → output tool kèm khối nội dung + lệnh tóm 3-4 ý, cấm bịa số', async () => {
+    const ra = await chay(async () => 'P4 outdoor, độ sáng 5500 nits, IP65, quét 3840Hz');
+    expect(ra).toContain('ĐÃ GỬI file');
+    expect(ra).toContain('5500 nits');
+    expect(ra).toMatch(/ĐỪNG bịa/);
+  });
+
+  it('trích lỗi/không có → tin báo gửi file vẫn nguyên vẹn như cũ', async () => {
+    const ra = await chay(async () => { throw new Error('db chết'); });
+    expect(ra).toContain('ĐÃ GỬI file');
+    expect(ra).not.toContain('TRÍCH NỘI DUNG');
+    expect(await chay()).toContain('ĐÃ GỬI file');
+  });
+});

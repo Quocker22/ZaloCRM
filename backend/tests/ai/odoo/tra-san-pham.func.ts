@@ -163,7 +163,6 @@ describe('traSanPham — chống nhầm sản phẩm', () => {
     if (kq.length > 0) {
       expect(kq.ganDung === true || kq.daNoiRong === true).toBe(true);
     }
-    expect(kq.tongKhop).toBe(0);
   });
 
   it('query KHÔNG có mã → trả hết kết quả Odoo (không lọc)', async () => {

@@ -40,7 +40,7 @@ import {
   traTriThuc, traTriThucDefinition, dinhDangTriThuc,
 } from '../odoo/tools/tra-tri-thuc.js';
 import {
-  guiTaiLieu, guiTaiLieuDefinition, dinhDangGuiTaiLieu, type TaiLieu,
+  guiTaiLieu, guiTaiLieuDefinition, dinhDangGuiTaiLieu, khoiNoiDungKemFile, type TaiLieu,
 } from '../odoo/tools/gui-tai-lieu.js';
 import { findImageForReply } from '../knowledge/product-image.js';
 import { laYDinhDung, khoeDaGuiTaiLieu, coBangChungGuiFile } from './y-dinh-dung.js';
@@ -68,6 +68,8 @@ export interface CustomerAgentDeps {
    * tool `gui_tai_lieu` không đăng ký — khỏi hứa gửi rồi không gửi được.
    */
   lietTaiLieu?: () => Promise<TaiLieu[]>;
+  /** Trích nội dung thô của tài liệu (RAG) để nhắn kèm tóm tắt sau khi gửi file. */
+  trichTaiLieu?: (tieuDe: string) => Promise<string | null>;
   /**
    * Guideline engine (docs/THIET-KE-GUIDELINE-ENGINE.md). Không truyền = 'off'
    * — prompt tĩnh, đúng hành vi cũ từng byte.
@@ -170,6 +172,8 @@ export function buildCustomerRegistry(deps: {
    * thì tool `gui_tai_lieu` không đăng ký. Danh sách trả về ĐÃ qua `locGiaNoiBo`.
    */
   lietTaiLieu?: () => Promise<TaiLieu[]>;
+  /** Trích nội dung thô của tài liệu (RAG) để nhắn kèm tóm tắt sau khi gửi file. */
+  trichTaiLieu?: (tieuDe: string) => Promise<string | null>;
   /** Tải tài liệu về đường dẫn cục bộ. Mặc định dùng `taiTaiLieuVe` của kho. */
   taiTaiLieu?: (t: TaiLieu) => Promise<string>;
   /** Nhận file tài liệu đã tải — caller gửi qua Zalo sau phần text. */
@@ -261,7 +265,14 @@ export function buildCustomerRegistry(deps: {
         if (kq.loai === 'da_gui') {
           deps.nhanTaiLieu?.({ tieuDe: kq.taiLieu.tieuDe, duongDanCucBo: kq.duongDanCucBo });
         }
-        return dinhDangGuiTaiLieu(kq);
+        let ra = dinhDangGuiTaiLieu(kq);
+        // Kèm trích nội dung cho tin báo gửi file đỡ cụt ngủn (17:41 13/08) —
+        // kho đã qua locGiaNoiBo nên trích ra cũng là datasheet công khai.
+        if (kq.loai === 'da_gui' && deps.trichTaiLieu) {
+          const trich = await deps.trichTaiLieu(kq.taiLieu.tieuDe).catch(() => null);
+          if (trich) ra += khoiNoiDungKemFile(trich);
+        }
+        return ra;
       },
     });
   }
@@ -498,6 +509,7 @@ export async function chayTuVanKhach(
       nhanDon: (d) => { donVuaTao = d; },
     },
     lietTaiLieu: deps.lietTaiLieu,
+    trichTaiLieu: deps.trichTaiLieu,
     nhanTaiLieu: (t) => { taiLieuDaLay.push(t); },
     toolChoPhep: dungPromptDong ? tinhToolChoPhep(match!, guidelineActive) : undefined,
   });

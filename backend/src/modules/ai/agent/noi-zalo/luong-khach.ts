@@ -21,7 +21,7 @@ import { batLuongKhach, batKhachTuChotDon, duCauHinh, tranTienKhach, chanDonLien
 import { dungGenerate } from './llm.js';
 import { layOdoo, timTriThuc, layLichSu, seqTuMessageId, coTinKhachMoiHon } from './du-lieu.js';
 import { timDich, guiTin, guiAnh, guiFile, guiHoaDonVaQr } from './gui-zalo.js';
-import { khoTaiLieuCuaOrg } from '../../knowledge/kho-tai-lieu.js';
+import { khoTaiLieuCuaOrg, trichNoiDungTaiLieu } from '../../knowledge/kho-tai-lieu.js';
 import { baoNhanVien, CAU_GIU_CHAN } from './bao-nhan-vien.js';
 import { LOAI_VIEC } from './dich-bao.js';
 import { demVaKiemTra, CAU_XIN_PHEP } from './gioi-han.js';
@@ -243,6 +243,8 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
         ghiLog: (l) => { soToolDaChay++; ghiDb(l); },
         timDoanTriThuc: triThuc,
         lietTaiLieu: khoTaiLieu,
+        // Trích RAG kèm tin "đã gửi file" — đỡ cụt ngủn (anh Quốc 17:41 13/08).
+        trichTaiLieu: (tieuDe) => trichNoiDungTaiLieu(ctx.orgId, tieuDe),
         guidelineEngine: engineMode && guidelines
           ? {
               mode: engineMode,
