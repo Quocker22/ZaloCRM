@@ -132,6 +132,28 @@ function gonGang(v: unknown): string {
   return String(v ?? '');
 }
 
+// Cột Odoo hay gặp → nhãn tiếng Việt. '' = giá trị tự đứng, không cần nhãn.
+// Người đọc cuối là nhân viên/khách KHÔNG có chuyên môn — "name=", "price_total="
+// là nhãn kỹ thuật, không được lọt ra Zalo (anh Quốc phản hồi ca 13/08).
+const NHAN_COT_VI: Record<string, string> = {
+  name: '', display_name: '', __count: '',
+  id: 'mã', default_code: 'mã',
+  partner_id: 'khách', product_id: 'SP', user_id: 'phụ trách', order_id: 'đơn',
+  amount_total: 'tổng tiền', price_total: 'doanh thu', price_subtotal: 'tiền hàng',
+  price_unit: 'đơn giá', list_price: 'giá bán', amount_residual: 'còn nợ',
+  product_uom_qty: 'SL', quantity: 'SL', qty_delivered: 'đã giao', qty_available: 'tồn',
+  date: 'ngày', date_order: 'ngày', create_date: 'ngày tạo', invoice_date: 'ngày HĐ',
+  phone: 'ĐT', mobile: 'ĐT', email: 'email', state: 'trạng thái', city: 'khu vực',
+};
+
+/** Nhãn người đọc cho một cột: tra bảng dịch, fallback bỏ _id/gạch dưới. */
+function nhanCot(k: string): string {
+  const goc = k.split(':')[0]; // nhom_theo "date:month" → tra "date"
+  const nhan = NHAN_COT_VI[k] ?? NHAN_COT_VI[goc];
+  if (nhan !== undefined) return nhan;
+  return goc.replace(/_ids?$/, '').replace(/_/g, ' ');
+}
+
 export function dinhDangDoc(kq: KetQuaDoc): string {
   if (kq.trangThai === 'loi') return `Không đọc được: ${kq.lyDo}`;
   if (kq.soDong === 0) {
@@ -144,7 +166,11 @@ export function dinhDangDoc(kq: KetQuaDoc): string {
       .filter(([k]) => k !== '__domain' && k !== '__context' && k !== '__range')
       // "__count=3" là nhãn kỹ thuật — người đọc cần "× 3" (ca 00:21 13/08:
       // 200 dòng "name=... · __count=1" đổ thẳng vào Zalo, không ai đọc nổi).
-      .map(([k, v]) => (k === '__count' ? `× ${gonGang(v)}` : `${k}=${gonGang(v)}`));
+      .map(([k, v]) => {
+        if (k === '__count') return `× ${gonGang(v)}`;
+        const nhan = nhanCot(k);
+        return nhan ? `${nhan} ${gonGang(v)}` : gonGang(v);
+      });
     return '- ' + cap.join(' · ');
   });
   const con = kq.soDong > DONG_HIEN ? `\n(còn ${kq.soDong - DONG_HIEN} dòng nữa)` : '';

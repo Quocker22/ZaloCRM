@@ -131,3 +131,30 @@ describe('dem_toi_thieu — HAVING phía client (ca "tên trùng nhau" 13/08)', 
     expect(ra).not.toContain('__count=');
   });
 });
+
+describe('nhãn cột tiếng người — không lộ "name=" ra Zalo', () => {
+  it('name tự đứng, __count → × N, cột quen → nhãn Việt', async () => {
+    const { dinhDangDoc } = await import('../../../../src/modules/ai/odoo/tong-quat/doc.js');
+    const ra = dinhDangDoc({
+      trangThai: 'ok', soDong: 2,
+      dong: [
+        { name: 'anh du', __count: 5 },
+        { name: 'Đèn P10', price_total: 12500000, product_uom_qty: 40 },
+      ],
+    } as never);
+    expect(ra).toContain('- anh du · × 5');
+    expect(ra).toContain('- Đèn P10 · doanh thu 12.500.000 · SL 40');
+    expect(ra).not.toMatch(/name=|price_total|product_uom_qty/);
+  });
+
+  it('cột lạ: fallback bỏ _id + gạch dưới, nhom_theo "date:month" tra gốc', async () => {
+    const { dinhDangDoc } = await import('../../../../src/modules/ai/odoo/tong-quat/doc.js');
+    const ra = dinhDangDoc({
+      trangThai: 'ok', soDong: 1,
+      dong: [{ 'date:month': 'tháng 8 2026', warehouse_id: [3, 'Kho HN'] }],
+    } as never);
+    expect(ra).toContain('ngày tháng 8 2026');
+    expect(ra).toContain('warehouse Kho HN');
+    expect(ra).not.toContain('warehouse_id');
+  });
+});
