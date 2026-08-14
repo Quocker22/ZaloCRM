@@ -125,7 +125,9 @@ const docId = await prisma.$transaction(async (tx) => {
     })),
   });
   return doc.id;
-});
+// Trần 60s: mặc định Prisma 5s không đủ cho ~500 chunk kèm vector 768 chiều
+// (đo prod 14/08: commit 5.3s đã nổ). maxWait 10s cho lúc pool bận.
+}, { timeout: 60_000, maxWait: 10_000 });
 if (cu.length > 0) console.log(`Đã thay ${cu.length} bản đồng bộ cũ (trong transaction)`);
 console.log(`KB: đã ghi ${chunks.length} chunk (document ${docId})`);
 }
