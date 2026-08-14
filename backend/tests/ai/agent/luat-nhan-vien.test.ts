@@ -213,3 +213,28 @@ describe('apLuatChietKhau — máy gom đơn ăn luật bằng CODE (ca thật 2
     expect(apLuatChietKhau(p, undefined)).toBe(false);
   });
 });
+
+describe('A4 (14/08) — trần 900: luật nạp NGUYÊN VẸN hoặc bỏ hẳn, không bao giờ cắt đôi', () => {
+  it('luật không vừa trần → bỏ nguyên luật; các luật đã nạp giữ đủ từng chữ', async () => {
+    const daiVua = 'x'.repeat(180); // ~5 luật là chạm trần 900
+    const { prisma } = fakePrisma([
+      luat('1', `luật một ${daiVua}`),
+      luat('2', `luật hai ${daiVua}`),
+      luat('3', `luật ba ${daiVua}`),
+      luat('4', `luật bốn ${daiVua}`),
+      luat('5', `luật năm ${daiVua}`),
+      luat('6', `luật sáu ${daiVua}`),
+    ]);
+
+    const ra = await napLuatNhanVien(prisma, 'o1');
+
+    // Không dòng nào bị cắt giữa chừng: mỗi dòng trả ra phải là NGUYÊN VĂN
+    // một luật trong kho (nửa luật hại hơn không có luật).
+    const nguyenVan = new Set(['một', 'hai', 'ba', 'bốn', 'năm', 'sáu'].map((t) => `luật ${t} ${daiVua}`));
+    for (const dong of ra) expect(nguyenVan.has(dong)).toBe(true);
+    // Tổng nằm trong trần và có ít nhất một luật bị bỏ nguyên con.
+    expect(ra.join('').length).toBeLessThanOrEqual(900);
+    expect(ra.length).toBeGreaterThan(0);
+    expect(ra.length).toBeLessThan(6);
+  });
+});

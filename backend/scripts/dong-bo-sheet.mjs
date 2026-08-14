@@ -100,27 +100,34 @@ for (let b = 0; b < chunks.length; b += 40) {
 }
 
 // Xoá bản cũ nguồn 'sheet' rồi ghi bản mới — một document, mỗi SP một chunk.
+// A2 (14/08): xoá-cũ + ghi-mới trong MỘT transaction — chết giữa chừng thì
+// rollback về bản cũ nguyên vẹn, không bao giờ ở trạng thái "đã xoá mà chưa
+// ghi" (bot mất sạch thông số cho tới lần chạy sau). Dữ liệu mới (embeddings)
+// đã dựng XONG ở trên rồi mới vào đây — transaction chỉ ôm phần ghi DB.
 const cu = await prisma.knowledgeDocument.findMany({ where: { orgId, source: 'sheet' }, select: { id: true } });
-if (cu.length > 0) {
-  await prisma.knowledgeChunk.deleteMany({ where: { documentId: { in: cu.map((d) => d.id) } } });
-  await prisma.knowledgeDocument.deleteMany({ where: { id: { in: cu.map((d) => d.id) } } });
-  console.log(`Đã xoá ${cu.length} bản đồng bộ cũ`);
-}
-const doc = await prisma.knowledgeDocument.create({
-  data: {
-    orgId, source: 'sheet',
-    title: 'Thông số sản phẩm (Google Sheet — đồng bộ tự động)',
-    content: chunks.join('\n\n'),
-  },
+const docId = await prisma.$transaction(async (tx) => {
+  if (cu.length > 0) {
+    await tx.knowledgeChunk.deleteMany({ where: { documentId: { in: cu.map((d) => d.id) } } });
+    await tx.knowledgeDocument.deleteMany({ where: { id: { in: cu.map((d) => d.id) } } });
+  }
+  const doc = await tx.knowledgeDocument.create({
+    data: {
+      orgId, source: 'sheet',
+      title: 'Thông số sản phẩm (Google Sheet — đồng bộ tự động)',
+      content: chunks.join('\n\n'),
+    },
+  });
+  await tx.knowledgeChunk.createMany({
+    data: chunks.map((content, ord) => ({
+      orgId, documentId: doc.id, ord, content,
+      embedding: vectors[ord],
+      embedProvider: cfg.provider, embedModel: cfg.model, embedDim: vectors[ord].length,
+    })),
+  });
+  return doc.id;
 });
-await prisma.knowledgeChunk.createMany({
-  data: chunks.map((content, ord) => ({
-    orgId, documentId: doc.id, ord, content,
-    embedding: vectors[ord],
-    embedProvider: cfg.provider, embedModel: cfg.model, embedDim: vectors[ord].length,
-  })),
-});
-console.log(`KB: đã ghi ${chunks.length} chunk (document ${doc.id})`);
+if (cu.length > 0) console.log(`Đã thay ${cu.length} bản đồng bộ cũ (trong transaction)`);
+console.log(`KB: đã ghi ${chunks.length} chunk (document ${docId})`);
 }
 
 // ── 2. Ảnh: cột Link ảnh → bảng anh_san_pham (thay trọn mỗi lần) ───────────
@@ -135,8 +142,11 @@ for (const r of body) {
   anhTheoTen.set(ten, [...new Set([...cu, ...urls])].slice(0, 5));
 }
 const anh = [...anhTheoTen.entries()].map(([ten, urls]) => ({ orgId, ten, urls }));
-await prisma.anhSanPham.deleteMany({ where: { orgId } });
-await prisma.anhSanPham.createMany({ data: anh });
+// A2: cùng lý do — thay trọn trong một transaction, chết giữa chừng không mất ảnh.
+await prisma.$transaction([
+  prisma.anhSanPham.deleteMany({ where: { orgId } }),
+  prisma.anhSanPham.createMany({ data: anh }),
+]);
 console.log(`Ảnh: ${anh.length} SP có link (${anh.reduce((t, a) => t + a.urls.length, 0)} URL)`);
 console.log('ĐỒNG BỘ XONG.');
 process.exit(0);

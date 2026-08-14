@@ -24,7 +24,7 @@ import { xuLyGomDon } from './gom-don/index.js';
 import { docPhien, type DbPhienGomDon } from './gom-don/phien-store.js';
 import { gopTinTruocKhiTag } from './gop-tin.js';
 import { thuGiuViec } from './khoa-viec.js';
-import { taoDung, taoMoc, chayCoHanGio } from './dung.js';
+import { taoDung, taoMoc, chayCoHanGio, chotLuot } from './dung.js';
 import { laXacNhanNgan } from './cam-xuc.js';
 import type { NgữCanhTin } from './types.js';
 
@@ -227,6 +227,7 @@ async function xuLyTinNhanVienTuanTu(ctx: NgữCanhTin): Promise<boolean> {
     ghiDbGoc(l);
   };
 
+  const chot = chotLuot();
   try {
     // MÁY GOM ĐƠN (spec 07/08) — đứng TRƯỚC agent thường: lệnh "lên đơn" và
     // phiên đang mở là việc của máy trạng thái (code quyết hỏi gì, LLM chỉ
@@ -247,8 +248,15 @@ async function xuLyTinNhanVienTuanTu(ctx: NgữCanhTin): Promise<boolean> {
         // Prod luôn có URL công khai; thiếu (dev) thì link thành tương đối —
         // xấu nhưng không chặn luồng tạo đơn.
         odooUrl: odooUrlCongKhai() ?? '',
-        guiTin: (t) => guiTin(dich, t, false),
-        guiAnhHoaDon: async (anh) => guiAnh(dich, await ghiAnhTam(anh.duLieu, anh.tenFile), false),
+        // CHỐT LƯỢT (A3, 14/08): gom-đơn gửi tin TRONG vòng race — quá hạn thì
+        // promise mồ côi vẫn chạy nốt và guiTin của nó nổ SAU fallback "em chưa
+        // xử lý kịp" → hai câu đá nhau. Bọc chốt: lượt đã rơi vào catch thì tin
+        // muộn bị chặn (đơn đã tạo thì client_order_ref lo phần thử lại).
+        guiTin: chot.bocGui((t: string) => guiTin(dich, t, false), 'gom-don/tin'),
+        guiAnhHoaDon: chot.bocGui(
+          async (anh: { duLieu: Buffer; tenFile: string }) => guiAnh(dich, await ghiAnhTam(anh.duLieu, anh.tenFile), false),
+          'gom-don/anh',
+        ),
         ghiLog: ghiDb,
       },
       {
@@ -435,6 +443,8 @@ async function xuLyTinNhanVienTuanTu(ctx: NgữCanhTin): Promise<boolean> {
     });
     return true;
   } catch (err) {
+    // Chốt TRƯỚC khi gửi fallback: từ giây này mọi tin của luồng mồ côi bị chặn.
+    chot.chot();
     logger.error({ err, conversationId: ctx.conversationId }, '[agent/nv] lỗi giữa chừng');
     // Nhân viên gõ lệnh thì PHẢI biết kết quả — im lặng là họ ngồi chờ một
     // câu trả lời không bao giờ tới (bug thật 05/08: lượt treo, log dừng ở

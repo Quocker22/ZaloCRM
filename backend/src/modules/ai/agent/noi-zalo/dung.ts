@@ -71,6 +71,35 @@ export async function chayCoHanGio<T>(luong: TenLuong, viec: Promise<T>, ms = ha
   }
 }
 
+/**
+ * Bọc hàm gửi tin bằng CHỐT LƯỢT — chặn tin muộn của luồng mồ côi (A3, 14/08).
+ *
+ * `chayCoHanGio` không huỷ được Promise: quá hạn thì việc cũ thành mồ côi chạy
+ * nền, và các guiTin BÊN TRONG nó (máy gom đơn gửi trực tiếp) vẫn nổ SAU khi
+ * fallback "em chưa xử lý kịp" đã đi — khách nhận hai câu đá nhau. Học dsh
+ * (tool-calls.ts): lượt đã chốt bằng fallback thì mọi lời nói muộn phải câm;
+ * riêng THAO TÁC GHI của luồng mồ côi vẫn để chạy nốt — đơn tạo xong là sự
+ * thật, idempotency (client_order_ref) lo phần thử lại.
+ */
+export function chotLuot(): {
+  daChot: () => boolean;
+  chot: () => void;
+  bocGui: <A extends unknown[]>(gui: (...a: A) => Promise<void>, nhan: string) => (...a: A) => Promise<void>;
+} {
+  let da = false;
+  return {
+    daChot: () => da,
+    chot: () => { da = true; },
+    bocGui: (gui, nhan) => async (...a) => {
+      if (da) {
+        logger.warn({ nhan }, '[agent] chặn tin MUỘN của luồng mồ côi — lượt đã chốt bằng fallback');
+        return;
+      }
+      await gui(...a);
+    },
+  };
+}
+
 /** Log mốc bắt đầu/kết thúc với cùng prefix — đọc log thấy trọn vòng đời một lượt. */
 export function taoMoc(luong: TenLuong): {
   batDau: (chiTiet: Record<string, unknown>) => number;

@@ -84,7 +84,37 @@ export async function layLichSu(
     select: { senderType: true, content: true, senderUid: true },
   });
   return rows.reverse()
-    .filter((m): m is { senderType: string; content: string; senderUid: string | null } => Boolean(m.content));
+    .filter((m): m is { senderType: string; content: string; senderUid: string | null } => Boolean(m.content))
+    .map((m) => ({ ...m, content: bocKhoiTuBom(m.content) }))
+    .filter((m) => Boolean(m.content));
+}
+
+/**
+ * BẢO HIỂM chống memory tự nhiễm (A1, 14/08 — học TencentDB openclaw-plugin
+ * capture.ts): các khối do CHÍNH HỆ THỐNG ghép vào câu đưa cho model
+ * (`[Khách gửi ảnh…]`, `[Trả lời tin: "…"]`) không bao giờ được phép quay lại
+ * lịch sử — nếu lọt, mỗi lượt sau model lại thấy khối cũ, trích lại, và kho
+ * nhớ tự nhân bản echo của chính nó.
+ *
+ * Hôm nay đường lưu ĐÃ đúng (message-handler lưu content thô từ webhook,
+ * enrich chỉ nằm trên biến đưa agent) — hàm này là LỚP HAI, phòng ngày nào đó
+ * một đường lưu mới quên luật. Nội dung sạch đi qua NGUYÊN VẸN.
+ */
+export function bocKhoiTuBom(s: string): string {
+  let t = s;
+  // Khối quote-reply hệ thống chèn đầu câu: `[Trả lời tin: "…"] câu thật`.
+  if (t.startsWith('[Trả lời tin:')) {
+    const dong = t.indexOf(']');
+    if (dong >= 0) t = t.slice(dong + 1);
+  }
+  // Khối ảnh hệ thống ghép (đa dòng, kết ở ] cuối cùng). Tham lam có chủ ý:
+  // đây là nội dung KHÔNG ĐƯỢC TỒN TẠI trong DB — cắt lố còn hơn giữ mầm nhiễm.
+  const iAnh = t.indexOf('[Khách gửi ảnh');
+  if (iAnh >= 0) {
+    const dongCuoi = t.lastIndexOf(']');
+    t = dongCuoi > iAnh ? t.slice(0, iAnh) + t.slice(dongCuoi + 1) : t.slice(0, iAnh);
+  }
+  return t.trim();
 }
 
 /**
