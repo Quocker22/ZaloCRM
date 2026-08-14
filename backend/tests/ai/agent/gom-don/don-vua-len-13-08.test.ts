@@ -255,3 +255,68 @@ describe('CA 06:28:12 13/08 — đường hết-giờ không dán lời-dặn-mo
     expect(tomTatDoDang([{ toolName: 't', output: 'LƯU Ý: chỉ dặn model thôi', thanhCong: true }])).toBeNull();
   });
 });
+
+describe('CA 22:30-22:33 14/08 — sửa GIÁ bằng code, máy phải biết dòng của đơn', () => {
+  const fakeOdooCoDong = () => {
+    const odoo = fakeOdoo([AM, DF]);
+    const searchRead0 = odoo.searchRead.getMockImplementation()!;
+    odoo.searchRead.mockImplementation(async (model: string, domain: unknown[], fields?: unknown) => {
+      if (model === 'sale.order.line') {
+        return [{ product_id: [411, 'Nguồn DF-12V400W (cái)'], product_uom_qty: 10, price_unit: 180000 }];
+      }
+      return searchRead0(model, domain, fields);
+    });
+    return odoo;
+  };
+
+  const lenDonRoi = async (slots: Record<string, unknown>[], conversationId: string) => {
+    const odoo = fakeOdooCoDong();
+    const tinGui: string[] = [];
+    const deps: GomDonDeps = {
+      prisma: fakeDb() as never, odoo: odoo as never, generate: fakeGenerate(slots),
+      anhClient: null, odooUrl: 'https://odoo.example.com',
+      guiTin: async (t) => { tinGui.push(t); }, guiAnhHoaDon: async () => {}, ghiLog: () => {},
+    };
+    const goi = (cau: string, seq: number) => xuLyGomDon(deps, {
+      orgId: 'o1', conversationId, seq, cau, senderUid: 'e2e',
+    });
+    await goi('lên đơn cho Dương 10 cái nguồn df-12v400w giá 180k', 7001);
+    return { goi, tinGui, odoo, soTinSauDon: tinGui.length };
+  };
+
+  const suaDaGoi = (odoo: ReturnType<typeof fakeOdoo>) =>
+    odoo.execute.mock.calls.filter((c) => String(c[1]) === 'write' || String(c[1]).includes('sua')).length
+    + odoo.execute.mock.calls.filter((c) => String(c[0]) === 'sale.order.line').length;
+
+  it('"giá 175k đó" sau đơn 1 dòng → áp giá cho chính dòng đó, SL giữ nguyên, KHÔNG hỏi gì', async () => {
+    const { goi, tinGui, soTinSauDon } = await lenDonRoi(
+      [{ lenDon: true, khach: 'dương', dong: [{ sp: 'nguồn df-12v400w', sl: 10, gia: 180000 }] }],
+      'c-sua-gia-1dong',
+    );
+    const nhan = await goi('giá 175k đó', 7002);
+    expect(nhan).toBe(true);
+    const sau = tinGui.slice(soTinSauDon).join('\n');
+    // CÁI ĐỎ CŨ: "Đơn S13858 sửa gì ạ?" rồi kẹt. Giờ phải ra kết quả sửa
+    // (hoặc ít nhất KHÔNG hỏi lại "sửa gì"/"khách nào").
+    expect(sau).not.toMatch(/sửa gì ạ|khách nào/i);
+    expect(sau).toMatch(/175\.000|Đã sửa/i);
+  });
+
+  it('"sửa giá nguồn á" (không kèm số) → hỏi đúng MỘT con số, rồi "175k" là sửa xong', async () => {
+    const { goi, tinGui, soTinSauDon } = await lenDonRoi(
+      [{ lenDon: true, khach: 'dương', dong: [{ sp: 'nguồn df-12v400w', sl: 10, gia: 180000 }] }],
+      'c-sua-gia-hoi-so',
+    );
+    await goi('sửa giá nguồn á', 7003);
+    const hoi = tinGui.slice(soTinSauDon).join('\n');
+    // CÁI ĐỎ CŨ: "Em vẫn chưa khớp được ... gõ SĐT hoặc mã KH của khách".
+    expect(hoi).not.toMatch(/SĐT hoặc mã KH|khách mới/i);
+    expect(hoi).toMatch(/bao nhiêu/i);
+
+    const truoc = tinGui.length;
+    await goi('175k', 7004);
+    const xong = tinGui.slice(truoc).join('\n');
+    expect(xong).toMatch(/175\.000|Đã sửa/i);
+    expect(xong).not.toMatch(/khách nào|sửa gì ạ/i);
+  });
+});

@@ -71,6 +71,14 @@ export interface DonSua {
   id: number;
   ma: string;
   tong: number;
+  /**
+   * Dòng THẬT của đơn (nạp từ sale.order.line lúc chốt đơn sửa, 14/08).
+   * Có nó thì "giá 175k đó" (đơn 1 dòng) hay "sửa giá nguồn" (khớp tên dòng)
+   * xử được bằng CODE — SL giữ nguyên theo đơn, không bắt NV đọc lại.
+   * Ca thật 22:32-22:33 14/08: thiếu nó nên máy hỏi "sửa gì" rồi kẹt,
+   * đường thoát còn đọc nhầm kịch bản luồng khách ("gõ SĐT hoặc mã KH").
+   */
+  dong?: Array<{ spId: number; ten: string; sl: number; gia: number }>;
 }
 
 export interface PhienGom {
@@ -214,6 +222,11 @@ export interface PhienGom {
   viecId?: number;
   /** Đơn đã chốt để sửa. */
   donSua?: DonSua;
+  /**
+   * Đang chờ NV đọc GIÁ MỚI cho dòng này của đơn (spId) — đặt khi NV nói
+   * "sửa giá <tên hàng>" mà chưa kèm số. Câu kế chỉ cần con số trần.
+   */
+  dongChoGia?: number;
   /** Nhiều đơn nháp trong hội thoại → chờ NV chọn. */
   donUngVien?: DonSua[];
   /** Tra rồi không có đơn nháp nào sửa được. */

@@ -72,6 +72,51 @@ const NHAN_LENH_SUA_DON =
  * Chạy trên chuỗi ĐÃ boDau (thường, không dấu). "sai(?! gon)" để "sài gòn"
  * không thành "sai". Đuôi "mà" bắt buộc kèm ?/! — "cho xin mã" thì không khớp.
  */
+/**
+ * PHÂN TÍCH CÂU SỬA GIÁ bằng CODE (14/08, ca thật 22:32-22:33).
+ *
+ * "giá 175k đó" rồi "sửa giá nguồn á" — model không có chỗ đặt (schema chỉ có
+ * giá TRONG dòng {sp,sl,gia}), trả về tay trắng, máy hỏi "sửa gì" rồi kẹt.
+ * Câu sửa giá có HÌNH DẠNG cố định nên bắt bằng regex, không nhờ model:
+ *   "giá 175k (đó)"        → { gia: 175000 }
+ *   "sửa giá nguồn (á)"    → { ten: 'nguồn' }
+ *   "đổi giá cáp thành 20k"→ { ten: 'cáp', gia: 20000 }
+ * HẸP có chủ ý: chỉ nhận câu MỞ ĐẦU bằng (sửa|đổi)?giá — "thêm 5 cáp giá 20k
+ * vào đơn" mở đầu bằng "thêm" nên đi đường thường, không bị cướp.
+ * Chạy trên chuỗi đã boDau.
+ */
+export function phanTichCauSuaGia(cauBd: string): { gia?: number; ten?: string } | null {
+  const m = /^(?:sua |doi )?gia\b(.*)$/.exec(cauBd.trim());
+  if (!m) return null;
+  let duoi = m[1].trim();
+  // Giá: số có thể kèm phân cách nghìn + hậu tố k/nghìn/ngàn. Số DÍNH chữ
+  // (12v400w) không tính — đòi ranh giới không phải chữ-số ở hai đầu.
+  const g = /(?:^|[^a-z0-9])(\d{1,3}(?:[.,]\d{3})+|\d+)\s*(k|nghin|ngan)?(?=$|[^a-z0-9])/.exec(duoi);
+  let gia: number | undefined;
+  if (g) {
+    gia = Number(g[1].replace(/[.,]/g, ''));
+    if (g[2]) gia *= 1000;
+    duoi = (duoi.slice(0, g.index) + ' ' + duoi.slice(g.index + g[0].length)).trim();
+  }
+  // Tên hàng: phần còn lại sau khi bỏ từ đệm.
+  const ten = duoi
+    .split(/\s+/)
+    .filter((w) => !['a', 'ạ', 'đo', 'do', 'day', 'nhe', 'nha', 'thanh', 'con', 'lai', 'la', 'thoi', 'di', 'gium', 'giup', 'em', 'anh', 'chi'].includes(w))
+    .join(' ')
+    .trim();
+  if (gia == null && !ten) return null;
+  return { ...(gia != null ? { gia } : {}), ...(ten ? { ten } : {}) };
+}
+
+/** Câu CHỈ là một con số giá ("175k", "175.000đ") — dùng khi máy vừa hỏi giá mới. */
+export function bocGiaTran(cauBd: string): number | null {
+  const m = /^(\d{1,3}(?:[.,]\d{3})+|\d+)\s*(k|nghin|ngan)?\s*(?:d|dong|vnd)?$/.exec(cauBd.trim());
+  if (!m) return null;
+  let gia = Number(m[1].replace(/[.,]/g, ''));
+  if (m[2]) gia *= 1000;
+  return gia;
+}
+
 const NHAN_THAM_CHIEU_SUA =
   /(?:^|\s)(?:sua|sai(?! gon)|nham|xuat lai|lam lai|in lai|gui lai|cho dung|doi (?:lai|gia|sang))(?=\s|$)|(?:^|\s)(?:gia|giam|chiet khau|vat)\b.{0,30}\b(?:do|day)[\s?!.~]*$|\bma\s*[?!]+[\s?!.~]*$/;
 
@@ -548,7 +593,29 @@ async function chayTraCuu(
   if (hd.don) {
     viec.push((async () => {
       const ds = await timDonNhap(deps, ctx.conversationId, ctx.maDon);
-      if (ds.length === 1) p.donSua = ds[0];
+      if (ds.length === 1) {
+        p.donSua = ds[0];
+        // NẠP DÒNG THẬT của đơn (14/08, ca 22:32): "giá 175k đó" / "sửa giá
+        // nguồn" chỉ xử được khi máy BIẾT đơn đang có dòng nào — SL giữ theo
+        // đơn, không bắt NV đọc lại. Lỗi nạp không chặn sửa: thiếu dòng thì
+        // các đường tắt sửa-giá đơn giản tự tắt, luồng sửa thường vẫn chạy.
+        try {
+          const lines = await deps.odoo.searchRead<Record<string, unknown>>(
+            'sale.order.line', [['order_id', '=', ds[0].id]],
+            ['product_id', 'product_uom_qty', 'price_unit'], { limit: 40 },
+          );
+          p.donSua.dong = lines
+            .filter((l) => Array.isArray(l.product_id))
+            .map((l) => ({
+              spId: Number((l.product_id as [number, string])[0]),
+              ten: String((l.product_id as [number, string])[1] ?? ''),
+              sl: Number(l.product_uom_qty ?? 0),
+              gia: Number(l.price_unit ?? 0),
+            }));
+        } catch (err) {
+          logger.warn({ err, donId: ds[0].id }, '[gom-don] nạp dòng đơn sửa lỗi — đường tắt sửa giá tắt');
+        }
+      }
       else if (ds.length > 1) p.donUngVien = ds;
       else p.donKhongThay = true;
     })());
@@ -1074,6 +1141,23 @@ export async function xuLyGomDon(
     if (!trich.lenDon && !trich.nhapHang) return false;
   }
 
+  // ĐƯỜNG TẮT SỬA GIÁ — CODE TRƯỚC, MODEL SAU (14/08, ca 22:32-22:33). Câu
+  // hình dạng cố định ("giá 175k đó", "sửa giá nguồn á", hoặc con số trần khi
+  // máy vừa hỏi giá) trong ngữ cảnh SỬA ĐƠN: model không có chỗ đặt slot này
+  // (đo prod: trả tay trắng, máy kẹt hỏi "sửa gì" rồi đường thoát đọc nhầm
+  // kịch bản luồng khách). Bắt bằng regex, chặn luôn lượt gọi model.
+  const cauSuaGia: { gia?: number; ten?: string } | null =
+    (thamChieuSua || phien?.che === 'sua')
+      ? (phanTichCauSuaGia(boDau(cauChon))
+        ?? (phien?.dongChoGia != null
+          ? ((): { gia: number } | null => {
+              const g = bocGiaTran(boDau(cauChon));
+              return g != null ? { gia: g } : null;
+            })()
+          : null))
+      : null;
+  if (cauSuaGia) daHoiLlm = true;
+
   const laLenhNhap = regexNhap || trich.nhapHang === true;
   // Lệnh nhập hàng KHÔNG đồng thời là lệnh lên đơn: model có thể bật cả hai
   // (câu "tạo đơn mua" trông giống "tạo đơn"). Nhập hàng thắng — cùng lý do
@@ -1546,6 +1630,48 @@ export async function xuLyGomDon(
     hd = buocTiepTheo(phien);
   }
 
+  // ÁP ĐƯỜNG TẮT SỬA GIÁ (14/08) — chạy SAU vòng tra để dòng thật của đơn đã
+  // nằm trong phien.donSua.dong. Khớp dòng theo thứ tự chắc chắn giảm dần:
+  // dòng đang treo chờ giá → khớp tên → đơn chỉ có một dòng.
+  if (cauSuaGia && phien.che === 'sua' && phien.donSua?.dong?.length && phien.dong.length === 0) {
+    const dsDong = phien.donSua.dong;
+    const theoTen = cauSuaGia.ten
+      ? dsDong.filter((d) => {
+          const tenBd = boDau(d.ten);
+          return cauSuaGia.ten!.split(/\s+/).every((w) => tenBd.includes(w));
+        })
+      : [];
+    const dich = phien.dongChoGia != null
+      ? dsDong.find((d) => d.spId === phien.dongChoGia)
+      : theoTen.length === 1 ? theoTen[0]
+        : !cauSuaGia.ten && dsDong.length === 1 ? dsDong[0]
+          : undefined;
+    if (dich && cauSuaGia.gia != null) {
+      delete phien.dongChoGia;
+      phien.dong.push({
+        tuKhoa: dich.ten, sl: dich.sl, donGia: cauSuaGia.gia,
+        daChot: { id: dich.spId, ten: dich.ten, gia: dich.gia },
+      });
+      hd = buocTiepTheo(phien); // đủ slot → sua_don ngay lượt này
+    } else if (dich) {
+      // Biết dòng, chưa biết giá — hỏi đúng MỘT con số, treo dòng chờ.
+      phien.dongChoGia = dich.spId;
+      const tin = `${dich.ten} đang ${dich.gia.toLocaleString('vi-VN')}đ (SL ${dich.sl.toLocaleString('vi-VN')}) — anh/chị muốn sửa giá thành bao nhiêu ạ?`;
+      phien.tinCuoi = tin;
+      await ghiPhien(phien);
+      await deps.guiTin(tin);
+      return true;
+    } else {
+      // Có giá mà không rõ dòng nào (đơn nhiều dòng) — liệt kê để NV gọi tên.
+      const ds = dsDong.map((d) => `- ${d.ten} · ${d.gia.toLocaleString('vi-VN')}đ × ${d.sl.toLocaleString('vi-VN')}`).join('\n');
+      const tin = `Đơn ${phien.donSua.ma} đang có:\n${ds}\nAnh/chị nhắn "sửa giá <tên hàng>${cauSuaGia.gia != null ? ` ${cauSuaGia.gia.toLocaleString('vi-VN')}đ` : ''}" giúp em ạ.`;
+      phien.tinCuoi = tin;
+      await ghiPhien(phien);
+      await deps.guiTin(tin);
+      return true;
+    }
+  }
+
   // TẠO KHÁCH MỚI (bug 3 demo 10/08) — tra không ra mà NV đã cho tên thì tạo
   // rồi chạy tiếp NGAY trong lượt này, không bắt nhân viên nhắc lại lần nữa.
   if (hd.loai === 'tao_khach') {
@@ -1734,7 +1860,15 @@ export async function xuLyGomDon(
     const loiNv = trichLoiNhanVien(cauChon);
     const chuaKhop = (cai: string): string =>
       loiNv ? `Em vẫn chưa khớp được "${loiNv}" với ${cai} nào ạ. ` : `Em chưa rõ ${cai} ạ. `;
-    tin = khachDaXong
+    // CHẾ SỬA có đường thoát RIÊNG (14/08, ca 22:33): việc đang treo là "sửa
+    // gì trên đơn" — đọc kịch bản luồng khách ("gõ SĐT hoặc mã KH") là kéo NV
+    // về một bước không tồn tại trong luồng này.
+    const dangSuaDon = phien.che === 'sua' && phien.donSua != null;
+    tin = dangSuaDon
+      ? chuaKhop('dòng nào trên đơn') +
+        `Anh/chị nhắn "sửa giá <tên hàng> <giá mới>" (vd: "sửa giá nguồn 175k"), ` +
+        '"<tên hàng> + SL mới", hoặc "huỷ" giúp em ạ.'
+      : khachDaXong
       ? chuaKhop('hàng nào') +
         (chiConSpTreo
           ? 'Anh/chị gõ CHỮ CÁI đầu dòng trong danh sách trên (vd: a), hoặc gõ lại tên hàng ' +
