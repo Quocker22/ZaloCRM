@@ -43,6 +43,7 @@ import {
   guiTaiLieu, guiTaiLieuDefinition, dinhDangGuiTaiLieu, khoiNoiDungKemFile, type TaiLieu,
 } from '../odoo/tools/gui-tai-lieu.js';
 import { findImageForReply } from '../knowledge/product-image.js';
+import { khoiMucLucChoPrompt } from '../knowledge/muc-luc.js';
 import { laYDinhDung, khoeDaGuiTaiLieu, coBangChungGuiFile } from './y-dinh-dung.js';
 import { matchGuidelines, type KetQuaMatch } from './guideline-matcher.js';
 import { lapPromptKhach, tinhToolChoPhep, type GuidelineActive } from './guideline-prompt.js';
@@ -70,6 +71,8 @@ export interface CustomerAgentDeps {
   lietTaiLieu?: () => Promise<TaiLieu[]>;
   /** Trích nội dung thô của tài liệu (RAG) để nhắn kèm tóm tắt sau khi gửi file. */
   trichTaiLieu?: (tieuDe: string) => Promise<string | null>;
+  /** Mục lục sản phẩm sinh từ sheet (nhóm B 15/08) — chèn đầu userMessage. */
+  mucLucSp?: string;
   /**
    * Guideline engine (docs/THIET-KE-GUIDELINE-ENGINE.md). Không truyền = 'off'
    * — prompt tĩnh, đúng hành vi cũ từng byte.
@@ -174,6 +177,8 @@ export function buildCustomerRegistry(deps: {
   lietTaiLieu?: () => Promise<TaiLieu[]>;
   /** Trích nội dung thô của tài liệu (RAG) để nhắn kèm tóm tắt sau khi gửi file. */
   trichTaiLieu?: (tieuDe: string) => Promise<string | null>;
+  /** Mục lục sản phẩm sinh từ sheet (nhóm B 15/08) — chèn đầu userMessage. */
+  mucLucSp?: string;
   /** Tải tài liệu về đường dẫn cục bộ. Mặc định dùng `taiTaiLieuVe` của kho. */
   taiTaiLieu?: (t: TaiLieu) => Promise<string>;
   /** Nhận file tài liệu đã tải — caller gửi qua Zalo sau phần text. */
@@ -522,7 +527,8 @@ export async function chayTuVanKhach(
     system: dungPromptDong
       ? lapPromptKhach(input.bizName, match!, guidelineActive)
       : buildCustomerSystemPrompt(input.bizName, Boolean(deps.choKhachChotDon)),
-    userMessage: ghepLichSu(input.history, input.message),
+    userMessage: [khoiMucLucChoPrompt(deps.mucLucSp ?? null), ghepLichSu(input.history, input.message)]
+      .filter(Boolean).join('\n\n'),
     tools: registry.definitions(),
     // Khách nói "thôi không lấy nữa" → KHOÁ tool ghi. Cùng hàng rào với luồng
     // nhân viên (bug 05/08): prompt dặn không đủ, model vẫn tạo đơn.

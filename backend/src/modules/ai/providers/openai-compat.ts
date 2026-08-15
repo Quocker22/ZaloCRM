@@ -351,7 +351,17 @@ export async function generateWithOpenaiCompatTools(args: {
         throw err;
       }
 
-      return docPhanHoi(await docJson(response));
+      const turn = docPhanHoi(await docJson(response));
+      // EMPTY_RESPONSE (nhóm B 15/08, học dsh llm/error taxonomy): HTTP 200,
+      // finish "hoàn tất" mà KHÔNG một chữ, KHÔNG một tool call — với vòng
+      // agent đó là lượt CÂM (bot im, không ai biết). Lần gọi không để lại gì
+      // bền nên thử lại an toàn; hết lượt thử thì trả về như cũ để tầng trên
+      // (WARN doc-anh / fallback luồng) xử tiếp — đừng ném vỡ cả lượt.
+      if (!turn.text?.trim() && turn.toolCalls.length === 0 && lan < toiDa) {
+        loiCuoi = new Error('EMPTY_RESPONSE: model trả rỗng — không chữ, không tool call');
+        continue;
+      }
+      return turn;
     } catch (err) {
       loiCuoi = err;
       if (lan < toiDa && nenThuLai(err)) continue;

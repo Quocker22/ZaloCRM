@@ -19,6 +19,7 @@ import { tomTatDoDang } from './ngan-sach.js';
 import { dungGenerate } from './llm.js';
 import { layOdoo, layAnhClient, timTriThuc, layLichSu, seqTuMessageId, coTinKhachMoiHon } from './du-lieu.js';
 import { khoTaiLieuCuaOrg, trichNoiDungTaiLieu } from '../../knowledge/kho-tai-lieu.js';
+import { mucLucSanPham } from '../../knowledge/muc-luc.js';
 import { timDich, guiTin, guiAnh, guiFile, ghiAnhTam } from './gui-zalo.js';
 import { xuLyGomDon } from './gom-don/index.js';
 import { docPhien, type DbPhienGomDon } from './gom-don/phien-store.js';
@@ -277,6 +278,7 @@ async function xuLyTinNhanVienTuanTu(ctx: NgữCanhTin): Promise<boolean> {
     // Kho FILE tài liệu — tách hẳn khỏi tri thức (chữ). Bug 03:17 11/08 chính
     // là bot có cái thứ nhất mà không có cái thứ hai, rồi kết luận "chưa có file".
     const khoTaiLieu = await khoTaiLieuCuaOrg(ctx.orgId);
+    const mucLucSp = await mucLucSanPham(ctx.orgId);
     logger.info(
       { coTriThuc: Boolean(triThuc), coTaiLieu: Boolean(khoTaiLieu) },
       '[agent/nv] đã dựng tri thức — vào LLM',
@@ -298,6 +300,7 @@ async function xuLyTinNhanVienTuanTu(ctx: NgữCanhTin): Promise<boolean> {
         odooUrl: odooUrlCongKhai(),
         timDoanTriThuc: triThuc,
         lietTaiLieu: khoTaiLieu,
+        ...(mucLucSp ? { mucLucSp } : {}),
         // Trích RAG kèm tin "đã gửi file" — đỡ cụt ngủn (anh Quốc 17:41 13/08).
         trichTaiLieu: (tieuDe) => trichNoiDungTaiLieu(ctx.orgId, tieuDe),
         luatNhanVien: luatNv,

@@ -121,7 +121,42 @@ export class ToolRegistry {
    *   cửa duy nhất mọi tool đi qua: thêm tool mới cũng tự động được bảo vệ.
    */
   executor(chanToolGhi = false): (call: ToolCall) => Promise<ToolResult> {
+    // ĐẾM LẶP TOOL (nhóm B, 15/08 — học dsh repeat-tool-reminder). Model rẻ
+    // hay gọi lại y hệt một tool đã trả kết quả/đã bị chặn, không tiến triển:
+    // lần 2 giống hệt → nhắc thẳng trong kết quả; lần 3 → chặn, bắt kết luận
+    // bằng dữ liệu đang có. Executor sống MỘT lượt nên bộ đếm tự reset khi
+    // sang lượt mới — không cần dọn. Đếm CẢ lời gọi bị từ chối: nện mãi vào
+    // một lệnh bị chặn chính là cái vòng đáng cắt.
+    const demLap = new Map<string, number>();
+    const khoaLap = (call: ToolCall): string => {
+      const sapXep = (v: unknown): unknown => {
+        if (Array.isArray(v)) return v.map(sapXep);
+        if (v && typeof v === 'object') {
+          return Object.fromEntries(
+            Object.keys(v as Record<string, unknown>).sort()
+              .map((k) => [k, sapXep((v as Record<string, unknown>)[k])]),
+          );
+        }
+        return v;
+      };
+      return `${call.name}|${JSON.stringify(sapXep(call.input))}`;
+    };
     return async (call: ToolCall): Promise<ToolResult> => {
+      const khoa = khoaLap(call);
+      const lanThu = (demLap.get(khoa) ?? 0) + 1;
+      demLap.set(khoa, lanThu);
+      if (lanThu >= 3) {
+        return {
+          toolCallId: call.id,
+          content:
+            `ĐÃ GỌI '${call.name}' với đúng tham số này ${lanThu} lần trong lượt — kết quả sẽ không đổi. ` +
+            'DỪNG tra. Trả lời ngay bằng dữ liệu đã có; nếu vẫn thiếu thì nói thật là chưa tra được và mời nhân viên hỗ trợ.',
+          isError: true,
+        };
+      }
+      const nhacLap = lanThu === 2
+        ? '\n\n[Lần gọi thứ 2 y hệt trong lượt — kết quả không đổi đâu. Muốn kết quả khác thì đổi từ khoá/tham số, không thì trả lời bằng dữ liệu đang có.]'
+        : '';
       if (chanToolGhi && laToolGhi(call.name)) {
         return { toolCallId: call.id, content: lyDoChan(call.name), isError: true };
       }
@@ -153,10 +188,10 @@ export class ToolRegistry {
 
       try {
         const output = await tool.run(call.input);
-        return { toolCallId: call.id, content: output };
+        return { toolCallId: call.id, content: `${output}${nhacLap}` };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        return { toolCallId: call.id, content: `Lỗi khi chạy tool: ${message}`, isError: true };
+        return { toolCallId: call.id, content: `Lỗi khi chạy tool: ${message}${nhacLap}`, isError: true };
       }
     };
   }

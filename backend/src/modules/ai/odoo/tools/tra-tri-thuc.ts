@@ -177,7 +177,11 @@ export function dinhDangTriThuc(kq: KetQuaTriThuc): string {
     .map((d, i) => `[${i + 1}] ${d.noiDung}`)
     .join('\n\n');
 
+  // Câu rào đầu khối (nhóm B 15/08, học TencentDB l1-recall): đoạn TRUY HỒI
+  // có thể lạc đề (khách hỏi bulb, RAG kéo về panel) — phải tự khai là tham
+  // khảo, không thì model rẻ bám vào đoạn lạc đề như thể khách vừa nói thế.
   return (
+    '[Trích tài liệu — THAM KHẢO, có thể không khớp câu đang hỏi; chỉ dùng đoạn thật sự liên quan]\n' +
     `${dong}\n\n` +
     'Trả lời DỰA TRÊN đoạn trên. Thông số nào không có trong đây thì nói chưa ' +
     'có tài liệu, ĐỪNG bịa. Nguồn: tài liệu kỹ thuật nhà sản xuất.'

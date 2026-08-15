@@ -117,6 +117,7 @@ import { docOdoo, docOdooDefinition, dinhDangDoc } from '../odoo/tong-quat/doc.j
 import { lamOdoo, lamOdooDefinition, dinhDangLam, CHIA_XAC_NHAN } from '../odoo/tong-quat/lam.js';
 import { khamPhaOdoo, khamPhaOdooDefinition, dinhDangKhamPha } from '../odoo/tong-quat/kham-pha.js';
 import { ghiLuatDefinition, quenLuatDefinition, khoiLuatChoPrompt, type KetQuaGhiLuat, type KetQuaQuenLuat } from './luat-nhan-vien.js';
+import { khoiMucLucChoPrompt } from '../knowledge/muc-luc.js';
 
 /**
  * Dấu nhận biết bot ĐÃ xin xác nhận cho một lệnh nguy hiểm ở lượt TRƯỚC.
@@ -203,6 +204,8 @@ export interface StaffAgentDeps {
   lietTaiLieu?: () => Promise<TaiLieu[]>;
   /** Trích nội dung thô của tài liệu (RAG) để nhắn kèm tóm tắt sau khi gửi file. */
   trichTaiLieu?: (tieuDe: string) => Promise<string | null>;
+  /** Mục lục sản phẩm sinh từ sheet (nhóm B 15/08) — chèn đầu userMessage. */
+  mucLucSp?: string;
   /** Luat nhan vien dan — da nap san tu DB (napLuatNhanVien), chen vao nga canh moi luot. */
   luatNhanVien?: string[];
   /** Kho ghi/quen luat — truyen xuong registry de mo tool ghi_luat/quen_luat. */
@@ -397,6 +400,8 @@ export function buildStaffRegistry(deps: {
   lietTaiLieu?: () => Promise<TaiLieu[]>;
   /** Trích nội dung thô của tài liệu (RAG) để nhắn kèm tóm tắt sau khi gửi file. */
   trichTaiLieu?: (tieuDe: string) => Promise<string | null>;
+  /** Mục lục sản phẩm sinh từ sheet (nhóm B 15/08) — chèn đầu userMessage. */
+  mucLucSp?: string;
   /** Tải tài liệu về đường dẫn cục bộ. Mặc định dùng `taiTaiLieuVe` của kho. */
   taiTaiLieu?: (t: TaiLieu) => Promise<string>;
   /** Nhận file tài liệu đã tải — caller gửi qua Zalo sau phần text. */
@@ -935,7 +940,7 @@ export async function chayLenhNhanVien(
     system: buildStaffSystemPrompt(input.bizName),
     // Khối luật đứng TRƯỚC lịch sử + tin mới: lời dặn lâu dài là nền, tin
     // mới ghi đè khi mâu thuẫn (chính khối luật tự nói điều đó).
-    userMessage: [khoiLuatChoPrompt(deps.luatNhanVien ?? []), ghepLichSuNhanVien(input.history, lenh.noiDung)]
+    userMessage: [khoiMucLucChoPrompt(deps.mucLucSp ?? null), khoiLuatChoPrompt(deps.luatNhanVien ?? []), ghepLichSuNhanVien(input.history, lenh.noiDung)]
       .filter(Boolean).join('\n\n'),
     tools: registry.definitions(),
     execute: registry.executor(dungLai),

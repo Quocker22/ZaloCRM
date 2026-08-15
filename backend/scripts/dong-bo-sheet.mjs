@@ -132,6 +132,47 @@ if (cu.length > 0) console.log(`Đã thay ${cu.length} bản đồng bộ cũ (t
 console.log(`KB: đã ghi ${chunks.length} chunk (document ${docId})`);
 }
 
+// ── 1c. MỤC LỤC SẢN PHẨM (nhóm B, 15/08) — bản đồ toàn kho, sinh TẤT ĐỊNH ──
+// Trị điểm mù RAG top-k với câu tổng hợp ("shop có những dòng đèn nào").
+// Nhóm theo cột Danh mục, mỗi nhóm kể vài tên đầu — vài trăm token, nhét
+// thẳng prompt mọi lượt (đọc qua mucLucSanPham). KHÔNG lấy giá từ sheet
+// (cột Giá bỏ có chủ ý từ trước).
+{
+  const nhomDm = new Map();
+  for (const r of body) {
+    const ten = (r[1] ?? '').trim();
+    if (!ten) continue;
+    let dm = (r[4] ?? '').trim();
+    if (!dm || dm.toLowerCase() === 'all') dm = 'Khác';
+    const ds = nhomDm.get(dm) ?? [];
+    ds.push(ten);
+    nhomDm.set(dm, ds);
+  }
+  // Thứ tự tất định: nhóm đông trước, cùng cỡ thì theo tên — chạy máy nào
+  // cũng ra một văn bản, diff sạch, prompt cache không vỡ vô cớ.
+  const dongMucLuc = [...nhomDm.entries()]
+    .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0], 'vi'))
+    .map(([dm, ds]) => {
+      const dau = ds.slice(0, 6).join(', ');
+      return `- ${dm} (${ds.length} SP): ${dau}${ds.length > 6 ? '…' : ''}`;
+    });
+  let noiDungMucLuc = dongMucLuc.join('\n');
+  // Trần cứng 1500 ký tự — mục lục phình là mất luôn lý do tồn tại của nó.
+  if (noiDungMucLuc.length > 1500) {
+    let tong = 0; const giu = [];
+    for (const d of dongMucLuc) { if (tong + d.length > 1450) { giu.push('- (…và các nhóm nhỏ khác)'); break; } giu.push(d); tong += d.length; }
+    noiDungMucLuc = giu.join('\n');
+  }
+  const cuML = await prisma.knowledgeDocument.findMany({ where: { orgId, source: 'sheet-muc-luc' }, select: { id: true } });
+  await prisma.$transaction(async (tx) => {
+    if (cuML.length > 0) await tx.knowledgeDocument.deleteMany({ where: { id: { in: cuML.map((d) => d.id) } } });
+    await tx.knowledgeDocument.create({
+      data: { orgId, source: 'sheet-muc-luc', title: 'Mục lục sản phẩm (sinh từ sheet)', content: noiDungMucLuc },
+    });
+  });
+  console.log(`Mục lục: ${nhomDm.size} nhóm, ${noiDungMucLuc.length} ký tự`);
+}
+
 // ── 2. Ảnh: cột Link ảnh → bảng anh_san_pham (thay trọn mỗi lần) ───────────
 // Tên Odoo KHÔNG unique (đo thật 08/08: sheet có tên trùng) — gộp URL các
 // dòng trùng tên vào một bản ghi, khử trùng lặp URL.
