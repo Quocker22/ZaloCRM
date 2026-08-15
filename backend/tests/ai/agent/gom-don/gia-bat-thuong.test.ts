@@ -143,3 +143,20 @@ describe('renderLoiNhan — câu hỏi lại nhân viên', () => {
     expect(tin).not.toContain('Em chốt lên đơn nhé?');
   });
 });
+
+// NHÓM D (15/08, học dsh approval allowed-once): cái GẬT giá lệch chỉ có giá
+// trị cho ĐÚNG con số đã hỏi. NV báo giá MỚI → gật cũ phải tự vô hiệu — nếu
+// dính, "ừ" của 5 phút trước mở cổng cho một con số chưa ai xác nhận.
+import { dapSlot } from '../../../../src/modules/ai/agent/noi-zalo/gom-don/index.js';
+
+describe('D4 — gật giá lệch là allowed-once, giá mới vô hiệu gật cũ', () => {
+  it('phiên đã gật (giaLechDaXacNhan) + NV báo giá MỚI → cờ bị xoá', () => {
+    const p = {
+      khachTuKhoa: null,
+      dong: [{ tuKhoa: 'nguồn nb', sl: 10, donGia: 100000, daChot: { id: 1, ten: 'NB', gia: 2000 } }],
+      giaLechDaXacNhan: true,
+    } as never;
+    dapSlot(p, { dong: [{ sp: 'nguồn nb', gia: 120000 }] } as never);
+    expect((p as { giaLechDaXacNhan?: boolean }).giaLechDaXacNhan).toBeUndefined();
+  });
+});

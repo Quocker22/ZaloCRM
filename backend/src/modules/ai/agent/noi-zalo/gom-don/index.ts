@@ -420,7 +420,7 @@ export interface GomDonDeps {
 }
 
 /** Đắp kết quả trích LLM vào phiên. Trả true nếu phiên có thay đổi nội dung. */
-function dapSlot(p: PhienGom, trich: KetQuaTrich): boolean {
+export function dapSlot(p: PhienGom, trich: KetQuaTrich): boolean {
   let doi = false;
   if (trich.khach && !p.khachDaChot) {
     // Ở chế NHẬP, bỏ tiền tố "nhà cung cấp"/"cty"… trước khi so (11/08).
