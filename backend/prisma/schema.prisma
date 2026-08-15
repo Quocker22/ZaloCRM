@@ -4217,10 +4217,10 @@ model AgentOperator {
 /// Thay env AI_AGENT_THREAD_BAO_SALE. Ưu tiên: có dòng enabled trong bảng này
 /// thì dùng bảng; bảng rỗng thì rơi về env (prod đang chạy bằng env).
 model AgentNotifyTarget {
-  id      String @id @default(uuid())
-  orgId   String @map("org_id")
+  id       String @id @default(uuid())
+  orgId    String @map("org_id")
   /// Tên admin đặt để nhận ra trong giao diện ("Nhóm trực khách", "Anh Quốc").
-  tenGoi  String @map("ten_goi")
+  tenGoi   String @map("ten_goi")
   /// 'nhom' = nhóm Zalo (threadType 1) | 'ca_nhan' = nick cá nhân (threadType 0).
   loaiDich String @default("nhom") @map("loai_dich")
   /// threadId Zalo: id nhóm, hoặc UID nick cá nhân.
@@ -4286,17 +4286,26 @@ model AnhSanPham {
 /// Chỉ học từ lựa chọn trên đường GẦN ĐÚNG — ứng viên thường (chọn màu trong
 /// 3 màu) không phải alias, học nó là lần sau tự chốt sai màu.
 model SpAlias {
-  id        String   @id @default(cuid())
-  orgId     String   @map("org_id")
+  id        String    @id @default(cuid())
+  orgId     String    @map("org_id")
   /// Tên gọi đã bỏ dấu + thường — khoá tra (boDau của tra-san-pham).
-  tenGoi    String   @map("ten_goi")
-  productId Int      @map("product_id")
+  tenGoi    String    @map("ten_goi")
+  productId Int       @map("product_id")
   /// Tên SP lúc học — để đọc log/soát, KHÔNG phải nguồn sự thật (giá/tên đọc
   /// lại từ Odoo mỗi lần dùng).
-  tenSp     String   @map("ten_sp")
-  demDung   Int      @default(1) @map("dem_dung")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  tenSp     String    @map("ten_sp")
+  demDung   Int       @default(1) @map("dem_dung")
+  /// KHOÁ SỬA TAY (nhóm C 15/08, học TencentDB wiki locked): admin sửa alias
+  /// tay thì set locked=1 — mọi đường ghi TỰ ĐỘNG (bot học) phải né. Không có
+  /// nó thì bot học lại là ĐÈ mất bản người sửa (đúng vết alias "trắng ấm").
+  locked    Boolean   @default(false)
+  lockedBy  String?   @map("locked_by")
+  lockedAt  DateTime? @map("locked_at")
+  /// NGUỒN GỐC: 'bot_hoc' (NV chọn từ danh sách gần đúng) | 'admin' (sửa tay).
+  /// Gỡ một nguồn độc là truy được hậu duệ; đọc log biết alias đáng tin cỡ nào.
+  nguonLoai String    @default("bot_hoc") @map("nguon_loai")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
 
   @@unique([orgId, tenGoi])
   @@map("sp_alias")

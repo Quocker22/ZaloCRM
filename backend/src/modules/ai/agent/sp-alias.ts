@@ -20,7 +20,7 @@ export interface PrismaSpAlias {
   spAlias: {
     findUnique: (args: {
       where: { orgId_tenGoi: { orgId: string; tenGoi: string } };
-    }) => Promise<{ productId: number; demDung: number } | null>;
+    }) => Promise<{ productId: number; demDung: number; locked?: boolean } | null>;
     upsert: (args: {
       where: { orgId_tenGoi: { orgId: string; tenGoi: string } };
       create: { orgId: string; tenGoi: string; productId: number; tenSp: string };
@@ -54,6 +54,15 @@ export async function ghiAliasSp(
   const tenGoi = boDau(input.tuKhoa);
   if (!tenGoi || tenGoi.length < 3) return; // tên gọi quá ngắn — alias vô nghĩa
   try {
+    // KHOÁ SỬA TAY (nhóm C 15/08): admin đã locked thì đường học TỰ ĐỘNG phải
+    // né — bot học lại mà đè là mất bản người sửa (đúng vết alias "trắng ấm").
+    const cu = await prisma.spAlias.findUnique({
+      where: { orgId_tenGoi: { orgId: input.orgId, tenGoi } },
+    });
+    if (cu?.locked) {
+      logger.info({ tenGoi, productId: input.productId }, '[sp-alias] alias locked — bỏ qua học đè');
+      return;
+    }
     await prisma.spAlias.upsert({
       where: { orgId_tenGoi: { orgId: input.orgId, tenGoi } },
       create: { orgId: input.orgId, tenGoi, productId: input.productId, tenSp: input.tenSp },

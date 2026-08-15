@@ -65,7 +65,7 @@ export interface PrismaLuatNv {
   aiGuideline: {
     findMany: (args: {
       where: { orgId: string; vai: string; enabled: boolean };
-      orderBy: Array<Record<string, 'asc' | 'desc'>>;
+      orderBy?: Array<Record<string, 'asc' | 'desc'>>;
     }) => Promise<Array<{ id: string; ten: string; condition: string; action: string; mucDo: string }>>;
     create: (args: {
       data: {
@@ -140,6 +140,8 @@ export interface KetQuaGhiLuat {
   ok: boolean;
   loi?: string;
   ten?: string;
+  /** Luật NÀY đã có sẵn (trùng hệt sau chuẩn hoá) — không đẻ bản ghi mới. */
+  daCoSan?: boolean;
 }
 
 /**
@@ -161,6 +163,24 @@ export async function ghiLuat(
   // Slug thời gian đủ duy nhất cho nguồn duy nhất là chat; không cần cuid đẹp.
   const ten = `nv-dan-${Date.now().toString(36)}`;
   try {
+    // CHỐNG GHI TRÙNG (nhóm C 15/08, học TencentDB content_hash + merge
+    // isCandidateRedundant): NV dặn lại đúng một câu đã có (hoặc model đề
+    // xuất lại luật cũ) thì đừng đẻ bản ghi mới — kho luật phình toàn bản
+    // sao, trần 900 ký tự bị chèn bởi chính mình. So sau CHUẨN HOÁ (thường,
+    // gọn khoảng trắng); chỉ chặn trùng HỆT — "chiết khấu 5%" vs "6%" là hai
+    // luật, để nguyên cho người quyết (quen_luat cái cũ).
+    const chuan = (t: string): string => t.toLowerCase().replace(/\s+/g, ' ').trim();
+    const dangCo = await prisma.aiGuideline.findMany({
+      where: { orgId: input.orgId, vai: 'nhanvien', enabled: true },
+    });
+    const trung = dangCo.find((h) => chuan(h.action) === chuan(noiDung));
+    if (trung) {
+      return {
+        ok: true,
+        ten: trung.ten,
+        daCoSan: true,
+      };
+    }
     await prisma.aiGuideline.create({
       data: {
         orgId: input.orgId,

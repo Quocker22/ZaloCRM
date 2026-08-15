@@ -238,3 +238,25 @@ describe('A4 (14/08) — trần 900: luật nạp NGUYÊN VẸN hoặc bỏ hẳ
     expect(ra.length).toBeLessThan(6);
   });
 });
+
+describe('C3 (15/08) — chống ghi trùng luật hệt (chuẩn hoá thường + gọn khoảng trắng)', () => {
+  it('dặn lại đúng câu đã có → ok + daCoSan, KHÔNG tạo bản ghi mới', async () => {
+    const { prisma, daTao } = fakePrisma([
+      luat('1', 'Khách Led Kim Long luôn chiết khấu 5%', 'khách Led Kim Long'),
+    ]);
+    const kq = await ghiLuat(prisma, { orgId: 'o1', noiDung: '  khách led kim long LUÔN chiết   khấu 5%' });
+    expect(kq.ok).toBe(true);
+    expect(kq.daCoSan).toBe(true);
+    expect(daTao).toHaveLength(0);
+  });
+
+  it('khác con số ("6%") là luật KHÁC → vẫn tạo (người quyết, không phải máy)', async () => {
+    const { prisma, daTao } = fakePrisma([
+      luat('1', 'Khách Led Kim Long luôn chiết khấu 5%'),
+    ]);
+    const kq = await ghiLuat(prisma, { orgId: 'o1', noiDung: 'Khách Led Kim Long luôn chiết khấu 6%' });
+    expect(kq.ok).toBe(true);
+    expect(kq.daCoSan).toBeUndefined();
+    expect(daTao).toHaveLength(1);
+  });
+});
