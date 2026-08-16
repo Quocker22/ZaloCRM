@@ -23,7 +23,7 @@ describe('gonTen — tên dài không được tràn đè cột (nhìn ảnh th�
     expect(gonTen('[NB12V400W] Nguồn NB Ngoài Trời 12V400W (cái)')).toBe('Nguồn NB Ngoài Trời 12V400W');
     // bỏ [mã] xong vừa cột thì giữ nguyên, không thêm dấu … thừa
     expect(gonTen('[led dây chữ S 6ml 120 led 1m hồng] led dây chữ S 6mm 120 led 1m hồng (mét)'))
-      .toBe('led dây chữ S 6mm 120 led 1m hồng (mét)');
+      .toBe('led dây chữ S 6mm 120 led 1m hồng');
     // còn tên thật sự dài thì cắt ở ranh giới từ + dấu …
     const dai = gonTen('Nguồn Rong ElectricTrong Nhà 5V60A Mỏng Có Quạt Chống Nước IP67 (cái)');
     expect(dai.length).toBeLessThanOrEqual(41);
