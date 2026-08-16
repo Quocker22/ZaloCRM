@@ -20,13 +20,14 @@ import { taoDonNhap, dinhDangTaoDon } from '../../../odoo/tools/tao-don-nhap.js'
 import { taoDonMua, dinhDangTaoDonMua, traNhaCungCap, dinhDangNhaCungCap, boTienToNcc } from '../../../odoo/tools/tao-don-mua.js';
 import { suaDon, dinhDangSuaDon } from '../../../odoo/tools/sua-don.js';
 import { suaDonMua, dinhDangSuaDonMua } from '../../../odoo/tools/sua-don-mua.js';
+import { anhPhieuNhap } from '../../../odoo/anh-phieu-nhap.js';
 // VAT: tra id account.tax theo % nhân viên nói. KHÔNG phải tool cho model —
 // máy gom đơn gọi thẳng hàm, nên nó không có mặt trong registry (xem chú thích
 // đầu tra-thue.ts). Đừng xoá vì "không thấy đăng ký ở đâu".
 import { traThueBan } from '../../../odoo/tools/tra-thue.js';
 import { guiHoaDon } from '../../../odoo/tools/gui-hoa-don.js';
 import { IDEMPOTENCY_PREFIX } from '../../../odoo/idempotency.js';
-import { linkXuLyDon, linkXuLyDonMua, type HoaDonAnhClient, type AnhHoaDon, REPORT_DON_MUA } from '../../../odoo/hoa-don-anh.js';
+import { linkXuLyDon, linkXuLyDonMua, type HoaDonAnhClient, type AnhHoaDon } from '../../../odoo/hoa-don-anh.js';
 import { laXacNhanNgan } from '../cam-xuc.js';
 import { KHO, type PhienGom, type HanhDong, type DonSua } from './kieu.js';
 import { buocTiepTheo } from './buoc-tiep-theo.js';
@@ -1009,12 +1010,14 @@ async function taoPhieuNhapVaBao(
  * log: text + link đã đi trước, thiếu ảnh không được chặn luồng.
  */
 async function guiAnhPhieuNhap(deps: GomDonDeps, donId: number, maDon: string): Promise<void> {
-  if (!deps.anhClient) return;
+  // TỰ VẼ, không qua report Odoo (16/08): prod không có report custom cho
+  // purchase — render report ra "Yêu cầu báo giá" chuẩn Odoo, anh Quốc: "ủa
+  // phiếu này đâu phải phiếu custom của tôi". Bộ vẽ bảng anh-bang là của mình.
   try {
-    const anh = await deps.anhClient.render(donId, maDon, REPORT_DON_MUA);
+    const anh = await anhPhieuNhap(deps.odoo, donId);
     if (anh) await deps.guiAnhHoaDon(anh);
   } catch (err) {
-    logger.warn({ err, donId, maDon }, '[gom-don] render/gửi ảnh phiếu nhập lỗi (đã có text+link)');
+    logger.warn({ err, donId, maDon }, '[gom-don] vẽ/gửi ảnh phiếu nhập lỗi (đã có text+link)');
   }
 }
 

@@ -211,15 +211,23 @@ export function linkXuLyDon(odooUrl: string, donId: number): string {
  *
  * Vẫn cho ghi đè qua env: bản cài khác có thể cần dạng cũ.
  */
+/**
+ * Action "Danh sách phiếu nhập" trên Odoo prod (đo 16/08: ir.actions.act_window
+ * id=482, action custom của incokit). Cùng lối hardcode-theo-instance với
+ * ACTION_DON_BAN của đơn bán; env override khi Odoo đổi.
+ */
+const ACTION_DON_MUA_MAC_DINH = 482;
+
 export function linkXuLyDonMua(odooUrl: string, donId: number): string {
   const goc = odooUrl.replace(/\/+$/, '');
-  const action = Number(process.env.ODOO_ACTION_PURCHASE_ORDER ?? 0);
+  // Dạng `/odoo/purchase/<id>` (fallback cũ) HỎNG trên bản Odoo này — anh Quốc
+  // 16/08: "link .../vi/odoo/purchase/14592 cũng sai nhé" (website còn chêm
+  // tiền tố ngôn ngữ /vi/ vào). Dạng /web# giống hệt link đơn bán ĐANG chạy —
+  // dùng nó luôn, không giữ fallback hỏng.
+  const action = Number(process.env.ODOO_ACTION_PURCHASE_ORDER ?? 0) || ACTION_DON_MUA_MAC_DINH;
   const menu = Number(process.env.ODOO_MENU_PURCHASE_ORDER ?? 0);
-  if (action > 0 && menu > 0) {
-    return (
-      `${goc}/web#id=${donId}&cids=1&menu_id=${menu}` +
-      `&action=${action}&model=purchase.order&view_type=form`
-    );
-  }
-  return `${goc}/odoo/purchase/${donId}`;
+  return (
+    `${goc}/web#id=${donId}&cids=1${menu > 0 ? `&menu_id=${menu}` : ''}` +
+    `&action=${action}&model=purchase.order&view_type=form`
+  );
 }
