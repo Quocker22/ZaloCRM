@@ -80,7 +80,7 @@ export function vePhieuNhapSvg(d: DuLieuPhieuNhap): string {
   }
   const xTT = 250;
   const dongTT = (nhan: string, gt: string, yy: number) =>
-    `<text x="${xTT}" y="${yy}" font-size="13"><tspan font-weight="700">${thoat(nhan)}:&#160;</tspan>${thoat(gt)}</text>`;
+    `<text x="${xTT}" y="${yy}" font-size="13"><tspan font-weight="700">${thoat(nhan)}:</tspan>\u00A0${thoat(gt)}</text>`;
   let yTT = y + 14;
   parts.push(dongTT('Công ty', d.congTy.ten, yTT)); yTT += 20;
   parts.push(dongTT('Địa chỉ', d.congTy.diaChi, yTT)); yTT += 20;
@@ -109,8 +109,8 @@ export function vePhieuNhapSvg(d: DuLieuPhieuNhap): string {
     ['Trạng thái', d.trangThai],
   ];
   for (let i = 0; i < 3; i++) {
-    parts.push(`<text x="${DEM}" y="${y}" font-size="13"><tspan font-weight="700">${thoat(capTrai[i][0])}:&#160;</tspan>${thoat(capTrai[i][1])}</text>`);
-    parts.push(`<text x="${xPhai}" y="${y}" font-size="13"><tspan font-weight="700">${thoat(capPhai[i][0])}:&#160;</tspan>${thoat(capPhai[i][1])}</text>`);
+    parts.push(`<text x="${DEM}" y="${y}" font-size="13"><tspan font-weight="700">${thoat(capTrai[i][0])}:</tspan>\u00A0${thoat(capTrai[i][1])}</text>`);
+    parts.push(`<text x="${xPhai}" y="${y}" font-size="13"><tspan font-weight="700">${thoat(capPhai[i][0])}:</tspan>\u00A0${thoat(capPhai[i][1])}</text>`);
     y += 24;
   }
   y += 8;
