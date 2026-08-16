@@ -27,7 +27,11 @@ function thoat(s: string | number): string {
 
 /** Bỏ tiền tố "[mã]" và cắt gọn ở ranh giới từ cho vừa cột. */
 export function gonTen(ten: string, tran = 40): string {
-  const sach = ten.replace(/^\[[^\]]*\]\s*/, '').trim();
+  // Bỏ luôn hậu tố đơn vị "(cái)/(tấm)…" — cột ĐVT đã có, để lại là đè cột.
+  const sach = ten
+    .replace(/^\[[^\]]*\]\s*/, '')
+    .replace(/\s*\((cái|tấm|mét|cuộn|bộ|thanh|bóng|m|c)[^)]*\)\s*$/i, '')
+    .trim();
   if (sach.length <= tran) return sach;
   const cat = sach.slice(0, tran);
   const cuoi = cat.lastIndexOf(' ');
@@ -76,7 +80,7 @@ export function vePhieuNhapSvg(d: DuLieuPhieuNhap): string {
   }
   const xTT = 250;
   const dongTT = (nhan: string, gt: string, yy: number) =>
-    `<text x="${xTT}" y="${yy}" font-size="13"><tspan font-weight="700">${thoat(nhan)}: </tspan>${thoat(gt)}</text>`;
+    `<text x="${xTT}" y="${yy}" font-size="13"><tspan font-weight="700">${thoat(nhan)}:&#160;</tspan>${thoat(gt)}</text>`;
   let yTT = y + 14;
   parts.push(dongTT('Công ty', d.congTy.ten, yTT)); yTT += 20;
   parts.push(dongTT('Địa chỉ', d.congTy.diaChi, yTT)); yTT += 20;
@@ -105,15 +109,17 @@ export function vePhieuNhapSvg(d: DuLieuPhieuNhap): string {
     ['Trạng thái', d.trangThai],
   ];
   for (let i = 0; i < 3; i++) {
-    parts.push(`<text x="${DEM}" y="${y}" font-size="13"><tspan font-weight="700">${thoat(capTrai[i][0])}: </tspan>${thoat(capTrai[i][1])}</text>`);
-    parts.push(`<text x="${xPhai}" y="${y}" font-size="13"><tspan font-weight="700">${thoat(capPhai[i][0])}: </tspan>${thoat(capPhai[i][1])}</text>`);
+    parts.push(`<text x="${DEM}" y="${y}" font-size="13"><tspan font-weight="700">${thoat(capTrai[i][0])}:&#160;</tspan>${thoat(capTrai[i][1])}</text>`);
+    parts.push(`<text x="${xPhai}" y="${y}" font-size="13"><tspan font-weight="700">${thoat(capPhai[i][0])}:&#160;</tspan>${thoat(capPhai[i][1])}</text>`);
     y += 24;
   }
   y += 8;
 
   // ── Bảng kẻ ô: STT | Mã SP | Tên sản phẩm | ĐVT | SL | Đơn giá | Thành tiền ──
   const wBang = W - DEM * 2;
-  const rong = [40, 92, Math.round(wBang) - 40 - 92 - 62 - 56 - 96 - 108, 62, 56, 96, 108];
+  // Đo từ ảnh thật P04530: "1.646.400.000 đ" cần ~120px, không thì end-anchor
+  // tràn NGƯỢC sang cột Đơn giá. Tên nhường chỗ (đã gọn + bỏ hậu tố đơn vị).
+  const rong = [36, 96, wBang - 36 - 96 - 52 - 64 - 102 - 126, 52, 64, 102, 126];
   const oCot = (i: number) => DEM + rong.slice(0, i).reduce((a, b) => a + b, 0);
   const CAO = 34;
   const tieuDeCot = ['STT', 'Mã SP', 'Tên sản phẩm', 'ĐVT', 'SL', 'Đơn giá', 'Thành tiền'];
@@ -127,8 +133,8 @@ export function vePhieuNhapSvg(d: DuLieuPhieuNhap): string {
     const oGiua = (i: number, gt: string, anchor = 'middle', x?: number) =>
       parts.push(`<text x="${x ?? oCot(i) + rong[i] / 2}" y="${y + 22}" font-size="13" text-anchor="${anchor}">${thoat(gt)}</text>`);
     oGiua(0, String(r + 1));
-    oGiua(1, dg.ma);
-    oGiua(2, gonTen(dg.ten, 42), 'start', oCot(2) + 8);
+    oGiua(1, dg.ma.length > 12 ? `${dg.ma.slice(0, 11)}…` : dg.ma);
+    oGiua(2, gonTen(dg.ten, 30), 'start', oCot(2) + 8);
     oGiua(3, dg.dvt);
     oGiua(4, dg.sl.toLocaleString('vi-VN'), 'end', oCot(4) + rong[4] - 6);
     oGiua(5, dg.gia > 0 ? tien(dg.gia) : 'chưa có', 'end', oCot(5) + rong[5] - 8);
