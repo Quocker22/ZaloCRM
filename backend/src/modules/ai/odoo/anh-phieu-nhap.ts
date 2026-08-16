@@ -1,21 +1,22 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// ẢNH PHIẾU NHẬP tự vẽ — dáng CHỨNG TỪ, không phải bảng báo cáo trần.
+// ẢNH PHIẾU NHẬP tự vẽ — BÁM MẪU "PHIẾU NHẬP HÀNG" của app ERP incokit.
 //
-// Hai vòng góp ý thật của anh Quốc (16/08):
-//   1. Render qua report Odoo → ra "Yêu cầu báo giá" chuẩn Odoo ("ủa phiếu
-//      này đâu phải phiếu custom của tôi") — prod KHÔNG có report custom cho
-//      purchase.order (đo: chỉ 2 mẫu chuẩn).
-//   2. Vẽ bảng trần kiểu báo cáo → "gửi hình này gọi là hóa đơn đấy hả?" —
-//      thiếu đầu chứng từ. Người bán hàng nhìn "hoá đơn" là nhìn: tên shop +
-//      địa chỉ + SĐT, mã phiếu, NCC, rồi mới tới bảng hàng.
-//
-// Nên: SVG tự dựng (cùng kỹ thuật anh-bang: sharp, không Odoo, không trình
-// duyệt) với bố cục chứng từ — đầu trái là CÔNG TY (đọc từ res.company của
-// chính Odoo, không hardcode), đầu phải là khối PHIẾU NHẬP HÀNG + NCC.
+// Ba vòng góp ý thật của anh Quốc (16-17/08), mỗi vòng một bài:
+//   1. Render report Odoo → ra "Yêu cầu báo giá" chuẩn Odoo ("đâu phải phiếu
+//      custom của tôi") — prod không có report purchase custom.
+//   2. Vẽ bảng kiểu báo cáo → "gửi hình này gọi là hóa đơn đấy hả?".
+//   3. Thêm đầu chứng từ vẫn chưa đạt → anh gửi MẪU THẬT từ app ERP
+//      ("phiếu nhập trên app nó như này mà"): logo + khối công ty, tiêu đề
+//      PHIẾU NHẬP HÀNG xanh giữa trang, Số/Ngày, hai cột NCC|Kho-Người tạo-
+//      Trạng thái, bảng kẻ ô STT/Mã SP/Tên/ĐVT/SL/Đơn giá/Thành tiền, khối
+//      tổng (Tổng SL/Tiền hàng/Thuế/Tổng cộng xanh), ba ô ký tên.
+//   Mẫu đó nằm ở repo app-erp (không đụng được từ đây) — dựng lại bằng SVG
+//   cùng kỹ thuật anh-bang; logo đọc từ res.company.logo của chính Odoo.
 import sharp from 'sharp';
 import type { OdooClient } from './client.js';
 
-const tien = (n: number): string => `${Math.round(n).toLocaleString('vi-VN')}đ`;
+const XANH_DUONG = '#1a73e8';
+const tien = (n: number): string => `${Math.round(n).toLocaleString('vi-VN')} đ`;
 
 /** Thoát ký tự XML — tên SP/NCC có thể chứa &, <, " làm hỏng SVG. */
 function thoat(s: string | number): string {
@@ -24,10 +25,7 @@ function thoat(s: string | number): string {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-/**
- * Gọn tên hàng cho vừa cột (nhìn ảnh thật P04528: tên dài tràn đè cột SL).
- * Bỏ tiền tố "[mã]" Odoo chèn (mã đã nằm trong tên), cắt ở ranh giới từ.
- */
+/** Bỏ tiền tố "[mã]" và cắt gọn ở ranh giới từ cho vừa cột. */
 export function gonTen(ten: string, tran = 40): string {
   const sach = ten.replace(/^\[[^\]]*\]\s*/, '').trim();
   if (sach.length <= tran) return sach;
@@ -36,72 +34,143 @@ export function gonTen(ten: string, tran = 40): string {
   return `${(cuoi > tran * 0.6 ? cat.slice(0, cuoi) : cat).trimEnd()}…`;
 }
 
+/** Mã SP từ tiền tố "[...]" trong tên dòng Odoo — không có thì rỗng. */
+export function maTuTen(ten: string): string {
+  const m = /^\[([^\]]{1,18})\]/.exec(ten.trim());
+  return m ? m[1] : '';
+}
+
+/** Nhãn trạng thái phiếu cho người đọc — không nhả chữ Odoo thô. */
+export function nhanTrangThai(state: string): string {
+  return state === 'draft' ? 'Nháp' : state === 'sent' ? 'Đã gửi NCC'
+    : state === 'purchase' ? 'Đã xác nhận' : state === 'done' ? 'Hoàn tất'
+      : state === 'cancel' ? 'Đã huỷ' : state;
+}
+
 export interface DuLieuPhieuNhap {
   ma: string;
   ngay: string;
-  ncc: { ten: string; sdt?: string };
-  congTy: { ten: string; diaChi: string; sdt?: string };
-  dong: Array<{ ten: string; sl: number; gia: number; thanhTien: number }>;
+  trangThai: string;
+  khoNhan: string;
+  nguoiTao: string;
+  ncc: { ten: string; sdt?: string; diaChi?: string };
+  congTy: { ten: string; diaChi: string; sdt?: string; email?: string };
+  /** PNG/JPEG base64 từ res.company.logo — thiếu thì vẽ chữ thay logo. */
+  logoB64?: string;
+  dong: Array<{ ma: string; ten: string; dvt: string; sl: number; gia: number; thanhTien: number }>;
+  thue: number;
 }
 
-/** Dựng SVG chứng từ — thuần, test khoá được nội dung. */
+/** Dựng SVG bám mẫu app — thuần, test khoá được nội dung. */
 export function vePhieuNhapSvg(d: DuLieuPhieuNhap): string {
-  const XANH = '#0b6b3a';
-  const W = 700;
-  const DEM = 20;
-  const CAO_HANG = 32;
-  const wBang = W - DEM * 2;
-  // cột: Tên hàng | SL | Giá nhập | Thành tiền
-  const rong = [Math.round(wBang * 0.47), Math.round(wBang * 0.13), Math.round(wBang * 0.18), Math.round(wBang * 0.22)];
-  const oCot = (i: number) => DEM + rong.slice(0, i).reduce((a, b) => a + b, 0);
-
+  const W = 760;
+  const DEM = 24;
   const parts: string[] = [];
-  let y = 34;
-  // ── Đầu trái: CÔNG TY ──
-  parts.push(`<text x="${DEM}" y="${y}" font-size="20" font-weight="700" fill="${XANH}">${thoat(d.congTy.ten)}</text>`);
-  // ── Đầu phải: PHIẾU ──
-  parts.push(`<text x="${W - DEM}" y="${y}" font-size="20" font-weight="700" text-anchor="end" fill="#b3261e">PHIẾU NHẬP HÀNG ${thoat(d.ma)}</text>`);
-  y += 20;
-  parts.push(`<text x="${DEM}" y="${y}" font-size="12" fill="#444">${thoat(d.congTy.diaChi)}</text>`);
-  parts.push(`<text x="${W - DEM}" y="${y}" font-size="12" text-anchor="end" fill="#444">Ngày: ${thoat(d.ngay)}</text>`);
-  y += 18;
-  if (d.congTy.sdt) parts.push(`<text x="${DEM}" y="${y}" font-size="12" fill="#444">ĐT: ${thoat(d.congTy.sdt)}</text>`);
-  parts.push(`<text x="${W - DEM}" y="${y}" font-size="13" font-weight="700" text-anchor="end" fill="#1a1a1a">NCC: ${thoat(d.ncc.ten)}${d.ncc.sdt ? ` · ${thoat(d.ncc.sdt)}` : ''}</text>`);
-  y += 14;
-  parts.push(`<line x1="${DEM}" y1="${y}" x2="${W - DEM}" y2="${y}" stroke="${XANH}" stroke-width="2"/>`);
-  y += 14;
+  let y = 22;
 
-  // ── Bảng ──
-  const hang = (cells: Array<string>, yy: number, dam: boolean, mau = '#1a1a1a') =>
-    cells.map((c, i) => {
-      const canPhai = i > 0;
-      const x = canPhai ? oCot(i) + rong[i] - 8 : oCot(i) + 8;
-      return `<text x="${x}" y="${yy}" font-size="13" ${dam ? 'font-weight="700"' : ''} text-anchor="${canPhai ? 'end' : 'start'}" fill="${mau}">${thoat(c)}</text>`;
-    }).join('');
-
-  parts.push(`<rect x="${DEM}" y="${y}" width="${wBang}" height="${CAO_HANG}" fill="${XANH}"/>`);
-  parts.push(['Tên hàng', 'SL', 'Giá nhập', 'Thành tiền'].map((c, i) => {
-    const canPhai = i > 0;
-    const x = canPhai ? oCot(i) + rong[i] - 8 : oCot(i) + 8;
-    return `<text x="${x}" y="${y + 21}" font-size="13" font-weight="700" text-anchor="${canPhai ? 'end' : 'start'}" fill="#fff">${thoat(c)}</text>`;
-  }).join(''));
-  y += CAO_HANG;
-
-  for (const [r, dg] of d.dong.entries()) {
-    if (r % 2 === 1) parts.push(`<rect x="${DEM}" y="${y}" width="${wBang}" height="${CAO_HANG}" fill="#f2f7f4"/>`);
-    parts.push(hang(
-      [gonTen(dg.ten), dg.sl.toLocaleString('vi-VN'), dg.gia > 0 ? tien(dg.gia) : 'chưa có', dg.thanhTien > 0 ? tien(dg.thanhTien) : '—'],
-      y + 21, false,
-    ));
-    y += CAO_HANG;
+  // ── Khối đầu: logo trái + thông tin công ty phải ──
+  if (d.logoB64) {
+    parts.push(`<image x="${DEM}" y="${y}" width="180" height="86" preserveAspectRatio="xMinYMid meet" href="data:image/png;base64,${d.logoB64}"/>`);
+  } else {
+    parts.push(`<text x="${DEM}" y="${y + 52}" font-size="34" font-weight="700" fill="#0b6b3a">${thoat(d.congTy.ten.split(' ')[0] ?? '')}</text>`);
   }
+  const xTT = 250;
+  const dongTT = (nhan: string, gt: string, yy: number) =>
+    `<text x="${xTT}" y="${yy}" font-size="13"><tspan font-weight="700">${thoat(nhan)}: </tspan>${thoat(gt)}</text>`;
+  let yTT = y + 14;
+  parts.push(dongTT('Công ty', d.congTy.ten, yTT)); yTT += 20;
+  parts.push(dongTT('Địa chỉ', d.congTy.diaChi, yTT)); yTT += 20;
+  parts.push(dongTT('Điện thoại', d.congTy.sdt ?? '', yTT)); yTT += 20;
+  parts.push(dongTT('Email', d.congTy.email ?? '', yTT)); yTT += 12;
+  y = Math.max(y + 92, yTT + 6);
+  parts.push(`<line x1="${DEM}" y1="${y}" x2="${W - DEM}" y2="${y}" stroke="#111" stroke-width="2"/>`);
+  y += 34;
 
-  const tong = d.dong.reduce((t, x) => t + x.thanhTien, 0);
-  parts.push(`<rect x="${DEM}" y="${y}" width="${wBang}" height="${CAO_HANG}" fill="#e0efe7"/>`);
-  parts.push(hang(['TỔNG', '', '', tien(tong)], y + 21, true));
-  y += CAO_HANG + 22;
-  parts.push(`<text x="${DEM}" y="${y}" font-size="11" fill="#888">Phiếu NHÁP tạo qua trợ lý Zalo — anh/chị kiểm tra rồi bấm Xác nhận trên Odoo. Dòng "chưa có" là chưa điền giá nhập.</text>`);
-  y += DEM;
+  // ── Tiêu đề giữa trang ──
+  parts.push(`<text x="${W / 2}" y="${y}" font-size="24" font-weight="700" text-anchor="middle" fill="${XANH_DUONG}">PHIẾU NHẬP HÀNG</text>`);
+  y += 24;
+  parts.push(`<text x="${W / 2}" y="${y}" font-size="13" text-anchor="middle">Số: <tspan font-weight="700">${thoat(d.ma)}</tspan> · Ngày ${thoat(d.ngay)}</text>`);
+  y += 30;
+
+  // ── Hai cột thông tin ──
+  const xPhai = W / 2 + 10;
+  const capTrai: Array<[string, string]> = [
+    ['Nhà cung cấp', d.ncc.ten],
+    ['Điện thoại', d.ncc.sdt ?? ''],
+    ['Địa chỉ NCC', d.ncc.diaChi ?? ''],
+  ];
+  const capPhai: Array<[string, string]> = [
+    ['Kho nhận', d.khoNhan],
+    ['Người tạo', d.nguoiTao],
+    ['Trạng thái', d.trangThai],
+  ];
+  for (let i = 0; i < 3; i++) {
+    parts.push(`<text x="${DEM}" y="${y}" font-size="13"><tspan font-weight="700">${thoat(capTrai[i][0])}: </tspan>${thoat(capTrai[i][1])}</text>`);
+    parts.push(`<text x="${xPhai}" y="${y}" font-size="13"><tspan font-weight="700">${thoat(capPhai[i][0])}: </tspan>${thoat(capPhai[i][1])}</text>`);
+    y += 24;
+  }
+  y += 8;
+
+  // ── Bảng kẻ ô: STT | Mã SP | Tên sản phẩm | ĐVT | SL | Đơn giá | Thành tiền ──
+  const wBang = W - DEM * 2;
+  const rong = [40, 92, Math.round(wBang) - 40 - 92 - 62 - 56 - 96 - 108, 62, 56, 96, 108];
+  const oCot = (i: number) => DEM + rong.slice(0, i).reduce((a, b) => a + b, 0);
+  const CAO = 34;
+  const tieuDeCot = ['STT', 'Mã SP', 'Tên sản phẩm', 'ĐVT', 'SL', 'Đơn giá', 'Thành tiền'];
+  const yBang = y;
+  // header
+  tieuDeCot.forEach((c, i) => {
+    parts.push(`<text x="${oCot(i) + rong[i] / 2}" y="${y + 22}" font-size="13" font-weight="700" text-anchor="middle" fill="#8a8f98">${thoat(c)}</text>`);
+  });
+  y += CAO;
+  for (const [r, dg] of d.dong.entries()) {
+    const oGiua = (i: number, gt: string, anchor = 'middle', x?: number) =>
+      parts.push(`<text x="${x ?? oCot(i) + rong[i] / 2}" y="${y + 22}" font-size="13" text-anchor="${anchor}">${thoat(gt)}</text>`);
+    oGiua(0, String(r + 1));
+    oGiua(1, dg.ma);
+    oGiua(2, gonTen(dg.ten, 42), 'start', oCot(2) + 8);
+    oGiua(3, dg.dvt);
+    oGiua(4, dg.sl.toLocaleString('vi-VN'), 'end', oCot(4) + rong[4] - 6);
+    oGiua(5, dg.gia > 0 ? tien(dg.gia) : 'chưa có', 'end', oCot(5) + rong[5] - 8);
+    oGiua(6, dg.thanhTien > 0 ? tien(dg.thanhTien) : '—', 'end', oCot(6) + rong[6] - 8);
+    y += CAO;
+  }
+  // kẻ ô
+  const yCuoi = y;
+  for (let i = 0; i <= 7; i++) {
+    const x = i === 7 ? DEM + wBang : oCot(i);
+    parts.push(`<line x1="${x}" y1="${yBang}" x2="${x}" y2="${yCuoi}" stroke="#333" stroke-width="1"/>`);
+  }
+  for (let r = 0; r <= d.dong.length + 1; r++) {
+    const yy = yBang + r * CAO;
+    parts.push(`<line x1="${DEM}" y1="${yy}" x2="${DEM + wBang}" y2="${yy}" stroke="#333" stroke-width="1"/>`);
+  }
+  y += 24;
+
+  // ── Khối tổng, canh phải ──
+  const tongSl = d.dong.reduce((t, x) => t + x.sl, 0);
+  const tienHang = d.dong.reduce((t, x) => t + x.thanhTien, 0);
+  const capTong: Array<[string, string, boolean]> = [
+    ['Tổng số lượng', tongSl.toLocaleString('vi-VN'), false],
+    ['Tổng tiền hàng', tien(tienHang), false],
+    ['Thuế', tien(d.thue), false],
+    ['Tổng cộng', tien(tienHang + d.thue), true],
+  ];
+  for (const [nhan, gt, dam] of capTong) {
+    parts.push(`<text x="${W / 2 + 60}" y="${y}" font-size="14" font-weight="700" text-anchor="end" fill="${dam ? XANH_DUONG : '#111'}">${thoat(nhan)}:</text>`);
+    parts.push(`<text x="${W - DEM}" y="${y}" font-size="14" ${dam ? `font-weight="700" fill="${XANH_DUONG}" text-decoration="underline"` : ''} text-anchor="end">${thoat(gt)}</text>`);
+    y += 24;
+  }
+  y += 26;
+
+  // ── Ba ô ký tên ──
+  const kyTen = ['NGƯỜI LẬP PHIẾU', 'THỦ KHO', 'NHÀ CUNG CẤP'];
+  kyTen.forEach((k, i) => {
+    const x = DEM + (wBang / 6) + i * (wBang / 3);
+    parts.push(`<text x="${x}" y="${y}" font-size="13" font-weight="700" text-anchor="middle">${thoat(k)}</text>`);
+    parts.push(`<text x="${x}" y="${y + 18}" font-size="11" text-anchor="middle" fill="#666">(Ký, ghi rõ họ tên)</text>`);
+  });
+  y += 90;
 
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${y}">` +
@@ -109,47 +178,76 @@ export function vePhieuNhapSvg(d: DuLieuPhieuNhap): string {
   );
 }
 
-/** Đọc phiếu + công ty + NCC từ Odoo rồi vẽ PNG. Lỗi → ném, caller log best-effort. */
+/** Đọc phiếu + công ty + NCC + logo từ Odoo rồi vẽ PNG. */
 export async function anhPhieuNhap(
   odoo: Pick<OdooClient, 'searchRead'>,
   donId: number,
 ): Promise<{ duLieu: Buffer; tenFile: string } | null> {
   const [don] = await odoo.searchRead<Record<string, unknown>>(
-    'purchase.order', [['id', '=', donId]], ['name', 'partner_id', 'date_order'], { limit: 1 },
+    'purchase.order', [['id', '=', donId]],
+    ['name', 'partner_id', 'date_order', 'state', 'picking_type_id', 'create_uid', 'amount_tax'],
+    { limit: 1 },
   );
   if (!don) return null;
   const nccId = Array.isArray(don.partner_id) ? Number(don.partner_id[0]) : 0;
   const [ncc] = nccId
-    ? await odoo.searchRead<Record<string, unknown>>('res.partner', [['id', '=', nccId]], ['name', 'phone'], { limit: 1 })
+    ? await odoo.searchRead<Record<string, unknown>>(
+      'res.partner', [['id', '=', nccId]], ['name', 'phone', 'street', 'city'], { limit: 1 })
     : [undefined];
-  const [congTy] = await odoo.searchRead<Record<string, unknown>>(
-    'res.company', [], ['name', 'street', 'city', 'phone'], { limit: 1 },
-  );
+  // Logo lấy riêng: field binary nặng, lỗi cũng không được chặn phiếu.
+  let logoB64: string | undefined;
+  let congTy: Record<string, unknown> | undefined;
+  try {
+    [congTy] = await odoo.searchRead<Record<string, unknown>>(
+      'res.company', [], ['name', 'street', 'city', 'phone', 'email', 'logo'], { limit: 1 },
+    );
+    if (congTy?.logo && typeof congTy.logo === 'string' && congTy.logo.length > 100) {
+      logoB64 = congTy.logo;
+    }
+  } catch {
+    [congTy] = await odoo.searchRead<Record<string, unknown>>(
+      'res.company', [], ['name', 'street', 'city', 'phone', 'email'], { limit: 1 },
+    );
+  }
   const lines = await odoo.searchRead<Record<string, unknown>>(
     'purchase.order.line', [['order_id', '=', donId]],
-    ['product_id', 'product_qty', 'price_unit', 'price_subtotal'], { limit: 60 },
+    ['product_id', 'product_qty', 'price_unit', 'price_subtotal', 'product_uom'], { limit: 60 },
   );
 
+  const khoTho = Array.isArray(don.picking_type_id) ? String(don.picking_type_id[1]) : '';
   const svg = vePhieuNhapSvg({
     ma: String(don.name ?? ''),
-    ngay: don.date_order ? String(don.date_order).slice(0, 10) : '',
+    ngay: don.date_order ? String(don.date_order).slice(0, 10).split('-').reverse().join('/') : '',
+    trangThai: nhanTrangThai(String(don.state ?? '')),
+    // "Chi nhánh trung tâm: Receipts" → "Chi nhánh trung tâm"
+    khoNhan: khoTho.split(':')[0].trim(),
+    nguoiTao: Array.isArray(don.create_uid) ? String(don.create_uid[1]) : '',
     ncc: {
       ten: ncc ? String(ncc.name ?? '') : (Array.isArray(don.partner_id) ? String(don.partner_id[1]) : ''),
       ...(ncc?.phone ? { sdt: String(ncc.phone) } : {}),
+      diaChi: [ncc?.street, ncc?.city].filter(Boolean).map(String).join(', '),
     },
     congTy: {
       ten: congTy ? String(congTy.name ?? '') : '',
       diaChi: [congTy?.street, congTy?.city].filter(Boolean).map(String).join(', '),
       ...(congTy?.phone ? { sdt: String(congTy.phone) } : {}),
+      ...(congTy?.email ? { email: String(congTy.email) } : {}),
     },
+    ...(logoB64 ? { logoB64 } : {}),
     dong: lines
       .filter((l) => Array.isArray(l.product_id))
-      .map((l) => ({
-        ten: String((l.product_id as [number, string])[1] ?? ''),
-        sl: Number(l.product_qty ?? 0),
-        gia: Number(l.price_unit ?? 0),
-        thanhTien: Number(l.price_subtotal ?? 0),
-      })),
+      .map((l) => {
+        const tenTho = String((l.product_id as [number, string])[1] ?? '');
+        return {
+          ma: maTuTen(tenTho),
+          ten: tenTho,
+          dvt: Array.isArray(l.product_uom) ? String(l.product_uom[1]) : '',
+          sl: Number(l.product_qty ?? 0),
+          gia: Number(l.price_unit ?? 0),
+          thanhTien: Number(l.price_subtotal ?? 0),
+        };
+      }),
+    thue: Number(don.amount_tax ?? 0),
   });
   const duLieu = await sharp(Buffer.from(svg)).png().toBuffer();
   return { duLieu, tenFile: `phieu-nhap-${String(don.name ?? donId)}.png` };
