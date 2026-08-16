@@ -33,3 +33,17 @@ describe('linkXuLyDonMua — dạng /web# như đơn bán, hết /odoo/purchase 
     expect(link).not.toContain('/odoo/purchase');
   });
 });
+
+describe('gonTen — tên dài không được tràn đè cột (nhìn ảnh thật P04528)', () => {
+  it('bỏ tiền tố [mã], cắt ranh giới từ + dấu …', async () => {
+    const { gonTen } = await import('../../../src/modules/ai/odoo/anh-phieu-nhap.js');
+    expect(gonTen('[NB12V400W] Nguồn NB Ngoài Trời 12V400W (cái)')).toBe('Nguồn NB Ngoài Trời 12V400W (cái)');
+    // bỏ [mã] xong vừa cột thì giữ nguyên, không thêm dấu … thừa
+    expect(gonTen('[led dây chữ S 6ml 120 led 1m hồng] led dây chữ S 6mm 120 led 1m hồng (mét)'))
+      .toBe('led dây chữ S 6mm 120 led 1m hồng (mét)');
+    // còn tên thật sự dài thì cắt ở ranh giới từ + dấu …
+    const dai = gonTen('Nguồn Rong ElectricTrong Nhà 5V60A Mỏng Có Quạt Chống Nước IP67 (cái)');
+    expect(dai.length).toBeLessThanOrEqual(41);
+    expect(dai.endsWith('…')).toBe(true);
+  });
+});

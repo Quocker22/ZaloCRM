@@ -10,6 +10,18 @@ import type { BangExcel } from './xuat-excel.js';
 
 const tien = (n: number): string => `${Math.round(n).toLocaleString('vi-VN')}đ`;
 
+/**
+ * Gọn tên hàng cho vừa cột (nhìn ảnh thật P04528: tên dài tràn đè cột SL).
+ * Bỏ tiền tố "[mã]" Odoo chèn (mã đã nằm trong tên), cắt ở ranh giới từ.
+ */
+export function gonTen(ten: string, tran = 40): string {
+  const sach = ten.replace(/^\[[^\]]*\]\s*/, '').trim();
+  if (sach.length <= tran) return sach;
+  const cat = sach.slice(0, tran);
+  const cuoi = cat.lastIndexOf(' ');
+  return `${(cuoi > tran * 0.6 ? cat.slice(0, cuoi) : cat).trimEnd()}…`;
+}
+
 /** Dựng BangExcel từ dữ liệu phiếu — thuần để test khoá nội dung. */
 export function bangPhieuNhap(
   don: { ma: string; ncc: string; ngay?: string },
@@ -20,7 +32,7 @@ export function bangPhieuNhap(
     ky: don.ngay ?? '',
     cot: ['Tên hàng', 'SL', 'Giá nhập', 'Thành tiền'],
     dong: dong.map((d) => [
-      d.ten,
+      gonTen(d.ten),
       d.sl.toLocaleString('vi-VN'),
       d.gia > 0 ? tien(d.gia) : 'chưa có',
       d.thanhTien > 0 ? tien(d.thanhTien) : '—',
