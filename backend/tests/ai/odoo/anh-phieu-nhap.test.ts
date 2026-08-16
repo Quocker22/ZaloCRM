@@ -4,25 +4,8 @@
 // cũng sai nhé"). Prod không có report custom cho purchase → tự vẽ bằng
 // anh-bang; link mirror đơn bán với action 482 "Danh sách phiếu nhập".
 import { describe, it, expect } from 'vitest';
-import { bangPhieuNhap } from '../../../src/modules/ai/odoo/anh-phieu-nhap.js';
+import { vePhieuNhapSvg } from '../../../src/modules/ai/odoo/anh-phieu-nhap.js';
 import { linkXuLyDonMua } from '../../../src/modules/ai/odoo/hoa-don-anh.js';
-
-describe('bangPhieuNhap — khuôn phiếu tự vẽ', () => {
-  it('đủ tiêu đề NCC, cột, dòng, tổng; dòng chưa giá ghi "chưa có" không ghi 0đ', () => {
-    const bang = bangPhieuNhap(
-      { ma: 'P04527', ncc: 'Trung Quốc', ngay: '2026-08-16' },
-      [
-        { ten: 'Nguồn NB 12V400W', sl: 3030, gia: 0, thanhTien: 0 },
-        { ten: 'p10 full out LLR 260330', sl: 10000, gia: 164640, thanhTien: 1646400000 },
-      ],
-    );
-    expect(bang.tieuDe).toBe('PHIẾU NHẬP HÀNG P04527 — NCC Trung Quốc');
-    expect(bang.cot).toEqual(['Tên hàng', 'SL', 'Giá nhập', 'Thành tiền']);
-    expect(bang.dong[0]).toEqual(['Nguồn NB 12V400W', '3.030', 'chưa có', '—']);
-    expect(bang.dong[1][3]).toBe('1.646.400.000đ');
-    expect(bang.tongCong?.[3]).toBe('1.646.400.000đ');
-  });
-});
 
 describe('linkXuLyDonMua — dạng /web# như đơn bán, hết /odoo/purchase hỏng', () => {
   it('mặc định action 482, không còn đường /odoo/purchase', () => {
@@ -45,5 +28,32 @@ describe('gonTen — tên dài không được tràn đè cột (nhìn ảnh th�
     const dai = gonTen('Nguồn Rong ElectricTrong Nhà 5V60A Mỏng Có Quạt Chống Nước IP67 (cái)');
     expect(dai.length).toBeLessThanOrEqual(41);
     expect(dai.endsWith('…')).toBe(true);
+  });
+});
+
+
+describe('vePhieuNhapSvg — dáng CHỨNG TỪ, không phải bảng trần (góp ý 2 của anh Quốc)', () => {
+  const svg = vePhieuNhapSvg({
+    ma: 'P04529', ngay: '2026-08-16',
+    ncc: { ten: 'Trung Quốc', sdt: '090xxx' },
+    congTy: { ten: 'LEDNELIA Việt Nam', diaChi: '34A đường 2 ngõ 3, Hà Nội', sdt: '0903436400' },
+    dong: [
+      { ten: 'p10 full out LLR 260330', sl: 10000, gia: 164640, thanhTien: 1646400000 },
+      { ten: '[NB12V400W] Nguồn NB Ngoài Trời 12V400W (cái)', sl: 3030, gia: 0, thanhTien: 0 },
+    ],
+  });
+  it('đầu phiếu đủ: tên shop + địa chỉ + SĐT, mã phiếu, ngày, NCC', () => {
+    expect(svg).toContain('LEDNELIA Việt Nam');
+    expect(svg).toContain('34A đường 2 ngõ 3');
+    expect(svg).toContain('0903436400');
+    expect(svg).toContain('PHIẾU NHẬP HÀNG P04529');
+    expect(svg).toContain('NCC: Trung Quốc');
+    expect(svg).toContain('2026-08-16');
+  });
+  it('bảng: dòng chưa giá ghi "chưa có", tổng đúng, tên bỏ [mã]', () => {
+    expect(svg).toContain('chưa có');
+    expect(svg).toContain('1.646.400.000đ');
+    expect(svg).not.toContain('[NB12V400W]');
+    expect(svg).toContain('Nguồn NB Ngoài Trời 12V400W (cái)');
   });
 });
