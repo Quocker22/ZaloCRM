@@ -88,6 +88,17 @@ const NHAN_LENH_SUA_DON =
  * Chạy trên chuỗi đã boDau.
  */
 export function phanTichCauSuaGia(cauBd: string): { gia?: number; ten?: string } | null {
+  // MẪU 2 (17/08, ca 00:28): "<tên hàng> giá (nhập|bán)? <số> (nhé|nha…)" —
+  // tên đứng TRƯỚC, không có "sửa"/"đó". Trước đây trượt hết fence, rơi vào
+  // model và nó bịa thành phiếu nhập mới với NCC "NB" ("Nguồn NB ... giá nhập
+  // 20099đ nhé" → "Em không tìm thấy nhà cung cấp NB").
+  const m2 = /^(.{2,60}?)\s+gia(?:\s+nhap|\s+ban)?\s+(\d{1,3}(?:[.,]\d{3})+|\d+)\s*(k|nghin|ngan)?\s*(?:d|dong|vnd)?\s*(?:nhe|nha|nho|a|voi|giup em|em)?\s*[.!]*$/.exec(cauBd.trim());
+  if (m2) {
+    let gia = Number(m2[2].replace(/[.,]/g, ''));
+    if (m2[3]) gia *= 1000;
+    const ten = m2[1].trim();
+    if (ten && Number.isFinite(gia) && gia > 0) return { ten, gia };
+  }
   const m = /^(?:sua |doi )?gia\b(.*)$/.exec(cauBd.trim());
   if (!m) return null;
   let duoi = m[1].trim();
@@ -950,6 +961,39 @@ async function taoPhieuNhapVaBao(
       ...(d.donGia ? { gia_nhap: d.donGia } : {}),
     }));
   const t0 = Date.now();
+
+  // CHỐNG PHIẾU TRÙNG NỘI DUNG (17/08, ca P04528→P04531: CÙNG một ảnh danh
+  // sách gửi lại 4 lần = 4 phiếu nháp giống hệt). Khoá viecId chỉ chặn trùng
+  // TRONG một phiên; mỗi lần gửi lại ảnh là phiên mới, khoá mới. Ở đây so
+  // NỘI DUNG: có phiếu NHÁP cùng hội thoại trùng HỆT tập (sản phẩm, SL) →
+  // báo phiếu cũ thay vì đẻ bản sao. Muốn thêm phiếu thật sự giống hệt
+  // (hiếm) thì nói "tạo phiếu nhập MỚI" — cờ choPhepTrung mở đường.
+  try {
+    if (p.choPhepTrung) throw new Error('nv-cho-phep-trung');
+    const nhap2h = await timDonNhap(deps, input.conversationId, undefined, 'mua');
+    const boMoi = dong.map((d) => `${d.san_pham_id}x${d.so_luong}`).sort().join('|');
+    for (const cu2 of nhap2h.slice(0, 3)) {
+      const lines = await deps.odoo.searchRead<Record<string, unknown>>(
+        'purchase.order.line', [['order_id', '=', cu2.id]], ['product_id', 'product_qty'], { limit: 60 },
+      );
+      const boCu = lines
+        .filter((l) => Array.isArray(l.product_id))
+        .map((l) => `${Number((l.product_id as [number, string])[0])}x${Number(l.product_qty ?? 0)}`)
+        .sort().join('|');
+      if (boCu && boCu === boMoi) {
+        await deps.guiTin(
+          `Phiếu nhập với ĐÚNG các dòng này đã có rồi: ${cu2.ma} (đang nháp) — em không tạo bản trùng. ` +
+          `Anh/chị sửa tiếp thì nhắn "sửa phiếu nhập ${cu2.ma} ..." hoặc "<tên hàng> giá nhập <giá>"; ` +
+          'thật sự cần thêm một phiếu giống hệt thì nhắn "tạo phiếu nhập mới" ạ.',
+        );
+        p.daXong = { maDon: cu2.ma, tenKhach: p.khachDaChot?.ten ?? '' };
+        return 'xong';
+      }
+    }
+  } catch (err) {
+    logger.warn({ err }, '[gom-don] so trùng nội dung phiếu lỗi — vẫn tạo như thường');
+  }
+
   const vao = {
     nha_cung_cap_id: p.khachDaChot!.id,
     ten_ncc: p.khachDaChot!.ten,
@@ -1181,7 +1225,9 @@ export async function xuLyGomDon(
   // minh: "lên đơn cho anh Hà" ngay sau đơn cũ vẫn là lệnh lên đơn MỚI.
   const thamChieuSua =
     donVuaLen != null && !regexNhap && !NHAN_LENH_LEN_DON.test(cauChon)
-    && NHAN_THAM_CHIEU_SUA.test(boDau(cauChon));
+    && (NHAN_THAM_CHIEU_SUA.test(boDau(cauChon))
+      // "<tên hàng> giá nhập 20099đ nhé" ngay sau phiếu — là sửa giá phiếu đó.
+      || phanTichCauSuaGia(boDau(cauChon)) != null);
   const laLenhSua = !regexNhap && (NHAN_LENH_SUA_DON.test(cauChon) || thamChieuSua);
   const regexLen = !regexNhap && !thamChieuSua && NHAN_LENH_LEN_DON.test(cauChon);
 
@@ -1225,6 +1271,8 @@ export async function xuLyGomDon(
   if (cauSuaGia) daHoiLlm = true;
 
   const laLenhNhap = regexNhap || trich.nhapHang === true;
+  // "tạo phiếu nhập MỚI"/"thêm phiếu nữa" = NV chủ động muốn bản nữa dù trùng.
+  const choPhepTrung = /(tao|them)\s+(mot\s+)?(phieu|don)?\s*(nhap\s*)?(hang\s*)?(moi|nua)\b/.test(boDau(cauChon));
   // Lệnh nhập hàng KHÔNG đồng thời là lệnh lên đơn: model có thể bật cả hai
   // (câu "tạo đơn mua" trông giống "tạo đơn"). Nhập hàng thắng — cùng lý do
   // thứ tự kiểm regex ở trên.
@@ -1586,6 +1634,8 @@ export async function xuLyGomDon(
       );
     }
   }
+
+  if (choPhepTrung) phien.choPhepTrung = true;
 
   const doiNoiDung = dapSlot(phien, trich);
 

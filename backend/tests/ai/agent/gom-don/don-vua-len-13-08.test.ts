@@ -442,3 +442,120 @@ describe('CA 23:12-23:14 16/08 — SL nằm trong ảnh thì code ghép, không 
     expect(sau).toMatch(/10\.000|Đã lên đơn|Đơn cho/i);
   });
 });
+
+describe('CA 00:28 17/08 — "<tên hàng> giá nhập <số> nhé" phải SỬA, không bịa NCC "NB"', () => {
+  it('mẫu 2 phanTichCauSuaGia: tên đứng trước, giá nhập ở giữa', async () => {
+    const { phanTichCauSuaGia } = await import('../../../../src/modules/ai/agent/noi-zalo/gom-don/index.js');
+    expect(phanTichCauSuaGia('nguon nb ngoai troi 12v400w gia nhap 20099d nhe'))
+      .toEqual({ ten: 'nguon nb ngoai troi 12v400w', gia: 20099 });
+    expect(phanTichCauSuaGia('cap 16 soi nho gia 170k')).toEqual({ ten: 'cap 16 soi nho', gia: 170000 });
+    // câu thường không dính oan
+    expect(phanTichCauSuaGia('len don cho anh ha 10 cai nguon nb')).toBeNull();
+  });
+
+  it('marker phiếu vừa lên + câu đó → sửa GIÁ NHẬP đúng dòng, không hỏi NCC', async () => {
+    const odoo = fakeOdoo([DF]);
+    const goc = odoo.searchRead.getMockImplementation()!;
+    const donMua = { id: 14595, name: 'P04531', state: 'draft', amount_total: 0 };
+    odoo.searchRead.mockImplementation(async (model: string, domain: unknown[], fields?: unknown) => {
+      if (model === 'purchase.order') return [donMua];
+      if (model === 'purchase.order.line') {
+        return [{ id: 91, product_id: [500, 'Nguồn NB Ngoài Trời 12V400W (cái)'], product_qty: 3030, price_unit: 0 }];
+      }
+      return goc(model, domain, fields);
+    });
+    const tinGui: string[] = [];
+    const db = fakeDb();
+    await db.phienGomDon.upsert({
+      where: { conversationId: 'c-gia-nhap-ten-truoc' },
+      create: { orgId: 'o1', conversationId: 'c-gia-nhap-ten-truoc',
+        slots: { khachTuKhoa: null, dong: [], daXong: { maDon: 'P04531', tenKhach: 'Trung Quốc' } },
+        hetHan: new Date(Date.now() + 600000) } as never,
+      update: {} as never,
+    });
+    const deps: GomDonDeps = {
+      prisma: db as never, odoo: odoo as never, generate: fakeGenerate([{}]),
+      anhClient: null, odooUrl: 'https://odoo.example.com',
+      guiTin: async (t) => { tinGui.push(t); }, guiAnhHoaDon: async () => {}, ghiLog: () => {},
+    };
+    const nhan = await xuLyGomDon(deps, {
+      orgId: 'o1', conversationId: 'c-gia-nhap-ten-truoc', seq: 8201,
+      cau: 'Nguồn NB Ngoài Trời 12V400W giá nhập 20099đ nhé', senderUid: 'nv',
+    });
+    expect(nhan).toBe(true);
+    const ra = tinGui.join('\n');
+    expect(ra).not.toMatch(/nhà cung cấp|không tìm thấy/i);
+    expect(ra).toContain('phiếu nhập P04531');
+    const wr = odoo.execute.mock.calls.find((c) => c[0] === 'purchase.order.line' && c[1] === 'write');
+    expect(JSON.stringify(wr)).toContain('20099');
+    expect(JSON.stringify(wr)).toContain('3030'); // SL giữ nguyên theo phiếu
+  });
+});
+
+describe('CA P04528→P04531 — gửi lại cùng ảnh KHÔNG đẻ phiếu trùng nội dung', () => {
+  const dungMayMua = () => {
+    const odoo = fakeOdoo([DF]);
+    const goc = odoo.searchRead.getMockImplementation()!;
+    const daGhi: Array<{ id: number; name: string; state: string; khoa: string; lines: Array<{ sp: number; sl: number }> }> = [];
+    let idKe = 15000;
+    odoo.searchRead.mockImplementation(async (model: string, domain: unknown[], fields?: unknown) => {
+      const d = JSON.stringify(domain);
+      if (model === 'res.partner') return [{ id: 70, name: 'Trung Quốc', ref: 'NCC000001', phone: false, supplier_rank: 5 }];
+      if (model === 'purchase.order') {
+        if (d.includes('origin')) {
+          // '=' khoá chính xác (idempotency tool) vs 'like' (tìm nháp cùng conv)
+          const bang = (domain as unknown[]).find(
+            (x): x is [string, string, string] => Array.isArray(x) && x[0] === 'origin');
+          const khop = bang?.[1] === '='
+            ? daGhi.filter((x) => x.khoa === bang[2])
+            : daGhi;
+          return khop.map((x) => ({ id: x.id, name: x.name, state: x.state, amount_total: 0 }));
+        }
+        const mid = (domain as unknown[]).find((x): x is [string, string, number] => Array.isArray(x) && x[0] === 'id');
+        if (mid) { const c = daGhi.find((x) => x.id === Number(mid[2])); return c ? [{ id: c.id, name: c.name, state: c.state, amount_total: 0 }] : []; }
+        return [];
+      }
+      if (model === 'purchase.order.line') {
+        const mid = (domain as unknown[]).find((x): x is [string, string, number] => Array.isArray(x) && x[0] === 'order_id');
+        const c = daGhi.find((x) => x.id === Number(mid?.[2]));
+        return (c?.lines ?? []).map((l, i) => ({ id: i + 1, product_id: [l.sp, 'SP'], product_qty: l.sl, price_unit: 0 }));
+      }
+      return goc(model, domain, fields);
+    });
+    const execGoc = odoo.execute.getMockImplementation()!;
+    odoo.execute.mockImplementation(async (model: string, method: string, args?: unknown, kw?: unknown) => {
+      if (model === 'purchase.order' && method === 'create') {
+        const vals = (args as Array<Record<string, unknown>>)[0];
+        const lines = (vals.order_line as Array<[number, number, Record<string, unknown>]>).map((l) => ({ sp: Number(l[2].product_id), sl: Number(l[2].product_qty) }));
+        const id = idKe++;
+        daGhi.push({ id, name: `P${id}`, state: 'draft', khoa: String(vals.origin ?? ''), lines });
+        return id;
+      }
+      return execGoc(model, method, args, kw);
+    });
+    return { odoo, soPhieu: () => daGhi.length };
+  };
+
+  it('lần 2 cùng nội dung → báo phiếu cũ, KHÔNG tạo; nói "tạo phiếu nhập mới" → tạo', async () => {
+    const { odoo, soPhieu } = dungMayMua();
+    const tinGui: string[] = [];
+    const deps: GomDonDeps = {
+      prisma: fakeDb() as never, odoo: odoo as never,
+      generate: fakeGenerate([{ nhapHang: true, khach: 'Trung Quốc', dong: [{ sp: 'nguồn df-12v400w', sl: 100 }] }]),
+      anhClient: null, odooUrl: 'https://odoo.example.com',
+      guiTin: async (t) => { tinGui.push(t); }, guiAnhHoaDon: async () => {}, ghiLog: () => {},
+    };
+    const goi = (cau: string, seq: number, conv: string) => xuLyGomDon(deps, {
+      orgId: 'o1', conversationId: conv, seq, cau, senderUid: 'nv',
+    });
+    await goi('tạo phiếu nhập hàng của ncc Trung Quốc 100 cái nguồn df-12v400w', 8301, 'c-trung-noi-dung');
+    expect(soPhieu()).toBe(1);
+
+    await goi('tạo phiếu nhập hàng của ncc Trung Quốc 100 cái nguồn df-12v400w', 8302, 'c-trung-noi-dung');
+    expect(soPhieu()).toBe(1); // KHÔNG đẻ bản trùng
+    expect(tinGui.join('\n')).toMatch(/đã có rồi/i);
+
+    await goi('tạo phiếu nhập hàng MỚI của ncc Trung Quốc 100 cái nguồn df-12v400w', 8303, 'c-trung-noi-dung');
+    expect(soPhieu()).toBe(2); // NV nói rõ "mới" thì chiều
+  });
+});

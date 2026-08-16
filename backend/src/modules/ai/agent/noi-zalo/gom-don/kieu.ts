@@ -249,6 +249,11 @@ export interface PhienGom {
    * như KHÔNG có phiên mở (mọi nhánh `!phien` giữ nguyên hành vi cũ).
    */
   daXong?: { maDon: string; tenKhach: string };
+  /**
+   * NV nói RÕ "tạo phiếu nhập MỚI/thêm phiếu" — cho phép tạo phiếu trùng nội
+   * dung với phiếu nháp đang có (17/08; guard chống-trùng-nội-dung sẽ nhường).
+   */
+  choPhepTrung?: boolean;
   /** Số lần tạo đơn thất bại liên tiếp — 2 lần thì bỏ phiên (chống kẹt 10/08). */
   soLanLoi?: number;
   /**
