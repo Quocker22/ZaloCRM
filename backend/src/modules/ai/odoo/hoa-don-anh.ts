@@ -22,6 +22,13 @@ import { pdf } from 'pdf-to-img';
 export const REPORT_MAC_DINH = 'incokit_pos.report_saleorder_kiotviet';
 
 /**
+ * Report chuẩn Odoo cho PHIẾU NHẬP (purchase.order) — "Purchase Order".
+ * Dùng khi gửi ảnh phiếu nhập qua chat (16/08, anh Quốc: "cũng chưa gửi được
+ * hình hóa đơn lên như bán hàng á").
+ */
+export const REPORT_DON_MUA = 'purchase.report_purchaseorder';
+
+/**
  * Độ phóng khi đổi PDF sang ảnh.
  *
  * 2 = chữ sắc nét trên điện thoại mà file vẫn ~180KB. Để 3 thì ~400KB, Zalo

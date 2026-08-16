@@ -19,13 +19,14 @@ import { taoDonNhap, dinhDangTaoDon } from '../../../odoo/tools/tao-don-nhap.js'
 // vốn đã có (đo prod: create=true/write=true, 5 đơn mua thật đang chạy).
 import { taoDonMua, dinhDangTaoDonMua, traNhaCungCap, dinhDangNhaCungCap, boTienToNcc } from '../../../odoo/tools/tao-don-mua.js';
 import { suaDon, dinhDangSuaDon } from '../../../odoo/tools/sua-don.js';
+import { suaDonMua, dinhDangSuaDonMua } from '../../../odoo/tools/sua-don-mua.js';
 // VAT: tra id account.tax theo % nhân viên nói. KHÔNG phải tool cho model —
 // máy gom đơn gọi thẳng hàm, nên nó không có mặt trong registry (xem chú thích
 // đầu tra-thue.ts). Đừng xoá vì "không thấy đăng ký ở đâu".
 import { traThueBan } from '../../../odoo/tools/tra-thue.js';
 import { guiHoaDon } from '../../../odoo/tools/gui-hoa-don.js';
 import { IDEMPOTENCY_PREFIX } from '../../../odoo/idempotency.js';
-import { linkXuLyDon, linkXuLyDonMua, type HoaDonAnhClient, type AnhHoaDon } from '../../../odoo/hoa-don-anh.js';
+import { linkXuLyDon, linkXuLyDonMua, type HoaDonAnhClient, type AnhHoaDon, REPORT_DON_MUA } from '../../../odoo/hoa-don-anh.js';
 import { laXacNhanNgan } from '../cam-xuc.js';
 import { KHO, type PhienGom, type HanhDong, type DonSua } from './kieu.js';
 import { buocTiepTheo } from './buoc-tiep-theo.js';
@@ -59,7 +60,7 @@ const NHAN_LENH_NHAP_HANG =
  * Cố ý KHÔNG bắt "sửa chiết khấu" — việc đó vẫn của agent thường.
  */
 const NHAN_LENH_SUA_DON =
-  /(?:^|\s)(?:sửa|sua|thêm|them|bớt|bot|đổi|doi)\s+(?:\S+\s+){0,4}?(?:đơn|don)\b|(?:^|\s)(?:sửa|sua)\s+(?:đơn|don)\b/i;
+  /(?:^|\s)(?:sửa|sua|thêm|them|bớt|bot|đổi|doi)\s+(?:\S+\s+){0,4}?(?:đơn|don|phiếu|phieu)\b|(?:^|\s)(?:sửa|sua)\s+(?:đơn|don|phiếu|phieu)\b/i;
 
 /**
  * Câu THAM CHIẾU SỬA — chỉ có nghĩa khi hội thoại VỪA lên đơn xong (dấu
@@ -101,7 +102,7 @@ export function phanTichCauSuaGia(cauBd: string): { gia?: number; ten?: string }
   // Tên hàng: phần còn lại sau khi bỏ từ đệm.
   const ten = duoi
     .split(/\s+/)
-    .filter((w) => !['a', 'ạ', 'đo', 'do', 'day', 'nhe', 'nha', 'thanh', 'con', 'lai', 'la', 'thoi', 'di', 'gium', 'giup', 'em', 'anh', 'chi'].includes(w))
+    .filter((w) => !['a', 'ạ', 'đo', 'do', 'day', 'nhe', 'nha', 'thanh', 'con', 'lai', 'la', 'thoi', 'di', 'gium', 'giup', 'em', 'anh', 'chi', 'nhap', 'ban', 'moi'].includes(w))
     .join(' ')
     .trim();
   if (gia == null && !ten) return null;
@@ -561,21 +562,26 @@ async function timDonNhap(
   deps: GomDonDeps,
   conversationId: string,
   maDon?: string,
+  loai: 'ban' | 'mua' = 'ban',
 ): Promise<DonSua[]> {
+  // PHIẾU NHẬP cũng sửa được qua chat (16/08, ca P04525): đơn mua nằm ở
+  // purchase.order, khoá idempotency nhét trong `origin` (xem tao-don-mua).
+  const bang = loai === 'mua' ? 'purchase.order' : 'sale.order';
+  const cotKhoa = loai === 'mua' ? 'origin' : 'client_order_ref';
   const loc = (rows: Array<Record<string, unknown>>): DonSua[] =>
     rows
       .filter((r) => ['draft', 'sent'].includes(String(r.state ?? '')))
-      .map((r) => ({ id: Number(r.id), ma: String(r.name ?? ''), tong: Number(r.amount_total ?? 0) }));
+      .map((r) => ({ id: Number(r.id), ma: String(r.name ?? ''), tong: Number(r.amount_total ?? 0), loai }));
 
   if (maDon) {
     const r = await deps.odoo.searchRead<Record<string, unknown>>(
-      'sale.order', [['name', '=', maDon]], FIELDS_DON_SUA, { limit: 1 },
+      bang, [['name', '=', maDon]], FIELDS_DON_SUA, { limit: 1 },
     );
     return loc(r);
   }
   const r = await deps.odoo.searchRead<Record<string, unknown>>(
-    'sale.order',
-    [['client_order_ref', 'like', `${IDEMPOTENCY_PREFIX}:${conversationId}:%`]],
+    bang,
+    [[cotKhoa, 'like', `${IDEMPOTENCY_PREFIX}:${conversationId}:%`]],
     FIELDS_DON_SUA,
     { limit: 5, order: 'create_date desc' },
   );
@@ -587,12 +593,12 @@ async function chayTraCuu(
   deps: GomDonDeps,
   p: PhienGom,
   hd: Extract<HanhDong, { loai: 'tra_cuu' }>,
-  ctx: { conversationId: string; maDon?: string },
+  ctx: { conversationId: string; maDon?: string; loaiDon?: 'ban' | 'mua' },
 ): Promise<void> {
   const viec: Array<Promise<void>> = [];
   if (hd.don) {
     viec.push((async () => {
-      const ds = await timDonNhap(deps, ctx.conversationId, ctx.maDon);
+      const ds = await timDonNhap(deps, ctx.conversationId, ctx.maDon, ctx.loaiDon ?? 'ban');
       if (ds.length === 1) {
         p.donSua = ds[0];
         // NẠP DÒNG THẬT của đơn (14/08, ca 22:32): "giá 175k đó" / "sửa giá
@@ -600,16 +606,17 @@ async function chayTraCuu(
         // đơn, không bắt NV đọc lại. Lỗi nạp không chặn sửa: thiếu dòng thì
         // các đường tắt sửa-giá đơn giản tự tắt, luồng sửa thường vẫn chạy.
         try {
+          const laMua = ds[0].loai === 'mua';
           const lines = await deps.odoo.searchRead<Record<string, unknown>>(
-            'sale.order.line', [['order_id', '=', ds[0].id]],
-            ['product_id', 'product_uom_qty', 'price_unit'], { limit: 40 },
+            laMua ? 'purchase.order.line' : 'sale.order.line', [['order_id', '=', ds[0].id]],
+            ['product_id', laMua ? 'product_qty' : 'product_uom_qty', 'price_unit'], { limit: 40 },
           );
           p.donSua.dong = lines
             .filter((l) => Array.isArray(l.product_id))
             .map((l) => ({
               spId: Number((l.product_id as [number, string])[0]),
               ten: String((l.product_id as [number, string])[1] ?? ''),
-              sl: Number(l.product_uom_qty ?? 0),
+              sl: Number((laMua ? l.product_qty : l.product_uom_qty) ?? 0),
               gia: Number(l.price_unit ?? 0),
             }));
         } catch (err) {
@@ -991,7 +998,61 @@ async function taoPhieuNhapVaBao(
     `Em đã tạo phiếu NHÁP, chưa nhập kho và chưa ghi công nợ.${thieuGia}\n` +
     `Link kiểm tra rồi bấm Xác nhận: ${linkXuLyDonMua(deps.odooUrl, kq.donId)}`,
   );
+  // Ảnh phiếu nhập — cùng lễ nghi với đơn bán (anh Quốc 22:41 16/08).
+  await guiAnhPhieuNhap(deps, kq.donId, kq.maDon);
   p.daXong = { maDon: kq.maDon, tenKhach: p.khachDaChot!.ten };
+  return 'xong';
+}
+
+/**
+ * Gửi ẢNH phiếu nhập (report purchase chuẩn của Odoo) — best-effort, lỗi chỉ
+ * log: text + link đã đi trước, thiếu ảnh không được chặn luồng.
+ */
+async function guiAnhPhieuNhap(deps: GomDonDeps, donId: number, maDon: string): Promise<void> {
+  if (!deps.anhClient) return;
+  try {
+    const anh = await deps.anhClient.render(donId, maDon, REPORT_DON_MUA);
+    if (anh) await deps.guiAnhHoaDon(anh);
+  } catch (err) {
+    logger.warn({ err, donId, maDon }, '[gom-don] render/gửi ảnh phiếu nhập lỗi (đã có text+link)');
+  }
+}
+
+/** Sửa PHIẾU NHẬP nháp — cặp đôi với suaDonVaBao của đơn bán (16/08). */
+async function suaPhieuNhapVaBao(deps: GomDonDeps, p: PhienGom): Promise<'xong' | 'loi'> {
+  const don = p.donSua!;
+  const doi = p.dong
+    .filter((d) => d.daChot && d.sl != null)
+    .map((d) => ({
+      san_pham_id: d.daChot!.id,
+      so_luong: d.sl!,
+      // donGia ở chế nhập là GIÁ NHẬP nhân viên báo — tool giữ nguyên khi thiếu.
+      ...(d.donGia ? { gia_nhap: d.donGia } : {}),
+    }));
+  const t0 = Date.now();
+  const kq = await suaDonMua({ odoo: deps.odoo }, { don_id: don.id, doi });
+  deps.ghiLog({
+    toolName: 'sua_don_mua', input: { don_id: don.id, doi },
+    output: dinhDangSuaDonMua(kq), thanhCong: kq.ok,
+    durationMs: Date.now() - t0, iteration: 0,
+  });
+  if (!kq.ok) {
+    await deps.guiTin(`Không sửa được phiếu nhập ${don.ma}: ${kq.lyDo ?? 'Odoo từ chối'}`);
+    return 'loi';
+  }
+  const mon = p.dong
+    .filter((d) => d.daChot && d.sl != null)
+    .map((d) => `${d.sl!.toLocaleString('vi-VN')} × ${d.daChot!.ten}${d.donGia ? ` @ ${d.donGia.toLocaleString('vi-VN')}đ` : ''}`)
+    .join(', ');
+  await deps.guiTin(
+    `Đã sửa phiếu nhập ${kq.maDon}: ${mon}. ` +
+    `Tổng ${(kq.tongTruoc ?? 0).toLocaleString('vi-VN')}đ → ${(kq.tongSau ?? 0).toLocaleString('vi-VN')}đ. ` +
+    `Link: ${linkXuLyDonMua(deps.odooUrl, kq.donId)}`,
+  );
+  // Ảnh phiếu nhập sau sửa — cùng lễ nghi với đơn bán (anh Quốc 22:41 16/08:
+  // "cũng chưa gửi được hình hóa đơn lên như bán hàng á"). Best-effort.
+  await guiAnhPhieuNhap(deps, kq.donId, kq.maDon);
+  p.daXong = { maDon: kq.maDon, tenKhach: p.khachDaChot?.ten ?? '' };
   return 'xong';
 }
 
@@ -1001,6 +1062,8 @@ async function taoPhieuNhapVaBao(
  */
 async function suaDonVaBao(deps: GomDonDeps, p: PhienGom): Promise<'xong' | 'loi'> {
   const don = p.donSua!;
+  // PHIẾU NHẬP đi tool riêng (16/08): purchase.order.line, giá là GIÁ NHẬP.
+  if (don.loai === 'mua') return suaPhieuNhapVaBao(deps, p);
   // Tool phân biệt "đổi SL của SP đã có" với "thêm dòng mới" — nhưng nó tự dò
   // theo product_id: SP chưa có trong đơn thì `doi` tự thành thêm. Nên gom hết
   // vào `doi` là đúng cho cả hai ca, khỏi đoán trước đơn đang có gì.
@@ -1620,8 +1683,15 @@ export async function xuLyGomDon(
   let daTraLuotNay = false;
   for (let i = 0; hd.loai === 'tra_cuu' && i < 3; i++) {
     daTraLuotNay = true;
+    // PHIẾU NHẬP hay ĐƠN BÁN? Suy theo thứ tự chắc chắn: mã NV đọc (P… = mua)
+    // → mã đơn-vừa-lên → câu có chữ "phiếu/nhập" (16/08, ca P04525).
+    const maDangBan = trich.maDon ?? (phien.che === 'sua' ? donVuaLen?.maDon : undefined);
+    const loaiDon: 'ban' | 'mua' = maDangBan?.startsWith('P') ? 'mua'
+      : maDangBan ? 'ban'
+        : /phiếu|phieu|nhập|nhap/i.test(cauChon) ? 'mua' : 'ban';
     await chayTraCuu(deps, phien, hd, {
       conversationId: input.conversationId,
+      loaiDon,
       // NV không đọc mã thì lấy mã ĐƠN VỪA LÊN — chính là cái đơn họ đang bàn
       // ("giá 1800 đó" ngay sau S13848 là sửa S13848, không phải đơn nào khác).
       ...(trich.maDon ? { maDon: trich.maDon }
@@ -1664,7 +1734,8 @@ export async function xuLyGomDon(
     } else {
       // Có giá mà không rõ dòng nào (đơn nhiều dòng) — liệt kê để NV gọi tên.
       const ds = dsDong.map((d) => `- ${d.ten} · ${d.gia.toLocaleString('vi-VN')}đ × ${d.sl.toLocaleString('vi-VN')}`).join('\n');
-      const tin = `Đơn ${phien.donSua.ma} đang có:\n${ds}\nAnh/chị nhắn "sửa giá <tên hàng>${cauSuaGia.gia != null ? ` ${cauSuaGia.gia.toLocaleString('vi-VN')}đ` : ''}" giúp em ạ.`;
+      const nhanDon = phien.donSua.loai === 'mua' ? 'Phiếu nhập' : 'Đơn';
+      const tin = `${nhanDon} ${phien.donSua.ma} đang có:\n${ds}\nAnh/chị nhắn "sửa giá <tên hàng>${cauSuaGia.gia != null ? ` ${cauSuaGia.gia.toLocaleString('vi-VN')}đ` : ''}" giúp em ạ.`;
       phien.tinCuoi = tin;
       await ghiPhien(phien);
       await deps.guiTin(tin);

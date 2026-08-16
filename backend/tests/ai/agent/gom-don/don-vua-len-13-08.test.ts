@@ -320,3 +320,79 @@ describe('CA 22:30-22:33 14/08 — sửa GIÁ bằng code, máy phải biết d�
     expect(xong).not.toMatch(/khách nào|sửa gì ạ/i);
   });
 });
+
+describe('CA 22:35 16/08 — PHIẾU NHẬP cũng sửa được qua chat như đơn bán', () => {
+  const fakeOdooMua = () => {
+    const odoo = fakeOdoo([DF]);
+    const goc = odoo.searchRead.getMockImplementation()!;
+    const donMua = { id: 14589, name: 'P04525', state: 'draft', amount_total: 0 };
+    odoo.searchRead.mockImplementation(async (model: string, domain: unknown[], fields?: unknown) => {
+      const d = JSON.stringify(domain);
+      if (model === 'purchase.order') {
+        if (d.includes('origin') || d.includes('P04525') || d.includes('14589')) return [donMua];
+        return [donMua];
+      }
+      if (model === 'purchase.order.line') {
+        return [{ id: 71, product_id: [500, 'Nguồn NB Ngoài Trời 12V100W (cái)'], product_qty: 1000, price_unit: 0 }];
+      }
+      return goc(model, domain, fields);
+    });
+    const executeGoc = odoo.execute.getMockImplementation()!;
+    odoo.execute.mockImplementation(async (model: string, method: string, args?: unknown, kw?: unknown) => {
+      if (model === 'purchase.order.line' && method === 'write') {
+        donMua.amount_total = 78000 * 1000; return true;
+      }
+      return executeGoc(model, method, args, kw);
+    });
+    return odoo;
+  };
+
+  it('marker phiếu nhập (P…) + "giá nhập 78k đó" → sửa GIÁ NHẬP dòng duy nhất, SL giữ 1000', async () => {
+    const odoo = fakeOdooMua();
+    const tinGui: string[] = [];
+    const db = fakeDb();
+    // marker đơn-vừa-lên là PHIẾU NHẬP
+    await db.phienGomDon.upsert({
+      where: { conversationId: 'c-phieu-nhap' },
+      create: { orgId: 'o1', conversationId: 'c-phieu-nhap',
+        slots: { khachTuKhoa: null, dong: [], daXong: { maDon: 'P04525', tenKhach: 'Trung Quốc' } },
+        hetHan: new Date(Date.now() + 600000) } as never,
+      update: {} as never,
+    });
+    const deps: GomDonDeps = {
+      prisma: db as never, odoo: odoo as never, generate: fakeGenerate([{}]),
+      anhClient: null, odooUrl: 'https://odoo.example.com',
+      guiTin: async (t) => { tinGui.push(t); }, guiAnhHoaDon: async () => {}, ghiLog: () => {},
+    };
+    const nhan = await xuLyGomDon(deps, {
+      orgId: 'o1', conversationId: 'c-phieu-nhap', seq: 8001, cau: 'giá nhập 78k đó', senderUid: 'nv',
+    });
+    expect(nhan).toBe(true);
+    const ra = tinGui.join('\n');
+    expect(ra).toContain('phiếu nhập P04525');
+    expect(ra).not.toMatch(/khách nào|vào link điền giá/i);
+    // dòng purchase được write với giá nhập 78000, SL giữ nguyên 1000
+    const wr = odoo.execute.mock.calls.find((c) => c[0] === 'purchase.order.line' && c[1] === 'write');
+    expect(wr).toBeTruthy();
+    expect(JSON.stringify(wr)).toContain('78000');
+    expect(JSON.stringify(wr)).toContain('1000');
+  });
+
+  it('"sửa phiếu nhập P04525 …" — regex sửa bắt được chữ PHIẾU (trước đây chỉ "đơn")', async () => {
+    const { xuLyGomDon: _x } = await import('../../../../src/modules/ai/agent/noi-zalo/gom-don/index.js');
+    // đủ để khoá: câu vào máy không bị trả false ngay cửa (laLenhSua nhận)
+    const odoo = fakeOdooMua();
+    const tinGui: string[] = [];
+    const deps: GomDonDeps = {
+      prisma: fakeDb() as never, odoo: odoo as never, generate: fakeGenerate([{ dong: [{ sp: 'nguồn nb', sl: 500 }] }]),
+      anhClient: null, odooUrl: 'https://odoo.example.com',
+      guiTin: async (t) => { tinGui.push(t); }, guiAnhHoaDon: async () => {}, ghiLog: () => {},
+    };
+    const nhan = await _x(deps, {
+      orgId: 'o1', conversationId: 'c-sua-phieu', seq: 8101,
+      cau: 'sửa phiếu nhập P04525 nguồn nb thành 500 cái', senderUid: 'nv',
+    });
+    expect(nhan).toBe(true);
+    expect(tinGui.join('\n')).toMatch(/phiếu nhập|P04525/i);
+  });
+});

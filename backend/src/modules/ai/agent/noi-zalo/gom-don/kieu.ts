@@ -79,6 +79,11 @@ export interface DonSua {
    * đường thoát còn đọc nhầm kịch bản luồng khách ("gõ SĐT hoặc mã KH").
    */
   dong?: Array<{ spId: number; ten: string; sl: number; gia: number }>;
+  /**
+   * 'mua' = PHIẾU NHẬP (purchase.order) — sửa đi tool sua_don_mua, giá là giá
+   * NHẬP (16/08, ca P04525). Thiếu = 'ban' (phiên cũ trong DB vẫn chạy đúng).
+   */
+  loai?: 'ban' | 'mua';
 }
 
 export interface PhienGom {
