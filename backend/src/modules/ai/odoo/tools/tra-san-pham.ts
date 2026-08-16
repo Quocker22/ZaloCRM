@@ -460,17 +460,22 @@ export async function traSanPham(
   //
   // Chỉ áp cho nhánh nới rộng: nhánh AND thì mọi dòng đã khớp đủ từ, xếp lại
   // chỉ làm mất thứ tự Odoo mà không thêm thông tin gì.
+  const tuKhoaKhop = ten.trim().split(/\s+/)
+    .filter((t) => t.length >= 2 || laSoDem(t))
+    .map(boDau);
+  const demKhop = (r: Record<string, unknown>): number => {
+    const ten2 = boDau(`${r.name ?? ''} ${r.default_code ?? ''}`);
+    return tuKhoaKhop.filter((t) => ten2.includes(t)).length;
+  };
   const xepKhop = (() => {
     if (!daNoiRong) return ketQua;
-    const tuKhoa = ten.trim().split(/\s+/)
-      .filter((t) => t.length >= 2 || laSoDem(t))
-      .map(boDau);
-    const demKhop = (r: Record<string, unknown>) => {
-      const ten2 = boDau(`${r.name ?? ''} ${r.default_code ?? ''}`);
-      return tuKhoa.filter((t) => ten2.includes(t)).length;
-    };
+    // RÀO NỚI-OR (16/08, ca "Quạt gió" → 12 SP không chung MỘT chữ nào, bot
+    // liệt kê nguồn ATX/mạch 16 kênh/led thanh làm "ứng viên"): kết quả nới
+    // phải khớp ÍT NHẤT MỘT từ thật của từ khoá. 0 từ khớp = rác của phép nở
+    // biến thể — thà "không thấy + mời tạo mới" còn hơn bắt NV chọn giữa rác.
+    const locKhop = ketQua.filter((r) => demKhop(r) >= 1);
     // Sắp ổn định giảm dần theo số từ khớp (Array.sort của V8 là stable).
-    return [...ketQua].sort((a, b) => demKhop(b) - demKhop(a));
+    return [...locKhop].sort((a, b) => demKhop(b) - demKhop(a));
   })();
 
   // ƯU TIÊN SP CÓ GIÁ khi chọn ra `limit` kết quả để hiện.

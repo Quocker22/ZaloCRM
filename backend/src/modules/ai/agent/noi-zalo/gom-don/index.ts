@@ -1561,7 +1561,55 @@ export async function xuLyGomDon(
       ? { che: 'nhap' as const }
       : laLenhSua || trich.sua ? { che: 'sua' as const } : {}),
   };
+  // ẢNH GHÉP LẠI LƯỢT SAU → CHẶN NHÓM TRÙNG LỒNG NHAU (16/08, ca 23:14:44
+  // "số lượng trong hình có"): ảnh cũ bị ghép lại, model trích lại từ đầu và
+  // đẻ nhóm MỚI trùng dòng đã chọn ("P10 full out" vs "P10 Full Out 260626")
+  // — 16 nhóm, lựa chọn cũ bay sạch. Dòng mới mà tên chứa/bị chứa tên dòng
+  // đang có thì là CÙNG mặt hàng — bỏ, giữ dòng cũ (đã chọn/đã chốt).
+  if (coKhoiAnh(input.cau) && phien.dong.length > 0 && trich.dong?.length) {
+    const cuBd = phien.dong.map((d) => boDau(d.tuKhoa));
+    const truocLoc = trich.dong.length;
+    trich = {
+      ...trich,
+      dong: trich.dong.filter((d) => {
+        const m = boDau(d.sp);
+        return !cuBd.some((c) => c.includes(m) || m.includes(c));
+      }),
+    };
+    if (trich.dong!.length < truocLoc) {
+      logger.info(
+        { conversationId: input.conversationId, boDi: truocLoc - trich.dong!.length },
+        '[gom-don] ảnh ghép lại — bỏ dòng trích trùng lồng với dòng đang có',
+      );
+    }
+  }
+
   const doiNoiDung = dapSlot(phien, trich);
+
+  // SL TỪ ẢNH DO CODE GHÉP — NGUỒN CHÍNH (16/08, ca 23:12-23:14). Mô tả ảnh
+  // CÓ đủ SL theo hợp đồng "tên: SL" ("P10 Full Out 260626: 10.000 tấm") mà
+  // model trích slot làm RƠI sl trên đường vào phiên → chọn xong máy lại hỏi
+  // "số lượng mỗi loại?" dù hình ghi sẵn — anh Quốc: "số lượng trong hình có".
+  // Cùng bài 18:39 12/08: dữ liệu có hợp đồng format thì PARSE BẰNG CODE,
+  // model chỉ là người chép. Map theo tên chứa nhau, chỉ điền ô đang trống.
+  if (coKhoiAnh(input.cau)) {
+    const chiAnhSl = chiLayKhoiAnh(input.cau);
+    let daDien = 0;
+    for (const da of chiAnhSl ? bocDongTuKhoiAnh(chiAnhSl) : []) {
+      if (da.sl == null) continue;
+      const spBd = boDau(da.sp);
+      const dich = phien.dong.find(
+        (d) => d.sl == null && (boDau(d.tuKhoa).includes(spBd) || spBd.includes(boDau(d.tuKhoa))),
+      );
+      if (dich) { dich.sl = da.sl; daDien += 1; }
+    }
+    if (daDien > 0) {
+      logger.info(
+        { conversationId: input.conversationId, daDien },
+        '[gom-don] điền SL từ khối ảnh bằng code — model trích làm rơi',
+      );
+    }
+  }
 
   // BỎ CÁC DÒNG CHƯA KHỚP RỒI ĐI TIẾP (vá 12/08, ca thật 19:48).
   //

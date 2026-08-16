@@ -59,10 +59,13 @@ function fakeOdoo(sanPham: Array<typeof AM>) {
         if (JSON.stringify(fields ?? []).includes('incokit_stock_breakdown')) {
           return sanPham.map((p) => ({ id: p.id, name: p.name, incokit_stock_breakdown: [] }));
         }
-        // Tra theo id (đường alias) → trả đúng SP đó.
+        // Tra theo id (đường alias / validate của tao_don) → trả đúng SP đó.
         const mid = (domain as unknown[]).find(
-          (x): x is [string, string, number] => Array.isArray(x) && x[0] === 'id');
-        if (mid) return sanPham.filter((p) => p.id === Number(mid[2]));
+          (x): x is [string, string, number | number[]] => Array.isArray(x) && x[0] === 'id');
+        if (mid) {
+          const ids = Array.isArray(mid[2]) ? (mid[2] as number[]).map(Number) : [Number(mid[2])];
+          return sanPham.filter((p) => ids.includes(p.id));
+        }
         const g = (domain as unknown[]).find(
           (x): x is [string, string, number] => Array.isArray(x) && x[0] === 'list_price');
         if (g && g[1] === '<=') return [];
@@ -394,5 +397,48 @@ describe('CA 22:35 16/08 — PHIẾU NHẬP cũng sửa được qua chat như �
     });
     expect(nhan).toBe(true);
     expect(tinGui.join('\n')).toMatch(/phiếu nhập|P04525/i);
+  });
+});
+
+describe('CA 23:12-23:14 16/08 — SL nằm trong ảnh thì code ghép, không hỏi lại; ảnh ghép lại không đẻ nhóm trùng', () => {
+  const P10FO = { id: 900, name: 'P10 Full Out 260626 LLR (tấm)', default_code: 'P10FO', list_price: 175000, uom_id: [1, 'Tấm'] };
+  const NGUON5V = { id: 901, name: '5V 60A mỏng ATX (cái)', default_code: '5V60A', list_price: 220000, uom_id: [1, 'Cái'] };
+  const KHOI_ANH = '[Khách gửi ảnh, nội dung trong ảnh: P10 Full Out 260626: 10.000 tấm\n5V 60A mỏng: 1.131 cái] lên đơn cho Dương';
+
+  it('model trích RƠI hết SL → code điền từ khối ảnh, lên đơn thẳng không hỏi "số lượng"', async () => {
+    const { goi, tinGui, odoo } = dungMay({
+      // mô phỏng đúng bệnh prod: model trả dòng KHÔNG sl dù ảnh ghi rõ
+      slots: [{ lenDon: true, khach: 'dương', dong: [{ sp: 'P10 Full Out 260626' }, { sp: '5V 60A mỏng' }] }],
+      sanPham: [P10FO, NGUON5V],
+      conversationId: 'c-sl-tu-anh',
+    });
+    await goi(KHOI_ANH, 9001);
+    const ra = tinGui.join('\n');
+    expect(ra).not.toMatch(/số lượng|mấy cái|bao nhiêu/i);
+    const taoDon = odoo.execute.mock.calls.find((c) => c[0] === 'sale.order' && c[1] === 'create');
+    expect(taoDon).toBeTruthy();
+    const vals = JSON.stringify(taoDon);
+    expect(vals).toContain('10000');
+    expect(vals).toContain('1131');
+  });
+
+  it('ảnh bị ghép lại lượt sau → dòng trích mới trùng-lồng dòng đang có bị bỏ, không đẻ nhóm đôi', async () => {
+    const { goi, tinGui } = dungMay({
+      slots: [
+        // lượt 1: một dòng chờ SL (model rơi cả sl lẫn không có trong ảnh giả này)
+        { lenDon: true, khach: 'dương', dong: [{ sp: 'P10 Full Out 260626' }] },
+        // lượt 2 (ảnh ghép lại): model trích lại tên NGẮN HƠN của cùng mặt hàng
+        { dong: [{ sp: 'P10 full out' }] },
+      ],
+      sanPham: [P10FO],
+      conversationId: 'c-anh-ghep-lai',
+    });
+    await goi('[Khách gửi ảnh, nội dung trong ảnh: P10 Full Out 260626] lên đơn cho Dương', 9101);
+    const truoc = tinGui.length;
+    await goi('[Khách gửi ảnh, nội dung trong ảnh: P10 Full Out 260626: 10.000 tấm] số lượng trong hình có', 9102);
+    const sau = tinGui.slice(truoc).join('\n');
+    // Không được hỏi chọn lại nhóm mới cho cùng mặt hàng; SL 10.000 phải vào từ ảnh.
+    expect(sau).not.toMatch(/có \d+ loại/i);
+    expect(sau).toMatch(/10\.000|Đã lên đơn|Đơn cho/i);
   });
 });

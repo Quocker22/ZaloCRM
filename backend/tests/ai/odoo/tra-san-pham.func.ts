@@ -768,3 +768,38 @@ describe('CA 22:02 16/08 — nêu ĐÍCH DANH tên/mã SP thì chốt thẳng, k
     expect(kq.length).toBeGreaterThan(1);
   });
 });
+
+describe('CA 23:12 16/08 — nới-OR không được trả rác không-chung-một-chữ', () => {
+  // Fake mô phỏng AND-TRƯỢT: hai lượt tra AND đầu (có giá / trống giá) trả
+  // RỖNG, các lượt sau (đường nới) trả nguyên kho — đúng hình dạng prod nơi
+  // Odoo AND không khớp nhưng OR biến thể lôi về cả rổ.
+  const fakeOdooAndTruot = (rows: Record<string, unknown>[]) => {
+    let lan = 0;
+    return {
+      searchRead: vi.fn(async () => {
+        lan += 1;
+        return lan <= 2 ? [] : rows;
+      }),
+    };
+  };
+
+  it('"Quạt gió" nới ra toàn SP không chung MỘT chữ → RỖNG (mời tạo mới), hết rác', async () => {
+    const odoo = fakeOdooAndTruot([
+      sp({ id: 715, name: 'Nguồn ATX Trong Nhà 12V400W Pro', default_code: '12v400 pro', list_price: 195000 }),
+      sp({ id: 1030, name: 'mạch 16 kênh thường', default_code: '16K6A', list_price: 330 }),
+      sp({ id: 1026, name: 'led thanh 1m 5054 trắng', default_code: '1m 5054trang', list_price: 16000 }),
+    ]);
+    const kq = await traSanPham({ odoo }, { ten: 'Quạt gió' });
+    expect(kq).toHaveLength(0);
+  });
+
+  it('nới có từ khớp thật vẫn sống — "led hắt cụm 3 bóng" ra hàng hắt 3 bóng đứng đầu', async () => {
+    const odoo = fakeOdooAndTruot([
+      sp({ id: 2, name: 'P10 3 màu', default_code: 'P10-3M' }),
+      sp({ id: 1, name: 'Led hắt 3 bóng 7 màu', default_code: 'H3B' }),
+    ]);
+    const kq = await traSanPham({ odoo }, { ten: 'led hắt cụm 3 bóng' });
+    expect(kq.length).toBeGreaterThan(0);
+    expect(kq[0].ten).toContain('hắt');
+  });
+});
