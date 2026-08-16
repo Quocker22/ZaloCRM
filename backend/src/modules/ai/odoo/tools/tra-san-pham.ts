@@ -497,6 +497,35 @@ export async function traSanPham(
     donVi: tenM2O(r.uom_id),
   }));
 
+  // ═══ KHỚP NGUYÊN VĂN THẮNG TUYỆT ĐỐI (16/08, ca thật 22:02) ═══════════════
+  // NV gõ "nguồn DF-12V400W" — ĐÚNG NGUYÊN TÊN một SP — mà máy vẫn bắt chọn
+  // giữa DF và XDF, vì "Nguồn 12V400w XDF" cũng chứa "df"+"12v400w" theo kiểu
+  // khớp-từ. Anh Quốc: "ủa cái này đúng là DF-12V400W mà nhỉ, còn XDF có
+  // giống đâu mà hỏi?". Cùng bài với gui_tai_lieu (17:14 13/08): người đã nêu
+  // ĐÍCH DANH thì so nguyên văn sau chuẩn hoá — đúng MỘT SP trùng hệt tên
+  // (bỏ đơn vị "(cái)") hoặc chứa nguyên MÃ dài ≥6 → chốt SP đó, khỏi hỏi.
+  // Hai SP cùng khớp (catalog có tên trùng thật) → vẫn hỏi như cũ.
+  // KHÔNG áp cho đường nới (daNoiRong): kết quả nới là hàng đoán, phải hỏi.
+  if (!daNoiRong && hienThi.length > 1) {
+    const nguyenVan = (s: string): string =>
+      boDau(s).replace(/\([^)]*\)/g, '').replace(/[^a-z0-9]/g, '');
+    const q = nguyenVan(ten);
+    if (q.length >= 6) {
+      const khopHet = hienThi.filter((sp) => {
+        const t = nguyenVan(sp.ten);
+        const ma = sp.ma ? nguyenVan(sp.ma) : '';
+        return t === q || q.endsWith(t) || (ma.length >= 6 && q.includes(ma));
+      });
+      if (khopHet.length === 1) {
+        const mot = [khopHet[0]] as SanPhamList;
+        mot.tongKhop = 1;
+        mot.ganDung = false;
+        mot.daNoiRong = false;
+        return mot;
+      }
+    }
+  }
+
   // Gắn tổng số khớp lên mảng để dinhDangSanPham báo được "còn nữa".
   // KHÔNG cắt im lặng — model không biết bị cắt sẽ tự tin tóm tắt cái không có.
   (hienThi as SanPhamList).tongKhop = xepKhop.length;

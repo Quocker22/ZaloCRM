@@ -742,3 +742,29 @@ describe('traSanPham — viết liền vs viết cách (dự phòng 2)', () => {
     expect(coWildcard).toBe(false);
   });
 });
+
+describe('CA 22:02 16/08 — nêu ĐÍCH DANH tên/mã SP thì chốt thẳng, không bắt chọn', () => {
+  const DF = sp({ id: 411, name: 'Nguồn DF-12V400W (cái)', default_code: 'DF12V400W', list_price: 0 });
+  const XDF = sp({ id: 368, name: 'Nguồn 12V400w XDF (cái)', default_code: 'SP000406', list_price: 0 });
+
+  it('"nguồn DF-12V400W" khớp nguyên văn đúng 1 SP → trả 1, không hỏi a/b', async () => {
+    const odoo = fakeOdoo([DF, XDF]);
+    const kq = await traSanPham({ odoo }, { ten: 'nguồn DF-12V400W' });
+    expect(kq).toHaveLength(1);
+    expect(kq[0].id).toBe(411);
+    expect(kq.ganDung).toBe(false);
+  });
+
+  it('mã dài nêu trong câu ("DF12V400W") cũng chốt thẳng theo mã', async () => {
+    const odoo = fakeOdoo([DF, XDF]);
+    const kq = await traSanPham({ odoo }, { ten: 'DF12V400W' });
+    expect(kq).toHaveLength(1);
+    expect(kq[0].id).toBe(411);
+  });
+
+  it('câu KHÔNG nêu đích danh ("nguồn 12v400w") → vẫn hỏi chọn như cũ', async () => {
+    const odoo = fakeOdoo([DF, XDF]);
+    const kq = await traSanPham({ odoo }, { ten: 'nguồn 12v400w' });
+    expect(kq.length).toBeGreaterThan(1);
+  });
+});
