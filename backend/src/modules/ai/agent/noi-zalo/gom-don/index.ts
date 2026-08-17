@@ -968,8 +968,9 @@ async function taoPhieuNhapVaBao(
   // NỘI DUNG: có phiếu NHÁP cùng hội thoại trùng HỆT tập (sản phẩm, SL) →
   // báo phiếu cũ thay vì đẻ bản sao. Muốn thêm phiếu thật sự giống hệt
   // (hiếm) thì nói "tạo phiếu nhập MỚI" — cờ choPhepTrung mở đường.
-  try {
-    if (p.choPhepTrung) throw new Error('nv-cho-phep-trung');
+  // NV nói rõ "tạo phiếu MỚI" → nhường, không so trùng (không đi đường throw
+  // kẻo log WARN đọc như lỗi trong khi là chủ ý của người).
+  if (!p.choPhepTrung) try {
     const nhap2h = await timDonNhap(deps, input.conversationId, undefined, 'mua');
     const boMoi = dong.map((d) => `${d.san_pham_id}x${d.so_luong}`).sort().join('|');
     for (const cu2 of nhap2h.slice(0, 3)) {
@@ -1286,7 +1287,9 @@ export async function xuLyGomDon(
 
   const laLenhNhap = regexNhap || trich.nhapHang === true;
   // "tạo phiếu nhập MỚI"/"thêm phiếu nữa" = NV chủ động muốn bản nữa dù trùng.
-  const choPhepTrung = /(tao|them)\s+(mot\s+)?(phieu|don)?\s*(nhap\s*)?(hang\s*)?(moi|nua)\b/.test(boDau(cauChon));
+  // (phieu|don) BẮT BUỘC — "thêm MỚI các sản phẩm" là tạo SP, không phải xin
+  // phiếu trùng (đo e2e 17/08: regex cũ optional nên câu đó bật nhầm cờ).
+  const choPhepTrung = /(tao|them)\s+(mot\s+)?(phieu|don)\s*(nhap\s*)?(hang\s*)?(moi|nua)\b/.test(boDau(cauChon));
   // Lệnh nhập hàng KHÔNG đồng thời là lệnh lên đơn: model có thể bật cả hai
   // (câu "tạo đơn mua" trông giống "tạo đơn"). Nhập hàng thắng — cùng lý do
   // thứ tự kiểm regex ở trên.
