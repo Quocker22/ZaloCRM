@@ -7,19 +7,76 @@
 // Ba công tắc ĐỘC LẬP, mặc định TẮT — bật là hành động có chủ đích, không phải
 // hiệu ứng phụ của một lần deploy:
 //
-//   AI_AGENT_NHANVIEN=1     nhân viên sai bot (tra cứu, lên đơn, báo cáo)
-//   AI_AGENT_KHACH=1        khách nhắn thì agent trả lời THAY luồng RAG cũ
-//   AI_AGENT_KHACH_TU_CHOT=1  khách chốt là bot GHI thẳng vào Odoo (quyền ghi
-//                             tách riêng — bật tư vấn không kéo theo quyền ghi)
+//   ai_configs.agent_nhan_vien_enabled     nhân viên sai bot (tra cứu, lên đơn…)
+//   ai_configs.agent_khach_enabled         khách nhắn thì agent trả lời thay RAG cũ
+//   ai_configs.agent_khach_tu_chot_enabled khách chốt là bot GHI thẳng vào Odoo
+//                                          (quyền ghi tách riêng khỏi tư vấn)
+// (Từ 17/08/2026 nằm trong CRM, không còn là env — xem khối bên dưới.)
+
+// ── CÔNG TẮC ĐỌC TỪ CRM (17/08/2026) ──────────────────────────────────────
+// Trước: 3 công tắc là env AI_AGENT_NHANVIEN / _KHACH / _KHACH_TU_CHOT — đổi
+// phải sửa Dokploy + deploy. Anh Quốc: "mấy cái này tôi handle trên zalocrm
+// hết". Giờ nằm ở ai_configs (agent_*_enabled), sửa trên CRM là ăn sau ≤30s.
+//
+// Cache 30s theo org: các hàm bat* bị gọi ở đầu MỌI tin nhắn — query DB mỗi
+// lần là tự bắn vào chân. DB lỗi → dùng cache cũ; chưa có cache → TẮT
+// (fail-safe: không bao giờ tự bật agent vì DB sập).
+//
+// Giữ chữ ký ĐỒNG BỘ (boolean) cho caller cũ — đọc từ cache của org hiện tại;
+// `napCongTacAgent(orgId)` PHẢI được gọi một lần đầu lượt (message-handler).
+import { prisma } from '../../../../shared/database/prisma-client.js';
+import { logger } from '../../../../shared/utils/logger.js';
+
+interface CongTacAgent { nhanVien: boolean; khach: boolean; khachTuChot: boolean; luc: number }
+const cacheCongTac = new Map<string, CongTacAgent>();
+const TTL_CONG_TAC_MS = 30_000;
+let orgHienTai: string | null = null;
+
+/** Nạp công tắc từ CRM cho org (cache 30s). Gọi ĐẦU lượt xử lý tin. */
+export async function napCongTacAgent(orgId: string): Promise<CongTacAgent> {
+  orgHienTai = orgId;
+  const cu = cacheCongTac.get(orgId);
+  if (cu && Date.now() - cu.luc < TTL_CONG_TAC_MS) return cu;
+  try {
+    const cfg = await prisma.aiConfig.findUnique({
+      where: { orgId },
+      select: { agentNhanVienEnabled: true, agentKhachEnabled: true, agentKhachTuChotEnabled: true },
+    });
+    const moi: CongTacAgent = {
+      nhanVien: cfg?.agentNhanVienEnabled === true,
+      khach: cfg?.agentKhachEnabled === true,
+      khachTuChot: cfg?.agentKhachTuChotEnabled === true,
+      luc: Date.now(),
+    };
+    cacheCongTac.set(orgId, moi);
+    return moi;
+  } catch (err) {
+    logger.warn({ err, orgId }, '[cong-tac] đọc công tắc agent từ CRM lỗi — dùng cache cũ/tắt');
+    return cu ?? { nhanVien: false, khach: false, khachTuChot: false, luc: 0 };
+  }
+}
+
+/** Test/ops: xoá cache để đọc lại ngay. */
+export function xoaCacheCongTac(): void { cacheCongTac.clear(); orgHienTai = null; }
+
+const docCache = (): CongTacAgent | undefined => (orgHienTai ? cacheCongTac.get(orgHienTai) : undefined);
+
+/**
+ * LỐI TẮT CHO TEST/DEV: env AI_AGENT_* nếu CÓ đặt thì thắng (test set
+ * process.env rồi gọi thẳng xuLyTin* không qua message-handler). Prod KHÔNG
+ * đặt các env này (đã xoá khỏi Dokploy 17/08) → luôn đọc CRM.
+ */
+const envEp = (k: string): boolean | undefined =>
+  process.env[k] === undefined ? undefined : process.env[k] === '1';
 
 /** Luồng nhân viên: bot nhận lệnh tra cứu / lên đơn / báo cáo. */
 export function batLuongNhanVien(): boolean {
-  return process.env.AI_AGENT_NHANVIEN === '1';
+  return envEp('AI_AGENT_NHANVIEN') ?? docCache()?.nhanVien === true;
 }
 
 /** Luồng khách: agent tư vấn thay luồng RAG cũ. */
 export function batLuongKhach(): boolean {
-  return process.env.AI_AGENT_KHACH === '1';
+  return envEp('AI_AGENT_KHACH') ?? docCache()?.khach === true;
 }
 
 /**
@@ -30,7 +87,7 @@ export function batLuongKhach(): boolean {
  * code (trần tiền, chống trùng), không ở prompt — prompt lèo lái được.
  */
 export function batKhachTuChotDon(): boolean {
-  return process.env.AI_AGENT_KHACH_TU_CHOT === '1';
+  return envEp('AI_AGENT_KHACH_TU_CHOT') ?? docCache()?.khachTuChot === true;
 }
 
 /**

@@ -11,7 +11,7 @@ import { logger } from '../../../../shared/utils/logger.js';
 import { boMarkdown } from './bo-markdown.js';
 import { humanPace } from '../../knowledge/human-pace.js';
 import { getQrConfig, buildTransferNote, renderVietQrImage } from '../../knowledge/qr-image.js';
-import { layAnhClient } from './du-lieu.js';
+import { layAnhClient, layOdoo } from './du-lieu.js';
 
 /** Đích gửi một hội thoại Zalo + thông tin khách đã biết. */
 export interface DichGui {
@@ -135,9 +135,9 @@ export async function guiHoaDonVaQr(
 
   // QR: thiếu cấu hình ngân hàng thì bỏ qua, KHÔNG báo lỗi cho khách — họ
   // không làm gì được với thông tin đó.
-  const qrCfg = getQrConfig();
+  const qrCfg = await getQrConfig(layOdoo());
   if (!qrCfg) {
-    logger.warn('[agent/khach] chưa cấu hình AI_QR_BANK_BIN — bỏ qua QR');
+    logger.warn('[agent/khach] Odoo chưa có TK ngân hàng công ty tra được BIN — bỏ qua QR');
     return;
   }
   try {

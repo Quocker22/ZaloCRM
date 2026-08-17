@@ -13,6 +13,7 @@ import { emitWebhook } from '../api/webhook-service.js';
 import { runAutomationRules } from '../../shared/ee-registry/automation.js';
 import { runAutoReplyForMessage } from '../ai/knowledge/auto-reply-wiring.js';
 import { xuLyTinNhanVien, xuLyTinKhach, xuLyTinMedia, laLenhNhanVien, dangChoTraLoiNv, bocMention } from '../ai/agent/noi-zalo.js';
+import { napCongTacAgent } from '../ai/agent/noi-zalo/cong-tac.js';
 import { automationEventBus } from '../../shared/ee-registry/event-bus.js';
 import { applyContactAggregateFromMessage, applyContactInteraction, applyFriendAggregate } from '../contacts/contact-aggregate.js';
 import { followMergedInto } from '../contacts/resolve-contact.js';
@@ -320,6 +321,10 @@ export async function handleIncomingMessage(
     const contentSachMention = laNhom
       ? bocMention(msg.content ?? '', msg.mentions)
       : (msg.content ?? '');
+
+    // CÔNG TẮC AGENT từ CRM (17/08/2026) — nạp một lần đầu lượt (cache 30s),
+    // mọi bat*() phía dưới đọc từ đây. Trước là env AI_AGENT_*.
+    await napCongTacAgent(account.orgId);
 
     const contactId = await upsertContact(msg, account.orgId);
 

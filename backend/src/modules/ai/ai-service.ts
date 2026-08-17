@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright (C) 2026 Nguyễn Tiến Lộc
+import { xoaCacheCongTac } from './agent/noi-zalo/cong-tac.js';
 import { prisma, tenantTransaction } from '../../shared/database/prisma-client.js';
 import { config } from '../../config/index.js';
 import { logger } from '../../shared/utils/logger.js';
@@ -54,8 +55,12 @@ export async function getAiConfig(orgId: string) {
   return { ...aiConfig, availableProviders };
 }
 
-export async function updateAiConfig(orgId: string, input: { provider?: string; model?: string; maxDaily?: number; enabled?: boolean }) {
-  return prisma.aiConfig.upsert({
+export async function updateAiConfig(orgId: string, input: {
+  provider?: string; model?: string; maxDaily?: number; enabled?: boolean;
+  /** Công tắc agent (17/08/2026 — chuyển từ env AI_AGENT_* vào CRM). */
+  agentNhanVienEnabled?: boolean; agentKhachEnabled?: boolean; agentKhachTuChotEnabled?: boolean;
+}) {
+  const kq = await prisma.aiConfig.upsert({
     where: { orgId },
     create: {
       orgId,
@@ -63,14 +68,23 @@ export async function updateAiConfig(orgId: string, input: { provider?: string; 
       model: input.model || config.aiDefaultModel,
       maxDaily: input.maxDaily ?? 500,
       enabled: input.enabled ?? true,
+      agentNhanVienEnabled: input.agentNhanVienEnabled ?? false,
+      agentKhachEnabled: input.agentKhachEnabled ?? false,
+      agentKhachTuChotEnabled: input.agentKhachTuChotEnabled ?? false,
     },
     update: {
       provider: input.provider,
       model: input.model,
       maxDaily: input.maxDaily,
       enabled: input.enabled,
+      agentNhanVienEnabled: input.agentNhanVienEnabled,
+      agentKhachEnabled: input.agentKhachEnabled,
+      agentKhachTuChotEnabled: input.agentKhachTuChotEnabled,
     },
   });
+  // Sửa công tắc trên CRM phải ăn ngay, không đợi TTL 30s.
+  xoaCacheCongTac();
+  return kq;
 }
 
 export async function getAiUsage(orgId: string) {

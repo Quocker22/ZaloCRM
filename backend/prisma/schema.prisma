@@ -1710,6 +1710,12 @@ model AiConfig {
   // chạy + ghi log nhưng prompt gửi đi vẫn là prompt cũ; 'on' = prompt động.
   // Xem docs/THIET-KE-GUIDELINE-ENGINE.md §6 — bật theo org, rollback 1 UPDATE.
   guidelineEngineMode          String   @default("off") @map("guideline_engine_mode")
+  // CÔNG TẮC AGENT (17/08/2026) — chuyển từ env AI_AGENT_* vào CRM theo yêu cầu
+  // anh Quốc ("mấy cái này tôi handle trên zalocrm hết"). Mặc định TẮT: bật là
+  // hành động có chủ đích. Đọc qua cong-tac.ts (cache 30s), sửa qua PUT ai config.
+  agentNhanVienEnabled         Boolean  @default(false) @map("agent_nhan_vien_enabled")
+  agentKhachEnabled            Boolean  @default(false) @map("agent_khach_enabled")
+  agentKhachTuChotEnabled      Boolean  @default(false) @map("agent_khach_tu_chot_enabled")
   createdAt                    DateTime @default(now()) @map("created_at")
   updatedAt                    DateTime @updatedAt @map("updated_at")
 

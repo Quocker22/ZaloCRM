@@ -287,7 +287,8 @@ export async function runAutoReplyForMessage(ctx: AutoReplyContext): Promise<voi
           }
 
           // stage === 'pay_qr': cần cấu hình TK. Chưa có → fallback báo sale.
-          const qrCfg = getQrConfig();
+          const { layOdoo } = await import('../agent/noi-zalo/du-lieu.js');
+          const qrCfg = await getQrConfig(layOdoo());
           if (!qrCfg) return 'fallback';
           const hhmm = new Date().toISOString().slice(11, 16).replace(':', '');
           const note = buildTransferNote(customerName, hhmm);

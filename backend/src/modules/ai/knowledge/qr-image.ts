@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Render chuỗi VietQR → ảnh PNG tạm (để zaloOps.sendImage gửi cho khách).
-// Cấu hình tài khoản nhận tiền qua env (chưa set → không gen QR, caller báo sale).
+// Tài khoản nhận tiền đọc từ Odoo (không có → không gen QR, caller bỏ qua).
 import { writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import QRCode from 'qrcode';
 import { generateVietQrPayload, stripAccents } from './vietqr.js';
+import { taiKhoanNhanTien } from '../odoo/tai-khoan-ngan-hang.js';
+import type { OdooClient } from '../odoo/client.js';
 
 export interface QrConfig {
   bankBin: string;
@@ -13,12 +15,15 @@ export interface QrConfig {
   accountName?: string;
 }
 
-/** Đọc cấu hình TK nhận tiền từ env. Thiếu BIN hoặc STK → null (chưa cấu hình). */
-export function getQrConfig(): QrConfig | null {
-  const bankBin = process.env.AI_QR_BANK_BIN?.trim();
-  const accountNo = process.env.AI_QR_ACCOUNT_NO?.trim();
-  if (!bankBin || !accountNo) return null;
-  return { bankBin, accountNo, accountName: process.env.AI_QR_ACCOUNT_NAME?.trim() || undefined };
+/**
+ * Cấu hình TK nhận tiền — TỪ ODOO (res.partner.bank của công ty), không còn
+ * env AI_QR_* (17/08/2026). Odoo không có TK tra được BIN → null → caller bỏ
+ * qua QR. Xem tai-khoan-ngan-hang.ts.
+ */
+export async function getQrConfig(odoo: Pick<OdooClient, 'searchRead'>): Promise<QrConfig | null> {
+  const tk = await taiKhoanNhanTien(odoo);
+  if (!tk) return null;
+  return { bankBin: tk.bankBin, accountNo: tk.accountNo, ...(tk.accountName ? { accountName: tk.accountName } : {}) };
 }
 
 /** Nội dung chuyển khoản: "DH <tên khách> <hhmm>" — bỏ dấu, <=25 ký tự. */
