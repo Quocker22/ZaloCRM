@@ -259,7 +259,7 @@ export interface PhienGom {
    * Dòng khongThay bị dọn ngay sau khi báo — NV đáp "thêm mới các sản phẩm
    * đó luôn" thì "các sản phẩm đó" phải còn chỗ tra. Xoá sau khi tạo xong.
    */
-  daBaoKhongThay?: string[];
+  daBaoKhongThay?: Array<{ ten: string; sl?: number | null }>;
   /** Số lần tạo đơn thất bại liên tiếp — 2 lần thì bỏ phiên (chống kẹt 10/08). */
   soLanLoi?: number;
   /**

@@ -1384,15 +1384,26 @@ export async function xuLyGomDon(
     // Đuôi tên cụ thể: lấy NGUYÊN VĂN từ cauChon (giữ dấu) chứ không phải bản
     // boDau — tên SP tạo ra phải có dấu tử tế.
     const tenCuThe = taoHet ? '' : cauChon.trim().replace(/^(?:tạo|them|thêm)\s+(?:sản phẩm\s+|sp\s+)?mới\s*/i, '').trim();
-    const dsCanTao = taoHet
-      ? [...new Set([
-          ...phien.dong.filter((d) => d.khongThay).map((d) => d.tuKhoa),
-          ...(phien.daBaoKhongThay ?? []),
-        ])]
-      : [tenCuThe];
+    // Phiên cũ (trước bản vá) lưu string[] — đỡ cả hai dạng trong 15' giao thời.
+    const daBaoChuan = (phien.daBaoKhongThay ?? []).map((x) =>
+      typeof x === 'string' ? { ten: x as string, sl: null } : x);
+    const dsCanTaoTho = taoHet
+      ? [
+          ...phien.dong.filter((d) => d.khongThay).map((d) => ({ ten: d.tuKhoa, sl: d.sl })),
+          ...daBaoChuan,
+        ]
+      : [{ ten: tenCuThe, sl: null }];
+    const daThay = new Set<string>();
+    const dsCanTao = dsCanTaoTho.filter((x) => {
+      const k = boDau(x.ten);
+      if (!k || daThay.has(k)) return false;
+      daThay.add(k);
+      return true;
+    });
     const daTao: string[] = [];
     let biChanQuyen = false;
-    for (const tenTao of dsCanTao) {
+    for (const canTao of dsCanTao) {
+      const tenTao = canTao.ten;
       try {
         const id = await deps.odoo.execute<number>('product.product', 'create', [{
           name: tenTao, purchase_ok: true, sale_ok: true,
@@ -1401,9 +1412,10 @@ export async function xuLyGomDon(
         const d = phien.dong.find((x) => boDau(x.tuKhoa) === boDau(tenTao) || boDau(tenTao).includes(boDau(x.tuKhoa)));
         if (d) {
           d.daChot = { id, ten: tenTao, gia: 0 };
+          if (d.sl == null && canTao.sl != null) d.sl = canTao.sl;
           delete d.khongThay;
         } else {
-          phien.dong.push({ tuKhoa: tenTao, sl: null, daChot: { id, ten: tenTao, gia: 0 } });
+          phien.dong.push({ tuKhoa: tenTao, sl: canTao.sl ?? null, daChot: { id, ten: tenTao, gia: 0 } });
         }
         daTao.push(tenTao);
       } catch {
@@ -2096,7 +2108,9 @@ export async function xuLyGomDon(
     // lại TÊN vừa báo (daBaoKhongThay): "thêm mới các sản phẩm đó luôn" ở
     // lượt sau cần biết "đó" là gì (ca 09:52 17/08).
     if (phien.khachKhongThay) { phien.khachTuKhoa = null; delete phien.khachKhongThay; }
-    const tenVuaBao = phien.dong.filter((d) => d.khongThay).map((d) => d.tuKhoa);
+    // Giữ CẢ SL gốc (17/08 vòng 2): "SP X 7 cái" → không thấy → tạo mới mà
+    // quên SL là bắt NV đọc lại con số họ đã nói.
+    const tenVuaBao = phien.dong.filter((d) => d.khongThay).map((d) => ({ ten: d.tuKhoa, sl: d.sl }));
     if (tenVuaBao.length) phien.daBaoKhongThay = tenVuaBao;
     phien.dong = phien.dong.filter((d) => !d.khongThay);
   }
