@@ -174,7 +174,11 @@ services:
     container_name: zalo-crm-backup
     restart: unless-stopped
     volumes:
-      - ./backups:/backups
+      # BỀN, NGOÀI thư mục code (17/08): './backups' nằm trong thư mục Dokploy
+      # wipe mỗi lần re-clone — vụ 13/08 xoá luôn thư mục làm container gãy 3
+      # tuần (mkdir /backups/daily: No such file), và backup sống trong vùng
+      # bị wipe thì có cũng như không. Cùng họ /var/lib/zalo-crm/files.
+      - /var/lib/zalo-crm/backups:/backups
     environment:
       # TZ giờ VN → SCHEDULE '@daily' chạy 00:00 giờ VN (trước đây UTC = 07:00 sáng VN);
       # tên file backup cũng theo giờ VN. Dữ liệu dump vẫn là UTC y như DB lưu.
