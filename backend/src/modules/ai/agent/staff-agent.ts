@@ -82,6 +82,9 @@ import {
   guiHoaDon, guiHoaDonDefinition, dinhDangGuiHoaDon, type KetQuaGuiHoaDon,
 } from '../odoo/tools/gui-hoa-don.js';
 import {
+  traNganHang, traNganHangDefinition, dinhDangTraNganHang,
+} from '../odoo/tools/tra-ngan-hang.js';
+import {
   xuatHoaDon, xuatHoaDonDefinition, dinhDangXuatHoaDon,
 } from '../odoo/tools/xuat-hoa-don.js';
 import type { HoaDonAnhClient } from '../odoo/hoa-don-anh.js';
@@ -836,6 +839,22 @@ export function buildStaffRegistry(deps: {
       },
     });
   }
+
+  // TRA NGÂN HÀNG / QR cho NV (17/08, ca 22:27 "cho tôi QR của ngân hàng đi"
+  // → bot bảo không có). Đọc Odoo, ảnh QR đi kênh nhanTepBaoCao (không qua LLM).
+  r.register({
+    definition: traNganHangDefinition,
+    run: async (input) => {
+      const kq = await traNganHang({ odoo }, input as { so_tien?: number; noi_dung?: string });
+      if (kq.qr) {
+        deps.nhanTepBaoCao?.({
+          tenFile: kq.qr.tenFile, duLieu: kq.qr.duLieu, loai: 'anh',
+          moTa: `QR chuyển khoản${kq.qr.soTien ? ` ${kq.qr.soTien.toLocaleString('vi-VN')}đ` : ''}`,
+        });
+      }
+      return dinhDangTraNganHang(kq);
+    },
+  });
 
   if (deps.anhClient && deps.odooUrl) {
     const anhClient = deps.anhClient;

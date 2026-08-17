@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { prisma } from '../../../../shared/database/prisma-client.js';
 import { zaloOps } from '../../../../shared/zalo-operations.js';
 import { logger } from '../../../../shared/utils/logger.js';
-import { boMarkdown } from './bo-markdown.js';
+import { boMarkdown, bocDocThoai } from './bo-markdown.js';
 import { humanPace } from '../../knowledge/human-pace.js';
 import { getQrConfig, buildTransferNote, renderVietQrImage } from '../../knowledge/qr-image.js';
 import { layAnhClient, layOdoo } from './du-lieu.js';
@@ -59,7 +59,7 @@ export async function timDich(conversationId: string): Promise<DichGui | null> {
 export async function guiTin(dich: DichGui, text: string, giaNguoi: boolean): Promise<void> {
   // CỔNG RA cuối cùng trước Zalo: gỡ markdown model lỡ sinh (prompt dặn rồi
   // vẫn vi phạm — chat thật 16:42 08/08). Mọi tin của cả hai luồng qua đây.
-  const sach = boMarkdown(text);
+  const sach = boMarkdown(bocDocThoai(text));
   if (giaNguoi) await humanPace(sach.length);
   await zaloOps.sendMessage(dich.accountId, dich.threadId, dich.threadType, { msg: sach });
 }
