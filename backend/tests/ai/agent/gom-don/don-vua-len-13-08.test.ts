@@ -611,3 +611,54 @@ describe('CA 09:54 17/08 — hết giờ không được nhả bảng cột kham
     ])).toBeNull();
   });
 });
+
+describe('CA 10:06-10:07 17/08 — "thêm mới…" KHÔNG được gọi model, NCC treo phải còn nguyên', () => {
+  it('phiên có 2 NCC treo + dòng không-thấy → lệnh tạo mới giữ nguyên NCC, model câm', async () => {
+    const odoo = fakeOdoo([DF]);
+    const goc = odoo.execute.getMockImplementation()!;
+    let idSp = 6000;
+    odoo.execute.mockImplementation(async (model: string, method: string, args?: unknown, kw?: unknown) => {
+      if (model === 'product.product' && method === 'create') return idSp++;
+      return goc(model, method, args, kw);
+    });
+    // fake model PHÁ: nếu bị gọi sẽ trả khach rác (đúng bệnh prod)
+    const generate = vi.fn(async () => ({
+      text: '', stopReason: 'tool_use' as const, raw: null, usage,
+      toolCalls: [{ id: 't', name: 'ghi_slot', input: { khach: 'M-10000K-12V-12D 930mm' } }],
+    }));
+    const tinGui: string[] = [];
+    const db = fakeDb();
+    await db.phienGomDon.upsert({
+      where: { conversationId: 'c-ncc-treo' },
+      create: {
+        orgId: 'o1', conversationId: 'c-ncc-treo',
+        slots: {
+          che: 'nhap', khachTuKhoa: 'Trung Quốc', viecId: 8501,
+          khachUngVien: [
+            { id: 70, ten: 'Trung Quốc', ma: 'NCC000001', dienThoai: null },
+            { id: 71, ten: 'Trung Quốc- Kho Cô Lỳ', ma: 'NCC000290', dienThoai: null },
+          ],
+          dong: [{ tuKhoa: 'M-10000K-12V-12D 930mm', sl: 24, khongThay: true }],
+        },
+        hetHan: new Date(Date.now() + 600000),
+      } as never,
+      update: {} as never,
+    });
+    const deps: GomDonDeps = {
+      prisma: db as never, odoo: odoo as never, generate: generate as never,
+      anhClient: null, odooUrl: 'https://odoo.example.com',
+      guiTin: async (t) => { tinGui.push(t); }, guiAnhHoaDon: async () => {}, ghiLog: () => {},
+    };
+    const nhan = await xuLyGomDon(deps, {
+      orgId: 'o1', conversationId: 'c-ncc-treo', seq: 8502,
+      cau: 'thêm mới các sản phẩm đó luôn', senderUid: 'nv',
+    });
+    expect(nhan).toBe(true);
+    expect(generate).not.toHaveBeenCalled(); // CODE xử, model câm
+    expect(tinGui.join('\n')).toMatch(/đã tạo mới 1 sản phẩm/i);
+    // NCC treo còn nguyên trong phiên — lượt sau chọn "1" là chốt được
+    const row = await db.phienGomDon.findUnique({ where: { conversationId: 'c-ncc-treo' } });
+    const slots = (row as { slots?: { khachUngVien?: unknown[] } })?.slots;
+    expect(slots?.khachUngVien).toHaveLength(2);
+  });
+});

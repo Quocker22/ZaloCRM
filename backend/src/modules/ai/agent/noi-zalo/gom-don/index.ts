@@ -1270,6 +1270,20 @@ export async function xuLyGomDon(
       : null;
   if (cauSuaGia) daHoiLlm = true;
 
+  // LỆNH TẠO-MỚI SP cũng là lệnh CODE — chặn luôn lượt gọi model (17/08, ca
+  // 10:06:36: câu "thêm mới các sản phẩm đó luôn" vẫn đi qua trichSlot, model
+  // trích bừa `khach` từ đó làm BAY 2 NCC đang treo trong phiên → NV chọn
+  // xong 12 nhóm SP, máy quay lại hỏi "Phiếu nhập này của nhà cung cấp nào
+  // ạ?" — anh Quốc: "lại quên ngữ cảnh rồi, là sao vậy????"). Khối thực thi
+  // nằm phía dưới (lenhTaoMoi) — ở đây chỉ cần khoá mồm model.
+  if (
+    phien?.che === 'nhap'
+    && /^(?:tao|them)\s+(?:san pham\s+|sp\s+)?moi\b/.test(boDau(cauChon))
+    && !/vao (don|phieu)/.test(boDau(cauChon))
+  ) {
+    daHoiLlm = true;
+  }
+
   const laLenhNhap = regexNhap || trich.nhapHang === true;
   // "tạo phiếu nhập MỚI"/"thêm phiếu nữa" = NV chủ động muốn bản nữa dù trùng.
   const choPhepTrung = /(tao|them)\s+(mot\s+)?(phieu|don)?\s*(nhap\s*)?(hang\s*)?(moi|nua)\b/.test(boDau(cauChon));
