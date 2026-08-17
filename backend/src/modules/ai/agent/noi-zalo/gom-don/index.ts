@@ -1353,12 +1353,29 @@ export async function xuLyGomDon(
   //
   // Quyền Odoo hiện CHẶN create (đo probe 22:1x) — bot nói thật + chỉ đường
   // cấp quyền; ai cấp xong là chạy ngay, không cần deploy lại.
-  const lenhTaoMoi = phien?.che === 'nhap' ? cauChon.trim().match(/^tạo mới\s+(hết|het|(.{2,80}))$/i) : null;
+  // Câu tự nhiên hơn cũng phải ăn (ca 09:52 17/08: "thêm mới các sản phẩm đó
+  // luôn" trượt regex cũ → rơi vào agent tự do → hết giờ → nhả bảng cột).
+  // Nhận: "tạo mới …", "thêm mới …", "tạo/thêm (sản phẩm) mới các SP đó/hết".
+  // Đuôi là THAM CHIẾU CHUNG (đó/hết/luôn/không thấy…) → tạo cả danh sách
+  // vừa báo không-thấy; đuôi là TÊN cụ thể → tạo đúng tên đó.
+  const lenhTaoMoiTho = phien?.che === 'nhap'
+    ? boDau(cauChon).match(/^(?:tao|them)\s+(?:san pham\s+|sp\s+)?moi\s*(.*)$/)
+    : null;
+  const lenhTaoMoi = lenhTaoMoiTho && !/vao (don|phieu)/.test(lenhTaoMoiTho[1]) ? lenhTaoMoiTho : null;
   if (lenhTaoMoi && phien) {
-    const taoHet = /^h[eế]t$/i.test(lenhTaoMoi[1]);
+    const duoi = lenhTaoMoi[1].trim();
+    const taoHet = duoi === ''
+      || /^(het|luon|di|nhe|nha)$/.test(duoi)
+      || /(cac|nhung)?\s*(san pham|sp|mat hang|hang)?\s*(do|khong (tim )?thay|con thieu|thieu|vua bao)/.test(duoi);
+    // Đuôi tên cụ thể: lấy NGUYÊN VĂN từ cauChon (giữ dấu) chứ không phải bản
+    // boDau — tên SP tạo ra phải có dấu tử tế.
+    const tenCuThe = taoHet ? '' : cauChon.trim().replace(/^(?:tạo|them|thêm)\s+(?:sản phẩm\s+|sp\s+)?mới\s*/i, '').trim();
     const dsCanTao = taoHet
-      ? phien.dong.filter((d) => d.khongThay).map((d) => d.tuKhoa)
-      : [lenhTaoMoi[1].trim()];
+      ? [...new Set([
+          ...phien.dong.filter((d) => d.khongThay).map((d) => d.tuKhoa),
+          ...(phien.daBaoKhongThay ?? []),
+        ])]
+      : [tenCuThe];
     const daTao: string[] = [];
     let biChanQuyen = false;
     for (const tenTao of dsCanTao) {
@@ -1389,6 +1406,7 @@ export async function xuLyGomDon(
       if (daTao.length === 0) { await ghiPhien(phien); return true; }
     }
     if (daTao.length > 0) {
+      delete phien.daBaoKhongThay;
       await deps.guiTin(`Em đã tạo mới ${daTao.length} sản phẩm: ${daTao.map((t) => `"${t}"`).join(', ')} (giá nhập điền sau ạ).`);
       daChon = true; // câu đã xử bằng code — đừng đưa "tạo mới X" cho trích slot đoán
     } else if (!biChanQuyen) {
@@ -2060,8 +2078,12 @@ export async function xuLyGomDon(
   // Đánh dấu vừa hỏi giá lệch: câu kế của NV là câu trả lời cho chính nó.
   phien.daHoiGiaLech = hd.loai === 'hoi_gia_lech';
   if (hd.loai === 'khong_thay') {
-    // Đã báo không thấy — dọn phần hỏng để NV gõ lại từ khoá khác.
+    // Đã báo không thấy — dọn phần hỏng để NV gõ lại từ khoá khác. NHƯNG giữ
+    // lại TÊN vừa báo (daBaoKhongThay): "thêm mới các sản phẩm đó luôn" ở
+    // lượt sau cần biết "đó" là gì (ca 09:52 17/08).
     if (phien.khachKhongThay) { phien.khachTuKhoa = null; delete phien.khachKhongThay; }
+    const tenVuaBao = phien.dong.filter((d) => d.khongThay).map((d) => d.tuKhoa);
+    if (tenVuaBao.length) phien.daBaoKhongThay = tenVuaBao;
     phien.dong = phien.dong.filter((d) => !d.khongThay);
   }
   await ghiPhien(phien);

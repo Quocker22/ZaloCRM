@@ -559,3 +559,55 @@ describe('CA P04528→P04531 — gửi lại cùng ảnh KHÔNG đẻ phiếu tr
     expect(soPhieu()).toBe(2); // NV nói rõ "mới" thì chiều
   });
 });
+
+describe('CA 09:52 17/08 — "thêm mới các sản phẩm đó luôn" phải TẠO danh sách vừa báo không-thấy', () => {
+  it('lượt 1 báo không thấy → lượt 2 câu tự nhiên tạo đủ, không rơi vào agent', async () => {
+    const odoo = fakeOdoo([DF]);
+    const goc = odoo.execute.getMockImplementation()!;
+    const daTaoSp: string[] = [];
+    let idSp = 5000;
+    odoo.execute.mockImplementation(async (model: string, method: string, args?: unknown, kw?: unknown) => {
+      if (model === 'product.product' && method === 'create') {
+        daTaoSp.push(String((args as Array<{ name: string }>)[0].name));
+        return idSp++;
+      }
+      return goc(model, method, args, kw);
+    });
+    const tinGui: string[] = [];
+    const deps: GomDonDeps = {
+      prisma: fakeDb() as never, odoo: odoo as never,
+      generate: fakeGenerate([
+        { nhapHang: true, khach: 'Trung Quốc', dong: [{ sp: 'M-10000K-12V-12D 930mm', sl: 24 }, { sp: 'QK 10.000K-220V-4D', sl: 12 }] },
+        {}, // lượt 2 đi đường code, model không được hỏi
+      ]),
+      anhClient: null, odooUrl: 'https://odoo.example.com',
+      guiTin: async (t) => { tinGui.push(t); }, guiAnhHoaDon: async () => {}, ghiLog: () => {},
+    };
+    const goi = (cau: string, seq: number) => xuLyGomDon(deps, {
+      orgId: 'o1', conversationId: 'c-tao-moi-cac-sp', seq, cau, senderUid: 'nv',
+    });
+    await goi('tạo phiếu nhập hàng của ncc Trung Quốc, M-10000K-12V-12D 930mm 24 cái, QK 10.000K-220V-4D 12 cái', 8401);
+    expect(tinGui.join('\n')).toMatch(/không tìm thấy/i);
+
+    const nhan = await goi('thêm mới các sản phẩm đó luôn', 8402);
+    expect(nhan).toBe(true);
+    expect(daTaoSp.sort()).toEqual(['M-10000K-12V-12D 930mm', 'QK 10.000K-220V-4D'].sort());
+    expect(tinGui.join('\n')).toMatch(/đã tạo mới 2 sản phẩm/i);
+  });
+});
+
+describe('CA 09:54 17/08 — hết giờ không được nhả bảng cột kham_pha_odoo', () => {
+  it('tool cuối là kham_pha (nội bộ) → lấy tool NGƯỜI-ĐỌC-ĐƯỢC trước đó', () => {
+    const tom = tomTatDoDang([
+      { toolName: 'tra_san_pham', output: 'id=1 | Nguồn NB | 78.000đ', thanhCong: true },
+      { toolName: 'kham_pha_odoo', output: 'Các cột dùng được:\n- account_tag_ids (many2many)…', thanhCong: true },
+    ]);
+    expect(tom).not.toContain('account_tag_ids');
+    expect(tom).toContain('Nguồn NB');
+  });
+  it('chỉ toàn kham_pha → null (nói câu chờ chung, không dán schema)', () => {
+    expect(tomTatDoDang([
+      { toolName: 'kham_pha_odoo', output: 'Các cột dùng được: …', thanhCong: true },
+    ])).toBeNull();
+  });
+});

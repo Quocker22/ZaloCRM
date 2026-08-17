@@ -75,7 +75,13 @@ export function hanConLai(input: {
 export function tomTatDoDang(
   daTra: ReadonlyArray<{ toolName: string; output: string; thanhCong: boolean }>,
 ): string | null {
-  const dung = daTra.filter((t) => t.thanhCong && String(t.output ?? '').trim());
+  // Tool NỘI BỘ (soi schema, không viết cho người đọc) không bao giờ được làm
+  // câu trả lời hết-giờ — ca 09:54 17/08: bot nhả nguyên bảng cột
+  // product.product ("Các cột dùng được: - account_tag_ids…") ra nhóm.
+  const TOOL_NOI_BO = new Set(['kham_pha_odoo']);
+  const dung = daTra.filter(
+    (t) => t.thanhCong && !TOOL_NOI_BO.has(t.toolName) && String(t.output ?? '').trim(),
+  );
   if (dung.length === 0) return null;
   const cuoi = dung[dung.length - 1];
   const noi = boChiDanNoiBo(cuoi.output.trim());

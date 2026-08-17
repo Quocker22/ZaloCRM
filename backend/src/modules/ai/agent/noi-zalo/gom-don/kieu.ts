@@ -254,6 +254,12 @@ export interface PhienGom {
    * dung với phiếu nháp đang có (17/08; guard chống-trùng-nội-dung sẽ nhường).
    */
   choPhepTrung?: boolean;
+  /**
+   * Tên các SP VỪA BÁO "không tìm thấy" ở lượt trước (17/08, ca 09:52).
+   * Dòng khongThay bị dọn ngay sau khi báo — NV đáp "thêm mới các sản phẩm
+   * đó luôn" thì "các sản phẩm đó" phải còn chỗ tra. Xoá sau khi tạo xong.
+   */
+  daBaoKhongThay?: string[];
   /** Số lần tạo đơn thất bại liên tiếp — 2 lần thì bỏ phiên (chống kẹt 10/08). */
   soLanLoi?: number;
   /**
