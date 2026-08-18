@@ -63,8 +63,29 @@ export async function chayLuotTuSoi(): Promise<KetQuaLuotSoi> {
 
   for (const hs of ungVien) {
     try {
+      // CHỈ SOI PHẦN CHƯA SOI (vá 18/08 — anh Quốc: "làm sao biết có đoạn mới").
+      // Lần soi trước đã lưu tin cuối; hội thoại chạy tiếp thì lần này chỉ đọc
+      // từ mốc đó về sau, cộng vài tin cũ làm NGỮ CẢNH (một câu "sai rồi" đứng
+      // một mình thì soi không ra bot sai chỗ nào).
+      const lanTruoc = await prisma.tuSoiHoiThoai.findFirst({
+        where: { conversationId: hs.conversationId },
+        orderBy: { createdAt: 'desc' },
+        select: { denMessageId: true },
+      });
+      let tuLuc: Date | null = null;
+      if (lanTruoc) {
+        const moc = await prisma.message.findUnique({
+          where: { id: lanTruoc.denMessageId },
+          select: { sentAt: true },
+        });
+        tuLuc = moc?.sentAt ?? null;
+      }
       const rows = await prisma.message.findMany({
-        where: { conversationId: hs.conversationId, isDeleted: false, contentType: 'text' },
+        where: {
+          conversationId: hs.conversationId, isDeleted: false, contentType: 'text',
+          // Lùi 10 phút trước mốc cũ để có ngữ cảnh, không phải cả hội thoại.
+          ...(tuLuc ? { sentAt: { gte: new Date(tuLuc.getTime() - 10 * 60_000) } } : {}),
+        },
         orderBy: { sentAt: 'desc' },
         take: MAX_TIN,
         select: { id: true, senderType: true, content: true, sentAt: true, sentVia: true },
@@ -91,6 +112,20 @@ export async function chayLuotTuSoi(): Promise<KetQuaLuotSoi> {
         select: { id: true },
       });
       if (daSoi) continue;
+      // Đoạn mới quá ngắn (chỉ vài tin sau mốc cũ, kiểu "ok"/"cảm ơn") → ghi
+      // mốc để lần sau khỏi đọc lại, nhưng KHÔNG soi: chưa đủ chuyện để học.
+      const tinMoi = tuLuc ? tin.filter((t) => t.luc > tuLuc!).length : tin.length;
+      if (tuLuc && tinMoi < 3) {
+        await prisma.tuSoiHoiThoai.create({
+          data: {
+            orgId: hs.orgId, conversationId: hs.conversationId, denMessageId: cuoi.id,
+            vai: 'khach', diem: 10, dauHieu: [],
+            nhanXet: `Đoạn tiếp theo chỉ có ${tinMoi} tin — chưa đủ để soi.`,
+            luatDaGhi: [],
+          },
+        }).catch(() => {});
+        continue;
+      }
       kq.daQuet += 1;
 
       const cham = chamDauHieu(tin);

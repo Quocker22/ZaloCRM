@@ -55,3 +55,26 @@ describe('chamDauHieu — bắt ca thật', () => {
     expect(kq.dauHieu).toContain('bot_lap_nguyen_van');
   });
 });
+
+// ── Khoá hợp đồng "biết đoạn mới" (anh Quốc hỏi 18/08) ─────────────────────
+// Không test được vòng chạy thật ở đây (cần DB), nhưng khoá được HÌNH DẠNG:
+// mốc soi là TIN CUỐI, nên hội thoại chạy tiếp là khoá đổi → có đoạn mới.
+describe('mốc soi = tin cuối → nhận biết đoạn mới', () => {
+  it('cùng một đoạn, chấm hai lần ra kết quả GIỐNG NHAU (idempotent)', () => {
+    const doan = tin([
+      ['nguoi', 'lên đơn cho anh Hà 5 cái nguồn NB'],
+      ['bot', 'Đơn cho Anh Hà: 5 × Nguồn NB. Em đã lên đơn nháp S1 ạ.'],
+    ]);
+    expect(chamDauHieu(doan)).toEqual(chamDauHieu(doan));
+  });
+
+  it('đoạn nối thêm tin GẮT → điểm tụt so với đoạn cũ (đáng soi lại)', () => {
+    const cu = tin([
+      ['nguoi', 'lên đơn cho anh Hà 5 cái nguồn NB'],
+      ['bot', 'Đơn cho Anh Hà: 5 × Nguồn NB xanh. Em đã lên đơn nháp S1 ạ.'],
+    ]);
+    const moi = [...cu, ...tin([['nguoi', 'sai rồi, nguồn NB đỏ mà']])];
+    expect(chamDauHieu(moi).diem).toBeLessThan(chamDauHieu(cu).diem);
+    expect(chamDauHieu(moi).dangSoiKy).toBe(true);
+  });
+});
