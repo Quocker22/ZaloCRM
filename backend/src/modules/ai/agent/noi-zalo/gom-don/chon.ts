@@ -21,7 +21,7 @@ const chuCai = (i: number) => String.fromCharCode(97 + i); // 0→a, 1→b…
  *
  * Bắt cả biến thể có dấu/không dấu và câu dài hơn ("anh này khách mới nhé").
  */
-const LA_KHACH_MOI = /\bkhach(\s+hang)?\s+moi\b/;
+export const LA_KHACH_MOI = /\bkhach(\s+hang)?\s+moi\b/;
 
 /**
  * Ứng viên DUY NHẤT có tên xuất hiện gần trọn vẹn trong câu.

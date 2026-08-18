@@ -35,3 +35,46 @@ describe('bocDocThoai', () => {
     expect(bocDocThoai(t)).toBe('Tồn: 30 cái ạ.');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CA THẬT 11:56:24 ngày 18/08 — anh Quốc gửi transcript kèm "cái gì thế này?".
+// Lần RÒ THỨ BA (sau 13/08 catalog và 22:27 17/08 ngân hàng), và là KIỂU MỚI:
+// model TƯỜNG THUẬT lại tình hình cho chính nó, không xưng "tôi … cần", không
+// nhắc "tool", không "Đáp lại." — nên mọi dấu hiệu của bản vá 17/08 đều trượt
+// và cả khối lọt ra nguyên văn cho nhân viên đọc.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('bocDocThoai — kiểu TƯỜNG THUẬT (ca 11:56 18/08)', () => {
+  const CA_THAT = [
+    'Nhân viên nói "led zz thấu kính" giá 80k/cuộn. Các kết quả trên không khớp giá '
+      + '80k/cuộn — led ziczac full cuộn 5m giá 330k, còn lixin 42b/m giá theo mét. '
+      + '"zz thấu kính" 80k/cuộn chưa tìm thấy rõ ràng. Tin mới "sai mã hàng rồi" — '
+      + 'nói rõ tôi đang để sai mã.',
+    'Đang làm dở việc lên đơn cho Anh Tuấn QC Thăng Long 13 cuộn led zz thấu kính '
+      + '80k/cuộn. Nhưng chưa tìm được đúng sản phẩm.',
+    'Dạ anh/chị nói "sai mã hàng rồi" — vậy tức là mấy mã em vừa tra (Led F30 24V ATX, '
+      + 'Led ziczac) đều không đúng, phải không ạ?',
+    'Em cần anh/chị cho em mã hoặc tên chính xác của loại led zz thấu kính giá '
+      + '80k/cuộn để em tra đúng và lên đơn cho Anh Tuấn QC Thăng Long ạ.',
+  ].join('\n\n');
+
+  it('cắt sạch phần tường thuật, KHÔNG để lọt chữ nào ra Zalo', () => {
+    const ra = bocDocThoai(CA_THAT);
+    expect(ra).not.toMatch(/Nhân viên nói/);
+    expect(ra).not.toMatch(/Đang làm dở việc/);
+    expect(ra).not.toMatch(/Các kết quả trên/);
+  });
+
+  it('GIỮ TRỌN phần nói với người — cả câu hỏi giữa lẫn câu chốt cuối', () => {
+    const ra = bocDocThoai(CA_THAT);
+    // Quét ngược (bản cũ) sẽ lấy mỗi đoạn CUỐI và làm mất câu hỏi chính này.
+    expect(ra).toMatch(/^Dạ anh\/chị nói/);
+    expect(ra).toMatch(/mã hoặc tên chính xác/);
+  });
+
+  it('tin bình thường mở đầu bằng "Khách"/"Đơn" KHÔNG bị cắt oan', () => {
+    // "Khách" đứng đầu là dấu hiệu tường thuật, nhưng tin MỘT KHỐI thì không
+    // có gì để bóc — phải trả nguyên văn, kẻo bot câm.
+    const tin = 'Khách Trần Hưng đã có 3 đơn trong tháng này ạ.';
+    expect(bocDocThoai(tin)).toBe(tin);
+  });
+});

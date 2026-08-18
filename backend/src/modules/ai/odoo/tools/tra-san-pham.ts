@@ -6,6 +6,7 @@
 // và bot báo sai giá cho khách. Có ca thật: một agent bán hàng báo giảm 50% lấy
 // từ tài liệu giá cũ trong knowledge base. Giá phải đọc từ Odoo, luôn luôn.
 
+import { logger } from '../../../../shared/utils/logger.js';
 import type { OdooClient } from '../client.js';
 import type { ToolDefinition } from '../../agent/types.js';
 import {
@@ -211,6 +212,78 @@ export function tuKhoaTraSp(ten: string): string[] {
   return tu.length > 0 ? tu : moiTu;
 }
 
+/**
+ * VIẾT TẮT BỎ NGUYÊN ÂM — suy ra, KHÔNG khai bảng.
+ *
+ * Ca thật 11:54 18/08: NV gõ "led zz thấu kính". Catalog lưu "Led dây ziczac
+ * thấu kính 12V-30D" (75.000đ). Mọi tầng tra đều trượt vì `ilike` khớp CHUỖI
+ * CON LIỀN MẠCH, mà "zz" KHÔNG nằm trong "ziczac" — nó là bộ xương phụ âm của
+ * từ đó (z-c-z-c → người gõ gọn còn "zz"). Bot bịa ra 3 ứng viên Led F30 sai
+ * hẳn mặt hàng; anh Ánh: "ko chuẩn rồi", anh Quyết: "sai mã hàng rồi".
+ *
+ * VÌ SAO KHÔNG LÀM BẢNG TỪ ĐIỂN CỨNG (anh Quốc 18/08: "sao lại bảng alias????
+ * tôi tưởng AI nó phải biết chứ"): khai tay thì mai NV gõ "cb", "hlg", "tk" là
+ * lại phải sửa code — hàng rào chết. Ở đây suy ra bằng LUẬT, và đối chiếu với
+ * TỪ VỰNG THẬT của catalog: một token chỉ được coi là viết tắt của từ X khi
+ * X CÓ THẬT trong tên sản phẩm đang bán.
+ *
+ * Luật: token là viết tắt của từ đầy đủ khi các chữ của token xuất hiện ĐÚNG
+ * THỨ TỰ trong từ đó, chữ ĐẦU trùng nhau, và từ đầy đủ dài hơn hẳn. Đó chính
+ * là cách người ta gõ tắt: giữ khung phụ âm, bỏ nguyên âm.
+ *   zz  → ziczac ✓ (z…z, đầu z, dài 6)     zz → zalo ✗ (chỉ 1 chữ z)
+ *   tk  → thấu kính ✗ ở đây (cụm 2 từ — xử ở nhánh cụm bên dưới)
+ *   ngg → nguồn ✓                          p10 ✗ (có số, không đụng tới)
+ */
+export function laVietTatCua(tat: string, day: string): boolean {
+  const a = boDau(tat);
+  const b = boDau(day);
+  // Có số = mã model, KHÔNG suy diễn: "p10" không được thành "p100".
+  if (/\d/.test(a) || /\d/.test(b)) return false;
+  // Ngắn hơn 2 chữ thì mọi từ đều "khớp" — vô nghĩa. Dài ≥5 thì người ta đã
+  // gõ gần đủ, để các tầng ilike lo.
+  if (a.length < 2 || a.length > 4) return false;
+  // Từ đầy đủ phải DÀI HƠN. Chỉ cần +1 chữ là đủ ("cb"→"cob", "ngg"→"nguon"),
+  // vì hàng rào thật nằm ở hai luật dưới: token phải TOÀN PHỤ ÂM (đã lọc ở
+  // chỗ gọi) và các chữ phải rời nhau trong từ đầy đủ. "am"→"nam" không lọt
+  // được: "am" có nguyên âm nên không bao giờ vào tới đây.
+  if (b.length < a.length + 1) return false;
+  if (a[0] !== b[0]) return false;
+  // Chuỗi con liền mạch thì ilike đã bắt được rồi — chỗ này chỉ lo phần ilike
+  // KHÔNG bắt được (chữ rời nhau).
+  if (b.includes(a)) return false;
+  let i = 0;
+  for (const ch of b) {
+    if (ch === a[i]) i += 1;
+    if (i === a.length) return true;
+  }
+  return false;
+}
+
+/**
+ * Rút từ vựng thật của catalog rồi tìm những từ mà token có thể là viết tắt.
+ * Trả tối đa `tranMoiTu` ứng viên cho mỗi token (nhiều hơn = mơ hồ, thà để
+ * người chọn còn hơn đoán bừa).
+ */
+export function doanTuDayDu(
+  tat: string,
+  tenSpTrongKho: string[],
+  tranMoiTu = 3,
+): string[] {
+  const gap = new Map<string, number>();
+  for (const ten of tenSpTrongKho) {
+    for (const tu of boDau(ten).split(/[^a-z0-9]+/)) {
+      if (!tu || /\d/.test(tu)) continue;
+      if (!laVietTatCua(tat, tu)) continue;
+      gap.set(tu, (gap.get(tu) ?? 0) + 1);
+    }
+  }
+  // Từ xuất hiện nhiều nhất trong catalog là ứng viên đáng tin nhất.
+  return [...gap.entries()]
+    .sort((x, y) => y[1] - x[1] || x[0].length - y[0].length)
+    .slice(0, tranMoiTu)
+    .map(([tu]) => tu);
+}
+
 export function domainTimKiem(ten: string): unknown[] {
   const dung = tuKhoaTraSp(ten);
 
@@ -301,7 +374,94 @@ export async function traSanPham(
   // Thà trả kết quả rộng kèm dấu CÒN NỮA còn hơn nói "không tìm thấy".
   let rowsFinal = rows;
   let daNoiRong = false;
+
+  // DỰ PHÒNG 2 — VIẾT TẮT BỎ NGUYÊN ÂM (18/08, ca "led zz thấu kính").
+  //
+  // NV gõ TẮT bằng khung phụ âm ("zz" cho "ziczac") — thứ so-khớp-chuỗi không
+  // bao giờ với tới. Hỏi Odoo lấy từ vựng thật của những SP có chứa các từ CÒN
+  // LẠI trong câu ("thấu kính"), rồi soi xem token lạ có phải viết tắt của từ
+  // nào trong đó không. Không có bảng khai tay: catalog tự nói.
+  //
+  // CHẠY TRƯỚC NỚI-OR, không phải sau (đo e2e prod 18/08): "led zz thấu kính"
+  // rơi vào nới-OR thì OR trả 16 SP "Led F30 ... Đầu Đục" — khớp mỗi chữ rời
+  // "thau"/"kinh" — nên MỌI dự phòng sau không bao giờ chạy, và NV nhận đúng
+  // cái rác đã thấy hôm 11:54. Nở-tắt là đoán CÓ CĂN CỨ (từ đầy đủ phải có
+  // thật trong catalog, và câu đã nở vẫn phải khớp ĐỦ MỌI TỪ); nới-OR là vơ
+  // bừa. Có căn cứ thì đi trước.
   if (rows.length === 0) {
+    const tuAll = tuKhoaTraSp(ten);
+    // Token "lạ" = ngắn, không số, không phải từ đệm. Token còn lại dùng để
+    // KHOANH VÙNG catalog — nếu không còn token nào thì bỏ qua: đoán viết tắt
+    // trên toàn bộ 500 SP là mời gọi khớp bừa.
+    // DẤU HIỆU của viết tắt là KHÔNG CÓ NGUYÊN ÂM, không phải "ngắn" (đo e2e
+    // 18/08: lấy tiêu chí ngắn thì "thấu"/"kính" cũng bị coi là tắt, conLai
+    // rỗng, cả khối chết yểu). Người gõ tắt bằng cách bỏ nguyên âm — "zz",
+    // "ngg", "cb" — nên token toàn phụ âm mới là thứ đáng nghi.
+    const laLa = (t: string): boolean => {
+      const b = boDau(t);
+      return !/\d/.test(b) && b.length >= 2 && b.length <= 4 && !/[aeiouy]/.test(b);
+    };
+    const nghiTat = tuAll.filter(laLa);
+    const conLai = tuAll.filter((t) => !laLa(t));
+    if (nghiTat.length > 0 && conLai.length > 0) {
+      const vungRows = await deps.odoo.searchRead<Record<string, unknown>>(
+        'product.product',
+        [
+          ...domainGoc,
+          ...Array(conLai.length - 1).fill('|'),
+          ...conLai.map((t) => ['name', 'ilike', mauKhongDau(boDau(t))]),
+        ],
+        ['id', 'name'],
+        { limit: 200 },
+      );
+      const tenVung = vungRows.map((r) => String(r.name ?? ''));
+      // Mỗi token nghi-tắt nở ra CÁC cách viết mà catalog thật đang dùng, rồi
+      // tra lại theo đúng luật AND-từng-từ của đường chính — không nới lỏng gì
+      // thêm. Từ khoá gốc bị THAY, không giữ: "zz" là cách gõ tắt, đòi tên SP
+      // phải chứa cả "zz" lẫn "ziczac" thì chẳng SP nào qua.
+      //
+      // GIỮ MỌI CÁCH VIẾT, đừng chỉ lấy ứng viên đầu bảng (đo prod 18/08):
+      // catalog ghi cả "ziczac" LẪN "zichzac" cho cùng dòng hàng — lấy một
+      // cách là bỏ sót nửa kho, NV lại tưởng hết hàng.
+      const noRa: string[][] = [];
+      for (const t of nghiTat) {
+        const doan = doanTuDayDu(t, tenVung);
+        if (doan.length > 0) noRa.push(doan);
+      }
+      if (noRa.length > 0) {
+        // Mỗi token → khối OR các cách viết; các khối AND với nhau và với
+        // những từ NV gõ đủ. Prefix-notation của Odoo: '|' đứng trước.
+        const khoiOr = (cachViet: string[]): unknown[] => [
+          ...Array(cachViet.length - 1).fill('|'),
+          ...cachViet.map((t) => ['name', 'ilike', mauKhongDau(boDau(t))]),
+        ];
+        const rowsTat = await deps.odoo.searchRead<Record<string, unknown>>(
+          'product.product',
+          [
+            ...domainGoc,
+            ...conLai.map((t) => ['name', 'ilike', mauKhongDau(boDau(t))]),
+            ...noRa.flatMap(khoiOr),
+          ],
+          [...ALLOWED_FIELDS],
+          { limit: limit * 4 },
+        );
+        if (rowsTat.length > 0) {
+          rowsFinal = rowsTat;
+          // Hàng ĐOÁN từ viết tắt: đánh dấu nới rộng để máy gom đơn HỎI CHỌN
+          // thay vì tự chốt — đoán đúng dòng hàng vẫn phải để người xác nhận.
+          daNoiRong = true;
+          logger.info(
+            { ten, noRa: noRa.flat(), soKq: rowsTat.length },
+            '[tra-sp] nở viết tắt bỏ nguyên âm',
+          );
+        }
+      }
+    }
+  }
+
+  // Kiểm `rowsFinal`, KHÔNG phải `rows` (sửa 18/08): nở-tắt ở trên vừa tìm ra
+  // 3 SP ziczac đúng thì nới-OR không được phép chạy đè lên bằng hàng vơ bừa.
+  if (rowsFinal.length === 0) {
     // Giữ số đếm ở đây nữa — nới rộng mà mất chữ "3" thì SP "4 bóng" lọt vào.
     const tu = ten.trim().split(/\s+/).filter((t) => t.length >= 2 || laSoDem(t));
     if (tu.length >= 2) {

@@ -31,7 +31,7 @@ import { linkXuLyDon, linkXuLyDonMua, type HoaDonAnhClient, type AnhHoaDon } fro
 import { laXacNhanNgan } from '../cam-xuc.js';
 import { KHO, type PhienGom, type HanhDong, type DonSua } from './kieu.js';
 import { buocTiepTheo } from './buoc-tiep-theo.js';
-import { apDungChon, apChonDeXuat, dangChoChon } from './chon.js';
+import { apDungChon, apChonDeXuat, dangChoChon, LA_KHACH_MOI } from './chon.js';
 import { laMaKh } from '../../../odoo/tools/tra-khach-hang.js';
 import { renderLoiNhan } from './loi-nhan.js';
 import { trichSlot, type KetQuaTrich } from './trich-slot.js';
@@ -1483,6 +1483,88 @@ export async function xuLyGomDon(
     if (apChonDeXuat(phien, trich.chonKhach, trich.chonSp)) {
       daChon = true;
       hocAliasSauChon();
+    }
+  }
+
+  // ── TRA LẠI CATALOG KHI NV GÕ LẠI TÊN HÀNG (18/08, ca 11:51→12:00) ──
+  //
+  // Ca thật, anh Quốc gửi transcript kèm "cái gì thế này?": bot đưa nhầm 3 SP
+  // "Led F30 ... ATX" cho từ khoá "led zz thấu kính", rồi NV gõ CHÍNH XÁC tên
+  // hàng thật suốt 9 phút mà không thoát ra được:
+  //   11:52:21 Ánh : "thấu kính 12v-30d"              → "Em vẫn chưa khớp được…"
+  //   11:52:48 Ánh : "ziczac thấu kính 11000k đó"     → in LẠI 3 SP F30 cũ
+  //   11:54:02 Ánh : "led dây ziczac thấu kính 12v-30d" → "Em vẫn chưa khớp…"
+  //   11:54:44 Ánh : "ko chuẩn rồi"   11:55:09 Quyết: "sai mã hàng rồi"
+  //   12:00:05 Quốc: "ziczac thấu kính nhé"           → "Em vẫn chưa khớp…"
+  // "Led dây ziczac thấu kính 12V-30D" CÓ THẬT trong catalog, 75.000đ (id 2013/
+  // 2014/2017). Nhưng khi danh sách đang treo, MỌI tầng của chon.ts chỉ so
+  // trong `dong.ungVien` — tức so với đúng 3 SP SAI. Tra cứu ban đầu bỏ qua
+  // dòng đã có `ungVien`, nên tên mới không bao giờ được tra lại. Máy tự nhốt
+  // mình trong tập ứng viên sai: NV gõ đúng đến mấy cũng không có đường ra.
+  //
+  // Sửa: NV gõ lại TÊN HÀNG (không phải chữ chọn a/b/c) khi đang treo ứng viên
+  // → TRA LẠI Odoo bằng tên mới; ra kết quả thì THAY ứng viên. Đây là cách một
+  // người bán hàng thật xử sự: khách tả lại rõ hơn thì tra lại, chứ không bắt
+  // họ chọn giữa mấy món mình vừa đưa nhầm.
+  //
+  // HẸP có chủ ý — chỉ chạy khi ĐỦ CẢ BỐN:
+  //   · `apDungChon` đã trượt (câu không chọn được gì trong danh sách), VÀ
+  //   · đang treo ĐÚNG MỘT dòng ứng viên (nhiều dòng thì không biết tả dòng nào), VÀ
+  //   · MODEL TRÍCH RA ĐƯỢC TÊN HÀNG (`trich.dong[].sp`), VÀ
+  //   · tên đó ≥2 chữ có nghĩa.
+  //
+  // Vế "model trích ra tên hàng" là hàng rào QUAN TRỌNG NHẤT, và nó phải nằm
+  // SAU lượt trích slot chứ không trước (test replay 07/08 bắt được khi em đặt
+  // nhầm chỗ: 4 ca đỏ). Lấy câu THÔ mà tra thì "xuất hóa đơn luôn giúp tôi
+  // nhé" cũng bị đem đi tra sản phẩm và máy NUỐT luôn lượt digression — đúng
+  // họ lỗi S13814 (dò mảnh chữ trong câu dài → chốt nhầm khách, đơn sai người).
+  // Model đã phân biệt sẵn "câu này đang tả hàng" với "câu này là việc khác";
+  // dùng lại kết luận đó rẻ hơn và đúng hơn regex tự chế.
+  if (!daChon && phien && !trich.ngoaiLe) {
+    const dongTreo = phien.dong.filter((d) => d.ungVien?.length && !d.daChot);
+    const spTrich = (trich.dong ?? []).map((d) => (d.sp ?? '').trim()).filter(Boolean);
+    const tenMoi = spTrich.length === 1 ? spTrich[0] : '';
+    const duChu = boDau(tenMoi).split(/\s+/).filter((t) => t.length >= 2).length >= 2;
+    if (dongTreo.length === 1 && duChu && !LA_KHACH_MOI.test(boDau(tenMoi))) {
+      const t0 = Date.now();
+      const traLai = await traSanPham({ odoo: deps.odoo }, { ten: tenMoi });
+      // CHỈ THAY KHI TẬP ỨNG VIÊN THẬT SỰ KHÁC ĐI — y hệt thì thay chỉ làm bot
+      // in lại đúng danh sách vừa bị chê, phí một lượt của NV.
+      //
+      // "KHÁC" gồm cả THU HẸP, không chỉ "có SP mới" (sửa sau khi test replay
+      // 18/08 đỏ): NV gõ "led dây ziczac thấu kính 12v-30d" cho ra [2013, 2017]
+      // — TẬP CON của [2013, 2017, 2014] đang treo. Đòi phải có id mới thì đúng
+      // ca này bị bỏ qua, mà thu 3 → 2 chính là thứ NV vừa làm được bằng cách
+      // tả rõ hơn. Chốt được luôn còn tốt hơn nữa.
+      const idCu = new Set((dongTreo[0].ungVien ?? []).map((s) => s.id));
+      const khacTapCu =
+        traLai.length !== idCu.size || traLai.some((s) => !idCu.has(s.id));
+      if (traLai.length > 0 && khacTapCu) {
+        deps.ghiLog({
+          toolName: 'tra_san_pham', input: { ten: tenMoi },
+          output: `[tra lại khi NV gõ tên mới] ${dinhDangSanPham(traLai, tenMoi)}`,
+          thanhCong: true, durationMs: Date.now() - t0, iteration: 0,
+        });
+        const meta = traLai as import('../../../odoo/tools/tra-san-pham.js').SanPhamList;
+        const ganDung = meta.ganDung === true || meta.daNoiRong === true;
+        // Đúng MỘT kết quả khớp thẳng (không qua đường nới) → chốt luôn: NV đã
+        // gõ tên đầy đủ, bắt họ xác nhận thêm một lượt nữa là vô ích.
+        if (traLai.length === 1 && !ganDung) {
+          dongTreo[0].daChot = { id: traLai[0].id, ten: traLai[0].ten, gia: traLai[0].gia };
+          delete dongTreo[0].ungVien;
+        } else {
+          dongTreo[0].ungVien = traLai;
+          if (ganDung) dongTreo[0].ungVienGanDung = true;
+        }
+        const tuKhoaCu = dongTreo[0].tuKhoa;
+        // Tên NV vừa gõ mới là tên gọi thật của họ → alias học theo tên này.
+        dongTreo[0].tuKhoa = tenMoi;
+        logger.info(
+          { tuKhoaCu, tenMoi, soKq: traLai.length },
+          '[gom-don] NV gõ lại tên hàng — tra lại catalog, thay ứng viên',
+        );
+        daChon = true;
+      }
     }
   }
 
