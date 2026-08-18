@@ -12,7 +12,7 @@
 //   2. Kết quả nở-tắt KHÔNG bị nhánh nới-OR đè lên bằng hàng vơ bừa.
 import { describe, it, expect, vi } from 'vitest';
 import {
-  traSanPham, laVietTatCua, doanTuDayDu,
+  traSanPham, laVietTatCua, doanTuDayDu, laTenChungBienThe,
 } from '../../../src/modules/ai/odoo/tools/tra-san-pham.js';
 
 /** Odoo giả hiểu ilike trên `name`, điều kiện giá, và prefix-OR ('|'). */
@@ -127,5 +127,46 @@ describe('nở viết tắt bỏ nguyên âm', () => {
     const kq = await traSanPham({ odoo }, { ten: 'Led F30 24V Màu Ấm ATX Đầu Đục', gioi_han: 3 });
     expect(kq[0]?.id).toBe(886);
     expect((kq as { daNoiRong?: boolean }).daNoiRong).toBe(false);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CA THẬT 12:33→12:38 18/08 — hậu quả NGAY SAU bản vá nở-viết-tắt.
+//
+// Tra đã đúng (3 màu ziczac), nhưng NV bấm "a" thì hệ HỌC alias
+// "led zz thau kinh" → màu Trung tính 4500K. Một phút sau ở nhóm khác, cùng
+// câu đó: log ghi '[alias học được]' → bot KHÔNG hỏi màu nữa, tự lên đơn
+// S14759 màu Trung tính. 12:38 anh Ánh phải sửa: "led dây ziczac thấu kính
+// 12V-30D màu trắng 11000k … Sửa lại nhé".
+//
+// "led zz thấu kính" là TÊN CHUNG của cả ba màu. Bấm "a" là chọn CHO LẦN NÀY,
+// không phải dạy máy một luật vĩnh viễn. Cùng họ lỗi với alias sai màu ca
+// 06:05 13/08 (S13848, 3000 cái sai màu) — chỉ khác là lần này tự đẻ ra.
+// ═══════════════════════════════════════════════════════════════════════════
+describe('laTenChungBienThe — chặn học alias cho tên gọi chung', () => {
+  it('3 SP chỉ khác MÀU/NHIỆT ĐỘ → là tên chung, KHÔNG được học', () => {
+    expect(laTenChungBienThe([
+      { ten: 'Led dây ziczac thấu kính 12V-30D màu Trung tính 4500K' },
+      { ten: 'Led dây ziczac thấu kính 12V-30D màu Trắng 11000K' },
+      { ten: 'Led dây ziczac thấu kính 12V-30D màu Vàng Nắng 3000K' },
+    ])).toBe(true);
+  });
+
+  it('hai MẶT HÀNG khác nhau thật → tên gọi tắt vẫn đáng học như cũ', () => {
+    // Giữ nguyên hành vi P1.3: "led hắt 6313" → "3 Bóng Saso 6313" là tri thức
+    // thật của NV, chặn ở đây là làm hỏng tính năng học alias.
+    expect(laTenChungBienThe([
+      { ten: 'Led 3 Bóng 6313 12V Trắng Saso' },
+      { ten: 'Led 4 bóng 6313 ngoài trời' },
+    ])).toBe(false);
+    expect(laTenChungBienThe([
+      { ten: 'Nguồn ATX Trong Nhà 12V400W Pro' },
+      { ten: 'Nguồn NB Ngoài Trời 12V400W' },
+    ])).toBe(false);
+  });
+
+  it('một ứng viên thì không có gì để so → không chặn', () => {
+    expect(laTenChungBienThe([{ ten: 'Led dây ziczac thấu kính 12V-30D màu Trắng 11000K' }]))
+      .toBe(false);
   });
 });

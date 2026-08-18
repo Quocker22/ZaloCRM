@@ -64,6 +64,11 @@ const GOP_BIEN_THE: Array<[RegExp, string]> = [
 const TU_BIEN_THE = [
   'am', 'trang', 'vang', 'xanh', 'do', 'hong', 'tim',
   'ngoai troi', 'trong nha',
+  // Tên màu theo NHIỆT ĐỘ — cách catalog LED thật đặt tên (bổ sung 18/08 sau
+  // ca ziczac 12:33): "Trung tính 4500K", "Vàng Nắng 3000K", "Trắng 11000K".
+  // Thiếu ba từ này thì `laTenChungBienThe` không nhận ra ba SP đó chỉ khác
+  // màu, và alias vẫn học nhầm tên chung thành một màu cụ thể.
+  'trung tinh', 'nang', 'lanh',
 ];
 
 /**
@@ -79,6 +84,43 @@ export function xungDotBienThe(tuKhoa: string, tenSp: string): boolean {
   const co = (chuoi: string, tu: string): boolean =>
     new RegExp(`(^|[^a-z0-9])${tu}([^a-z0-9]|$)`).test(chuoi);
   return TU_BIEN_THE.some((tu) => co(q, tu) && !co(sp, tu));
+}
+
+/**
+ * TÊN GỌI CHUNG CỦA NHIỀU BIẾN THỂ — không được học thành alias.
+ *
+ * Ca thật 12:33-12:34 18/08 (ngay sau khi vá nở-viết-tắt): NV gõ "led zz thấu
+ * kính", bot đưa đúng 3 màu (Trung tính 4500K / Trắng 11000K / Vàng Nắng
+ * 3000K), NV bấm "a" → hệ HỌC alias "led zz thau kinh" → màu Trung tính. Một
+ * phút sau, cùng câu đó ở nhóm khác: `[alias học được]` khớp thẳng, bot KHÔNG
+ * hỏi màu nữa, tự lên đơn S14759 màu Trung tính. Rồi 12:38 anh Ánh phải sửa:
+ * "led dây ziczac thấu kính 12V-30D màu trắng 11000k … Sửa lại nhé".
+ *
+ * Gốc lỗi: "led zz thấu kính" là TÊN CHUNG của cả ba màu, không phải biệt danh
+ * của riêng SP nào. NV bấm "a" là chọn CHO LẦN NÀY, không phải dạy máy rằng
+ * "từ nay zz thấu kính = màu Trung tính". Học ở đây là biến một lựa chọn nhất
+ * thời thành luật vĩnh viễn — đúng họ lỗi với alias sai màu ca 06:05 13/08
+ * (S13848, 3000 cái sai màu), chỉ khác là lần này tự đẻ ra chứ không học lệch.
+ *
+ * Luật: các ứng viên mà bỏ hết TỪ BIẾN THỂ đi thì TÊN GIỐNG HỆT NHAU → chúng
+ * chỉ khác nhau ở màu/nhiệt độ → từ khoá là tên chung → KHÔNG học.
+ * Ngược lại "led hắt 6313" ra "3 Bóng Saso 6313" + "Led 4 bóng 6313" là hai
+ * mặt hàng KHÁC nhau thật, tên gọi tắt đó đáng học như cũ.
+ */
+export function laTenChungBienThe(ungVien: Array<{ ten: string }>): boolean {
+  if (ungVien.length < 2) return false;
+  const boBienThe = (ten: string): string => {
+    let t = ` ${boDau(ten)} `;
+    for (const [re, thay] of GOP_BIEN_THE) t = t.replace(re, thay);
+    for (const tu of TU_BIEN_THE) {
+      t = t.replace(new RegExp(`(^|[^a-z0-9])${tu}([^a-z0-9]|$)`, 'g'), ' ');
+    }
+    // Nhiệt độ màu (4500K, 11000k, 3000K) cũng là biến thể — chính nó phân
+    // biệt ba SP ziczac trong ca thật.
+    return t.replace(/\b\d{3,5}\s*k\b/g, ' ').replace(/\s+/g, ' ').trim();
+  };
+  const goc = boBienThe(ungVien[0].ten);
+  return goc.length > 0 && ungVien.every((u) => boBienThe(u.ten) === goc);
 }
 
 /**

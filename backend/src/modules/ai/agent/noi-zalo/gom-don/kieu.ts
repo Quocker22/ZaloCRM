@@ -34,6 +34,15 @@ export interface DongGom {
    */
   ungVienGanDung?: boolean;
   /**
+   * DANH SÁCH ĐÃ ĐƯA RA HỎI — giữ lại sau khi chốt để quyết "có đáng học
+   * alias không". `ungVien` bị xoá ngay lúc chốt (nó là trạng thái "đang
+   * treo"), nên nếu không sao lại thì tới lúc học đã không còn gì để soi.
+   *
+   * Ca 12:33 18/08: 3 ứng viên chỉ khác nhau MÀU → "led zz thấu kính" là tên
+   * chung, không phải biệt danh của SP nào — xem `laTenChungBienThe`.
+   */
+  ungVienDaHoi?: Array<{ id: number; ten: string; gia: number }>;
+  /**
    * Dòng HÀNG TẶNG: giá 0đ và tên dòng gắn "(tặng)".
    *
    * Đo trên Odoo prod 11/08: 34/597 dòng có giá 0đ — nhưng KHÔNG phải quà tặng

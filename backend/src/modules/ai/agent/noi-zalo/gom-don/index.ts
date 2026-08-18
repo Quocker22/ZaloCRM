@@ -12,7 +12,7 @@ import type { ToolCallLog } from '../../staff-agent.js';
 import type { OdooClient } from '../../../odoo/client.js';
 import { traKhachHang, dinhDangKhachHang } from '../../../odoo/tools/tra-khach-hang.js';
 import { taoKhachHang, dinhDangTaoKhach, CHIA_BO_PHANH } from '../../../odoo/tools/tao-khach-hang.js';
-import { traSanPham, dinhDangSanPham, boDau, xungDotBienThe } from '../../../odoo/tools/tra-san-pham.js';
+import { traSanPham, dinhDangSanPham, boDau, xungDotBienThe, laTenChungBienThe } from '../../../odoo/tools/tra-san-pham.js';
 import { taoDonNhap, dinhDangTaoDon } from '../../../odoo/tools/tao-don-nhap.js';
 // PHIẾU NHẬP HÀNG (11/08) — ca thật 22:09-22:11: bot đáp "chưa có tool tạo
 // phiếu nhập hàng ... nằm ngoài phạm vi em hỗ trợ" dù quyền ghi purchase.order
@@ -779,6 +779,9 @@ async function chayTraCuu(
         dong.daChot = { id: list[0].id, ten: list[0].ten, gia: list[0].gia };
       } else if (list.length >= 1) {
         dong.ungVien = list;
+        // Sao lại để lúc chốt còn soi được "3 ứng viên này có phải cùng một
+        // mặt hàng khác màu không" — quyết định học/không học alias.
+        dong.ungVienDaHoi = list.map((x) => ({ id: x.id, ten: x.ten, gia: x.gia }));
         // Đáng học alias khi kết quả đến từ BẤT KỲ đường nới nào — tên gọi
         // của NV lệch catalog thật sự, lựa chọn của họ là tri thức.
         if (ganDung || meta.daNoiRong === true) dong.ungVienGanDung = true;
@@ -795,6 +798,7 @@ async function chayTraCuu(
           const goiY = await traSanPham({ odoo: deps.odoo }, { ten: tenBoLo });
           if (goiY.length) {
             dong.ungVien = goiY;
+            dong.ungVienDaHoi = goiY.map((x) => ({ id: x.id, ten: x.ten, gia: x.gia }));
             dong.ungVienGanDung = true;
             deps.ghiLog({
               toolName: 'tra_san_pham', input: { ten: tenBoLo },
@@ -1355,8 +1359,25 @@ export async function xuLyGomDon(
     if (!phien || !deps.ghiAliasSp) return;
     for (const d of phien.dong) {
       if (d.daChot && d.ungVienGanDung) {
+        // KHÔNG HỌC TÊN CHUNG CỦA NHIỀU BIẾN THỂ (18/08, ca 12:33→12:38).
+        //
+        // NV gõ "led zz thấu kính" → 3 màu → bấm "a" → hệ học "zz thấu kính =
+        // màu Trung tính". Một phút sau ở nhóm khác, alias khớp thẳng nên bot
+        // KHÔNG hỏi màu, tự lên đơn S14759; 12:38 anh Ánh phải sửa thành màu
+        // Trắng 11000K. Bấm "a" là chọn CHO LẦN NÀY, không phải dạy máy một
+        // luật vĩnh viễn. Xem `laTenChungBienThe` để biết luật phân biệt.
+        if (laTenChungBienThe(d.ungVienDaHoi ?? [])) {
+          logger.info(
+            { tuKhoa: d.tuKhoa, soUngVien: (d.ungVienDaHoi ?? []).length },
+            '[gom-don] tên chung của nhiều biến thể — KHÔNG học alias',
+          );
+          delete d.ungVienGanDung;
+          delete d.ungVienDaHoi;
+          continue;
+        }
         void deps.ghiAliasSp({ tuKhoa: d.tuKhoa, productId: d.daChot.id, tenSp: d.daChot.ten });
         delete d.ungVienGanDung;
+        delete d.ungVienDaHoi;
       }
     }
   };
@@ -1554,6 +1575,7 @@ export async function xuLyGomDon(
           delete dongTreo[0].ungVien;
         } else {
           dongTreo[0].ungVien = traLai;
+          dongTreo[0].ungVienDaHoi = traLai.map((x) => ({ id: x.id, ten: x.ten, gia: x.gia }));
           if (ganDung) dongTreo[0].ungVienGanDung = true;
         }
         const tuKhoaCu = dongTreo[0].tuKhoa;

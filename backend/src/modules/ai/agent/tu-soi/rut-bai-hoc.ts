@@ -31,6 +31,53 @@ export type LoaiBaiHoc = (typeof LOAI_BAI_HOC)[number];
 /** Từ khoá TIỀN — luật tự học chạm vào là vứt (số tiền phải do người dặn). */
 const CAM_TIEN = /\b(gia|giá|chiet khau|chiết khấu|vat|thue|thuế|cong no|công nợ|tien|tiền|đ\b|vnd|%)/i;
 
+/**
+ * LUẬT RỖNG NGHĨA — lời khuyên chung chung, không đổi được hành vi nào.
+ *
+ * Đo trên prod 18/08 sau MỘT NGÀY bật tự học: 5/5 luật bot tự rút đều thuộc
+ * loại này, và chúng gây hại thật chứ không chỉ vô ích:
+ *   · "Khi chưa chắc chắn yêu cầu … hãy hỏi ngắn gọn 1 câu để làm rõ"
+ *   · "Khi người dùng gõ ký tự ngắn như '1 a a b' … hãy dừng lại và hỏi xác nhận"
+ *   · "Khi nhận yêu cầu liên quan đến tin nhắn lạ … hãy xác nhận trước khi xử lý"
+ * Tổng 847/900 ký tự trần → đẩy văng luật THẬT của anh Quốc ("Khách Led Kim
+ * Long luôn chiết khấu 5%" tụt khỏi prompt, log 12:36:34 ghi rõ "vượt trần ký
+ * tự — cắt bớt luật cũ"). Tệ hơn: chúng dạy bot phản xạ HỎI LẠI thay vì LÀM,
+ * và 12:36:42 bot nhả đúng "Em cần biết rõ để xử lý đúng ạ." — một câu rỗng
+ * sau 8 giây suy nghĩ.
+ *
+ * Luật đáng học phải NÊU ĐÍCH DANH thứ có thật trong việc buôn bán: tên hàng,
+ * tên khách, tên bước ("phiếu nhập", "công nợ"), cách gọi tắt của shop. Còn
+ * "hãy xác nhận trước khi xử lý" thì đúng với mọi bot trên đời — nó không phải
+ * tri thức riêng của shop, và bot vốn đã được dạy điều đó trong system prompt.
+ *
+ * Cùng bài học với "hàng rào ở code, không vá prompt": thứ chặn được model rẻ
+ * phải là luật tất định, không phải lời dặn thêm trong prompt.
+ */
+const RONG_NGHIA = new RegExp([
+  'hãy (hỏi|xác nhận|kiểm tra|chủ động|dừng lại|làm rõ|tránh|đảm bảo|lưu ý)',
+  'nên (hỏi|xác nhận|kiểm tra|chủ động|tránh)',
+  'trước khi (xử lý|thao tác|trả lời|thực hiện)',
+  'tránh (nhầm lẫn|hiểu lầm|sai sót|mâu thuẫn|dài dòng)',
+  '(ngắn gọn|rõ ràng|chi tiết hơn|chính xác hơn)',
+  'khi (chưa|không) (chắc chắn|rõ|hiểu)',
+].join('|'), 'i');
+
+/**
+ * Bằng chứng luật NÓI VỀ VIỆC THẬT: có tên riêng/mã hàng/thuật ngữ nghiệp vụ.
+ * Không có dấu hiệu nào trong số này thì luật chỉ là lời khuyên chung.
+ */
+const CO_VIEC_THAT = new RegExp([
+  '\\b[a-z]*\\d{2,}[a-z]*\\b',        // mã hàng: 6313, 12v400w, P10
+  'phiếu (nhập|xuất|kho)', 'đơn (mua|bán|nháp)', 'nhà cung cấp', 'ncc',
+  'tồn kho', 'công nợ', 'hoá đơn', 'hóa đơn', 'bảo hành', 'chiết khấu',
+  'ziczac', 'led', 'cuộn', 'bóng', 'thanh',
+  // "nguồn" phải đi kèm dấu hiệu MẶT HÀNG. Trần trụi thì nó khớp cả "không rõ
+  // nguồn" trong luật rác 18/08 ("yêu cầu liên quan đến tin nhắn lạ hoặc không
+  // rõ nguồn … hãy xác nhận trước khi xử lý") — chữ "nguồn" ở đó nghĩa là
+  // xuất xứ tin nhắn, không phải bộ nguồn LED.
+  'nguồn (nb|atx|df|yl|xdf|\\d)', '(bộ|con|cái) nguồn',
+].join('|'), 'i');
+
 export interface BaiHoc {
   loai: LoaiBaiHoc;
   /** Câu dặn, ≤200 ký tự, viết như NV dặn bot. */
@@ -70,7 +117,7 @@ function dungTranscript(tin: TinSoi[]): string {
     .join('\n');
 }
 
-function locBaiHoc(tho: unknown, luatDangCo: string[]): BaiHoc[] {
+export function locBaiHoc(tho: unknown, luatDangCo: string[]): BaiHoc[] {
   if (!Array.isArray(tho)) return [];
   const chuan = (s: string): string => s.toLowerCase().replace(/\s+/g, ' ').trim();
   const daCo = luatDangCo.map(chuan);
@@ -89,6 +136,13 @@ function locBaiHoc(tho: unknown, luatDangCo: string[]): BaiHoc[] {
     }
     if (CAM_TIEN.test(noiDung)) {
       logger.info({ noiDung }, '[tu-soi] bỏ bài học: chạm tiền/giá — chỉ người mới được dặn');
+      continue;
+    }
+    // RỖNG NGHĨA: lời khuyên chung ("hãy hỏi xác nhận trước khi xử lý") mà
+    // không nêu thứ gì có thật trong việc buôn bán — xem `RONG_NGHIA`. Đây là
+    // hàng rào đắt nhất trong hàm: 5/5 luật prod 18/08 chết ở đây.
+    if (RONG_NGHIA.test(noiDung) && !CO_VIEC_THAT.test(noiDung)) {
+      logger.info({ noiDung }, '[tu-soi] bỏ bài học: rỗng nghĩa — lời khuyên chung, không nêu việc thật');
       continue;
     }
     const c = chuan(noiDung);
