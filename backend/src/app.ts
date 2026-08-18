@@ -300,6 +300,8 @@ async function bootstrap() {
   // AI_AGENT_THREAD_BAO_SALE. Bảng rỗng thì vẫn chạy bằng env như cũ.
   const { registerAgentNotifyRoutes } = await import('./modules/ai/agent/agent-notify-routes.js');
   await app.register(registerAgentNotifyRoutes, { prefix: '/api/v1/agent-notify-targets' });
+  const { registerTuSoiRoutes } = await import('./modules/ai/agent/tu-soi/routes.js');
+  await app.register(registerTuSoiRoutes);
   await app.register(scoringRoutes);
   // Phase 8 — Engagement heatmap timeline + admin recompute/backfill
   const { registerEngagementRoutes } = await import('./modules/engagement/engagement-routes.js');
@@ -422,6 +424,10 @@ async function bootstrap() {
     // Community "Chiến dịch gửi hàng loạt" — tự động gửi 1 đợt/ngày cho schedule đã bật.
     const { startBulkCampaignCron } = await import('./modules/campaign/bulk-campaign-cron.js');
     startBulkCampaignCron();
+    // TỰ SOI HỘI THOẠI (18/08) — bot đọc lại đoạn chat đã nguội, tự chấm và
+    // rút bài học vào kho luật. Nhật ký + đường gỡ ở /api/v1/tu-soi.
+    const { startTuSoiCron } = await import('./modules/ai/agent/tu-soi/cron.js');
+    startTuSoiCron();
     // Tệp khách hàng (🟢 Community): enrichment worker + event handlers
     if (config.nodeEnv !== 'test') {
       const { startListEnrichmentWorker } = await import('./modules/lists/list-enrichment-service.js');

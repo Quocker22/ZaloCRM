@@ -70,7 +70,7 @@ export interface PrismaLuatNv {
     create: (args: {
       data: {
         orgId: string; ten: string; vai: string; condition: string; action: string;
-        mucDo: string; ghiChu: string;
+        mucDo: string; ghiChu: string; nguon?: string; nguonHoiThoai?: string;
       };
     }) => Promise<{ id: string; ten: string }>;
     updateMany: (args: {
@@ -150,7 +150,11 @@ export interface KetQuaGhiLuat {
  */
 export async function ghiLuat(
   prisma: PrismaLuatNv,
-  input: { orgId: string; noiDung: string; phamVi?: string; conversationId?: string },
+  input: {
+    orgId: string; noiDung: string; phamVi?: string; conversationId?: string;
+    /** 'nv_dan' (mặc định) | 'tu_hoc' — luật bot tự rút sau khi soi hội thoại. */
+    nguon?: 'nv_dan' | 'tu_hoc';
+  },
 ): Promise<KetQuaGhiLuat> {
   const noiDung = (input.noiDung ?? '').trim();
   if (!noiDung) return { ok: false, loi: 'Luật rỗng — phải có nội dung để nhớ.' };
@@ -189,7 +193,11 @@ export async function ghiLuat(
         condition: (input.phamVi ?? '').trim() || 'mọi tình huống',
         action: noiDung,
         mucDo: 'thuong',
-        ghiChu: `NV dặn qua chat${input.conversationId ? ` (hội thoại ${input.conversationId})` : ''}`,
+        nguon: input.nguon ?? 'nv_dan',
+        ...(input.conversationId ? { nguonHoiThoai: input.conversationId } : {}),
+        ghiChu: input.nguon === 'tu_hoc'
+          ? `Bot TỰ HỌC sau khi soi lại hội thoại${input.conversationId ? ` ${input.conversationId}` : ''}`
+          : `NV dặn qua chat${input.conversationId ? ` (hội thoại ${input.conversationId})` : ''}`,
       },
     });
     return { ok: true, ten };

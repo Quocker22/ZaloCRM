@@ -61,6 +61,7 @@ model Organization {
   automationRules             AutomationRule[]
   messageTemplates            MessageTemplate[]
   aiConfig                    AiConfig?
+  tuSoiHoiThoai               TuSoiHoiThoai[]
   aiSuggestions               AiSuggestion[]
   aiSuggestionsApplied        AiSuggestionApplied[]
   knowledgeDocuments          KnowledgeDocument[]
@@ -4318,35 +4319,40 @@ model SpAlias {
 }
 
 model AiGuideline {
-  id        String   @id @default(cuid())
-  orgId     String   @map("org_id")
+  id            String   @id @default(cuid())
+  orgId         String   @map("org_id")
   /// Slug người đọc được ('chot-mua-tu-len-don') — khoá idempotent cho seed,
   /// và để log/analytics tra ra rule mà không cần cuid.
-  ten       String
+  ten           String
   /// 'khach' | 'nhanvien' — cùng phân vai với ToolCallLog.vai.
-  vai       String
+  vai           String
   /// Điều kiện, tiếng Việt tự nhiên — matcher LLM đọc cái này.
-  condition String   @db.Text
+  condition     String   @db.Text
   /// Việc phải làm khi condition đúng — CHỈ dòng này vào prompt khi match.
-  action    String   @db.Text
+  action        String   @db.Text
   /// 'bat_buoc' → luôn nạp, bỏ qua matcher (an toàn/tiền bạc). 'thuong' → khi match.
-  mucDo     String   @default("thuong") @map("muc_do")
+  mucDo         String   @default("thuong") @map("muc_do")
   /// Tool chỉ được đăng ký vào registry khi guideline này active.
-  tools     String[] @default([])
+  tools         String[] @default([])
   /// 'khai_thac' | 'tu_van' | 'chot_don' | 'sau_ban' | null = mọi giai đoạn.
   /// Bản đầu CHỈ dùng cho sắp xếp + analytics, không lọc cứng.
-  stage     String?
+  stage         String?
   /// Nhỏ đứng trước trong prompt — thứ tự ổn định để giữ prompt cache.
-  uuTien    Int      @default(100) @map("uu_tien")
+  uuTien        Int      @default(100) @map("uu_tien")
   /// Điều kiện cấu hình để guideline được NẠP (khác condition — matcher xét theo
   /// lượt, cái này xét theo phiên): null = luôn; 'tu_chot_don' = chỉ khi org bật
   /// cho khách tự chốt; 'khong_tu_chot_don' = chỉ khi KHÔNG bật.
-  yeuCau    String?  @map("yeu_cau")
-  enabled   Boolean  @default(true)
+  yeuCau        String?  @map("yeu_cau")
+  enabled       Boolean  @default(true)
   /// Vì sao rule tồn tại — link bug/commit. Tri thức từng nằm trong comment code.
-  ghiChu    String?  @map("ghi_chu") @db.Text
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  ghiChu        String?  @map("ghi_chu") @db.Text
+  /// 'nv_dan' (NV nói trong chat) | 'tu_hoc' (bot tự rút sau hội thoại) |
+  /// 'seed'. Bot TỰ HỌC phải phân biệt được để gỡ hàng loạt khi học sai.
+  nguon         String   @default("nv_dan") @map("nguon")
+  /// Hội thoại sinh ra luật này (luật tự học) — truy ngược "vì đâu có luật này".
+  nguonHoiThoai String?  @map("nguon_hoi_thoai")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
   @@unique([orgId, ten])
   @@index([orgId, vai, enabled])
@@ -4395,4 +4401,38 @@ model ThaoTacOdoo {
   @@unique([orgId, ten])
   @@index([orgId, enabled])
   @@map("thao_tac_odoo")
+}
+
+/// NHẬT KÝ TỰ SOI (18/08/2026) — bot đọc lại hội thoại đã nguội, tự chấm
+/// đúng/sai và rút bài học. Anh Quốc: "sau khi khách nhắn xong một cuộc hội
+/// thoại thì phải biết đọc lại đoạn đó tự nhận biết đúng sai rồi training lại".
+/// Mỗi hàng = một lần soi MỘT hội thoại. Giữ cả bản chấm lẫn việc đã làm để
+/// người soát ngược được và gỡ được khi bot học sai.
+model TuSoiHoiThoai {
+  id             String    @id @default(cuid())
+  orgId          String    @map("org_id")
+  conversationId String    @map("conversation_id")
+  /// Tin cuối được soi — chống soi trùng đoạn đã soi.
+  denMessageId   String    @map("den_message_id")
+  vai            String // 'nhanvien' | 'khach'
+  /// 0-10: 10 = bot xử trọn vẹn, ≤4 = có vấn đề rõ.
+  diem           Int
+  /// Dấu hiệu code đếm được (nhắc lại, gắt, hỏi vòng, đơn bị huỷ ngay…).
+  dauHieu        String[]  @default([])
+  /// Model tóm tắt: bot sai chỗ nào, lẽ ra nên làm gì.
+  nhanXet        String    @db.Text
+  /// Bài học đã GHI vào kho luật (id AiGuideline) — rỗng nếu không đáng học.
+  luatDaGhi      String[]  @default([]) @map("luat_da_ghi")
+  /// Alias SP đã học từ ca này.
+  aliasDaGhi     String[]  @default([]) @map("alias_da_ghi")
+  /// Người gỡ (khi bot học sai) — có giá trị = bài học đã bị thu hồi.
+  goBoiUserId    String?   @map("go_boi_user_id")
+  goLuc          DateTime? @map("go_luc")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, denMessageId])
+  @@index([orgId, createdAt])
+  @@map("tu_soi_hoi_thoai")
 }
