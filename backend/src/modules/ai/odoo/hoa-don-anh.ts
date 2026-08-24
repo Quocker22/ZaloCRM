@@ -17,6 +17,46 @@
 // `bao-cao-hoa-don.ts`.
 
 import { pdf } from 'pdf-to-img';
+import sharp from 'sharp';
+
+/**
+ * "HH:mm dd/MM/yyyy" theo giờ Việt Nam, 24H — anh Quyết 16:49 24/08: nhiều
+ * đơn giống nhau, kho không để ý là xót; "Để 24H nhé".
+ *
+ * Tự cộng +7 từ UTC thay vì tin TZ của máy: container đang chạy UTC, mà giờ
+ * in lên hoá đơn phải là giờ Việt Nam bất kể server đặt ở đâu.
+ */
+export function chuoiThoiGianVn(luc: Date = new Date()): string {
+  const vn = new Date(luc.getTime() + 7 * 3600_000);
+  const p = (n: number): string => String(n).padStart(2, '0');
+  return `${p(vn.getUTCHours())}:${p(vn.getUTCMinutes())} ` +
+    `${p(vn.getUTCDate())}/${p(vn.getUTCMonth() + 1)}/${vn.getUTCFullYear()}`;
+}
+
+/**
+ * Đóng dấu thời gian thực lên góc trên-phải ảnh hoá đơn.
+ *
+ * Dấu là PHỤ, ảnh là CHÍNH: mọi lỗi (ảnh hỏng, sharp thiếu) đều trả nguyên
+ * ảnh gốc — thà thiếu giờ còn hơn kho không nhận được hoá đơn.
+ */
+export async function dongDauThoiGian(anh: Buffer, luc: Date = new Date()): Promise<Buffer> {
+  try {
+    const chu = `In lúc ${chuoiThoiGianVn(luc)}`;
+    const rong = 14 + chu.length * 9;
+    const dau = Buffer.from(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${rong}" height="30">` +
+      '<rect x="0" y="0" width="100%" height="100%" rx="4" fill="#b91c1c"/>' +
+      `<text x="7" y="20" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" ` +
+      `font-weight="bold" fill="#ffffff">${chu}</text></svg>`,
+    );
+    return await sharp(anh)
+      .composite([{ input: dau, gravity: 'northeast' }])
+      .png()
+      .toBuffer();
+  } catch {
+    return anh;
+  }
+}
 
 /** Report mặc định — bản đẹp của LEDNELIA (logo, tiếng Việt, có dư nợ). */
 export const REPORT_MAC_DINH = 'incokit_pos.report_saleorder_kiotviet';
@@ -156,7 +196,9 @@ export class HoaDonAnhClient {
     for await (const trang of doc) {
       if (++i > TRANG_TOI_DA) break;
       return {
-        duLieu: Buffer.from(trang),
+        // Đóng dấu giờ thực 24H lên ảnh (anh Quyết 24/08) — kho phân biệt
+        // được các đơn giống nhau, xót đơn thì soi giờ mà truy.
+        duLieu: await dongDauThoiGian(Buffer.from(trang)),
         // Tên có mã đơn để nhân viên lưu về còn nhận ra.
         tenFile: `hoa-don-${maDon ?? donId}.png`,
       };
