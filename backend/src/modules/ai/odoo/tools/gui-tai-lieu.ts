@@ -322,6 +322,78 @@ export async function guiTaiLieu(
   return guiFile(dau.t);
 }
 
+/**
+ * Câu hỏi có phải dạng XIN THÔNG SỐ/DATASHEET không? — cổng cho việc TỰ đính
+ * file khi trả lời tri thức (ca thật 17:13 24/08, anh Quốc: "tại sao không
+ * gửi file cho khách luôn???").
+ *
+ * CỐ Ý HẸP hơn `laYeuCauTaiLieu`: chỉ khi người ta xin "thông số"/"datasheet"
+ * của một món — chứ hỏi vụn ("IP mấy", "bảo hành bao lâu") mà cũng đính file
+ * thì mỗi câu một PDF, nhóm thành bãi rác file.
+ */
+const CUM_HOI_THONG_SO = ['thong so', 'datasheet', 'data sheet', 'catalog', 'catalogue', 'spec'];
+
+export function laCauHoiThongSo(cau: string): boolean {
+  const t = boDau(cau);
+  return CUM_HOI_THONG_SO.some((c) => t.includes(c));
+}
+
+/**
+ * Tìm file khớp DUY NHẤT cho một câu chữ (câu hỏi, hoặc tiêu đề đoạn RAG).
+ *
+ * Hai tầng, dừng ở tầng khớp được:
+ *   1. TOKEN NGUYÊN MÃ: tên file cụt kiểu "K10P.pdf"/"Y2.pdf" chấm điểm
+ *      `diemKhopTaiLieu` chỉ được 1 (không phải mã model P-series) — dưới
+ *      ngưỡng. Nhưng "k10p" xuất hiện NGUYÊN TOKEN trong câu thì đó chính là
+ *      file người ta nói tới; so token-bằng-hệt nên "k10" KHÔNG ăn theo "k10p".
+ *   2. CHẤM ĐIỂM như `guiTaiLieu`: cho tên file nhiều chữ, kèm đòi cách biệt.
+ */
+function timFileDuyNhat(cau: string, kho: TaiLieu[]): TaiLieu | null {
+  const tokens = new Set(tach(cau));
+  const theoToken = kho.filter((t) => {
+    const ten = chuanTen(t.tieuDe);
+    return ten.length >= 2 && tokens.has(ten);
+  });
+  if (theoToken.length === 1) return theoToken[0];
+  if (theoToken.length > 1) return null; // hai file cùng được nêu đích danh → mơ hồ
+
+  const xep = kho
+    .map((t) => ({ t, d: diemKhopTaiLieu(cau, t) }))
+    .sort((a, b) => b.d - a.d);
+  const dau = xep[0];
+  if (!dau || dau.d < NGUONG_KHOP) return null;
+  const satNhau = xep.filter((x) => x.d > 0 && dau.d - x.d < CACH_BIET);
+  return satNhau.length > 1 ? null : dau.t;
+}
+
+/**
+ * TỰ đính file datasheet khi bot vừa trả lời thông số từ RAG.
+ *
+ * Trả `null` là "không đính" — mọi ca mơ hồ đều rơi về đó: gửi thiếu chỉ mất
+ * một câu "cho xin file", gửi NHẦM thì người ta phải mở PDF ra đọc mới biết.
+ */
+export async function kemFileTriThuc(
+  deps: GuiTaiLieuDeps,
+  cauHoi: string,
+  tieuDeDoanDau: string | undefined,
+): Promise<{ tieuDe: string; duongDanCucBo: string } | null> {
+  if (!laCauHoiThongSo(cauHoi)) return null;
+  const kho = await deps.liet();
+  if (kho.length === 0) return null;
+  for (const cau of [cauHoi, tieuDeDoanDau ?? '']) {
+    if (!cau.trim()) continue;
+    const file = timFileDuyNhat(cau, kho);
+    if (file) {
+      try {
+        return { tieuDe: file.tieuDe, duongDanCucBo: await deps.taiVe(file) };
+      } catch {
+        return null; // tải lỗi thì coi như không có file — đừng chặn câu trả lời chữ
+      }
+    }
+  }
+  return null;
+}
+
 export const guiTaiLieuDefinition: ToolDefinition = {
   name: 'gui_tai_lieu',
   description:

@@ -40,7 +40,7 @@ import {
   traTriThuc, traTriThucDefinition, dinhDangTriThuc,
 } from '../odoo/tools/tra-tri-thuc.js';
 import {
-  guiTaiLieu, guiTaiLieuDefinition, dinhDangGuiTaiLieu, khoiNoiDungKemFile, type TaiLieu,
+  guiTaiLieu, guiTaiLieuDefinition, dinhDangGuiTaiLieu, khoiNoiDungKemFile, kemFileTriThuc, type TaiLieu,
 } from '../odoo/tools/gui-tai-lieu.js';
 import { findImageForReply } from '../knowledge/product-image.js';
 import { khoiMucLucChoPrompt } from '../knowledge/muc-luc.js';
@@ -231,10 +231,32 @@ export function buildCustomerRegistry(deps: {
   if (deps.timDoanTriThuc && duocPhep('tra_tri_thuc')) {
     r.register({
       definition: traTriThucDefinition,
-      run: async (input) =>
-        dinhDangTriThuc(
-          await traTriThuc({ timDoan: deps.timDoanTriThuc! }, input as { cau_hoi: string }),
-        ),
+      run: async (input) => {
+        const vao = input as { cau_hoi: string };
+        const kqT = await traTriThuc({ timDoan: deps.timDoanTriThuc! }, vao);
+        let ra = dinhDangTriThuc(kqT);
+        // TỰ ĐÍNH FILE datasheet khi khách xin thông số — cùng lý lẽ mở
+        // `gui_tai_lieu` cho khách (datasheet công khai, kho đã qua
+        // `locGiaNoiBo`), cùng ca thật 17:13 24/08 với luồng nhân viên.
+        // Tôn trọng gate: chỉ khi gui_tai_lieu cũng được phép.
+        if (kqT.loai === 'ok' && deps.lietTaiLieu && duocPhep('gui_tai_lieu')) {
+          const liet = deps.lietTaiLieu;
+          const taiVe = deps.taiTaiLieu ?? (async (t: TaiLieu) => {
+            const { taiTaiLieuVe } = await import('../knowledge/kho-tai-lieu.js');
+            return taiTaiLieuVe(t);
+          });
+          const kem = await kemFileTriThuc({ liet, taiVe }, vao.cau_hoi ?? '', kqT.doan[0]?.tieuDe)
+            .catch(() => null);
+          if (kem) {
+            deps.nhanTaiLieu?.(kem);
+            ra +=
+              `\n\nĐÃ GỬI KÈM file "${kem.tieuDe}" qua Zalo (tự động). ` +
+              'Nhắc trong câu trả lời là em có đính kèm file tài liệu — ' +
+              'ĐỪNG gọi gui_tai_lieu nữa, ĐỪNG hứa gửi thêm gì.';
+          }
+        }
+        return ra;
+      },
     });
   }
 
@@ -515,7 +537,11 @@ export async function chayTuVanKhach(
     },
     lietTaiLieu: deps.lietTaiLieu,
     trichTaiLieu: deps.trichTaiLieu,
-    nhanTaiLieu: (t) => { taiLieuDaLay.push(t); },
+    // Chống trùng theo đường dẫn (24/08): tra_tri_thuc tự đính + model gọi
+    // gui_tai_lieu cùng file thì chỉ gửi một bản.
+    nhanTaiLieu: (t) => {
+      if (!taiLieuDaLay.some((x) => x.duongDanCucBo === t.duongDanCucBo)) taiLieuDaLay.push(t);
+    },
     toolChoPhep: dungPromptDong ? tinhToolChoPhep(match!, guidelineActive) : undefined,
   });
 

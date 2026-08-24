@@ -67,7 +67,7 @@ import {
   traTriThuc, traTriThucDefinition, dinhDangTriThuc,
 } from '../odoo/tools/tra-tri-thuc.js';
 import {
-  guiTaiLieu, guiTaiLieuDefinition, dinhDangGuiTaiLieu, khoiNoiDungKemFile, type TaiLieu,
+  guiTaiLieu, guiTaiLieuDefinition, dinhDangGuiTaiLieu, khoiNoiDungKemFile, kemFileTriThuc, type TaiLieu,
 } from '../odoo/tools/gui-tai-lieu.js';
 import {
   baoCaoTongQuan, baoCaoTongQuanDefinition, dinhDangBaoCaoTongQuan,
@@ -711,10 +711,32 @@ export function buildStaffRegistry(deps: {
     // Tri thức kỹ thuật (bảo hành, IP, công suất) — thứ Odoo KHÔNG có.
     r.register({
       definition: traTriThucDefinition,
-      run: async (input) =>
-        dinhDangTriThuc(
-          await traTriThuc({ timDoan: deps.timDoanTriThuc! }, input as { cau_hoi: string }),
-        ),
+      run: async (input) => {
+        const vao = input as { cau_hoi: string };
+        const kqT = await traTriThuc({ timDoan: deps.timDoanTriThuc! }, vao);
+        let ra = dinhDangTriThuc(kqT);
+        // TỰ ĐÍNH FILE datasheet khi trả lời thông số (ca thật 17:13 24/08:
+        // bot đọc vanh vách thông số OVP-K10P từ RAG mà không gửi file K10P.pdf
+        // nằm sẵn trong kho — anh Quốc: "tại sao không gửi file cho khách
+        // luôn???"). Khớp mơ hồ thì thôi — gửi nhầm tệ hơn gửi thiếu.
+        if (kqT.loai === 'ok' && deps.lietTaiLieu) {
+          const liet = deps.lietTaiLieu;
+          const taiVe = deps.taiTaiLieu ?? (async (t: TaiLieu) => {
+            const { taiTaiLieuVe } = await import('../knowledge/kho-tai-lieu.js');
+            return taiTaiLieuVe(t);
+          });
+          const kem = await kemFileTriThuc({ liet, taiVe }, vao.cau_hoi ?? '', kqT.doan[0]?.tieuDe)
+            .catch(() => null);
+          if (kem) {
+            deps.nhanTaiLieu?.(kem);
+            ra +=
+              `\n\nĐÃ GỬI KÈM file "${kem.tieuDe}" qua Zalo (tự động). ` +
+              'Nhắc trong câu trả lời là em có đính kèm file tài liệu — ' +
+              'ĐỪNG gọi gui_tai_lieu nữa, ĐỪNG hứa gửi thêm gì.';
+          }
+        }
+        return ra;
+      },
     });
   }
 
@@ -943,7 +965,13 @@ export async function chayLenhNhanVien(
     nhanTepBaoCao: (tep) => { tepBaoCao.push(tep); },
     // Tài liệu thì GOM HẾT, khác hoá đơn: nhân viên xin hai datasheet trong một
     // lượt là chuyện thường, giữ cái cuối thì mất cái đầu.
-    nhanTaiLieu: (t) => { taiLieuDaLay.push(t); },
+    //
+    // CHỐNG TRÙNG theo đường dẫn (24/08): tra_tri_thuc giờ TỰ đính file, model
+    // có thể gọi thêm gui_tai_lieu cho CÙNG file — không lọc thì Zalo nhận
+    // hai bản y hệt.
+    nhanTaiLieu: (t) => {
+      if (!taiLieuDaLay.some((x) => x.duongDanCucBo === t.duongDanCucBo)) taiLieuDaLay.push(t);
+    },
   });
 
   const log: ToolCallLog[] = [];
