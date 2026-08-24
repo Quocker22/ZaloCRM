@@ -8,6 +8,7 @@
 import { logger } from '../../../../../shared/utils/logger.js';
 import type { ToolAwareGenerate, ToolDefinition } from '../../types.js';
 import type { PhienGom } from './kieu.js';
+import { lamSachPhuPhi } from '../../../odoo/tools/phu-phi.js';
 
 export interface KetQuaTrich {
   /** Tên/mã khách — ĐÃ bỏ xưng hô (anh/chị/em). */
@@ -48,6 +49,13 @@ export interface KetQuaTrich {
    * — 8% chỉ của thẻ nhận. Áp cho cả đơn là bớt nhầm 1.840.000đ ở dòng ovp.
    */
   chietKhauDon?: number;
+  /**
+   * PHỤ PHÍ nói trong câu (24/08): "thêm 70k ship" → [{ten:'Phí vận chuyển',
+   * tien:70000}]; "phí lắp đặt 200k" → [{ten:'Phí lắp đặt', tien:200000}].
+   * Mỗi khoản thành MỘT DÒNG ở cuối đơn. Ca thật 23:08 24/08: S15179 mất 70k
+   * ship vì máy chưa có ô này.
+   */
+  phuPhi?: Array<{ ten: string; tien: number }>;
   /**
    * Kho xuất hàng NV nói trong câu ("kho HCM", "lấy kho Hồ Chí Minh") — dạng mã
    * hoặc tên; code map sang id qua KHO, không tin số model tự bịa.
@@ -165,6 +173,23 @@ const ghiSlotDefinition: ToolDefinition = {
           'Câu có chiết khấu đi LIỀN SAU một sản phẩm thì KHÔNG dùng ô này — ' +
           'điền vào dong[].chietKhau của chính sản phẩm đó.',
       },
+      phuPhi: {
+        type: 'array',
+        description:
+          'PHỤ PHÍ nói trong câu — "thêm 70k ship"/"ship 70k"/"70k tiền vận chuyển" → ' +
+          '[{ten:"Phí vận chuyển", tien:70000}]. Phí khác giữ đúng tên nhân viên nói: ' +
+          '"phí lắp đặt 200k" → [{ten:"Phí lắp đặt", tien:200000}]. ' +
+          'Tiền ĐỔI RA ĐỒNG như ô gia ("70k"→70000). ' +
+          'ĐÂY KHÔNG phải dòng hàng — KHÔNG điền vào dong. Câu không nhắc phí thì bỏ trống.',
+        items: {
+          type: 'object',
+          properties: {
+            ten: { type: 'string', description: 'Tên khoản phí: ship/vận chuyển/cước → "Phí vận chuyển"' },
+            tien: { type: 'number', description: 'Số tiền (đồng), đổi hậu tố k/tr như ô gia' },
+          },
+          required: ['ten', 'tien'],
+        },
+      },
       kho: {
         type: 'string',
         description:
@@ -278,6 +303,9 @@ export function lamSachTrich(raw: Record<string, unknown>): KetQuaTrich {
   }
   const ckDon = Number(raw.chietKhauDon);
   if (Number.isFinite(ckDon) && ckDon > 0 && ckDon <= 100) kq.chietKhauDon = ckDon;
+  // PHỤ PHÍ (24/08): nhận cả snake_case phu_phi — model hay đổi kiểu tên.
+  const phuPhi = lamSachPhuPhi(raw.phuPhi ?? (raw as Record<string, unknown>).phu_phi);
+  if (phuPhi.length > 0) kq.phuPhi = phuPhi;
   // VAT: model hay trả true/"true" cho câu "có VAT" (không kèm số) dù schema
   // khai number — nhận luôn, quy về mức mặc định 8% của công ty (đo prod:
   // 175/175 đơn có VAT trong 05-07/2026 đều là "VAT 8%", tax_id=4).
@@ -428,6 +456,9 @@ export async function trichSlot(
     'dòng thẻ v7512 có chietKhau=8, dòng ovp k2 KHÔNG có chiết khấu. Chỉ dùng',
     'chietKhauDon khi chiết khấu nói TÁCH RIÊNG, không kèm tên hàng nào',
     '("triết khấu 8% nữa em").',
+    'PHỤ PHÍ ("thêm 70k ship", "ship 70k", "cước vận chuyển 50k", "phí lắp đặt',
+    '200k") → điền phuPhi [{ten, tien}], tiền đổi ra đồng; ship/vận chuyển/cước',
+    'quy về ten="Phí vận chuyển". Phụ phí KHÔNG phải dòng hàng — đừng cho vào dong.',
     'TẶNG KÈM ("tặng 1 cái", "khuyến mãi thêm 2", "biếu 1 cuộn") → thêm dòng',
     'RIÊNG với tang=true, KHÔNG điền gia. "10 cái ovp k2 giá 2300k tặng 1 cái"',
     '= HAI dòng: {sp:"ovp k2", sl:10, gia:2300000} và {sp:"ovp k2", sl:1, tang:true}.',

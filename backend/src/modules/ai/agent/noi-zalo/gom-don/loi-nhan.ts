@@ -94,6 +94,13 @@ function tomTat(p: PhienGom): string {
   // phần trăm, nhưng nguồn sự thật vẫn là Odoo.
   const dongVat: string[] = [];
   let tongCuoi = tong;
+  // ── PHỤ PHÍ (24/08) — hiện TỪNG khoản và cộng vào tổng, cùng lý do với
+  // chiết khấu/VAT: nhân viên phải THẤY số ở tin chốt, không thì tưởng bot
+  // vứt mất ("thêmm 70k ship" → đơn 78.000đ, ca 23:08 24/08).
+  for (const phi of p.phuPhi ?? []) {
+    tongCuoi += phi.tien;
+    dongVat.push(`${phi.ten} = ${tien(phi.tien)}`);
+  }
   if (p.vatKhongTra && p.vatPhanTram != null) {
     // Tra danh mục không ra mức này (prod chỉ có 0/4/8/10%) → BÁO, đừng im lặng
     // lên đơn không thuế rồi để nhân viên phát hiện sau khi đã xuất hoá đơn.

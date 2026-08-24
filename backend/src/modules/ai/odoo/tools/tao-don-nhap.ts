@@ -19,6 +19,7 @@ import type { ToolDefinition } from '../../agent/types.js';
 import { sinhKhoaDon, IDEMPOTENCY_PREFIX, noiDuoiTheoKhoa } from '../idempotency.js';
 import { NGUONG_GIA_AO } from './tra-san-pham.js';
 import { lechVoLy } from '../../agent/noi-zalo/gom-don/gia-bat-thuong.js';
+import { lamSachPhuPhi, timSanPhamPhi, lenhDongPhuPhi, type PhuPhi } from './phu-phi.js';
 
 export interface DongDon {
   san_pham_id: number;
@@ -182,6 +183,12 @@ export function tenKhopKhach(tenNhac: string, tenPartner: string): boolean {
  */
 export interface VaoTaoDon {
   khach_hang_id: number; dong: DongDon[]; y_dinh?: 'moi' | 'sua'; ten_khach?: string;
+  /**
+   * PHỤ PHÍ (24/08) — "thêm 70k ship": mỗi khoản MỘT DÒNG ở cuối đơn, SL 1,
+   * giá = tiền phí. Cùng cổng `choPhepDatGia` với giá: luồng khách không được
+   * tự thêm phí. Ca thật 23:08 24/08: S15179 mất 70k ship.
+   */
+  phu_phi?: PhuPhi[];
   /**
    * Kho xuất hàng (sale.order.warehouse_id). Cùng cổng `choPhepDatGia`: khách
    * không có việc gì phải quyết kho của công ty.
@@ -507,6 +514,25 @@ async function taoDonNhapThan(
     ];
   });
 
+  // PHỤ PHÍ (24/08) — dòng cuối đơn, SL 1, giá = tiền phí, tên dòng = tên phí
+  // thật. Cùng cổng choPhepDatGia: khách điều khiển câu chữ thì điều khiển
+  // được số tiền phí. SP phí tra theo tên trên Odoo (timSanPhamPhi) — không
+  // tra ra SP phí nào thì BÁO RÕ, không im lặng lên đơn thiếu phí (đúng bài
+  // "thêmm 70k ship" bị vứt lặng lẽ, ca 23:08 24/08).
+  const phuPhi = deps.choPhepDatGia === true ? lamSachPhuPhi(input.phu_phi) : [];
+  for (const phi of phuPhi) {
+    const sp = await timSanPhamPhi(deps.odoo, phi.ten);
+    if (!sp) {
+      return {
+        trangThai: 'loi',
+        lyDo:
+          `Odoo không có sản phẩm phí nào để ghi khoản "${phi.ten}" — cần tạo SP ` +
+          '"Phí vận chuyển" trên Odoo trước, hoặc lên đơn không phí rồi thêm tay.',
+      };
+    }
+    orderLine.push(lenhDongPhuPhi(sp, phi) as unknown as (typeof orderLine)[number]);
+  }
+
   // Kho: chỉ ghi khi caller được phép VÀ đưa id nguyên dương. id rác (0, âm,
   // NaN) → bỏ qua để Odoo dùng mặc định, KHÔNG ghi bừa một kho sai.
   const khoTho = deps.choPhepDatGia ? Number(input.kho_id) : Number.NaN;
@@ -592,6 +618,21 @@ export const taoDonNhapDefinition: ToolDefinition = {
             so_luong: { type: 'number', description: 'Số lượng, phải > 0' },
           },
           required: ['san_pham_id', 'so_luong'],
+        },
+      },
+      phu_phi: {
+        type: 'array',
+        description:
+          'PHỤ PHÍ của đơn — "thêm 70k ship"/"ship 70k" → [{ten:"Phí vận chuyển", tien:70000}]; ' +
+          '"phí lắp đặt 200k" → [{ten:"Phí lắp đặt", tien:200000}]. Tiền ĐỔI RA ĐỒNG. ' +
+          'KHÔNG phải dòng hàng — đừng nhét vào dong, đừng chọn bừa một sản phẩm thay thế.',
+        items: {
+          type: 'object',
+          properties: {
+            ten: { type: 'string', description: 'Tên khoản phí, vd "Phí vận chuyển"' },
+            tien: { type: 'number', description: 'Số tiền (đồng), > 0' },
+          },
+          required: ['ten', 'tien'],
         },
       },
     },

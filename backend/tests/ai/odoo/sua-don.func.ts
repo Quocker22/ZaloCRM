@@ -28,6 +28,13 @@ function odooGia(opts: {
           return [{ id: 26722, name: 'S13804', state: opts.state ?? 'draft', amount_total: opts.tongTruoc ?? 780_000 }];
         }
         if (model === 'sale.order.line') return opts.dongHienCo ?? [];
+        // Hàng rào chặn id bịa (24/08): suaDon kiểm mọi san_pham_id có thật.
+        // Mock coi mọi id được hỏi là CÓ THẬT — các test này không nhắm vào
+        // hàng rào đó (đã có test riêng trong phu-phi.func.ts).
+        if (model === 'product.product') {
+          const ids = (JSON.stringify(domain).match(/\d+/g) ?? []).map(Number);
+          return ids.map((id) => ({ id }));
+        }
         return [];
       },
       execute: vi.fn(async (model: string, method: string, args: unknown) => {

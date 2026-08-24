@@ -12,6 +12,7 @@
 import type { OdooClient } from '../client.js';
 import type { ToolDefinition } from '../../agent/types.js';
 import { lenhGanThue } from './tao-don-nhap.js';
+import { lamSachPhuPhi, timSanPhamPhi, type PhuPhi } from './phu-phi.js';
 
 const STATE_SUA_DUOC = ['draft', 'sent'] as const;
 
@@ -123,12 +124,15 @@ export async function suaDon(
     don_id?: number; ma_don?: string; doi?: DongSua[]; them?: DongSua[];
     /** Đổi kho xuất hàng của đơn. Không truyền = giữ nguyên kho đơn đang có. */
     kho_id?: number;
+    /** PHỤ PHÍ thêm vào đơn ("thêm vận chuyển 70k") — mỗi khoản một dòng SL 1. */
+    phu_phi?: PhuPhi[];
   },
 ): Promise<KetQuaSuaDon> {
   const doi = Array.isArray(input.doi) ? input.doi : [];
   const them = Array.isArray(input.them) ? input.them : [];
-  if (doi.length === 0 && them.length === 0) {
-    return { ok: false, donId: 0, maDon: '', lyDo: 'Không có gì để sửa (thiếu cả doi lẫn them).' };
+  const phuPhi = lamSachPhuPhi(input.phu_phi);
+  if (doi.length === 0 && them.length === 0 && phuPhi.length === 0) {
+    return { ok: false, donId: 0, maDon: '', lyDo: 'Không có gì để sửa (thiếu cả doi, them lẫn phu_phi).' };
   }
   for (const d of [...doi, ...them]) {
     if (!Number.isInteger(Number(d?.san_pham_id)) || Number(d.san_pham_id) <= 0) {
@@ -136,6 +140,29 @@ export async function suaDon(
     }
     if (!Number.isFinite(Number(d?.so_luong)) || Number(d.so_luong) <= 0) {
       return { ok: false, donId: 0, maDon: '', lyDo: `so_luong phải > 0, nhận: ${JSON.stringify(d?.so_luong)}` };
+    }
+  }
+
+  // ── CHẶN ID BỊA (24/08) ────────────────────────────────────────────────
+  // Ca thật 20:59 24/08: "thêm vận chuyển 70k nữa" → model gọi sua_don với
+  // san_pham_id=123 TRƯỚC CẢ KHI tra sản phẩm — id 123 hoá ra là "Led 3 bóng
+  // 6313 Hồng", chui thẳng vào đơn thật S15113. Mọi id phải CÓ THẬT trên Odoo
+  // trước khi ghi; id lạ → từ chối, chỉ đường đi tra_san_pham.
+  const idCanKiem = [...new Set([...doi, ...them].map((d) => Number(d.san_pham_id)))];
+  if (idCanKiem.length > 0) {
+    const coThat = await deps.odoo.searchRead<{ id: number }>(
+      'product.product', [['id', 'in', idCanKiem]], ['id'], { limit: idCanKiem.length },
+    );
+    const thay = new Set(coThat.map((r) => Number(r.id)));
+    const thieu = idCanKiem.filter((id) => !thay.has(id));
+    if (thieu.length > 0) {
+      return {
+        ok: false, donId: 0, maDon: '',
+        lyDo:
+          `san_pham_id ${thieu.join(', ')} KHÔNG tồn tại trên hệ thống — có vẻ id bịa. ` +
+          'Gọi tra_san_pham với tên hàng để lấy id thật rồi sửa lại. ' +
+          'Muốn thêm phí ship/phụ phí thì dùng tham số phu_phi, KHÔNG chọn bừa sản phẩm.',
+      };
     }
   }
 
@@ -217,6 +244,28 @@ export async function suaDon(
     soThem++;
   }
 
+  // 2b) PHỤ PHÍ (24/08) — "thêm vận chuyển 70k": một dòng SL 1, giá = tiền
+  // phí, tên dòng = tên phí thật, sản phẩm là SP kỹ thuật có thật trên Odoo.
+  for (const phi of phuPhi) {
+    const sp = await timSanPhamPhi(deps.odoo, phi.ten);
+    if (!sp) {
+      return {
+        ok: false, donId, maDon,
+        lyDo:
+          `Odoo không có sản phẩm phí nào để ghi khoản "${phi.ten}" — cần tạo SP ` +
+          '"Phí vận chuyển" trên Odoo trước. Các dòng hàng thường (nếu có) ĐÃ ghi xong.',
+      };
+    }
+    await deps.odoo.execute('sale.order.line', 'create', [{
+      order_id: donId,
+      product_id: sp.id,
+      product_uom_qty: 1,
+      name: phi.ten,
+      price_unit: phi.tien,
+    }], {});
+    soThem++;
+  }
+
   // 3) ĐỔI KHO của đơn — chỉ khi nhân viên nói rõ. Không nói thì KHÔNG đụng:
   //    đơn cũ đã có kho từ lúc tạo, ghi đè im lặng là đổi nơi xuất hàng thật.
   const khoTho = Number(input.kho_id);
@@ -270,8 +319,28 @@ export const suaDonDefinition: ToolDefinition = {
           properties: {
             san_pham_id: { type: 'integer', description: 'id sản phẩm, từ tra_san_pham' },
             so_luong: { type: 'number', description: 'Số lượng, > 0' },
+            don_gia: {
+              type: 'number',
+              description: 'Đơn giá nhân viên báo (ĐỒNG). "170k"→170000. Không báo thì bỏ trống, Odoo tự lấy giá.',
+            },
           },
           required: ['san_pham_id', 'so_luong'],
+        },
+      },
+      phu_phi: {
+        type: 'array',
+        description:
+          'PHỤ PHÍ thêm vào đơn — "thêm vận chuyển 70k"/"thêm 70k ship" → ' +
+          '[{ten:"Phí vận chuyển", tien:70000}]; "phí lắp đặt 200k" → ' +
+          '[{ten:"Phí lắp đặt", tien:200000}]. Tiền ĐỔI RA ĐỒNG ("70k"→70000). ' +
+          'DÙNG THAM SỐ NÀY cho phí ship/phụ phí, TUYỆT ĐỐI không chọn một sản phẩm nào đó thay thế.',
+        items: {
+          type: 'object',
+          properties: {
+            ten: { type: 'string', description: 'Tên khoản phí, vd "Phí vận chuyển"' },
+            tien: { type: 'number', description: 'Số tiền (đồng), > 0' },
+          },
+          required: ['ten', 'tien'],
         },
       },
     },

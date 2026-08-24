@@ -175,6 +175,11 @@ function odooSuaGia(dongHienCo: Array<{ id: number; product_id: [number, string]
         }
         if (model === 'sale.order') return [{ id: 500, name: 'S00500', state: 'draft', amount_total: 0 }];
         if (model === 'sale.order.line') return dongHienCo;
+        // Hàng rào chặn id bịa (24/08): mock coi mọi id được hỏi là có thật.
+        if (model === 'product.product') {
+          const ids = (JSON.stringify(_d).match(/\d+/g) ?? []).map(Number);
+          return ids.map((id) => ({ id, name: `SP ${id}` }));
+        }
         return [];
       },
       execute: vi.fn(async (model: string, method: string, args: unknown) => {

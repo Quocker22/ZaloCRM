@@ -158,6 +158,18 @@ export interface PhienGom {
    */
   khoKhongRo?: string;
 
+  // ── PHỤ PHÍ (24/08/2026) ───────────────────────────────────────────────
+  /**
+   * Phụ phí NV báo trong câu ("thêm 70k ship", "phí lắp đặt 200k") — mỗi
+   * khoản thành MỘT DÒNG ở cuối đơn (SL 1, giá = tiền phí).
+   *
+   * Ca thật 23:08 24/08: "lên đơn cho anh Vấn 1 cái nguồn NB, thêmm 70k ship"
+   * → đơn S15179 ra 78.000đ, 70k ship bị VỨT LẶNG LẼ vì máy không có ô này.
+   * Anh Quyết: "cứ thêm một hàng nữa là tiền ship ở cuối, linh động, một tiền
+   * khác thì cũng cứ thêm một hàng vào".
+   */
+  phuPhi?: Array<{ ten: string; tien: number }>;
+
   // ── VAT (11/08/2026) ───────────────────────────────────────────────────
   /**
    * Phần trăm VAT nhân viên nói ("có VAT" → 8; "VAT 10%" → 10).

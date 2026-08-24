@@ -537,6 +537,19 @@ export function dapSlot(p: PhienGom, trich: KetQuaTrich): boolean {
       if (x.chietKhau !== ckChung) { x.chietKhau = ckChung; doi = true; }
     }
   }
+  // PHỤ PHÍ nói trong câu ("thêm 70k ship", "phí lắp đặt 200k") — GỘP theo
+  // tên: cùng tên thì lấy số mới nhất (NV sửa "à 50k thôi"), tên mới thì thêm.
+  // Ca thật 23:08 24/08: thiếu ô này nên "thêmm 70k ship" bị vứt lặng lẽ.
+  for (const phi of trich.phuPhi ?? []) {
+    const ds = (p.phuPhi ??= []);
+    const cu = ds.find((x) => x.ten.toLowerCase() === phi.ten.toLowerCase());
+    if (cu) {
+      if (cu.tien !== phi.tien) { cu.tien = phi.tien; doi = true; }
+    } else {
+      ds.push({ ten: phi.ten, tien: phi.tien });
+      doi = true;
+    }
+  }
   // KHO nhân viên nói trong câu ("kho HCM") → map mã/tên sang id qua bảng KHO.
   // Map ở CODE chứ không tin số model tự bịa: sai kho là xuất hàng sai nơi.
   //
@@ -857,6 +870,8 @@ async function taoDonVaBaoGia(
     // (vatKhongTra) thì lên đơn KHÔNG thuế — nhưng tóm tắt đã báo rõ cho nhân
     // viên trước đó, không im lặng.
     ...(p.vatThueId != null ? { thue_id: p.vatThueId } : {}),
+    // PHỤ PHÍ (24/08): mỗi khoản một dòng ở CUỐI đơn — "thêm 70k ship".
+    ...(p.phuPhi?.length ? { phu_phi: p.phuPhi } : {}),
   };
   const kq = await taoDonNhap(
     {
