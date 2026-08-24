@@ -4436,3 +4436,27 @@ model TuSoiHoiThoai {
   @@index([orgId, createdAt])
   @@map("tu_soi_hoi_thoai")
 }
+
+/// Hàng đợi in hoá đơn ra máy in shop (IPP). Xem src/modules/ai/may-in/.
+/// Trạng thái: cho_in → dang_gui → da_gui → da_in; nhánh khong_ro (timeout
+/// giữa chừng, cấm gửi lại mù — luật A3) và loi (quá trần thử / máy in huỷ).
+model PrintJob {
+  id             String    @id @default(cuid())
+  orgId          String    @map("org_id")
+  conversationId String?   @map("conversation_id")
+  hoaDonId       Int       @map("hoa_don_id")
+  soHoaDon       String    @map("so_hoa_don")
+  /// Report Odoo dùng để render PDF lúc in — in luôn bản mới nhất, không lưu PDF.
+  report         String
+  trangThai      String    @default("cho_in") @map("trang_thai")
+  lanThu         Int       @default(0) @map("lan_thu")
+  /// job-id máy in cấp qua IPP — chìa khoá xác minh trước khi nghĩ tới in lại.
+  ippJobId       Int?      @map("ipp_job_id")
+  loiCuoi        String?   @map("loi_cuoi")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([trangThai, createdAt])
+  @@index([orgId, createdAt])
+  @@map("print_jobs")
+}

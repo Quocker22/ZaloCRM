@@ -18,6 +18,9 @@ import { hanGioLuot } from './dung.js';
 import { tomTatDoDang } from './ngan-sach.js';
 import { dungGenerate } from './llm.js';
 import { layOdoo, layAnhClient, timTriThuc, layLichSu, seqTuMessageId, coTinKhachMoiHon } from './du-lieu.js';
+import { themJobIn as themJobVaoHangIn, type PrismaHangDoiIn } from '../../may-in/hang-doi-in.js';
+import { ippConfigTuEnv } from '../../may-in/tu-env.js';
+import type { ThemJobInHoaDon } from '../../odoo/tools/in-hoa-don.js';
 import { khoTaiLieuCuaOrg, trichNoiDungTaiLieu } from '../../knowledge/kho-tai-lieu.js';
 import { mucLucSanPham } from '../../knowledge/muc-luc.js';
 import { timDich, guiTin, guiAnh, guiFile, ghiAnhTam } from './gui-zalo.js';
@@ -295,6 +298,14 @@ async function xuLyTinNhanVienTuanTu(ctx: NgữCanhTin): Promise<boolean> {
         },
         ghiLog: ghiDb,
         anhClient: layAnhClient(),
+        // Máy in shop: chỉ mở tool in_hoa_don khi đã đặt AI_MAY_IN_IPP_URL —
+        // closure buộc sẵn prisma + orgId (registry không cần biết org).
+        ...(ippConfigTuEnv()
+          ? {
+              themJobIn: ((p) =>
+                themJobVaoHangIn(prisma as unknown as PrismaHangDoiIn, { ...p, orgId: ctx.orgId })) satisfies ThemJobInHoaDon,
+            }
+          : {}),
         // Link cho NGƯỜI bấm — phải là domain công khai, không phải hostname
         // Docker nội bộ (bug thật 06/08: "http://incokit_nginx_prod/web#...").
         odooUrl: odooUrlCongKhai(),

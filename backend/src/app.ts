@@ -428,6 +428,10 @@ async function bootstrap() {
     // rút bài học vào kho luật. Nhật ký + đường gỡ ở /api/v1/tu-soi.
     const { startTuSoiCron } = await import('./modules/ai/agent/tu-soi/cron.js');
     startTuSoiCron();
+    // MÁY IN shop (24/08) — nhặt print_jobs in hoá đơn qua IPP. Tự tắt khi
+    // chưa đặt AI_MAY_IN_IPP_URL (gate nằm trong startMayInCron).
+    const { startMayInCron } = await import('./modules/ai/may-in/cron.js');
+    startMayInCron();
     // Tệp khách hàng (🟢 Community): enrichment worker + event handlers
     if (config.nodeEnv !== 'test') {
       const { startListEnrichmentWorker } = await import('./modules/lists/list-enrichment-service.js');
