@@ -67,7 +67,8 @@ import {
   traTriThuc, traTriThucDefinition, dinhDangTriThuc,
 } from '../odoo/tools/tra-tri-thuc.js';
 import {
-  guiTaiLieu, guiTaiLieuDefinition, dinhDangGuiTaiLieu, khoiNoiDungKemFile, kemFileTriThuc, type TaiLieu,
+  guiTaiLieu, guiTaiLieuDefinition, dinhDangGuiTaiLieu, khoiNoiDungKemFile, kemFileTriThuc,
+  laCauHoiThongSo, type TaiLieu,
 } from '../odoo/tools/gui-tai-lieu.js';
 import {
   baoCaoTongQuan, baoCaoTongQuanDefinition, dinhDangBaoCaoTongQuan,
@@ -87,6 +88,9 @@ import {
 import {
   xuatHoaDon, xuatHoaDonDefinition, dinhDangXuatHoaDon,
 } from '../odoo/tools/xuat-hoa-don.js';
+import {
+  inHoaDon, inHoaDonDefinition, dinhDangInHoaDon, type ThemJobInHoaDon,
+} from '../odoo/tools/in-hoa-don.js';
 import type { HoaDonAnhClient } from '../odoo/hoa-don-anh.js';
 import {
   suaChietKhau, suaChietKhauDefinition, dinhDangChietKhau,
@@ -197,6 +201,12 @@ export interface StaffAgentDeps {
   anhClient?: HoaDonAnhClient;
   /** Gốc URL Odoo, để dựng link nhân viên bấm vào xử lý đơn. */
   odooUrl?: string;
+  /**
+   * Xếp hoá đơn vào hàng in máy in shop (caller đã buộc prisma + orgId).
+   * KHÔNG truyền thì tool `in_hoa_don` không đăng ký — chưa cấu hình máy in
+   * thì bot không được hứa in (nếp gui_tai_lieu).
+   */
+  themJobIn?: ThemJobInHoaDon;
   /** Tra tài liệu kỹ thuật (bảo hành, IP, công suất) — thứ Odoo không có. */
   timDoanTriThuc?: (cauHoi: string, soDoan: number) => Promise<Array<{ content: string; score?: number }>>;
   /**
@@ -205,6 +215,8 @@ export interface StaffAgentDeps {
    * 11/08).
    */
   lietTaiLieu?: () => Promise<TaiLieu[]>;
+  /** Tải tài liệu về đường dẫn cục bộ. Không truyền thì dùng `taiTaiLieuVe` của kho. */
+  taiTaiLieu?: (t: TaiLieu) => Promise<string>;
   /** Trích nội dung thô của tài liệu (RAG) để nhắn kèm tóm tắt sau khi gửi file. */
   trichTaiLieu?: (tieuDe: string) => Promise<string | null>;
   /** Mục lục sản phẩm sinh từ sheet (nhóm B 15/08) — chèn đầu userMessage. */
@@ -386,6 +398,8 @@ export function buildStaffRegistry(deps: {
   /** Render ảnh hóa đơn. Không có thì tool gui_hoa_don KHÔNG được đăng ký. */
   anhClient?: HoaDonAnhClient;
   odooUrl?: string;
+  /** Xếp hoá đơn vào hàng in máy in shop. Không có → in_hoa_don KHÔNG đăng ký. */
+  themJobIn?: ThemJobInHoaDon;
   /** Nhận ảnh để caller đính kèm vào tin Zalo. */
   nhanHoaDon?: (kq: KetQuaGuiHoaDon) => void;
   /** Nhận file Excel báo cáo dài — caller gửi qua Zalo. Thiếu → chỉ text. */
@@ -862,6 +876,23 @@ export function buildStaffRegistry(deps: {
     });
   }
 
+  // IN HOÁ ĐƠN ra máy in shop (24/08): chỉ ĐỌC Odoo rồi xếp hàng vào
+  // print_jobs, cron may-in nhặt in (luật A3 chống in đôi nằm ở hàng đợi).
+  // Chỉ đăng ký khi hệ có máy in — không hứa in rồi không in được.
+  if (deps.themJobIn) {
+    const themJob = deps.themJobIn;
+    r.register({
+      definition: inHoaDonDefinition,
+      run: async (input) =>
+        dinhDangInHoaDon(
+          await inHoaDon(
+            { odoo, conversationId: deps.conversationId, themJob },
+            input as { so_hoa_don?: string; ma_don?: string; don_id?: number },
+          ),
+        ),
+    });
+  }
+
   // TRA NGÂN HÀNG / QR cho NV (17/08, ca 22:27 "cho tôi QR của ngân hàng đi"
   // → bot bảo không có). Đọc Odoo, ảnh QR đi kênh nhanTepBaoCao (không qua LLM).
   r.register({
@@ -956,8 +987,10 @@ export async function chayLenhNhanVien(
     ghiNhanChuyenSale: deps.ghiNhanChuyenSale,
     anhClient: deps.anhClient,
     odooUrl: deps.odooUrl,
+    themJobIn: deps.themJobIn,
     timDoanTriThuc: deps.timDoanTriThuc,
     lietTaiLieu: deps.lietTaiLieu,
+    taiTaiLieu: deps.taiTaiLieu,
     trichTaiLieu: deps.trichTaiLieu,
     luatStore: deps.luatStore,
     // Bot gọi gui_hoa_don nhiều lần thì lấy cái CUỐI — đó là đơn nó đang nói tới.
@@ -1158,6 +1191,22 @@ export async function chayLenhNhanVien(
       log,
       usage: kq.usage,
     };
+  }
+
+  // TỰ ĐÍNH FILE Ở TẦNG LUỒNG (ca thật 17:50 24/08): NV hỏi lại "thông số
+  // kỹ thuật ovp-k10p", model thấy câu trả lời cũ trong LỊCH SỬ nên trả lời
+  // thẳng, KHÔNG gọi tra_tri_thuc — auto-đính nằm trong tool thành ra không
+  // chạy, file vẫn không tới. Hàng rào phải nằm ở tầng luồng: câu hỏi dạng
+  // thông số + lượt này chưa sinh file nào → tự khớp kho mà đính, bất kể
+  // model có gọi tool hay không. Khớp mơ hồ thì thôi (kemFileTriThuc tự lo).
+  if (taiLieuDaLay.length === 0 && deps.lietTaiLieu && laCauHoiThongSo(lenh.noiDung)) {
+    const liet = deps.lietTaiLieu;
+    const taiVe = deps.taiTaiLieu ?? (async (t: TaiLieu) => {
+      const { taiTaiLieuVe } = await import('../knowledge/kho-tai-lieu.js');
+      return taiTaiLieuVe(t);
+    });
+    const kem = await kemFileTriThuc({ liet, taiVe }, lenh.noiDung, undefined).catch(() => null);
+    if (kem) taiLieuDaLay.push(kem);
   }
 
   return {
