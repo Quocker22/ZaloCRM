@@ -15,6 +15,10 @@ const KHO: TaiLieu[] = [
   { tieuDe: 'Bóng LED F8 Full IC 1908.pdf', duongDan: 'http://x/f8-1908.pdf', kichThuoc: 100 },
   { tieuDe: 'Bóng LED F8 Full IC8028.pdf', duongDan: 'http://x/f8-8028.pdf', kichThuoc: 100 },
   { tieuDe: 'Y2.pdf', duongDan: 'http://x/y2.pdf', kichThuoc: 100 },
+  // Tên file chứa NGUYÊN cụm "thông số kỹ thuật" — bug e2e kho thật 24/08:
+  // câu chung chung khớp bừa 4 token đệm của tên này.
+  { tieuDe: 'Thông số kỹ thuật module P5 SMD Pro 3840Hz.pdf', duongDan: 'http://x/p5.pdf', kichThuoc: 100 },
+  { tieuDe: 'THÔNG SỐ KỸ THUẬT NGUỒN 12V100W M7.pdf', duongDan: 'http://x/m7.pdf', kichThuoc: 100 },
 ];
 const deps = {
   liet: async () => KHO,
@@ -57,7 +61,12 @@ describe('kemFileTriThuc — khớp file theo câu hỏi + tiêu đề đoạn R
     expect(await kemFileTriThuc(deps, 'đèn này IP bao nhiêu', 'K10P abc')).toBeNull();
   });
 
-  it('mơ hồ (không nêu mã nào) → null, thà không gửi còn hơn gửi bừa', async () => {
+  it('mơ hồ (không nêu mã nào) → null, KỂ CẢ khi kho có file tên nguyên cụm "thông số kỹ thuật"', async () => {
     expect(await kemFileTriThuc(deps, 'cho tôi thông số kỹ thuật', 'Thông Số Kỹ Thuật')).toBeNull();
+  });
+
+  it('cụm "thông số kỹ thuật" trong câu không được kéo về file P5 — phần còn lại mới quyết', async () => {
+    const kq = await kemFileTriThuc(deps, 'thông số kỹ thuật nguồn 12v100w m7', 'Nguồn 12V100W M7');
+    expect(kq?.tieuDe).toBe('THÔNG SỐ KỸ THUẬT NGUỒN 12V100W M7.pdf');
   });
 });

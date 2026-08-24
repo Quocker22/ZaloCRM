@@ -348,7 +348,17 @@ export function laCauHoiThongSo(cau: string): boolean {
  *      file người ta nói tới; so token-bằng-hệt nên "k10" KHÔNG ăn theo "k10p".
  *   2. CHẤM ĐIỂM như `guiTaiLieu`: cho tên file nhiều chữ, kèm đòi cách biệt.
  */
-function timFileDuyNhat(cau: string, kho: TaiLieu[]): TaiLieu | null {
+function timFileDuyNhat(cauTho: string, kho: TaiLieu[]): TaiLieu | null {
+  // GẠT cụm "thông số kỹ thuật/datasheet/catalog" khỏi câu TRƯỚC khi khớp.
+  //
+  // Bug e2e kho thật 24/08: kho có file tên nguyên cụm "Thông số kỹ thuật
+  // module P5 SMD Pro 3840Hz.pdf" — câu chung chung "cho tôi thông số kỹ
+  // thuật" chấm trúng 4 token tên file đó và đính bừa; câu "thông số kỹ thuật
+  // nguồn 12v100w m7" cũng bị 4 token đệm kéo về P5. Mấy chữ đó nói về THỂ
+  // LOẠI yêu cầu, không phân biệt tài liệu nào — phải so bằng phần còn lại.
+  let cau = boDau(cauTho);
+  for (const c of [...CUM_HOI_THONG_SO, 'ky thuat', 'thong so']) cau = cau.split(c).join(' ');
+  if (tach(cau).filter((w) => !BO_QUA.has(w)).length === 0) return null; // không nêu món nào cụ thể
   const tokens = new Set(tach(cau));
   const theoToken = kho.filter((t) => {
     const ten = chuanTen(t.tieuDe);
