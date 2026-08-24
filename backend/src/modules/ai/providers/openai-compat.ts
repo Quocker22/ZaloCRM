@@ -121,10 +121,55 @@ export function laModelThinking(model: string): boolean {
 }
 
 export function boSuyNghi(raw: string): string {
-  return raw
+  const khongThe = raw
     .replace(/<think>[\s\S]*?<\/think>/gi, '')
-    .replace(/<think>[\s\S]*$/i, '')
+    .replace(/<think>[\s\S]*$/i, '');
+  return khongThe
+    .split('\n')
+    .filter((dong) => !laDongSuyNghiTiengAnh(dong))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+/**
+ * Từ chức năng tiếng Anh — dấu hiệu model đang "nghĩ thành lời" chứ không
+ * phải nói với khách/nhân viên (bot chỉ nói tiếng Việt).
+ *
+ * Ca thật 11:01 & 11:07 24/08: `deepseek-v4-flash-0731` qua OpenRouter, đã
+ * gửi `reasoning: {enabled: false}`, vẫn trả nguyên 5 đoạn "The user said "ok"
+ * - this seems to be a simple acknowledgment. Looking at the context…" TRONG
+ * `content`, không thẻ <think> → hàm trên để lọt, nhóm NV đọc được cả suy
+ * nghĩ của bot (anh Quyết: "e nhắn vào đây" → bot trả 3 đoạn tiếng Anh).
+ *
+ * VÌ SAO ĐẾM TỪ CHỨC NĂNG, KHÔNG BẮT MẪU CÂU: mẫu ("The user…", "Let me…")
+ * là hàng rào chết — model đổi cách mở đầu là thủng. Từ chức năng (the/is/to/
+ * this/let/me…) thì đoạn suy nghĩ tiếng Anh nào cũng dày đặc, còn câu tiếng
+ * Việt dù có tên hàng tiếng Anh ("FULL MASTER", "Card thu BX-V7512") cũng
+ * không có. Bỏ phần trong ngoặc kép trước khi đếm: model hay trích lại câu
+ * NV ("sao lại thêm 3b hồng…") — chữ Việt trong đó không phải bằng chứng đoạn
+ * này là câu trả lời.
+ */
+const TU_CHUC_NANG_ANH = new Set([
+  'the', 'is', 'to', 'this', 'that', 'let', 'me', 'so', 'they', 'want', 'wants',
+  'need', 'needs', 'should', 'appears', 'seems', 'user', 'message', 'previous',
+  'tool', 'needed', 'acknowledge', 'could', 'would', 'but', 'and', 'for', 'with',
+  'was', 'were', 'not', 'just', 'respond', 'context', 'looking', 'means',
+  'proceed', 'actually', 'pending', 'clarification', 'ask', 'check', 'result',
+  'there', 'here', 'about', 'which', 'what', 'will', 'then', 'now',
+]);
+
+function laDongSuyNghiTiengAnh(dong: string): boolean {
+  const ngoaiTrichDan = dong.replace(/"[^"]*"|“[^”]*”/g, ' ');
+  const tu = ngoaiTrichDan.toLowerCase().match(/[a-z]+/g) ?? [];
+  let diem = 0;
+  for (const t of tu) if (TU_CHUC_NANG_ANH.has(t)) diem += 1;
+  if (diem < 3) return false;
+  const coDauViet = /[àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđ]/i
+    .test(ngoaiTrichDan);
+  // Có dấu tiếng Việt ngoài ngoặc kép thì đòi bằng chứng dày hơn — "Hồng" lọt
+  // vào đoạn suy nghĩ vì model nhắc tên hàng, nhưng đoạn đó vẫn ngập từ Anh.
+  return !coDauViet || diem >= 6;
 }
 
 /** Map finish_reason của OpenAI sang kiểu trung lập của vòng lặp. */
