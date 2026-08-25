@@ -14,6 +14,8 @@
 
 import type { OdooClient } from '../client.js';
 import type { ToolDefinition } from '../../agent/types.js';
+import { thamSoLocDashboard, type BoLocDashboard } from './bao-cao-tong-quan.js';
+import { KY_HOP_LE as KY_BOT, MO_TA_TU_NGAY, MO_TA_DEN_NGAY } from '../ky-thoi-gian.js';
 
 /** Số dòng tối đa mỗi bảng. Kết quả tool nằm lại trong lịch sử và bị tính tiền
  *  lại ở MỌI vòng sau — bảng 30 dòng ăn hết ngân sách ngữ cảnh. */
@@ -92,20 +94,20 @@ function locCotCam(
 
 export async function baoCaoBanHang(
   deps: BaoCaoBanHangDeps,
-  input: { ky?: string; tab?: string } = {},
+  input: BoLocDashboard & { tab?: string; bayGio?: Date } = {},
 ): Promise<KetQuaBanHang> {
-  const ky = (KY_HOP_LE as readonly string[]).includes(input.ky ?? '')
-    ? (input.ky as KyBaoCao)
-    : 'this_month';
+  // Kỳ + chi nhánh dùng chung bộ lọc với bao_cao_tong_quan (25/08). custom
+  // LUÔN kèm đủ date_from/date_to (ky-odoo.ts) nên không còn ca "rows rỗng
+  // không báo lỗi" của custom-thiếu-ngày.
+  const boLoc = thamSoLocDashboard(input, input.bayGio);
+  const ky = String(boLoc.kwargs.time_preset) + boLoc.moTaKy;
 
   // args = [] (KHÔNG [[]]) — @api.model, Odoo tự chèn recordset.
-  // KHÔNG truyền time_preset='custom': tool này không nhận ngày tuỳ ý, nên
-  // custom chỉ tạo ra ca "rows rỗng, không báo lỗi" mà không thêm giá trị gì.
   const r = await deps.odoo.execute<Record<string, unknown>>(
     'incokit.sales_report',
     'get_sales_report_data',
     [],
-    { time_preset: ky },
+    boLoc.kwargs,
   );
 
   const tabsRaw = Array.isArray(r?.tabs) ? (r.tabs as Record<string, unknown>[]) : [];
@@ -162,9 +164,18 @@ export const baoCaoBanHangDefinition: ToolDefinition = {
     properties: {
       ky: {
         type: 'string',
-        enum: [...KY_HOP_LE],
+        enum: [...KY_HOP_LE, ...KY_BOT.filter((k) => !['hom_nay', 'hom_qua', 'thang_nay', 'thang_truoc'].includes(k))],
         description:
-          'Kỳ báo cáo. today · yesterday · last_7_days · this_month (mặc định) · last_month.',
+          'Kỳ báo cáo. today · yesterday · last_7_days · this_month (mặc định) · last_month · ' +
+          'tuan_nay · quy_nay · nam_nay · 3_thang_qua/6_thang_qua/12_thang_qua. ' +
+          'Bạn KHÔNG biết hôm nay là ngày nào — hệ thống tự tính, ĐỪNG nhẩm ngày.',
+      },
+      tu_ngay: { type: 'string', description: MO_TA_TU_NGAY },
+      den_ngay: { type: 'string', description: MO_TA_DEN_NGAY },
+      chi_nhanh: {
+        type: 'string',
+        enum: ['TT', 'HCM', 'KB'],
+        description: 'Lọc theo CHI NHÁNH khi nhân viên nêu (HCM / TT=trung tâm / KB=kho B). Không nhắc thì bỏ trống.',
       },
       tab: {
         type: 'string',

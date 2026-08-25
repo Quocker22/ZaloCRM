@@ -135,7 +135,9 @@ describe('chonKy — LỚP CHẶN CHÍNH: nhân viên nói "hôm nay" thì KHÔN
   });
 
   it('ky lạ/rác → rơi về HÔM NAY, không ném lỗi và không dùng ngày model điền', () => {
-    expect(chonKy({ ky: 'quy_nay' as never, tu_ngay: '2026-06-20' }, LUC_21H17_11_08)).toMatchObject({
+    // 25/08: 'quy_nay' đã thành kỳ THẬT (code tự tính) — ca "kỳ lạ" giờ dùng
+    // từ khoá vẫn chưa hỗ trợ.
+    expect(chonKy({ ky: 'nam_ngoai' as never, tu_ngay: '2026-06-20' }, LUC_21H17_11_08)).toMatchObject({
       tu: '2026-08-11',
       den: '2026-08-11',
     });
@@ -227,7 +229,10 @@ describe('dongNgayHomNay — dòng ngày nhét vào prompt', () => {
 
 // ═══════════════════════════════════════════════════════════════════════════
 describe('KY_HOP_LE — danh sách từ khoá model được chọn', () => {
-  it('đủ 5 kỳ nhân viên hay nói', () => {
-    expect([...KY_HOP_LE]).toEqual(['hom_nay', 'hom_qua', 'tuan_nay', 'thang_nay', 'thang_truoc']);
+  it('đủ 10 kỳ nhân viên hay nói (25/08: +quý này, năm nay, 3/6/12 tháng qua)', () => {
+    expect([...KY_HOP_LE]).toEqual([
+      'hom_nay', 'hom_qua', 'tuan_nay', 'thang_nay', 'thang_truoc',
+      'quy_nay', 'nam_nay', '3_thang_qua', '6_thang_qua', '12_thang_qua',
+    ]);
   });
 });

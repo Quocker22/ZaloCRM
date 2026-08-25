@@ -120,7 +120,7 @@ import {
   xuatExcel, tenFileBaoCao, NGUONG_DINH_KEM, type BangExcel, type TepBaoCao,
 } from '../odoo/xuat-excel.js';
 import { bangRaAnh } from '../odoo/anh-bang.js';
-import { bieuDoCot } from '../odoo/ve-bieu-do.js';
+import { bieuDoCot, bieuDoCotNgang } from '../odoo/ve-bieu-do.js';
 import {
   doanhSoKhachTheoThang, doanhSoKhachDefinition, dinhDangDoanhSoKhach,
 } from '../odoo/tools/doanh-so-khach.js';
@@ -457,14 +457,51 @@ export function buildStaffRegistry(deps: {
     // ── 3 tool BÁO CÁO — chỉ nhân viên, xem docstring trên ──────────────
     .register({
       definition: baoCaoTongQuanDefinition,
-      run: async (input) =>
-        dinhDangBaoCaoTongQuan(await baoCaoTongQuan({ odoo }, input as { ky?: string })),
+      run: async (input) => {
+        const b = await baoCaoTongQuan({ odoo }, input as Parameters<typeof baoCaoTongQuan>[1]);
+        let ra = dinhDangBaoCaoTongQuan(b);
+        // BIỂU ĐỒ như trên web (25/08): doanh thu theo ngày/giờ + theo chi
+        // nhánh, Odoo trả sẵn số — chỉ vẽ. Đi đường ảnh `nhanTepBaoCao`,
+        // không qua LLM. Kỳ dài (>45 cột) thì bỏ cột doanh thu, đọc không nổi.
+        if (deps.nhanTepBaoCao) {
+          const daVe: string[] = [];
+          try {
+            if (b.bieuDoDoanhThu.length >= 2 && b.bieuDoDoanhThu.length <= 45) {
+              deps.nhanTepBaoCao({
+                tenFile: `doanh-thu-${b.tuNgay}-${b.denNgay}.png`, loai: 'anh', moTa: '',
+                duLieu: await bieuDoCot({
+                  tieuDe: `Doanh thu ${b.chiNhanh ? `chi nhánh ${b.chiNhanh} ` : ''}${b.tuNgay} – ${b.denNgay}`,
+                  phuDe: 'Hoá đơn đã vào sổ · giống Báo cáo Tổng quan trên web',
+                  nhan: b.bieuDoDoanhThu.map((d) => d.ten),
+                  giaTri: b.bieuDoDoanhThu.map((d) => d.giaTri),
+                }),
+              });
+              daVe.push('doanh thu theo ngày');
+            }
+            if (b.bieuDoChiNhanh.length >= 2) {
+              deps.nhanTepBaoCao({
+                tenFile: `chi-nhanh-${b.tuNgay}-${b.denNgay}.png`, loai: 'anh', moTa: '',
+                duLieu: await bieuDoCotNgang({
+                  tieuDe: `Doanh thu theo chi nhánh ${b.tuNgay} – ${b.denNgay}`,
+                  nhan: b.bieuDoChiNhanh.map((d) => d.ten),
+                  giaTri: b.bieuDoChiNhanh.map((d) => d.giaTri),
+                }),
+              });
+              daVe.push('theo chi nhánh');
+            }
+          } catch { /* ảnh lỗi → số vẫn đủ trong text */ }
+          if (daVe.length > 0) {
+            ra += `\n\nẢNH BIỂU ĐỒ (${daVe.join(' + ')}) đã gửi kèm tự động — nhắc nhân viên xem ảnh, đừng tự vẽ bảng dài.`;
+          }
+        }
+        return ra;
+      },
     })
     .register({
       definition: baoCaoBanHangDefinition,
       run: async (input) =>
         dinhDangBaoCaoBanHang(
-          await baoCaoBanHang({ odoo }, input as { ky?: string; tab?: string }),
+          await baoCaoBanHang({ odoo }, input as Parameters<typeof baoCaoBanHang>[1]),
         ),
     })
     .register({

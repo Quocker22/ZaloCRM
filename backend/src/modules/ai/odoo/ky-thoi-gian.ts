@@ -34,7 +34,13 @@
 // thật — hôm nay xanh, mai đỏ. Trớ trêu là đó đúng loại lỗi file này chữa.
 
 /** Từ khoá kỳ model được chọn. Model KHÔNG bao giờ phải tự tính ngày. */
-export const KY_HOP_LE = ['hom_nay', 'hom_qua', 'tuan_nay', 'thang_nay', 'thang_truoc'] as const;
+export const KY_HOP_LE = [
+  'hom_nay', 'hom_qua', 'tuan_nay', 'thang_nay', 'thang_truoc',
+  // 25/08 (anh Quốc: "khách yêu cầu gì AI cũng phải trả ra được" như web
+  // dashboard có bộ lọc tuỳ chọn): kỳ dài hơn một tháng — CODE tính, model chỉ
+  // chọn từ khoá, vẫn không được nhẩm ngày.
+  'quy_nay', 'nam_nay', '3_thang_qua', '6_thang_qua', '12_thang_qua',
+] as const;
 export type KyTuKhoa = (typeof KY_HOP_LE)[number];
 
 /** Một kỳ đã chốt, hai đầu đều 'YYYY-MM-DD' và đã bao gồm cả hai đầu. */
@@ -131,6 +137,21 @@ export function giaiKy(ky: KyTuKhoa, bayGio: Date = new Date()): { tu: string; d
       const cuoiThangTruoc = new Date(Date.UTC(vn.getUTCFullYear(), vn.getUTCMonth(), 0));
       const den = inNgay(cuoiThangTruoc);
       return { tu: `${den.slice(0, 7)}-01`, den };
+    }
+    // ── Kỳ dài (25/08) — vẫn CODE tính, model chỉ chọn từ khoá ──────────────
+    case 'quy_nay': {
+      const thangDauQuy = Math.floor(vn.getUTCMonth() / 3) * 3;
+      return { tu: inNgay(new Date(Date.UTC(vn.getUTCFullYear(), thangDauQuy, 1))), den: homNay };
+    }
+    case 'nam_nay':
+      return { tu: `${vn.getUTCFullYear()}-01-01`, den: homNay };
+    // "N tháng qua" = N tháng LỊCH kể cả tháng này (6 tháng qua ở 25/08 = 01/03
+    // → 25/08) — khớp cách chia tháng của doanh_so_khach_theo_thang.
+    case '3_thang_qua':
+    case '6_thang_qua':
+    case '12_thang_qua': {
+      const n = Number(ky.split('_')[0]);
+      return { tu: inNgay(new Date(Date.UTC(vn.getUTCFullYear(), vn.getUTCMonth() - (n - 1), 1))), den: homNay };
     }
   }
 }
@@ -267,8 +288,9 @@ export function dongNgayHomNay(bayGio: Date = new Date()): string {
  */
 export const MO_TA_KY =
   'Kỳ báo cáo. DÙNG THAM SỐ NÀY khi nhân viên nói "hôm nay", "hôm qua", ' +
-  '"tuần này", "tháng này", "tháng trước" — bạn KHÔNG biết hôm nay là ngày nào, ' +
-  'hệ thống sẽ tự tính. TUYỆT ĐỐI đừng tự nhẩm ngày rồi điền tu_ngay.';
+  '"tuần này", "tháng này", "tháng trước", "quý này", "năm nay", ' +
+  '"3/6/12 tháng qua" (→ 3_thang_qua / 6_thang_qua / 12_thang_qua) — bạn KHÔNG biết ' +
+  'hôm nay là ngày nào, hệ thống sẽ tự tính. TUYỆT ĐỐI đừng tự nhẩm ngày rồi điền tu_ngay.';
 
 /** Mô tả dùng chung cho `tu_ngay`. */
 export const MO_TA_TU_NGAY =

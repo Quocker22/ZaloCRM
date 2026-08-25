@@ -14,6 +14,9 @@
 
 import type { OdooClient } from '../client.js';
 import type { ToolDefinition } from '../../agent/types.js';
+import { thamSoKyOdoo } from '../ky-odoo.js';
+import { KY_HOP_LE as KY_BOT, MO_TA_TU_NGAY, MO_TA_DEN_NGAY } from '../ky-thoi-gian.js';
+import { KHO } from '../../agent/noi-zalo/gom-don/kieu.js';
 
 /** Số dòng top tối đa. Tin Zalo dài hơn là không ai đọc hết. */
 const TOP_TOI_DA = 5;
@@ -51,6 +54,47 @@ export interface BaoCaoTongQuan {
   tuNgay: string;
   denNgay: string;
   ky: string;
+  /** Doanh thu theo ngày/giờ trong kỳ — Odoo trả sẵn (revenue_chart), để vẽ cột. */
+  bieuDoDoanhThu: DongTop[];
+  /** Doanh thu theo chi nhánh (branch_chart). */
+  bieuDoChiNhanh: DongTop[];
+  /** Mã chi nhánh đã lọc (TT/HCM/KB) — undefined = tất cả. */
+  chiNhanh?: string;
+  topTheo: 'doanh_thu' | 'so_don' | 'so_luong';
+}
+
+/** Bộ lọc chung của hai tool dashboard — khớp bộ lọc trên web (25/08). */
+export interface BoLocDashboard {
+  ky?: string;
+  tu_ngay?: string;
+  den_ngay?: string;
+  /** TT | HCM | KB — map cứng sang warehouse id qua bảng KHO, không tin số model. */
+  chi_nhanh?: string;
+}
+
+/** Preset Odoo giữ nguyên; từ khoá bot (quy_nay, 6_thang_qua…) hay ngày → custom. */
+export function thamSoLocDashboard(
+  input: BoLocDashboard,
+  bayGio: Date = new Date(),
+): { kwargs: Record<string, unknown>; moTaKy: string; chiNhanh?: string } {
+  const kwargs: Record<string, unknown> = {};
+  let moTaKy = '';
+  const kyOdoo = (KY_HOP_LE as readonly string[]).includes(input.ky ?? '');
+  if (kyOdoo && !input.tu_ngay && !input.den_ngay) {
+    kwargs.time_preset = input.ky;
+  } else if ((KY_BOT as readonly string[]).includes(input.ky ?? '') || input.tu_ngay || input.den_ngay) {
+    const p = thamSoKyOdoo({ ky: input.ky, tu_ngay: input.tu_ngay, den_ngay: input.den_ngay }, bayGio);
+    kwargs.time_preset = p.time_preset;
+    if (p.date_from) kwargs.date_from = p.date_from;
+    if (p.date_to) kwargs.date_to = p.date_to;
+    moTaKy = p.ky.canhBao ? ` ⚠ ${p.ky.canhBao}` : '';
+  } else {
+    kwargs.time_preset = 'this_month';
+  }
+  const maKho = (input.chi_nhanh ?? '').trim().toUpperCase();
+  const kho = KHO.find((k) => k.ma === maKho);
+  if (kho) kwargs.warehouse_ids = [kho.id];
+  return { kwargs, moTaKy, ...(kho ? { chiNhanh: kho.ma } : {}) };
 }
 
 export interface BaoCaoTongQuanDeps {
@@ -64,9 +108,9 @@ export const KY_HOP_LE = [
 export type KyBaoCao = (typeof KY_HOP_LE)[number];
 
 /** Đọc mảng top — Odoo trả [{label, value}]. */
-function docTop(v: unknown): DongTop[] {
+function docTop(v: unknown, toiDa = TOP_TOI_DA): DongTop[] {
   if (!Array.isArray(v)) return [];
-  return v.slice(0, TOP_TOI_DA).map((r) => {
+  return v.slice(0, toiDa).map((r) => {
     const o = (r ?? {}) as Record<string, unknown>;
     return { ten: String(o.label ?? ''), giaTri: Number(o.value ?? 0) };
   });
@@ -74,22 +118,30 @@ function docTop(v: unknown): DongTop[] {
 
 export async function baoCaoTongQuan(
   deps: BaoCaoTongQuanDeps,
-  input: { ky?: string } = {},
+  input: BoLocDashboard & { top_theo?: string; bayGio?: Date } = {},
 ): Promise<BaoCaoTongQuan> {
-  // Preset lạ → dùng this_month. KHÔNG truyền thẳng chuỗi của model xuống Odoo:
-  // Odoo nhận preset không nhận ra sẽ lặng lẽ trả kỳ khác, và bot báo số của
-  // kỳ sai mà không ai biết.
-  const ky = (KY_HOP_LE as readonly string[]).includes(input.ky ?? '')
-    ? (input.ky as KyBaoCao)
-    : 'this_month';
+  // Preset lạ → this_month; từ khoá bot / ngày cụ thể → custom (ky-odoo.ts).
+  // KHÔNG truyền thẳng chuỗi của model xuống Odoo: preset không nhận ra thì
+  // Odoo lặng lẽ trả kỳ khác, bot báo số của kỳ sai mà không ai biết.
+  const loc = thamSoLocDashboard(input, input.bayGio);
+  const topTheo = (['doanh_thu', 'so_don', 'so_luong'] as const).find((t) => t === input.top_theo) ?? 'doanh_thu';
+  // Khớp bộ lọc web: top KH/NV theo doanh thu hay số đơn; top SP theo doanh
+  // thu hay số lượng. Chỉ gửi khi NV chọn khác mặc định — kwargs mặc định giữ
+  // nguyên {time_preset} như trước.
+  const kwargs: Record<string, unknown> = { ...loc.kwargs };
+  if (topTheo === 'so_don') { kwargs.top_customer_by = 'orders'; kwargs.top_staff_by = 'orders'; }
+  if (topTheo === 'so_luong') kwargs.top_product_by = 'quantity';
+  // Kỳ một ngày → cột theo GIỜ mới có gì để nhìn; còn lại theo ngày như web.
+  if (kwargs.time_preset === 'today' || kwargs.time_preset === 'yesterday') kwargs.chart_granularity = 'hour';
 
   // args = [] (KHÔNG [[]]) — xem giải thích ở canh-bao-ton-kho.ts.
   const r = await deps.odoo.execute<Record<string, unknown>>(
     'incokit.dashboard_overview',
     'get_dashboard_data',
     [],
-    { time_preset: ky },
+    kwargs,
   );
+  const ky = String(kwargs.time_preset);
 
   // Hàng rào: xoá field nhạy cảm NGAY khi nhận, trước mọi xử lý khác.
   const sach = { ...(r ?? {}) };
@@ -113,7 +165,12 @@ export async function baoCaoTongQuan(
     // Odoo trả false khi rỗng (không phải null — XML-RPC không mã hoá được None).
     tuNgay: tr.df ? String(tr.df) : '',
     denNgay: tr.dt ? String(tr.dt) : '',
-    ky: String(tr.preset ?? ky),
+    ky: String(tr.preset ?? ky) + loc.moTaKy,
+    // Biểu đồ Odoo trả sẵn (25/08) — KHÔNG cắt TOP_TOI_DA, cột nào cũng phải có.
+    bieuDoDoanhThu: docTop(sach.revenue_chart, 400),
+    bieuDoChiNhanh: docTop(sach.branch_chart, 50),
+    ...(loc.chiNhanh ? { chiNhanh: loc.chiNhanh } : {}),
+    topTheo,
   };
 }
 
@@ -134,10 +191,28 @@ export const baoCaoTongQuanDefinition: ToolDefinition = {
     properties: {
       ky: {
         type: 'string',
-        enum: [...KY_HOP_LE],
+        enum: [...KY_HOP_LE, ...KY_BOT.filter((k) => !['hom_nay', 'hom_qua', 'thang_nay', 'thang_truoc'].includes(k))],
         description:
           'Kỳ báo cáo. today=hôm nay · yesterday=hôm qua · last_7_days=7 ngày qua · ' +
-          'this_month=tháng này (mặc định) · last_month=tháng trước.',
+          'this_month=tháng này (mặc định) · last_month=tháng trước · tuan_nay=tuần này · ' +
+          'quy_nay=quý này · nam_nay=năm nay · 3_thang_qua/6_thang_qua/12_thang_qua. ' +
+          'Bạn KHÔNG biết hôm nay là ngày nào — hệ thống tự tính, ĐỪNG nhẩm ngày.',
+      },
+      tu_ngay: { type: 'string', description: MO_TA_TU_NGAY },
+      den_ngay: { type: 'string', description: MO_TA_DEN_NGAY },
+      chi_nhanh: {
+        type: 'string',
+        enum: ['TT', 'HCM', 'KB'],
+        description:
+          'Lọc theo CHI NHÁNH khi nhân viên nêu: "chi nhánh HCM"/"kho Hồ Chí Minh" → HCM; ' +
+          '"trung tâm"/"kho TT" → TT; "kho B" → KB. Không nhắc thì BỎ TRỐNG (= tất cả).',
+      },
+      top_theo: {
+        type: 'string',
+        enum: ['doanh_thu', 'so_don', 'so_luong'],
+        description:
+          'Xếp top theo gì: doanh_thu (mặc định) · so_don ("khách nào mua nhiều đơn nhất", ' +
+          '"nhân viên nào bán nhiều đơn") · so_luong ("sản phẩm nào bán nhiều cái nhất").',
       },
     },
     required: [],
