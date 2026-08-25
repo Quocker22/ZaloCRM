@@ -103,12 +103,28 @@ export async function baoCaoBanHang(
   const ky = String(boLoc.kwargs.time_preset) + boLoc.moTaKy;
 
   // args = [] (KHÔNG [[]]) — @api.model, Odoo tự chèn recordset.
-  const r = await deps.odoo.execute<Record<string, unknown>>(
-    'incokit.sales_report',
-    'get_sales_report_data',
-    [],
-    boLoc.kwargs,
-  );
+  let r: Record<string, unknown>;
+  try {
+    r = await deps.odoo.execute<Record<string, unknown>>(
+      'incokit.sales_report',
+      'get_sales_report_data',
+      [],
+      boLoc.kwargs,
+    );
+  } catch (err) {
+    // Đo prod 25/08: kỳ CUSTOM làm sales_report trả một giá trị None mà
+    // XML-RPC không mã hoá được ("cannot marshal None") — dashboard tổng quan
+    // với cùng kỳ thì chạy. Đừng để bot chết: trả bảng rỗng kèm lý do và chỉ
+    // đường sang tool khác cho kỳ dài.
+    if (ky === 'custom') {
+      return {
+        tabs: [], tuNgay: '', denNgay: '', coTabLoiNhuan: false,
+        ky: `${ky} ⚠ Odoo chưa trả được BẢNG bán hàng cho kỳ tuỳ chọn/kỳ dài. ` +
+          'Dùng bao_cao_tong_quan (có kỳ dài + biểu đồ) hoặc bao_cao_linh_hoat (nhóm theo tháng/nhân viên/khách) thay thế.',
+      };
+    }
+    throw err;
+  }
 
   const tabsRaw = Array.isArray(r?.tabs) ? (r.tabs as Record<string, unknown>[]) : [];
   const loc = input.tab?.trim();

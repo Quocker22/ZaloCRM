@@ -64,6 +64,16 @@ describe('baoCaoTongQuan + bộ lọc web', () => {
 });
 
 describe('baoCaoBanHang + bộ lọc web', () => {
+  it('kỳ custom mà Odoo ném "cannot marshal None" (đo prod 25/08) → bảng rỗng + chỉ đường, KHÔNG crash', async () => {
+    const odoo = { execute: vi.fn(async () => { throw new Error('cannot marshal None unless allow_none is enabled'); }) };
+    const kq = await baoCaoBanHang({ odoo: odoo as never }, { ky: '6_thang_qua', bayGio: BAY_GIO });
+    expect(kq.tabs).toEqual([]);
+    expect(kq.ky).toContain('bao_cao_tong_quan');
+  });
+  it('preset thường mà Odoo lỗi → vẫn ném (không nuốt lỗi lạ)', async () => {
+    const odoo = { execute: vi.fn(async () => { throw new Error('Odoo sập'); }) };
+    await expect(baoCaoBanHang({ odoo: odoo as never }, { ky: 'this_month' })).rejects.toThrow('Odoo sập');
+  });
   it('6 tháng qua + chi nhánh KB → custom đủ 2 ngày + warehouse_ids [4]', async () => {
     const odoo = odooGia();
     await baoCaoBanHang({ odoo: odoo as never }, { ky: '6_thang_qua', chi_nhanh: 'KB', tab: 'by_time', bayGio: BAY_GIO });
