@@ -50,16 +50,18 @@ export async function dongDauThoiGian(anh: Buffer, luc: Date = new Date()): Prom
     const w = meta.width ?? 0;
     const h = meta.height ?? 0;
     if (!w || !h) return anh;
-    const chu = `In lúc ${chuoiThoiGianVn(luc)}`;
-    // Cỡ chữ ~ chữ thường của hoá đơn (đo ảnh scale 2: body ~22px trên khổ 1190).
-    const coChu = Math.max(12, Math.round(w * 0.0185));
-    // Neo phải cách mép ~5% (đúng mép vùng khoanh), cao ~22.4% — ngang dòng
-    // "Số hoá đơn"/"Ngày ..." của template kiotviet.
+    const chu = `(In ${chuoiThoiGianVn(luc)})`;
+    // Anh Quốc 25/08: "cho cái giờ CÙNG HÀNG, cùng font size với ngày tháng
+    // năm — Ngày 25 tháng 08 năm 2026 (In 12:54 25/08/2026)". Dòng "Ngày …"
+    // của template kiotviet căn GIỮA trang, đậm, cỡ ~2.1% bề ngang; đặt dấu
+    // bắt đầu ngay sau mép phải của chuỗi ngày (nửa chuỗi ≈ 0.148w) — ngày
+    // 1 chữ số thì hở thêm vài px, chấp nhận được.
+    const coChu = Math.max(14, Math.round(w * 0.021));
     const dau = Buffer.from(
       `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">` +
-      `<text x="${Math.round(w * 0.953)}" y="${Math.round(h * 0.224)}" text-anchor="end" ` +
+      `<text x="${Math.round(w * 0.655)}" y="${Math.round(h * 0.2318)}" ` +
       `font-family="DejaVu Sans, Arial, sans-serif" font-size="${coChu}" ` +
-      `font-weight="600" fill="#1f1f1f">${chu}</text></svg>`,
+      `font-weight="700" fill="#1f1f1f">${chu}</text></svg>`,
     );
     return await sharp(anh)
       .composite([{ input: dau, top: 0, left: 0 }])
