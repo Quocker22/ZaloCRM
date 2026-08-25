@@ -210,9 +210,11 @@ export class HoaDonAnhClient {
     for await (const trang of doc) {
       if (++i > TRANG_TOI_DA) break;
       return {
-        // Đóng dấu giờ thực 24H lên ảnh (anh Quyết 24/08) — kho phân biệt
-        // được các đơn giống nhau, xót đơn thì soi giờ mà truy.
-        duLieu: await dongDauThoiGian(Buffer.from(trang)),
+        // 25/08: KHÔNG đóng dấu giờ lên ảnh nữa — giờ đã in NGAY TRONG PDF
+        // của Odoo (template kiotviet, "Ngày … năm 2026 (HH:MM)"), nên in từ
+        // Odoo web hay từ bot đều có, và không bị hai dòng giờ chồng nhau.
+        // `dongDauThoiGian` giữ lại phòng khi cần đóng dấu ảnh nguồn khác.
+        duLieu: Buffer.from(trang),
         // Tên có mã đơn để nhân viên lưu về còn nhận ra.
         tenFile: `hoa-don-${maDon ?? donId}.png`,
       };
