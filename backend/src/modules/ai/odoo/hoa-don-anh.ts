@@ -34,23 +34,35 @@ export function chuoiThoiGianVn(luc: Date = new Date()): string {
 }
 
 /**
- * Đóng dấu thời gian thực lên góc trên-phải ảnh hoá đơn.
+ * Đóng dấu thời gian thực lên ảnh hoá đơn — bên PHẢI, NGANG HÀNG khối
+ * "Số hoá đơn / Ngày" (anh Quốc 25/08 kèm ảnh khoanh vùng: "chuyển phần giờ
+ * xuống chỗ khoanh đỏ, không cần highlight"). Chữ đen thường, không nền đỏ.
+ *
+ * Vị trí tính theo TỶ LỆ ảnh (không theo pixel cứng): đổi DO_PHONG hay khổ
+ * giấy thì dấu vẫn nằm đúng vùng đầu trang bên phải.
  *
  * Dấu là PHỤ, ảnh là CHÍNH: mọi lỗi (ảnh hỏng, sharp thiếu) đều trả nguyên
  * ảnh gốc — thà thiếu giờ còn hơn kho không nhận được hoá đơn.
  */
 export async function dongDauThoiGian(anh: Buffer, luc: Date = new Date()): Promise<Buffer> {
   try {
+    const meta = await sharp(anh).metadata();
+    const w = meta.width ?? 0;
+    const h = meta.height ?? 0;
+    if (!w || !h) return anh;
     const chu = `In lúc ${chuoiThoiGianVn(luc)}`;
-    const rong = 14 + chu.length * 9;
+    // Cỡ chữ ~ chữ thường của hoá đơn (đo ảnh scale 2: body ~22px trên khổ 1190).
+    const coChu = Math.max(12, Math.round(w * 0.0185));
+    // Neo phải cách mép ~5% (đúng mép vùng khoanh), cao ~22.4% — ngang dòng
+    // "Số hoá đơn"/"Ngày ..." của template kiotviet.
     const dau = Buffer.from(
-      `<svg xmlns="http://www.w3.org/2000/svg" width="${rong}" height="30">` +
-      '<rect x="0" y="0" width="100%" height="100%" rx="4" fill="#b91c1c"/>' +
-      `<text x="7" y="20" font-family="DejaVu Sans, Arial, sans-serif" font-size="15" ` +
-      `font-weight="bold" fill="#ffffff">${chu}</text></svg>`,
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">` +
+      `<text x="${Math.round(w * 0.953)}" y="${Math.round(h * 0.224)}" text-anchor="end" ` +
+      `font-family="DejaVu Sans, Arial, sans-serif" font-size="${coChu}" ` +
+      `font-weight="600" fill="#1f1f1f">${chu}</text></svg>`,
     );
     return await sharp(anh)
-      .composite([{ input: dau, gravity: 'northeast' }])
+      .composite([{ input: dau, top: 0, left: 0 }])
       .png()
       .toBuffer();
   } catch {
