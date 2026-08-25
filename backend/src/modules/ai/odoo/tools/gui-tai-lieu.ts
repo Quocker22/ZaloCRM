@@ -286,6 +286,23 @@ export async function guiTaiLieu(
     if (trungTen.length === 1) return guiFile(trungTen[0]);
   }
 
+  // ═══ TOKEN NGUYÊN MÃ (25/08, ca thật 13:58) ═══════════════════════════════
+  // "@bot cho cattalog K6P" → khong_thay dù K6P.pdf NẰM TRONG KHO: "catalog"
+  // là stopword, còn "k6p" không phải mã model P-series nên `diemKhopTaiLieu`
+  // chỉ chấm 1 điểm — dưới ngưỡng 2. Nhưng tên file cụt ("K6P", "Y2", "a6")
+  // xuất hiện NGUYÊN TOKEN trong câu thì chính là file người ta xin — so
+  // token-bằng-hệt nên "k6" không ăn theo "k6p". Cùng bài đã vá cho
+  // kemFileTriThuc; giờ chính tool gửi file cũng phải biết.
+  const tokens = new Set(tach(yeuCau));
+  const theoToken = kho.filter((t) => {
+    const ten = chuanTen(t.tieuDe);
+    return ten.length >= 2 && tokens.has(ten);
+  });
+  if (theoToken.length === 1) return guiFile(theoToken[0]);
+  if (theoToken.length > 1) {
+    return { loai: 'nhieu_ket_qua', ungVien: theoToken.slice(0, LIET_KE_TOI_DA) };
+  }
+
   const xep = kho
     .map((t) => ({ t, d: diemKhopTaiLieu(yeuCau, t) }))
     .sort((a, b) => b.d - a.d);
