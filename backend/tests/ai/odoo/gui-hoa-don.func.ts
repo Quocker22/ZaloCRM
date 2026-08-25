@@ -68,7 +68,7 @@ describe('RANH GIỚI — hóa đơn KHÔNG được sang luồng khách', () =>
     expect(r.has('gui_hoa_don')).toBe(false);
     // 07/08: +sua_don · 10/08: +3 tool tổng quát · 11/08: +sua_vat,
     // +bao_cao_ban_ton, +tao_don_mua, +tra_nha_cung_cap (phiếu nhập hàng)
-    expect(r.definitions()).toHaveLength(23); // 17/08: +tra_ngan_hang
+    expect(r.definitions()).toHaveLength(24); // 17/08: +tra_ngan_hang; 25/08: +doanh_so_khach_theo_thang
   });
 
   it('có anhClient nhưng THIẾU odooUrl → cũng không đăng ký (link sẽ hỏng)', () => {

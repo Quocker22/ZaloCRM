@@ -120,6 +120,10 @@ import {
   xuatExcel, tenFileBaoCao, NGUONG_DINH_KEM, type BangExcel, type TepBaoCao,
 } from '../odoo/xuat-excel.js';
 import { bangRaAnh } from '../odoo/anh-bang.js';
+import { bieuDoCot } from '../odoo/ve-bieu-do.js';
+import {
+  doanhSoKhachTheoThang, doanhSoKhachDefinition, dinhDangDoanhSoKhach,
+} from '../odoo/tools/doanh-so-khach.js';
 import { docOdoo, docOdooDefinition, dinhDangDoc } from '../odoo/tong-quat/doc.js';
 import { lamOdoo, lamOdooDefinition, dinhDangLam, CHIA_XAC_NHAN } from '../odoo/tong-quat/lam.js';
 import { khamPhaOdoo, khamPhaOdooDefinition, dinhDangKhamPha } from '../odoo/tong-quat/kham-pha.js';
@@ -696,6 +700,37 @@ export function buildStaffRegistry(deps: {
         const kem = kq.trangThai === 'ok' &&
           (await dinhKemNeuDai(kq.danhSach.length, () => bangLinhHoat(kq), deps.nhanTepBaoCao));
         return dinhDangLinhHoat(kq, kem);
+      },
+    })
+    // DOANH SỐ MỘT KHÁCH THEO THÁNG + BIỂU ĐỒ CỘT (25/08, anh Quyết). Ảnh đi
+    // đường `nhanTepBaoCao` như bảng báo cáo — không qua LLM. Vẽ ảnh lỗi thì
+    // vẫn trả số (text), ảnh là phụ.
+    .register({
+      definition: doanhSoKhachDefinition,
+      run: async (input) => {
+        const kq = await doanhSoKhachTheoThang(
+          { odoo }, input as unknown as Parameters<typeof doanhSoKhachTheoThang>[1],
+        );
+        let coAnh = false;
+        if (kq.trangThai === 'ok' && deps.nhanTepBaoCao) {
+          try {
+            const tb = kq.thang.length > 0 ? kq.tong / kq.thang.length : 0;
+            const rut = (n: number): string => `${(n / 1e6).toFixed(1).replace('.', ',')}tr`;
+            const png = await bieuDoCot({
+              tieuDe: `Doanh số ${kq.khach.ten}`,
+              phuDe: `Hoá đơn đã vào sổ · ${kq.thang[0]?.nhan} – ${kq.thang[kq.thang.length - 1]?.nhan}`,
+              nhan: kq.thang.map((t) => t.nhan.replace(/^(\d\d)\/\d\d(\d\d)$/, '$1/$2')),
+              giaTri: kq.thang.map((t) => t.tien),
+              ghiChu: `Tổng ${rut(kq.tong)} · TB ${rut(tb)}/tháng · ${kq.tongHoaDon} hoá đơn`,
+            });
+            deps.nhanTepBaoCao({
+              tenFile: `doanh-so-${kq.khach.id}-${kq.thang.length}thang.png`,
+              duLieu: png, loai: 'anh', moTa: '',
+            });
+            coAnh = true;
+          } catch { /* ảnh lỗi → text vẫn đủ số */ }
+        }
+        return dinhDangDoanhSoKhach(kq, coAnh);
       },
     })
     // KIỂM KHO TỪNG PHẦN (yêu cầu anh Quyết 17:58 ngày 11/08/2026).

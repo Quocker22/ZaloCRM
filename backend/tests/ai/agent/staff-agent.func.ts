@@ -53,7 +53,7 @@ const input = (over: Record<string, unknown> = {}) => ({
 });
 
 describe('buildStaffRegistry', () => {
-  it('đăng ký đủ 23 tool (11/08: +tao_don_mua, +tra_nha_cung_cap; 17/08: +tra_ngan_hang)', () => {
+  it('đăng ký đủ 24 tool (11/08: +tao_don_mua, +tra_nha_cung_cap; 17/08: +tra_ngan_hang; 25/08: +doanh_so_khach_theo_thang)', () => {
     const r = buildStaffRegistry({
       odoo: fakeOdoo(),
       conversationId: 'c',
@@ -69,6 +69,9 @@ describe('buildStaffRegistry', () => {
       'bao_cao_linh_hoat',
       'bao_cao_tong_quan',
       'canh_bao_ton_kho',
+      // DOANH SỐ MỘT KHÁCH THEO THÁNG + biểu đồ cột (25/08, anh Quyết). CHỈ
+      // luồng nhân viên — doanh thu không bao giờ mở cho khách.
+      'doanh_so_khach_theo_thang',
       // 3 tool tổng quát (10/08): làm được việc chưa có tool riêng, thay vì
       // cứ mỗi nghiệp vụ mới lại thêm một tool.
       'doc_odoo',
@@ -172,11 +175,11 @@ describe('chayLenhNhanVien — chạy vòng lặp', () => {
     expect(msg).toContain('tra giá P10');
   });
 
-  it('gửi đủ 23 tool cho LLM (11/08: +tao_don_mua, +tra_nha_cung_cap; 17/08: +tra_ngan_hang)', async () => {
+  it('gửi đủ 24 tool cho LLM (11/08: +tao_don_mua, +tra_nha_cung_cap; 17/08: +tra_ngan_hang; 25/08: +doanh_so_khach_theo_thang)', async () => {
     const generate = fakeLLM([turnXong('ok')]);
     await chayLenhNhanVien(deps({ generate }), input());
 
-    expect(generate.mock.calls[0][0].tools).toHaveLength(23);
+    expect(generate.mock.calls[0][0].tools).toHaveLength(24);
   });
 
   it('system prompt là prompt NHÂN VIÊN, không phải prompt khách', async () => {
