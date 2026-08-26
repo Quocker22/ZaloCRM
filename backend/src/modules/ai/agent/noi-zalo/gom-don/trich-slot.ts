@@ -550,10 +550,64 @@ export async function trichSlot(
     const kq = lamSachTrich(call.input);
     suaGiaNhanBua(cau, kq);
     tachSlDinhDauSp(kq);
+    boSungGiaTuKhoiAnh(cau, kq);
     return kq;
   } catch (err) {
     // LLM sập không được làm máy sập: nhường agent thường xử câu này.
     logger.warn({ err }, '[gom-don] trichSlot lỗi — coi là ngoại lệ');
     return { ngoaiLe: true };
   }
+}
+
+/**
+ * BÙ GIÁ TỪ KHỐI ẢNH (ca thật 16:23 26/08, nhóm "Dậy học cho AI").
+ *
+ * Ảnh hoá đơn cũ ghi rõ "Vỏ Neon 6mm Xanh Ngọc: 30 Mét, giá 9.000 đ" — model
+ * đọc ảnh chép đúng (đo lại 23:30 cùng ngày), nhưng lượt trích slot thật đã
+ * bỏ `gia`, đơn S15326 lên với giá hệ thống 12.000/13.000 → anh Quyết "sai
+ * giá rồi". Chạy lại cùng câu thì trích ra đủ giá — tức LLM lúc có lúc không.
+ * Khối ảnh do `loiDanDocAnh` ép định dạng "tên: SL đơn vị, giá X" nên đọc
+ * bằng code được: dòng nào trích thiếu giá mà khớp tên một dòng trong ảnh
+ * có giá → lấy giá đó. KHÔNG đè giá model đã trích (NV có thể báo giá mới
+ * trong caption), KHÔNG đụng dòng tặng.
+ */
+export function boSungGiaTuKhoiAnh(cau: string, trich: KetQuaTrich): void {
+  if (!trich.dong?.length) return;
+  const iAnh = cau.indexOf('[Khách gửi ảnh');
+  if (iAnh < 0) return;
+  const khoi = cau.slice(iAnh);
+  // "- Tên hàng (ghi chú): 30 Mét, giá 9.000 đ"  |  "Tên: 20 cái giá 170k"
+  const giaTrongAnh: Array<{ ten: string; gia: number }> = [];
+  for (const dong of khoi.split('\n')) {
+    const m = dong.match(/^\s*[-•*]?\s*(.+?)\s*:\s*[\d.,]+\s*[^,]*?,?\s*giá\s*([\d.]+)\s*(k|nghìn|ngàn|tr|triệu|đ|d|vnd)?/i);
+    if (!m) continue;
+    const so = Number(m[2].replace(/\./g, '').replace(/,/g, '.'));
+    if (!Number.isFinite(so) || so <= 0) continue;
+    const hauTo = (m[3] ?? '').toLowerCase();
+    const gia = hauTo === 'k' || hauTo === 'nghìn' || hauTo === 'ngàn' ? so * 1000
+      : hauTo === 'tr' || hauTo === 'triệu' ? so * 1_000_000 : so;
+    giaTrongAnh.push({ ten: chuanTenSo(m[1]), gia });
+  }
+  if (giaTrongAnh.length === 0) return;
+  for (const d of trich.dong) {
+    if (d.gia != null || d.tang) continue;
+    const sp = chuanTenSo(d.sp);
+    if (sp.length < 4) continue;
+    const khop = giaTrongAnh.filter((g) => g.ten.includes(sp) || sp.includes(g.ten));
+    if (khop.length !== 1) continue; // 0 = không có; ≥2 = mơ hồ, để máy hỏi
+    logger.info({ sp: d.sp, gia: khop[0].gia }, '[trich-slot] bù giá từ khối ảnh (model trích thiếu)');
+    d.gia = khop[0].gia;
+  }
+}
+
+/** Bỏ dấu, bỏ phần trong ngoặc và ký tự lạ — để so tên hàng ảnh ↔ tên trích. */
+function chuanTenSo(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, ' ')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
 }
