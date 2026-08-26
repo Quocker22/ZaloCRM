@@ -15,7 +15,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../../shared/database/prisma-client.js';
 import { authMiddleware } from '../../auth/auth-middleware.js';
-import { xoaCache } from './agent-operator-service.js';
+import { xoaCache, themUidVaoCache, boUidKhoiCache } from './agent-operator-service.js';
 
 function laAdmin(role: string): boolean {
   return role === 'owner' || role === 'admin';
@@ -105,7 +105,10 @@ export async function registerAgentOperatorRoutes(app: FastifyInstance): Promise
         },
         select: { id: true, zaloUid: true, tenGoi: true, enabled: true },
       });
+      // Vào cache NGAY (26/08): xoaCache giờ chỉ đánh dấu cũ, không xoá —
+      // nhân viên cũ không lỡ tin trong lúc nạp lại, nhân viên mới có hiệu lực tức thì.
       xoaCache(user.orgId);
+      themUidVaoCache(user.orgId, op.zaloUid);
       return reply.code(201).send({ operator: op });
     } catch (err: unknown) {
       // Unique (orgId, zaloUid) vi phạm → nick đã được gán.
@@ -139,6 +142,8 @@ export async function registerAgentOperatorRoutes(app: FastifyInstance): Promise
       select: { id: true, zaloUid: true, tenGoi: true, enabled: true },
     });
     xoaCache(user.orgId);
+    if (updated.enabled) themUidVaoCache(user.orgId, updated.zaloUid);
+    else boUidKhoiCache(user.orgId, updated.zaloUid);
     return reply.send({ operator: updated });
   });
 
@@ -148,12 +153,13 @@ export async function registerAgentOperatorRoutes(app: FastifyInstance): Promise
     if (!laAdmin(user.role)) return reply.code(403).send({ error: 'CHI_ADMIN' });
 
     const op = await prisma.agentOperator.findFirst({
-      where: { id: req.params.id, orgId: user.orgId }, select: { id: true },
+      where: { id: req.params.id, orgId: user.orgId }, select: { id: true, zaloUid: true },
     });
     if (!op) return reply.code(404).send({ error: 'KHONG_TIM_THAY' });
 
     await prisma.agentOperator.delete({ where: { id: op.id } });
     xoaCache(user.orgId);
+    boUidKhoiCache(user.orgId, op.zaloUid);
     return reply.send({ ok: true });
   });
 }

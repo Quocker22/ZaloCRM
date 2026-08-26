@@ -54,8 +54,33 @@ export async function napCache(orgId: string): Promise<void> {
 }
 
 /** Xoá cache một org — gọi sau khi admin thêm/sửa/xoá để có hiệu lực NGAY. */
+/**
+ * Đánh dấu cache CŨ — KHÔNG xoá (26/08).
+ *
+ * Ca thật 09:51:56 26/08: Minh Anh thêm chị Mỹ làm nhân viên → route gọi hàm
+ * này → cache bị XOÁ SẠCH → tin kế tiếp của anh Quốc (09:52:29, nhân viên từ
+ * 08/08) vào cổng đồng bộ thấy cache trống → nạp nền nhưng trả `false` ngay
+ * → tin bị vứt IM LẶNG ("không qua cổng nhận lệnh"). Ghi chú cũ "chấp nhận lỡ
+ * MỘT tin" hoá ra lỡ đúng tin người ta đang cần.
+ *
+ * Giữ danh sách cũ, chỉ đặt hết hạn = 0: cổng vẫn cho nhân viên cũ qua trong
+ * lúc nạp lại; nhân viên MỚI thì route gọi `themUidVaoCache` để có ngay.
+ */
 export function xoaCache(orgId: string): void {
-  cache.delete(orgId);
+  const muc = cache.get(orgId);
+  if (muc) muc.hetHan = 0;
+}
+
+/** Nhân viên vừa được thêm/bật → vào cache NGAY, khỏi đợi nạp nền. */
+export function themUidVaoCache(orgId: string, uid: string): void {
+  const muc = cache.get(orgId);
+  if (muc) muc.uids.add(String(uid));
+  else cache.set(orgId, { uids: new Set([String(uid)]), hetHan: 0 });
+}
+
+/** Nhân viên vừa bị tắt/xoá → ra khỏi cache NGAY (cổng bảo mật không được trễ 60s). */
+export function boUidKhoiCache(orgId: string, uid: string): void {
+  cache.get(orgId)?.uids.delete(String(uid));
 }
 
 /**
