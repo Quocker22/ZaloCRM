@@ -60,27 +60,37 @@ describe('inHoaDon', () => {
     expect(themJob).toHaveBeenCalled();
   });
 
-  it('đơn CHƯA có hoá đơn → in TỜ ĐƠN HÀNG (26/08, anh Quốc: "cả hoá đơn cả đơn hàng"), mặc định không giá', async () => {
+  it('đơn CHƯA có hoá đơn → TỰ XUẤT hoá đơn rồi in (in = đã bán, phải ghi sổ)', async () => {
     const themJob = vi.fn(async () => {});
+    // Đơn nháp chưa có hoá đơn; xuatHoaDon xuất ra INV/2026/00099.
+    const xuatHoaDon = vi.fn(async () => ({
+      trangThai: 'da_xuat' as const, hoaDonId: 9099, soHoaDon: 'INV/2026/00099',
+      maDon: 'S13811', tenKhach: 'A Tuấn Tospino', tongTien: 780000, link: 'x', anh: null,
+    }));
     const kq = await inHoaDon(
-      { odoo: fakeOdoo({ don: { ...DON, invoice_ids: [] }, hoaDon: null }), themJob, conversationId: 'c1' },
+      { odoo: fakeOdoo({ don: { ...DON, invoice_ids: [] }, hoaDon: null }), themJob, xuatHoaDon, conversationId: 'c1' },
       { ma_don: 'S13811' },
     );
+    expect(xuatHoaDon).toHaveBeenCalledWith({ ma_don: 'S13811' });
     expect(kq.trangThai).toBe('da_xep_hang');
     if (kq.trangThai !== 'da_xep_hang') return;
-    expect(kq.loai).toBe('don_hang');
+    expect(kq.soHoaDon).toBe('INV/2026/00099');
     expect(themJob).toHaveBeenCalledWith({
-      conversationId: 'c1', hoaDonId: 26728, soHoaDon: 'S13811',
-      report: 'incokit_pos.report_saleorder_kiotviet#khong_gia',
+      conversationId: 'c1', hoaDonId: 9099, soHoaDon: 'INV/2026/00099',
+      report: 'incokit_pos.report_invoice_document_kiotviet#khong_gia',
     });
-    expect(dinhDangInHoaDon(kq)).toContain('ĐƠN HÀNG S13811');
   });
 
-  it('nói rõ "in đơn hàng" (loai=don_hang) → in tờ đơn dù ĐÃ có hoá đơn', async () => {
+  it('đơn chưa có hoá đơn NHƯNG xuất hoá đơn LỖI → không in, báo lý do', async () => {
     const themJob = vi.fn(async () => {});
-    const kq = await inHoaDon({ odoo: fakeOdoo(), themJob }, { ma_don: 'S13811', loai: 'don_hang', co_gia: true });
-    expect(kq.trangThai === 'da_xep_hang' && kq.loai).toBe('don_hang');
-    expect(themJob.mock.calls[0][0]).toMatchObject({ report: 'incokit_pos.report_saleorder_kiotviet' });
+    const xuatHoaDon = vi.fn(async () => ({ trangThai: 'loi' as const, lyDo: 'Odoo Access Denied' }));
+    const kq = await inHoaDon(
+      { odoo: fakeOdoo({ don: { ...DON, invoice_ids: [] }, hoaDon: null }), themJob, xuatHoaDon },
+      { ma_don: 'S13811' },
+    );
+    expect(kq.trangThai).toBe('loi');
+    if (kq.trangThai === 'loi') expect(kq.lyDo).toContain('Access Denied');
+    expect(themJob).not.toHaveBeenCalled();
   });
 
   it('hoá đơn còn NHÁP → từ chối in (chưa có số phát hành, in ra là rác)', async () => {

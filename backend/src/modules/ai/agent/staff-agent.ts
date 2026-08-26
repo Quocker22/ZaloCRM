@@ -124,6 +124,9 @@ import { bieuDoCot, bieuDoCotNgang } from '../odoo/ve-bieu-do.js';
 import {
   doanhSoKhachTheoThang, doanhSoKhachDefinition, dinhDangDoanhSoKhach,
 } from '../odoo/tools/doanh-so-khach.js';
+import {
+  laiGopKhach, laiGopKhachDefinition, dinhDangLaiGopKhach,
+} from '../odoo/tools/lai-gop-khach.js';
 import { docOdoo, docOdooDefinition, dinhDangDoc } from '../odoo/tong-quat/doc.js';
 import { lamOdoo, lamOdooDefinition, dinhDangLam, CHIA_XAC_NHAN } from '../odoo/tong-quat/lam.js';
 import { khamPhaOdoo, khamPhaOdooDefinition, dinhDangKhamPha } from '../odoo/tong-quat/kham-pha.js';
@@ -772,6 +775,53 @@ export function buildStaffRegistry(deps: {
         return dinhDangDoanhSoKhach(kq, coAnh);
       },
     })
+    // LÃI GỘP THEO KHÁCH (26/08, anh Quyết: web chỉ có lãi gộp theo SP). Cùng
+    // công thức profit_report.py, gom theo khách; ảnh đi đường nhanTepBaoCao.
+    .register({
+      definition: laiGopKhachDefinition,
+      run: async (input) => {
+        const kq = await laiGopKhach({ odoo }, input as unknown as Parameters<typeof laiGopKhach>[1]);
+        let coAnh = false;
+        if (kq.trangThai === 'ok' && deps.nhanTepBaoCao) {
+          try {
+            const rut = (n: number): string => `${(n / 1e6).toFixed(1).replace('.', ',')}tr`;
+            const pd = `Lãi gộp chưa trừ vận chuyển · ${kq.ky.tu.split('-').reverse().join('/')} – ${kq.ky.den.split('-').reverse().join('/')}`;
+            let png: Buffer | null = null;
+            let tenFile = '';
+            if (kq.cheDo === 'mot_khach' && kq.thang.length > 1) {
+              png = await bieuDoCot({
+                tieuDe: `Lãi gộp ${kq.khach.ten}`, phuDe: pd,
+                nhan: kq.thang.map((t) => t.nhan.replace(/^(\d\d)\/\d\d(\d\d)$/, '$1/$2')),
+                giaTri: kq.thang.map((t) => t.lai),
+                ghiChu: `Tổng lãi ${rut(kq.tong.lai)} · DT ${rut(kq.tong.doanhThu)} · ${kq.tong.soDon} đơn`,
+              });
+              tenFile = `lai-gop-${kq.khach.id}.png`;
+            } else if (kq.cheDo === 'mot_khach' && kq.sanPham.length > 1) {
+              png = await bieuDoCotNgang({
+                tieuDe: `Lãi gộp ${kq.khach.ten} theo sản phẩm`, phuDe: pd,
+                nhan: kq.sanPham.map((s) => s.ten.replace(/^\[[^\]]*\]\s*/, '').slice(0, 28)),
+                giaTri: kq.sanPham.map((s) => s.lai),
+                ghiChu: `Tổng lãi ${rut(kq.tong.lai)} · DT ${rut(kq.tong.doanhThu)} · ${kq.tong.soDon} đơn`,
+              });
+              tenFile = `lai-gop-${kq.khach.id}-sp.png`;
+            } else if (kq.cheDo === 'xep_hang' && kq.khach.length > 1) {
+              png = await bieuDoCotNgang({
+                tieuDe: 'Khách lãi gộp cao nhất', phuDe: pd,
+                nhan: kq.khach.map((k) => k.ten.slice(0, 28)),
+                giaTri: kq.khach.map((k) => k.lai),
+                ghiChu: `Toàn shop lãi ${rut(kq.tong.lai)} · DT ${rut(kq.tong.doanhThu)} · ${kq.tong.soKhach} khách`,
+              });
+              tenFile = 'lai-gop-top-khach.png';
+            }
+            if (png) {
+              deps.nhanTepBaoCao({ tenFile, duLieu: png, loai: 'anh', moTa: '' });
+              coAnh = true;
+            }
+          } catch { /* ảnh lỗi → text vẫn đủ số */ }
+        }
+        return dinhDangLaiGopKhach(kq, coAnh);
+      },
+    })
     // KIỂM KHO TỪNG PHẦN (yêu cầu anh Quyết 17:58 ngày 11/08/2026).
     //
     // CHỈ registry NHÂN VIÊN, KHÔNG cho luồng khách: báo cáo này phơi toàn bộ
@@ -953,15 +1003,28 @@ export function buildStaffRegistry(deps: {
   // IN HOÁ ĐƠN ra máy in shop (24/08): chỉ ĐỌC Odoo rồi xếp hàng vào
   // print_jobs, cron may-in nhặt in (luật A3 chống in đôi nằm ở hàng đợi).
   // Chỉ đăng ký khi hệ có máy in — không hứa in rồi không in được.
-  if (deps.themJobIn) {
+  // Cần odooUrl vì in = có thể phải TỰ XUẤT hoá đơn trước (in = đã bán).
+  if (deps.themJobIn && deps.odooUrl) {
     const themJob = deps.themJobIn;
+    const odooUrlIn = deps.odooUrl;
     r.register({
       definition: inHoaDonDefinition,
       run: async (input) =>
         dinhDangInHoaDon(
           await inHoaDon(
-            { odoo, conversationId: deps.conversationId, themJob, cauNv: deps.cauNv },
-            input as { so_hoa_don?: string; ma_don?: string; don_id?: number; khach?: string; co_gia?: boolean; loai?: 'hoa_don' | 'don_hang' },
+            {
+              odoo,
+              conversationId: deps.conversationId,
+              themJob,
+              cauNv: deps.cauNv,
+              // Đơn chưa có hoá đơn → xuất trước rồi in; idempotent trong xuatHoaDon.
+              xuatHoaDon: (inp) =>
+                xuatHoaDon(
+                  { odoo, odooUrl: odooUrlIn, conversationId: deps.conversationId, anhClient: deps.anhClient ?? null },
+                  inp,
+                ),
+            },
+            input as { so_hoa_don?: string; ma_don?: string; don_id?: number; khach?: string; co_gia?: boolean },
           ),
         ),
     });

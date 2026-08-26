@@ -11,8 +11,7 @@
 import type { OdooClient } from '../client.js';
 import type { ToolDefinition } from '../../agent/types.js';
 import { IDEMPOTENCY_PREFIX } from '../idempotency.js';
-import { REPORT_HOA_DON } from './xuat-hoa-don.js';
-import { REPORT_MAC_DINH as REPORT_DON_HANG } from '../hoa-don-anh.js';
+import { REPORT_HOA_DON, type KetQuaXuatHoaDon } from './xuat-hoa-don.js';
 import { HAU_TO_KHONG_GIA, type ThamSoThemJob } from '../../may-in/hang-doi-in.js';
 import { traKhachHang, laMaKh, type KhachHang } from './tra-khach-hang.js';
 import { tenKhopKhach } from './tao-don-nhap.js';
@@ -28,6 +27,12 @@ export interface InHoaDonDeps {
   /** Nói trống ("in hoá đơn") → lấy đơn mới nhất của hội thoại này. */
   conversationId?: string;
   themJob: ThemJobInHoaDon;
+  /**
+   * Xuất hoá đơn kế toán (vào sổ) khi đơn CHƯA có hoá đơn. In = đã bán →
+   * phải ghi nhận trong Odoo trước khi in (anh Quyết 26/08). Idempotent sẵn
+   * trong xuatHoaDon: đơn đã có hoá đơn thì trả lại cái cũ, không xuất đôi.
+   */
+  xuatHoaDon: (input: { don_id?: number; ma_don?: string }) => Promise<KetQuaXuatHoaDon>;
   /**
    * NGUYÊN CÂU nhân viên nhắn — caller (staff-agent) đưa vào, KHÔNG qua LLM,
    * nên model không bịa được. Là hàng rào cuối: thứ NV nêu đích danh trong
@@ -102,8 +107,6 @@ export type KetQuaInHoaDon =
       tongTien: number;
       /** true = in có giá (NV nói rõ); mặc định in KHÔNG giá (anh Quyết 26/08). */
       coGia: boolean;
-      /** 'hoa_don' = tờ hoá đơn đã vào sổ; 'don_hang' = tờ đơn bán/báo giá (chưa cần hoá đơn). */
-      loai: 'hoa_don' | 'don_hang';
     }
   | { trangThai: 'loi'; lyDo: string };
 
@@ -200,7 +203,7 @@ export async function inHoaDon(
   deps: InHoaDonDeps,
   input: {
     so_hoa_don?: string; ma_don?: string; don_id?: number; khach?: string;
-    co_gia?: boolean; loai?: 'hoa_don' | 'don_hang';
+    co_gia?: boolean;
   },
 ): Promise<KetQuaInHoaDon> {
   const coGia = input.co_gia === true;
@@ -263,24 +266,30 @@ export async function inHoaDon(
             };
           }
         }
+        // Hàng rào chủ đơn cho đơn đích danh (trước khi xuất/in).
+        if (deps.cauNv && !khachNeu) {
+          const ly = kiemCauNvKhopDon(deps.cauNv, { maDon, tenKhach });
+          if (ly) return { trangThai: 'loi', lyDo: ly };
+        }
         const ids = Array.isArray(don.invoice_ids) ? don.invoice_ids.map(Number) : [];
-        // IN ĐƠN HÀNG (26/08, anh Quốc: "cả hoá đơn cả đơn hàng"): kho soạn
-        // hàng cần tờ đơn NGAY khi lên đơn, chưa cần hoá đơn. Chưa có hoá đơn
-        // → in tờ đơn bán (báo giá kiotviet), hoặc NV nói rõ "in đơn hàng".
-        if (ids.length === 0 || input.loai === 'don_hang') {
-          if (deps.cauNv && !khachNeu) {
-            const ly = kiemCauNvKhopDon(deps.cauNv, { maDon, tenKhach });
-            if (ly) return { trangThai: 'loi', lyDo: ly };
+        if (ids.length === 0) {
+          // IN = ĐÃ BÁN (anh Quyết 26/08): đơn chưa có hoá đơn → TỰ XUẤT hoá
+          // đơn (vào sổ: tính doanh số, trừ tồn) rồi in. Không còn in tờ đơn
+          // nháp — mọi tờ giấy ra máy in đều đã được Odoo ghi nhận.
+          // xuatHoaDon idempotent: đơn đã có hoá đơn thì trả lại cái cũ.
+          const kqX = await deps.xuatHoaDon({ ma_don: maDon });
+          if (kqX.trangThai === 'loi') {
+            return { trangThai: 'loi', lyDo: `Không xuất được hoá đơn để in: ${kqX.lyDo}` };
           }
           await deps.themJob({
             conversationId: deps.conversationId,
-            hoaDonId: Number(don.id),
-            soHoaDon: maDon,
-            report: `${REPORT_DON_HANG}${duoi}`,
+            hoaDonId: kqX.hoaDonId,
+            soHoaDon: kqX.soHoaDon,
+            report: `${REPORT_HOA_DON}${duoi}`,
           });
           return {
-            trangThai: 'da_xep_hang', soHoaDon: maDon, maDon, tenKhach,
-            tongTien: Number(don.amount_total ?? 0), coGia, loai: 'don_hang',
+            trangThai: 'da_xep_hang', soHoaDon: kqX.soHoaDon, maDon: kqX.maDon,
+            tenKhach: kqX.tenKhach, tongTien: kqX.tongTien, coGia,
           };
         }
         const hds = await deps.odoo.searchRead<Record<string, unknown>>(
@@ -296,36 +305,41 @@ export async function inHoaDon(
     if (!hoaDon) {
       return { trangThai: 'loi', lyDo: `Không tìm thấy hoá đơn${soHd ? ` ${soHd}` : ''}.` };
     }
-    if (String(hoaDon.state) !== 'posted') {
-      return {
-        trangThai: 'loi',
-        lyDo: 'Hoá đơn còn NHÁP (chưa vào sổ, chưa có số phát hành) — xuất bằng xuat_hoa_don trước rồi mới in.',
-      };
-    }
 
-    const soHoaDon = String(hoaDon.name ?? '');
+    let soHoaDon = String(hoaDon.name ?? '');
+    let hoaDonId = Number(hoaDon.id);
+    let tongTien = Number(hoaDon.amount_total ?? 0);
     if (!tenKhach && Array.isArray(hoaDon.partner_id)) tenKhach = String(hoaDon.partner_id[1] ?? '');
     if (deps.cauNv && !khachNeu) {
       const ly = kiemCauNvKhopDon(deps.cauNv, { maDon, soHoaDon, tenKhach });
       if (ly) return { trangThai: 'loi', lyDo: ly };
     }
+
+    // Hoá đơn còn NHÁP (chưa vào sổ) → TỰ VÀO SỔ rồi in. In = đã bán, phải
+    // ghi nhận (anh Quyết 26/08). xuatHoaDon idempotent: đã posted thì trả cũ.
+    if (String(hoaDon.state) !== 'posted') {
+      const kqX = maDon
+        ? await deps.xuatHoaDon({ ma_don: maDon })
+        : await deps.xuatHoaDon({ don_id: hoaDonId });
+      if (kqX.trangThai === 'loi') {
+        return { trangThai: 'loi', lyDo: `Không xuất được hoá đơn để in: ${kqX.lyDo}` };
+      }
+      soHoaDon = kqX.soHoaDon;
+      hoaDonId = kqX.hoaDonId;
+      tongTien = kqX.tongTien;
+      if (kqX.maDon) maDon = kqX.maDon;
+      if (kqX.tenKhach) tenKhach = kqX.tenKhach;
+    }
+
     await deps.themJob({
       conversationId: deps.conversationId,
-      hoaDonId: Number(hoaDon.id),
+      hoaDonId,
       soHoaDon,
       // MẶC ĐỊNH KHÔNG GIÁ (anh Quyết 10:08 26/08: "in đơn đều là in đơn không
       // giá") — tờ in cho kho soạn hàng; NV nói rõ "in có giá" mới in giá.
       report: `${REPORT_HOA_DON}${duoi}`,
     });
-    return {
-      trangThai: 'da_xep_hang',
-      soHoaDon,
-      maDon,
-      tenKhach,
-      tongTien: Number(hoaDon.amount_total ?? 0),
-      coGia,
-      loai: 'hoa_don',
-    };
+    return { trangThai: 'da_xep_hang', soHoaDon, maDon, tenKhach, tongTien, coGia };
   } catch (err) {
     return { trangThai: 'loi', lyDo: err instanceof Error ? err.message : String(err) };
   }
@@ -334,11 +348,11 @@ export async function inHoaDon(
 export const inHoaDonDefinition: ToolDefinition = {
   name: 'in_hoa_don',
   description:
-    'IN hoá đơn HOẶC đơn hàng ra MÁY IN ở shop (tờ giấy thật). ' +
-    'GỌI KHI nhân viên nói: "in đơn X", "in hoá đơn", "in bill đơn S13811", "in đơn hàng/báo giá S13811". ' +
-    'Đơn ĐÃ có hoá đơn → in tờ hoá đơn; CHƯA có → tự in tờ ĐƠN HÀNG (không bắt xuất hoá đơn). ' +
-    'NV nói rõ "in đơn hàng"/"in báo giá" → loai=don_hang (in tờ đơn dù đã có hoá đơn). ' +
-    'KHÁC xuat_hoa_don: xuat_hoa_don GHI vào Odoo lấy số phát hành; in_hoa_don chỉ in giấy. ' +
+    'IN hoá đơn ra MÁY IN ở shop (tờ giấy thật). ' +
+    'GỌI KHI nhân viên nói: "in đơn X", "in hoá đơn", "in bill đơn S13811". ' +
+    'IN = ĐÃ BÁN: đơn CHƯA có hoá đơn thì tool TỰ XUẤT hoá đơn (vào sổ Odoo: tính doanh số, ' +
+    'trừ tồn) rồi in — không bao giờ in tờ giấy mà hệ thống chưa ghi nhận. ' +
+    'KHÁC xuat_hoa_don: xuat_hoa_don CHỈ ghi sổ; in_hoa_don ghi sổ (nếu chưa) RỒI in giấy. ' +
     'NV nói TÊN/MÃ KHÁCH ("in đơn QC bách phát", "in đơn anh Linh Hà Tĩnh", "in đơn KH000129") → ' +
     'truyền khach=đúng chữ đó, tool tự lấy đơn MỚI NHẤT của khách. ĐỪNG đoán ma_don từ hội thoại cũ, ' +
     'ĐỪNG tra doc_odoo/kham_pha_odoo (KH000129 là mã khách, không phải id). ' +
@@ -361,11 +375,6 @@ export const inHoaDonDefinition: ToolDefinition = {
         type: 'boolean',
         description: 'true CHỈ khi nhân viên nói rõ "in có giá"/"in giá". Không nói gì hoặc nói "không giá" → bỏ trống (mặc định không giá).',
       },
-      loai: {
-        type: 'string',
-        enum: ['hoa_don', 'don_hang'],
-        description: 'Bỏ trống = tự chọn (có hoá đơn thì in hoá đơn, chưa có thì in đơn hàng). "in đơn hàng"/"in báo giá" → don_hang.',
-      },
     },
     required: [],
   },
@@ -376,12 +385,6 @@ export function dinhDangInHoaDon(kq: KetQuaInHoaDon): string {
   if (kq.trangThai === 'loi') return `Không in được hoá đơn: ${kq.lyDo}`;
   const tien = kq.tongTien.toLocaleString('vi-VN');
   const gia = kq.coGia ? 'bản CÓ GIÁ' : 'bản KHÔNG GIÁ (chỉ tên hàng + số lượng)';
-  if (kq.loai === 'don_hang') {
-    return (
-      `Đã xếp hàng in ĐƠN HÀNG ${kq.maDon} · ${kq.tenKhach} · ${tien}đ — ${gia} (tờ đơn bán, chưa phải hoá đơn). ` +
-      'Máy in ở shop sẽ nhả trong ít giây; nếu máy in đang tắt thì job chờ, bật lại là in.'
-    );
-  }
   const don = kq.maDon ? ` (đơn ${kq.maDon})` : '';
   return (
     `Đã xếp hàng in hoá đơn ${kq.soHoaDon}${don} · ${kq.tenKhach} · ${tien}đ — ${gia}. ` +

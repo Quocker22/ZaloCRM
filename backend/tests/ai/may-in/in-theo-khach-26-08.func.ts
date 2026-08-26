@@ -73,10 +73,22 @@ function fakeOdoo() {
   return { searchRead };
 }
 
+/**
+ * xuatHoaDon giả: đơn chưa có hoá đơn (S15285) → xuất ra INV/2026/028500.
+ * In = đã bán (anh Quyết 26/08): tool tự xuất rồi in, không in tờ đơn nháp.
+ */
+function xhdGia() {
+  return vi.fn(async (inp: { ma_don?: string; don_id?: number }) => ({
+    trangThai: 'da_xuat' as const, hoaDonId: 9285, soHoaDon: 'INV/2026/028500',
+    maDon: inp.ma_don ?? 'S15285', tenKhach: 'Anh Linh Hà Tĩnh - 0948.080.668',
+    tongTien: 10108800, link: 'x', anh: null,
+  }));
+}
+
 describe('in_hoa_don theo KHÁCH (ca 10:36 / 10:49 26/08)', () => {
   it('"in đơn QC bách phát" → in hoá đơn của đơn MỚI NHẤT của QC Bách Phát (S15281), không phải S15274', async () => {
     const themJob = vi.fn(async () => {});
-    const kq = await inHoaDon({ odoo: fakeOdoo(), themJob }, { khach: 'QC bách phát' });
+    const kq = await inHoaDon({ odoo: fakeOdoo(), themJob, xuatHoaDon: xhdGia() }, { khach: 'QC bách phát' });
     expect(kq.trangThai).toBe('da_xep_hang');
     expect(themJob).toHaveBeenCalledTimes(1);
     expect(themJob.mock.calls[0][0]).toMatchObject({ hoaDonId: 7281, soHoaDon: 'INV/2026/028305' });
@@ -84,7 +96,7 @@ describe('in_hoa_don theo KHÁCH (ca 10:36 / 10:49 26/08)', () => {
 
   it('HÀNG RÀO: model đưa ma_don=S15274 (Tấn Anh) kèm khach="QC bách phát" → TỪ CHỐI, không in nhầm', async () => {
     const themJob = vi.fn(async () => {});
-    const kq = await inHoaDon({ odoo: fakeOdoo(), themJob }, { ma_don: 'S15274', khach: 'QC bách phát' });
+    const kq = await inHoaDon({ odoo: fakeOdoo(), themJob, xuatHoaDon: xhdGia() }, { ma_don: 'S15274', khach: 'QC bách phát' });
     expect(kq.trangThai).toBe('loi');
     if (kq.trangThai === 'loi') expect(kq.lyDo).toContain('S15274');
     expect(themJob).not.toHaveBeenCalled();
@@ -92,33 +104,35 @@ describe('in_hoa_don theo KHÁCH (ca 10:36 / 10:49 26/08)', () => {
 
   it('ma_don + khach ĐÚNG chủ → in bình thường', async () => {
     const themJob = vi.fn(async () => {});
-    const kq = await inHoaDon({ odoo: fakeOdoo(), themJob }, { ma_don: 'S15274', khach: 'Tấn Anh Bình Định' });
+    const kq = await inHoaDon({ odoo: fakeOdoo(), themJob, xuatHoaDon: xhdGia() }, { ma_don: 'S15274', khach: 'Tấn Anh Bình Định' });
     expect(kq.trangThai).toBe('da_xep_hang');
     expect(themJob.mock.calls[0][0]).toMatchObject({ hoaDonId: 7274 });
   });
 
-  it('"in đơn KH000129" — mã khách (ref), KHÔNG phải id → đơn mới nhất S15285 chưa có hoá đơn → in tờ ĐƠN HÀNG', async () => {
+  it('"in đơn KH000129" — mã khách (ref) → đơn mới nhất S15285 chưa có hoá đơn → TỰ XUẤT rồi in hoá đơn', async () => {
     const themJob = vi.fn(async () => {});
     const odoo = fakeOdoo();
-    const kq = await inHoaDon({ odoo, themJob }, { khach: 'KH000129' });
+    const xhd = xhdGia();
+    const kq = await inHoaDon({ odoo, themJob, xuatHoaDon: xhd }, { khach: 'KH000129' });
     expect(kq.trangThai).toBe('da_xep_hang');
-    if (kq.trangThai === 'da_xep_hang') expect(kq.loai).toBe('don_hang');
-    expect(themJob.mock.calls[0][0]).toMatchObject({ hoaDonId: 28203, soHoaDon: 'S15285' });
+    // in = đã bán: đơn nháp S15285 → xuất hoá đơn INV/2026/028500 rồi in tờ ĐÓ
+    expect(xhd).toHaveBeenCalledWith({ ma_don: 'S15285' });
+    expect(themJob.mock.calls[0][0]).toMatchObject({ hoaDonId: 9285, soHoaDon: 'INV/2026/028500' });
     // không được tra res.partner theo id=129
     const goiSaiId = odoo.searchRead.mock.calls.some(([m, dom]) => m === 'res.partner' && la(dom as unknown[]).some((d) => d[0] === 'id' && d[2] === 129));
     expect(goiSaiId).toBe(false);
   });
 
-  it('"in đơn anh linh hà tĩnh" → tên gần nguyên văn áp đảo → tự chốt, in S15285', async () => {
+  it('"in đơn anh linh hà tĩnh" → tên gần nguyên văn áp đảo → tự chốt, TỰ XUẤT rồi in', async () => {
     const themJob = vi.fn(async () => {});
-    const kq = await inHoaDon({ odoo: fakeOdoo(), themJob }, { khach: 'anh linh hà tĩnh' });
+    const kq = await inHoaDon({ odoo: fakeOdoo(), themJob, xuatHoaDon: xhdGia() }, { khach: 'anh linh hà tĩnh' });
     expect(kq.trangThai).toBe('da_xep_hang');
-    expect(themJob.mock.calls[0][0]).toMatchObject({ soHoaDon: 'S15285' });
+    expect(themJob.mock.calls[0][0]).toMatchObject({ soHoaDon: 'INV/2026/028500' });
   });
 
   it('khách trùng tên ("Linh" → 3 người) → lỗi liệt kê, KHÔNG in bừa', async () => {
     const themJob = vi.fn(async () => {});
-    const kq = await inHoaDon({ odoo: fakeOdoo(), themJob }, { khach: 'Linh' });
+    const kq = await inHoaDon({ odoo: fakeOdoo(), themJob, xuatHoaDon: xhdGia() }, { khach: 'Linh' });
     expect(kq.trangThai).toBe('loi');
     if (kq.trangThai === 'loi') expect(kq.lyDo).toContain('KH000129');
     expect(themJob).not.toHaveBeenCalled();
@@ -126,7 +140,7 @@ describe('in_hoa_don theo KHÁCH (ca 10:36 / 10:49 26/08)', () => {
 
   it('khách không có đơn nào → lỗi nói thẳng', async () => {
     const themJob = vi.fn(async () => {});
-    const kq = await inHoaDon({ odoo: fakeOdoo(), themJob }, { khach: 'KH001495' });
+    const kq = await inHoaDon({ odoo: fakeOdoo(), themJob, xuatHoaDon: xhdGia() }, { khach: 'KH001495' });
     expect(kq.trangThai).toBe('loi');
     expect(themJob).not.toHaveBeenCalled();
   });
@@ -142,7 +156,7 @@ describe('in_hoa_don theo KHÁCH (ca 10:36 / 10:49 26/08)', () => {
 describe('in_hoa_don — câu NV phải khớp đơn sắp in (deps.cauNv)', () => {
   const goi = (cauNv: string, input: Parameters<typeof inHoaDon>[1]) => {
     const themJob = vi.fn(async () => {});
-    return inHoaDon({ odoo: fakeOdoo(), themJob, conversationId: 'c1', cauNv }, input).then((kq) => ({ kq, themJob }));
+    return inHoaDon({ odoo: fakeOdoo(), themJob, conversationId: 'c1', cauNv, xuatHoaDon: xhdGia() }, input).then((kq) => ({ kq, themJob }));
   };
 
   it('ca 10:36: "in đơn QC bách phát không in giá" + ma_don=S15274 (Tấn Anh), KHÔNG khach → TỪ CHỐI', async () => {
