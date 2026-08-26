@@ -12,6 +12,7 @@ import type { OdooClient } from '../client.js';
 import type { ToolDefinition } from '../../agent/types.js';
 import { IDEMPOTENCY_PREFIX } from '../idempotency.js';
 import { REPORT_HOA_DON } from './xuat-hoa-don.js';
+import { REPORT_MAC_DINH as REPORT_DON_HANG } from '../hoa-don-anh.js';
 import { HAU_TO_KHONG_GIA, type ThamSoThemJob } from '../../may-in/hang-doi-in.js';
 
 /**
@@ -36,6 +37,8 @@ export type KetQuaInHoaDon =
       tongTien: number;
       /** true = in có giá (NV nói rõ); mặc định in KHÔNG giá (anh Quyết 26/08). */
       coGia: boolean;
+      /** 'hoa_don' = tờ hoá đơn đã vào sổ; 'don_hang' = tờ đơn bán/báo giá (chưa cần hoá đơn). */
+      loai: 'hoa_don' | 'don_hang';
     }
   | { trangThai: 'loi'; lyDo: string };
 
@@ -74,8 +77,10 @@ async function timDon(
 
 export async function inHoaDon(
   deps: InHoaDonDeps,
-  input: { so_hoa_don?: string; ma_don?: string; don_id?: number; co_gia?: boolean },
+  input: { so_hoa_don?: string; ma_don?: string; don_id?: number; co_gia?: boolean; loai?: 'hoa_don' | 'don_hang' },
 ): Promise<KetQuaInHoaDon> {
+  const coGia = input.co_gia === true;
+  const duoi = coGia ? '' : HAU_TO_KHONG_GIA;
   try {
     let hoaDon: Record<string, unknown> | null = null;
     let maDon = '';
@@ -106,10 +111,19 @@ export async function inHoaDon(
         maDon = String(don.name ?? '');
         tenKhach = Array.isArray(don.partner_id) ? String(don.partner_id[1] ?? '') : '';
         const ids = Array.isArray(don.invoice_ids) ? don.invoice_ids.map(Number) : [];
-        if (ids.length === 0) {
+        // IN ĐƠN HÀNG (26/08, anh Quốc: "cả hoá đơn cả đơn hàng"): kho soạn
+        // hàng cần tờ đơn NGAY khi lên đơn, chưa cần hoá đơn. Chưa có hoá đơn
+        // → in tờ đơn bán (báo giá kiotviet), hoặc NV nói rõ "in đơn hàng".
+        if (ids.length === 0 || input.loai === 'don_hang') {
+          await deps.themJob({
+            conversationId: deps.conversationId,
+            hoaDonId: Number(don.id),
+            soHoaDon: maDon,
+            report: `${REPORT_DON_HANG}${duoi}`,
+          });
           return {
-            trangThai: 'loi',
-            lyDo: `Đơn ${maDon} CHƯA có hoá đơn — muốn in thì xuất trước bằng xuat_hoa_don.`,
+            trangThai: 'da_xep_hang', soHoaDon: maDon, maDon, tenKhach,
+            tongTien: Number(don.amount_total ?? 0), coGia, loai: 'don_hang',
           };
         }
         const hds = await deps.odoo.searchRead<Record<string, unknown>>(
@@ -140,7 +154,7 @@ export async function inHoaDon(
       soHoaDon,
       // MẶC ĐỊNH KHÔNG GIÁ (anh Quyết 10:08 26/08: "in đơn đều là in đơn không
       // giá") — tờ in cho kho soạn hàng; NV nói rõ "in có giá" mới in giá.
-      report: input.co_gia === true ? REPORT_HOA_DON : `${REPORT_HOA_DON}${HAU_TO_KHONG_GIA}`,
+      report: `${REPORT_HOA_DON}${duoi}`,
     });
     return {
       trangThai: 'da_xep_hang',
@@ -148,7 +162,8 @@ export async function inHoaDon(
       maDon,
       tenKhach,
       tongTien: Number(hoaDon.amount_total ?? 0),
-      coGia: input.co_gia === true,
+      coGia,
+      loai: 'hoa_don',
     };
   } catch (err) {
     return { trangThai: 'loi', lyDo: err instanceof Error ? err.message : String(err) };
@@ -158,10 +173,11 @@ export async function inHoaDon(
 export const inHoaDonDefinition: ToolDefinition = {
   name: 'in_hoa_don',
   description:
-    'IN hoá đơn ra MÁY IN ở shop (tờ giấy thật). ' +
-    'GỌI KHI nhân viên nói: "in hoá đơn", "in bill đơn S13811", "in hoá đơn INV/2026/00042 ra máy in". ' +
-    'KHÁC xuat_hoa_don: xuat_hoa_don GHI vào Odoo lấy số phát hành; in_hoa_don chỉ in tờ giấy ' +
-    'của hoá đơn ĐÃ xuất. Đơn chưa có hoá đơn thì tool sẽ nhắc dùng xuat_hoa_don trước. ' +
+    'IN hoá đơn HOẶC đơn hàng ra MÁY IN ở shop (tờ giấy thật). ' +
+    'GỌI KHI nhân viên nói: "in đơn X", "in hoá đơn", "in bill đơn S13811", "in đơn hàng/báo giá S13811". ' +
+    'Đơn ĐÃ có hoá đơn → in tờ hoá đơn; CHƯA có → tự in tờ ĐƠN HÀNG (không bắt xuất hoá đơn). ' +
+    'NV nói rõ "in đơn hàng"/"in báo giá" → loai=don_hang (in tờ đơn dù đã có hoá đơn). ' +
+    'KHÁC xuat_hoa_don: xuat_hoa_don GHI vào Odoo lấy số phát hành; in_hoa_don chỉ in giấy. ' +
     'Truyền so_hoa_don hoặc ma_don; nói trống → tự lấy đơn mới nhất của hội thoại. ' +
     'MẶC ĐỊNH in KHÔNG GIÁ (tờ cho kho soạn hàng): "in đơn X", "in đơn X không giá", ' +
     '"in không in giá" → KHÔNG truyền co_gia. Chỉ khi nhân viên nói rõ "in có giá"/"in giá" → co_gia=true. ' +
@@ -177,6 +193,11 @@ export const inHoaDonDefinition: ToolDefinition = {
         type: 'boolean',
         description: 'true CHỈ khi nhân viên nói rõ "in có giá"/"in giá". Không nói gì hoặc nói "không giá" → bỏ trống (mặc định không giá).',
       },
+      loai: {
+        type: 'string',
+        enum: ['hoa_don', 'don_hang'],
+        description: 'Bỏ trống = tự chọn (có hoá đơn thì in hoá đơn, chưa có thì in đơn hàng). "in đơn hàng"/"in báo giá" → don_hang.',
+      },
     },
     required: [],
   },
@@ -186,8 +207,14 @@ export const inHoaDonDefinition: ToolDefinition = {
 export function dinhDangInHoaDon(kq: KetQuaInHoaDon): string {
   if (kq.trangThai === 'loi') return `Không in được hoá đơn: ${kq.lyDo}`;
   const tien = kq.tongTien.toLocaleString('vi-VN');
-  const don = kq.maDon ? ` (đơn ${kq.maDon})` : '';
   const gia = kq.coGia ? 'bản CÓ GIÁ' : 'bản KHÔNG GIÁ (chỉ tên hàng + số lượng)';
+  if (kq.loai === 'don_hang') {
+    return (
+      `Đã xếp hàng in ĐƠN HÀNG ${kq.maDon} · ${kq.tenKhach} · ${tien}đ — ${gia} (tờ đơn bán, chưa phải hoá đơn). ` +
+      'Máy in ở shop sẽ nhả trong ít giây; nếu máy in đang tắt thì job chờ, bật lại là in.'
+    );
+  }
+  const don = kq.maDon ? ` (đơn ${kq.maDon})` : '';
   return (
     `Đã xếp hàng in hoá đơn ${kq.soHoaDon}${don} · ${kq.tenKhach} · ${tien}đ — ${gia}. ` +
     'Máy in ở shop sẽ nhả trong ít giây; nếu máy in đang tắt thì job chờ, bật lại là in.'
