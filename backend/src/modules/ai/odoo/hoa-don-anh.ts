@@ -163,9 +163,20 @@ export class HoaDonAnhClient {
   }
 
   /** Tải PDF hóa đơn. */
-  async taiPdf(donId: number, report = REPORT_MAC_DINH): Promise<Buffer> {
+  async taiPdf(
+    donId: number,
+    report = REPORT_MAC_DINH,
+    /**
+     * `khongGia` (26/08, anh Quyết: "in đơn đều là in không giá"): Odoo nhận
+     * context qua URL report — template kiotviet đọc `incokit_hide_price` và
+     * bỏ hẳn cột đơn giá/thành tiền + mọi dòng tiền/nợ (đo thật trên
+     * INV/2026/028308). Cùng cờ mà nút "In không giá" trên web dùng.
+     */
+    opts: { khongGia?: boolean } = {},
+  ): Promise<Buffer> {
+    const ctx = opts.khongGia ? `?context=${encodeURIComponent(JSON.stringify({ incokit_hide_price: true }))}` : '';
     const goi = async (cookie: string) =>
-      fetch(`${this.cfg.url}/report/pdf/${report}/${donId}`, {
+      fetch(`${this.cfg.url}/report/pdf/${report}/${donId}${ctx}`, {
         headers: { cookie },
         // Render qweb→PDF chậm hơn hẳn một truy vấn thường.
         signal: AbortSignal.timeout(this.cfg.timeoutMs ?? 90_000),

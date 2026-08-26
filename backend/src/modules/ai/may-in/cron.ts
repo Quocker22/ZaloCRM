@@ -12,7 +12,7 @@ import { prisma } from '../../../shared/database/prisma-client.js';
 import { layAnhClient } from '../agent/noi-zalo/du-lieu.js';
 import { IppClient } from './ipp-client.js';
 import { ippConfigTuEnv } from './tu-env.js';
-import { chayMotLuotIn, type PrismaHangDoiIn } from './hang-doi-in.js';
+import { chayMotLuotIn, tachReport, type PrismaHangDoiIn } from './hang-doi-in.js';
 
 let task: ReturnType<typeof cron.schedule> | null = null;
 let dangChay = false;
@@ -38,7 +38,12 @@ export function startMayInCron(): void {
       await chayMotLuotIn({
         prisma: prisma as unknown as PrismaHangDoiIn,
         client,
-        taiPdf: (hoaDonId, report) => anhClient.taiPdf(hoaDonId, report),
+        // Job KHÔNG GIÁ (26/08) mang đuôi #khong_gia trong cột report — tách
+        // ra rồi truyền cờ để Odoo render bản ẩn giá (incokit_hide_price).
+        taiPdf: (hoaDonId, report) => {
+          const r = tachReport(report);
+          return anhClient.taiPdf(hoaDonId, r.report, { khongGia: r.khongGia });
+        },
         onLoi: (jobId, err) => logger.error({ err, jobId }, '[may-in] job lỗi'),
       });
     } catch (err) {

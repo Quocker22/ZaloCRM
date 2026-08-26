@@ -45,7 +45,8 @@ describe('inHoaDon', () => {
     expect(themJob).toHaveBeenCalledWith({
       conversationId: 'c1', hoaDonId: 7001,
       soHoaDon: 'INV/2026/00042',
-      report: 'incokit_pos.report_invoice_document_kiotviet',
+      // 26/08 anh Quyết: mặc định in KHÔNG giá → job mang đuôi #khong_gia.
+      report: 'incokit_pos.report_invoice_document_kiotviet#khong_gia',
     });
   });
 

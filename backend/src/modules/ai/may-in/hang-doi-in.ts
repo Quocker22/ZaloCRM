@@ -40,6 +40,19 @@ export interface PrismaHangDoiIn {
   };
 }
 
+/**
+ * Đuôi đánh dấu job in KHÔNG GIÁ (26/08). Ghi vào cột `report` sẵn có thay vì
+ * thêm cột: bảng print_jobs trên prod tạo tay bằng SQL, thêm cột là thêm một
+ * lần migration tay nữa. Cron tách đuôi ra trước khi gọi Odoo.
+ */
+export const HAU_TO_KHONG_GIA = '#khong_gia';
+
+export function tachReport(report: string): { report: string; khongGia: boolean } {
+  return report.endsWith(HAU_TO_KHONG_GIA)
+    ? { report: report.slice(0, -HAU_TO_KHONG_GIA.length), khongGia: true }
+    : { report, khongGia: false };
+}
+
 export interface ThamSoThemJob {
   orgId: string;
   conversationId?: string;

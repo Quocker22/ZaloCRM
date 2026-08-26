@@ -12,7 +12,7 @@ import type { OdooClient } from '../client.js';
 import type { ToolDefinition } from '../../agent/types.js';
 import { IDEMPOTENCY_PREFIX } from '../idempotency.js';
 import { REPORT_HOA_DON } from './xuat-hoa-don.js';
-import type { ThamSoThemJob } from '../../may-in/hang-doi-in.js';
+import { HAU_TO_KHONG_GIA, type ThamSoThemJob } from '../../may-in/hang-doi-in.js';
 
 /**
  * Xếp job vào hàng in — caller đã buộc sẵn prisma + orgId vào closure
@@ -34,6 +34,8 @@ export type KetQuaInHoaDon =
       maDon: string;
       tenKhach: string;
       tongTien: number;
+      /** true = in có giá (NV nói rõ); mặc định in KHÔNG giá (anh Quyết 26/08). */
+      coGia: boolean;
     }
   | { trangThai: 'loi'; lyDo: string };
 
@@ -72,7 +74,7 @@ async function timDon(
 
 export async function inHoaDon(
   deps: InHoaDonDeps,
-  input: { so_hoa_don?: string; ma_don?: string; don_id?: number },
+  input: { so_hoa_don?: string; ma_don?: string; don_id?: number; co_gia?: boolean },
 ): Promise<KetQuaInHoaDon> {
   try {
     let hoaDon: Record<string, unknown> | null = null;
@@ -136,7 +138,9 @@ export async function inHoaDon(
       conversationId: deps.conversationId,
       hoaDonId: Number(hoaDon.id),
       soHoaDon,
-      report: REPORT_HOA_DON,
+      // MẶC ĐỊNH KHÔNG GIÁ (anh Quyết 10:08 26/08: "in đơn đều là in đơn không
+      // giá") — tờ in cho kho soạn hàng; NV nói rõ "in có giá" mới in giá.
+      report: input.co_gia === true ? REPORT_HOA_DON : `${REPORT_HOA_DON}${HAU_TO_KHONG_GIA}`,
     });
     return {
       trangThai: 'da_xep_hang',
@@ -144,6 +148,7 @@ export async function inHoaDon(
       maDon,
       tenKhach,
       tongTien: Number(hoaDon.amount_total ?? 0),
+      coGia: input.co_gia === true,
     };
   } catch (err) {
     return { trangThai: 'loi', lyDo: err instanceof Error ? err.message : String(err) };
@@ -158,6 +163,9 @@ export const inHoaDonDefinition: ToolDefinition = {
     'KHÁC xuat_hoa_don: xuat_hoa_don GHI vào Odoo lấy số phát hành; in_hoa_don chỉ in tờ giấy ' +
     'của hoá đơn ĐÃ xuất. Đơn chưa có hoá đơn thì tool sẽ nhắc dùng xuat_hoa_don trước. ' +
     'Truyền so_hoa_don hoặc ma_don; nói trống → tự lấy đơn mới nhất của hội thoại. ' +
+    'MẶC ĐỊNH in KHÔNG GIÁ (tờ cho kho soạn hàng): "in đơn X", "in đơn X không giá", ' +
+    '"in không in giá" → KHÔNG truyền co_gia. Chỉ khi nhân viên nói rõ "in có giá"/"in giá" → co_gia=true. ' +
+    'ĐỪNG đi tìm bảng/cột nào về "in giá" bằng kham_pha_odoo — tool này lo hết. ' +
     'Tool chỉ XẾP HÀNG in — máy in tắt thì job chờ, máy bật lại là in.',
   inputSchema: {
     type: 'object',
@@ -165,6 +173,10 @@ export const inHoaDonDefinition: ToolDefinition = {
       so_hoa_don: { type: 'string', description: 'Số hoá đơn dạng INV/2026/00042.' },
       ma_don: { type: 'string', description: 'Mã đơn dạng S13811 — tool tự tìm hoá đơn của đơn.' },
       don_id: { type: 'integer', description: 'id đơn hàng, lấy từ kết quả tao_don_nhap.' },
+      co_gia: {
+        type: 'boolean',
+        description: 'true CHỈ khi nhân viên nói rõ "in có giá"/"in giá". Không nói gì hoặc nói "không giá" → bỏ trống (mặc định không giá).',
+      },
     },
     required: [],
   },
@@ -175,8 +187,9 @@ export function dinhDangInHoaDon(kq: KetQuaInHoaDon): string {
   if (kq.trangThai === 'loi') return `Không in được hoá đơn: ${kq.lyDo}`;
   const tien = kq.tongTien.toLocaleString('vi-VN');
   const don = kq.maDon ? ` (đơn ${kq.maDon})` : '';
+  const gia = kq.coGia ? 'bản CÓ GIÁ' : 'bản KHÔNG GIÁ (chỉ tên hàng + số lượng)';
   return (
-    `Đã xếp hàng in hoá đơn ${kq.soHoaDon}${don} · ${kq.tenKhach} · ${tien}đ. ` +
+    `Đã xếp hàng in hoá đơn ${kq.soHoaDon}${don} · ${kq.tenKhach} · ${tien}đ — ${gia}. ` +
     'Máy in ở shop sẽ nhả trong ít giây; nếu máy in đang tắt thì job chờ, bật lại là in.'
   );
 }
