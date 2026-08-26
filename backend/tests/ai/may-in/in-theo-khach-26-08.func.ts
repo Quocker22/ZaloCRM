@@ -9,7 +9,7 @@
 // Hàng rào ở code: `khach` → tìm đơn mới nhất của khách; `ma_don` + `khach`
 // không cùng chủ → TỪ CHỐI (không in nhầm giấy cho khách khác).
 import { describe, it, expect, vi } from 'vitest';
-import { inHoaDon, inHoaDonDefinition } from '../../../src/modules/ai/odoo/tools/in-hoa-don.js';
+import { inHoaDon, inHoaDonDefinition, kiemCauNvKhopDon } from '../../../src/modules/ai/odoo/tools/in-hoa-don.js';
 import { boDau } from '../../../src/modules/ai/odoo/tim-khong-dau.js';
 
 const KHACH = [
@@ -134,5 +134,55 @@ describe('in_hoa_don theo KHÁCH (ca 10:36 / 10:49 26/08)', () => {
   it('schema có `khach`; mô tả dặn: nói tên khách → truyền khach, ĐỪNG đoán ma_don', () => {
     expect(inHoaDonDefinition.inputSchema.properties).toHaveProperty('khach');
     expect(inHoaDonDefinition.description).toMatch(/khach/);
+  });
+});
+
+// HÀNG RÀO CUỐI: câu NV (caller đưa, không qua LLM) — model đoán ma_don mà
+// KHÔNG truyền khach thì vẫn bị chặn nếu tên NV nêu không nằm trên đơn.
+describe('in_hoa_don — câu NV phải khớp đơn sắp in (deps.cauNv)', () => {
+  const goi = (cauNv: string, input: Parameters<typeof inHoaDon>[1]) => {
+    const themJob = vi.fn(async () => {});
+    return inHoaDon({ odoo: fakeOdoo(), themJob, conversationId: 'c1', cauNv }, input).then((kq) => ({ kq, themJob }));
+  };
+
+  it('ca 10:36: "in đơn QC bách phát không in giá" + ma_don=S15274 (Tấn Anh), KHÔNG khach → TỪ CHỐI', async () => {
+    const { kq, themJob } = await goi('in đơn QC bách phát không in giá', { ma_don: 'S15274' });
+    expect(kq.trangThai).toBe('loi');
+    expect(themJob).not.toHaveBeenCalled();
+  });
+
+  it('ca 10:49: "[Trả lời tin: "…Anh Linh Hà Tĩnh…"] đúng, in đơn KH000129" + ma_don=S15281 (QC Bách Phát) → TỪ CHỐI', async () => {
+    const { kq, themJob } = await goi('[Trả lời tin: "Nếu anh/chị muốn in đơn cho khách "Anh Linh Hà Tĩnh"…"] đúng, in đơn KH000129', { ma_don: 'S15281' });
+    expect(kq.trangThai).toBe('loi');
+    expect(themJob).not.toHaveBeenCalled();
+  });
+
+  it('NV nêu ĐÚNG khách của đơn ("in đơn anh Tấn Anh Bình Định" + S15274) → in', async () => {
+    const { kq, themJob } = await goi('in đơn anh Tấn Anh Bình Định', { ma_don: 'S15274' });
+    expect(kq.trangThai).toBe('da_xep_hang');
+    expect(themJob).toHaveBeenCalledTimes(1);
+  });
+
+  it('NV nêu đúng MÃ ĐƠN ("in hoá đơn S15274 có giá") → in, khỏi so tên', async () => {
+    const { kq } = await goi('in hoá đơn S15274 có giá', { ma_don: 'S15274', co_gia: true });
+    expect(kq.trangThai).toBe('da_xep_hang');
+  });
+
+  it('không nêu gì ("in lại đơn không giá") → đường đơn mới nhất hội thoại, cho qua', async () => {
+    const { kq, themJob } = await goi('in lại đơn không giá', {});
+    expect(kq.trangThai).toBe('da_xep_hang');
+    expect(themJob).toHaveBeenCalledTimes(1);
+  });
+
+  it('đường hội thoại (đơn mới nhất = anh Linh) mà NV nói "in đơn anh tuấn tubione" → TỪ CHỐI', async () => {
+    const { kq, themJob } = await goi('in đơn anh tuấn tubione', {});
+    expect(kq.trangThai).toBe('loi');
+    expect(themJob).not.toHaveBeenCalled();
+  });
+
+  it('kiemCauNvKhopDon: lý do từ chối chỉ model gọi lại bằng khach=… (bỏ ma_don)', () => {
+    const ly = kiemCauNvKhopDon('in đơn QC bách phát không in giá', { maDon: 'S15274', tenKhach: 'Tấn Anh - Bình Định' });
+    expect(ly).toMatch(/khach="qc bach phat"/);
+    expect(kiemCauNvKhopDon('in đơn', { maDon: 'S1', tenKhach: 'X' })).toBeNull();
   });
 });

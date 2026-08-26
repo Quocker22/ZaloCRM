@@ -28,6 +28,69 @@ export interface InHoaDonDeps {
   /** Nói trống ("in hoá đơn") → lấy đơn mới nhất của hội thoại này. */
   conversationId?: string;
   themJob: ThemJobInHoaDon;
+  /**
+   * NGUYÊN CÂU nhân viên nhắn — caller (staff-agent) đưa vào, KHÔNG qua LLM,
+   * nên model không bịa được. Là hàng rào cuối: thứ NV nêu đích danh trong
+   * câu (tên khách/mã) phải nằm trên đơn sắp in. Xem `kiemCauNvKhopDon`.
+   */
+  cauNv?: string;
+}
+
+/**
+ * Từ ĐỆM của câu "in đơn": bỏ đi rồi phần còn lại chính là thứ NV NÊU ĐÍCH
+ * DANH (tên khách, mã). Không phải bảng tên khách — chỉ là bộ từ của chính
+ * cái lệnh in ("in", "lại", "không giá"…) và xưng hô.
+ */
+const TU_DEM_IN = new Set([
+  'in', 'don', 'hoa', 'bill', 'lai', 'nay', 'do', 'vua', 'tao', 'xong', 'khong', 'ko', 'co', 'gia',
+  'cho', 'em', 'anh', 'chi', 'a', 'c', 'e', 'toi', 'minh', 'giup', 'voi', 'ra', 'may', 'ban', 'ho',
+  'nhe', 'nha', 'di', 'luon', 'cua', 'va', 've', 'the', 'roi', 'kho', 'soan', 'hang', 'to', 'giay',
+  'lan', 'tiep', 'xem', 'dung', 'ok', 'oke', 'vang', 'da', 'uh', 'u', 'thoi',
+  'bot', 'tieu', 'ma', 'nelia', 'them', 'nua',
+]);
+
+/** Chuẩn để so: bỏ dấu, chỉ giữ chữ số và khoảng trắng. */
+function chuanSo(s: string): string {
+  return String(s ?? '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+/**
+ * HÀNG RÀO CUỐI (ca 10:36 26/08): NV "in đơn QC bách phát không in giá",
+ * model đoán ma_don=S15274 (đơn Tấn Anh) và KHÔNG truyền khach → hàng rào
+ * chủ đơn theo `khach` không có gì để so. Câu NV thì không đoán được: mọi
+ * thứ NV nêu đích danh (sau khi bỏ từ đệm) phải xuất hiện trên đơn — tên
+ * khách, mã đơn, số hoá đơn. Không nêu gì ("in đơn", "in lại") → cho qua.
+ * Trả lý do từ chối, hoặc null nếu khớp.
+ */
+export function kiemCauNvKhopDon(
+  cauNv: string,
+  don: { maDon: string; soHoaDon?: string; tenKhach: string },
+): string | null {
+  // Bỏ khối trích tin được trả lời ("[Trả lời tin: "…"] đúng, in đơn …") —
+  // tên trong tin cũ không phải thứ NV đang nêu.
+  const cau = cauNv.replace(/^\s*\[[^\]]*\]\s*/, '').replace(/@\S+/g, ' ');
+  const cs = chuanSo(cau);
+  if (!cs) return null;
+  const maDon = chuanSo(don.maDon);
+  const soHd = chuanSo(don.soHoaDon ?? '');
+  // Nêu đúng mã đơn / số hoá đơn → chính là đơn đó, khỏi so tên.
+  if (maDon && cs.includes(maDon)) return null;
+  if (soHd && cs.includes(soHd)) return null;
+  const neu = cs.split(' ').filter((t) => t.length >= 2 && !/^\d+$/.test(t) && !TU_DEM_IN.has(t));
+  if (neu.length === 0) return null;
+  const tren = ` ${chuanSo(don.tenKhach)} ${maDon} ${soHd} `;
+  const lech = neu.filter((t) => !tren.includes(t));
+  if (lech.length === 0) return null;
+  return (
+    `Nhân viên nêu "${lech.join(' ')}" nhưng đơn ${don.maDon} là của "${don.tenKhach}" — không khớp, em KHÔNG in. ` +
+    `Gọi lại với khach="${neu.join(' ')}" (bỏ ma_don/so_hoa_don) để in đúng đơn của khách đó.`
+  );
 }
 
 export type KetQuaInHoaDon =
@@ -205,6 +268,10 @@ export async function inHoaDon(
         // hàng cần tờ đơn NGAY khi lên đơn, chưa cần hoá đơn. Chưa có hoá đơn
         // → in tờ đơn bán (báo giá kiotviet), hoặc NV nói rõ "in đơn hàng".
         if (ids.length === 0 || input.loai === 'don_hang') {
+          if (deps.cauNv && !khachNeu) {
+            const ly = kiemCauNvKhopDon(deps.cauNv, { maDon, tenKhach });
+            if (ly) return { trangThai: 'loi', lyDo: ly };
+          }
           await deps.themJob({
             conversationId: deps.conversationId,
             hoaDonId: Number(don.id),
@@ -238,6 +305,10 @@ export async function inHoaDon(
 
     const soHoaDon = String(hoaDon.name ?? '');
     if (!tenKhach && Array.isArray(hoaDon.partner_id)) tenKhach = String(hoaDon.partner_id[1] ?? '');
+    if (deps.cauNv && !khachNeu) {
+      const ly = kiemCauNvKhopDon(deps.cauNv, { maDon, soHoaDon, tenKhach });
+      if (ly) return { trangThai: 'loi', lyDo: ly };
+    }
     await deps.themJob({
       conversationId: deps.conversationId,
       hoaDonId: Number(hoaDon.id),

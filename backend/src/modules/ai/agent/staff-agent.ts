@@ -404,6 +404,8 @@ export function buildStaffRegistry(deps: {
   odooUrl?: string;
   /** Xếp hoá đơn vào hàng in máy in shop. Không có → in_hoa_don KHÔNG đăng ký. */
   themJobIn?: ThemJobInHoaDon;
+  /** Nguyên câu NV lượt này — hàng rào cuối của in_hoa_don (không qua LLM). */
+  cauNv?: string;
   /** Nhận ảnh để caller đính kèm vào tin Zalo. */
   nhanHoaDon?: (kq: KetQuaGuiHoaDon) => void;
   /** Nhận file Excel báo cáo dài — caller gửi qua Zalo. Thiếu → chỉ text. */
@@ -958,7 +960,7 @@ export function buildStaffRegistry(deps: {
       run: async (input) =>
         dinhDangInHoaDon(
           await inHoaDon(
-            { odoo, conversationId: deps.conversationId, themJob },
+            { odoo, conversationId: deps.conversationId, themJob, cauNv: deps.cauNv },
             input as { so_hoa_don?: string; ma_don?: string; don_id?: number; khach?: string; co_gia?: boolean; loai?: 'hoa_don' | 'don_hang' },
           ),
         ),
@@ -1060,6 +1062,7 @@ export async function chayLenhNhanVien(
     anhClient: deps.anhClient,
     odooUrl: deps.odooUrl,
     themJobIn: deps.themJobIn,
+    cauNv: lenh.noiDung,
     timDoanTriThuc: deps.timDoanTriThuc,
     lietTaiLieu: deps.lietTaiLieu,
     taiTaiLieu: deps.taiTaiLieu,
