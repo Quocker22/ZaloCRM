@@ -164,7 +164,13 @@ function tach(s: string): string[] {
  * ("outdoor", "rgb") mà không có mã thì gần như chắc chắn là đoán mò.
  */
 function laMaModel(w: string): boolean {
-  return /^p[0-9]/.test(w) || /^[0-9]{3,}(hz)?$/.test(w) || /^[0-9]+s$/.test(w) || /hz$/.test(w);
+  // Ca thật 10:30 26/08: "cho cattalog bx y3" — "y3" không lọt luật cũ (chỉ
+  // biết P-series/…Hz) nên bị chấm như chữ thường → bx-y3 ngang điểm 7 file
+  // BX khác → hỏi "BX-Y3 hay BX-Y3E?". Anh Quốc: "bx y3 thì nó là BX-Y3".
+  // Luật chung thay cho bảng: token có CẢ chữ lẫn số (y3, k6p, c08, p10,
+  // m7, 12v100w) hoặc toàn số ≥3 chữ số (3840) là mã model.
+  if (/^[0-9]{3,}$/.test(w)) return true;
+  return /[0-9]/.test(w) && /[a-z]/.test(w);
 }
 
 /**
@@ -186,9 +192,15 @@ export function diemKhopTaiLieu(yeuCau: string, taiLieu: TaiLieu): number {
       continue;
     }
     // Khớp một phần cho mã dính liền ("3840hz" trong tên là "3840-7680HZ").
+    // Hai mức: chỉ khác đuôi đơn vị (3840hz ↔ 3840) coi gần như nguyên mã
+    // = 2; còn mã người nêu chỉ là MẨU của mã dài hơn (y3 ⊂ y3e, y2 ⊂ y2l)
+    // = 1 — đó là họ hàng, không phải thứ họ xin; đừng để nó bám sát file
+    // đúng rồi bắt người ta chọn lại (ca 10:30 26/08).
     if (laMaModel(w)) {
       const so = w.replace(/hz$/, '');
-      if (so.length >= 2 && [...ten].some((t) => t.includes(so))) diem += 2;
+      if (so.length < 2) continue;
+      if (ten.has(so)) diem += 2;
+      else if ([...ten].some((t) => t.includes(so))) diem += 1;
     }
   }
   return diem;
