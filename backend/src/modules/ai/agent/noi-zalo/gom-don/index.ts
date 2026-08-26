@@ -12,7 +12,7 @@ import type { ToolCallLog } from '../../staff-agent.js';
 import type { OdooClient } from '../../../odoo/client.js';
 import { traKhachHang, dinhDangKhachHang } from '../../../odoo/tools/tra-khach-hang.js';
 import { taoKhachHang, dinhDangTaoKhach, CHIA_BO_PHANH } from '../../../odoo/tools/tao-khach-hang.js';
-import { traSanPham, dinhDangSanPham, boDau, xungDotBienThe, laTenChungBienThe } from '../../../odoo/tools/tra-san-pham.js';
+import { traSanPham, dinhDangSanPham, boDau, xungDotBienThe, laTenChungBienThe, NGUONG_GIA_AO } from '../../../odoo/tools/tra-san-pham.js';
 import { taoDonNhap, dinhDangTaoDon } from '../../../odoo/tools/tao-don-nhap.js';
 // PHIẾU NHẬP HÀNG (11/08) — ca thật 22:09-22:11: bot đáp "chưa có tool tạo
 // phiếu nhập hàng ... nằm ngoài phạm vi em hỗ trợ" dù quyền ghi purchase.order
@@ -1278,12 +1278,22 @@ export async function xuLyGomDon(
   // máy vừa hỏi giá) trong ngữ cảnh SỬA ĐƠN: model không có chỗ đặt slot này
   // (đo prod: trả tay trắng, máy kẹt hỏi "sửa gì" rồi đường thoát đọc nhầm
   // kịch bản luồng khách). Bắt bằng regex, chặn luôn lượt gọi model.
+  // Cũng bắt khi máy VỪA HỎI GIÁ cho SP giá ảo đang gom (mọi chế): câu trả
+  // lời "Giá 13k"/"13k/thanh" là con số cho dòng đó, đừng đem hỏi model.
+  // `sl != null` BẮT BUỘC: dòng chưa có SL thì máy đang hỏi SỐ LƯỢNG, câu
+  // "160" là SL chứ không phải giá 160đ (đo test 26/08: nới thiếu điều kiện
+  // này là "160" thành đơn giá).
+  const coDongChoGia = (phien?.dong ?? []).some(
+    (d) => !d.tang && d.daChot && d.sl != null && !d.donGia && d.daChot.gia <= NGUONG_GIA_AO,
+  );
   const cauSuaGia: { gia?: number; ten?: string } | null =
-    (thamChieuSua || phien?.che === 'sua')
+    (thamChieuSua || phien?.che === 'sua' || coDongChoGia)
       ? (phanTichCauSuaGia(boDau(cauChon))
-        ?? (phien?.dongChoGia != null
+        ?? ((phien?.dongChoGia != null || coDongChoGia)
           ? ((): { gia: number } | null => {
-              const g = bocGiaTran(boDau(cauChon));
+              // "13k/thanh", "13k/cái" — đúng mẫu máy gợi ý ("vd: 13k/thanh");
+              // bỏ hậu tố đơn vị rồi mới bóc số.
+              const g = bocGiaTran(boDau(cauChon).replace(/\s*\/\s*[a-z]+/g, ''));
               return g != null ? { gia: g } : null;
             })()
           : null))
@@ -1965,6 +1975,31 @@ export async function xuLyGomDon(
         : phien.che === 'sua' && donVuaLen ? { maDon: donVuaLen.maDon } : {}),
     });
     hd = buocTiepTheo(phien);
+  }
+
+  // GIÁ CHO DÒNG ĐANG CHỜ GIÁ TRONG PHIÊN (26/08, ca 08:53 Anh Tài Nam Định):
+  // máy hỏi "chưa có giá… báo giá giúp em (vd: 13k/thanh)" cho SP giá ảo
+  // đang gom, NV đáp "Giá 13k" → regex bắt được nhưng khối bên dưới CHỈ áp
+  // khi phien.dong RỖNG (sửa dòng ĐÃ có trên đơn) — dòng chờ giá lại nằm
+  // trong phien.dong → giá rơi vào khoảng không, máy hỏi lại y hệt 4 lần,
+  // NV nhắc cả tên + giá cũng vô ích. Áp cho dòng chờ TRƯỚC, mọi chế:
+  // khớp tên nếu NV nêu tên, không thì dòng chờ duy nhất.
+  if (cauSuaGia?.gia != null) {
+    const choGia = phien.dong.filter(
+      (d) => !d.tang && d.daChot && d.sl != null && !d.donGia && d.daChot.gia <= NGUONG_GIA_AO,
+    );
+    const theoTen = cauSuaGia.ten
+      ? choGia.filter((d) => cauSuaGia.ten!.split(/\s+/).every((w) => boDau(d.daChot!.ten).includes(w)))
+      : [];
+    const dich = theoTen.length === 1
+      ? theoTen[0]
+      : theoTen.length === 0 && choGia.length === 1 ? choGia[0] : undefined;
+    if (dich) {
+      dich.donGia = cauSuaGia.gia;
+      delete phien.dongChoGia;
+      delete phien.giaLechDaXacNhan;
+      hd = buocTiepTheo(phien);
+    }
   }
 
   // ÁP ĐƯỜNG TẮT SỬA GIÁ (14/08) — chạy SAU vòng tra để dòng thật của đơn đã
