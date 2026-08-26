@@ -959,7 +959,7 @@ export function buildStaffRegistry(deps: {
         dinhDangInHoaDon(
           await inHoaDon(
             { odoo, conversationId: deps.conversationId, themJob },
-            input as { so_hoa_don?: string; ma_don?: string; don_id?: number },
+            input as { so_hoa_don?: string; ma_don?: string; don_id?: number; khach?: string; co_gia?: boolean; loai?: 'hoa_don' | 'don_hang' },
           ),
         ),
     });
