@@ -53,7 +53,7 @@ const input = (over: Record<string, unknown> = {}) => ({
 });
 
 describe('buildStaffRegistry', () => {
-  it('đăng ký đủ 24 tool (11/08: +tao_don_mua, +tra_nha_cung_cap; 17/08: +tra_ngan_hang; 25/08: +doanh_so_khach_theo_thang)', () => {
+  it('đăng ký đủ 25 tool (11/08: +tao_don_mua, +tra_nha_cung_cap; 17/08: +tra_ngan_hang; 25/08: +doanh_so_khach_theo_thang; 26/08: +lai_gop_khach)', () => {
     const r = buildStaffRegistry({
       odoo: fakeOdoo(),
       conversationId: 'c',
@@ -77,6 +77,9 @@ describe('buildStaffRegistry', () => {
       'doc_odoo',
       'don_cho_xac_nhan',
       'kham_pha_odoo',
+      // LÃI GỘP THEO KHÁCH (26/08, anh Quyết) — cùng công thức trang web,
+      // gom theo khách. CHỈ luồng nhân viên: giá vốn không bao giờ mở cho khách.
+      'lai_gop_khach',
       'lam_odoo',
       'sua_chiet_khau',
       'sua_don',
@@ -175,11 +178,11 @@ describe('chayLenhNhanVien — chạy vòng lặp', () => {
     expect(msg).toContain('tra giá P10');
   });
 
-  it('gửi đủ 24 tool cho LLM (11/08: +tao_don_mua, +tra_nha_cung_cap; 17/08: +tra_ngan_hang; 25/08: +doanh_so_khach_theo_thang)', async () => {
+  it('gửi đủ 25 tool cho LLM (11/08: +tao_don_mua, +tra_nha_cung_cap; 17/08: +tra_ngan_hang; 25/08: +doanh_so_khach_theo_thang; 26/08: +lai_gop_khach)', async () => {
     const generate = fakeLLM([turnXong('ok')]);
     await chayLenhNhanVien(deps({ generate }), input());
 
-    expect(generate.mock.calls[0][0].tools).toHaveLength(24);
+    expect(generate.mock.calls[0][0].tools).toHaveLength(25);
   });
 
   it('system prompt là prompt NHÂN VIÊN, không phải prompt khách', async () => {
