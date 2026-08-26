@@ -73,6 +73,28 @@ export async function dungGenerate(
  * Dùng chung nguồn với `dungGenerate` để đổi provider một lần là cả hai theo.
  * Trả URL ĐẦY ĐỦ (đã qua duongDanChat) — caller không tự ghép, tránh /v1 đôi.
  */
+/**
+ * Hàm gọi LLM với MODEL KHÁC model chính (cùng provider/key của org) — cho
+ * agent GIÁM SÁT (26/08): góc nhìn thứ hai phải đến từ một model khác, cùng
+ * model tự soi lỗi mình rất kém. Thiếu key/URL → null, caller fail-open.
+ */
+export async function dungGenerateTheoModel(
+  orgId: string,
+  model: string,
+  hanChotMs?: number,
+): Promise<ToolAwareGenerate | null> {
+  const cfg = await layCauHinhLlm(orgId);
+  if (!cfg) return null;
+  return (a) =>
+    generateWithOpenaiCompatTools({
+      url: cfg.url,
+      apiKey: cfg.apiKey,
+      model,
+      ...(hanChotMs ? { hanChotMs } : {}),
+      ...a,
+    });
+}
+
 export async function layCauHinhLlm(
   orgId: string,
 ): Promise<{ url: string; apiKey: string; model: string } | null> {

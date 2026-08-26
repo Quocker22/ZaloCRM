@@ -16,7 +16,8 @@ import { taoGhiLog, type PrismaGhiLog } from '../ghi-log-tool.js';
 import { batLuongNhanVien, duCauHinh, chanDonLienKeGiay, odooUrlCongKhai } from './cong-tac.js';
 import { hanGioLuot } from './dung.js';
 import { tomTatDoDang } from './ngan-sach.js';
-import { dungGenerate } from './llm.js';
+import { dungGenerate, dungGenerateTheoModel } from './llm.js';
+import { giamSatTraLoi, modelGiamSat, giamSatDangBat } from '../giam-sat.js';
 import { layOdoo, layAnhClient, timTriThuc, layLichSu, seqTuMessageId, coTinKhachMoiHon } from './du-lieu.js';
 import { themJobIn as themJobVaoHangIn, type PrismaHangDoiIn } from '../../may-in/hang-doi-in.js';
 import { ippConfigTuEnv } from '../../may-in/tu-env.js';
@@ -389,8 +390,47 @@ async function xuLyTinNhanVienTuanTu(ctx: NgữCanhTin): Promise<boolean> {
     }
 
     if (r.trangThai === 'xong') {
+      // ── AGENT GIÁM SÁT (26/08) — soi bản nháp TRƯỚC KHI gửi ──────────────
+      // Anh Quốc sau ca 09:21 (bot chép nguyên output tool ra nhóm): "phải tích
+      // hợp thêm một con agent giám sát, chấp nhận trả lời lâu hơn xíu". Model
+      // KHÁC model chính; lỗi/chậm → fail-open gửi bản gốc; phán quyết ghi
+      // tool_call_logs vai 'giam_sat' để đo chặn bao nhiêu / đúng bao nhiêu.
+      let traLoiGui = r.traLoi;
+      // try/catch bọc CẢ khối: dựng model, ghi log… hỏng gì cũng không được
+      // chặn tin của nhân viên — giám sát là phụ, trả lời là chính.
+      try { if (giamSatDangBat()) {
+        const t1 = Date.now();
+        const genGs = await dungGenerateTheoModel(ctx.orgId, modelGiamSat());
+        if (genGs) {
+          const pq = await giamSatTraLoi(genGs, {
+            cauNv: lenh.noiDung,
+            lichSu: lichSu.map((m) => ({
+              vai: m.senderType === 'self'
+                ? (coTagBot(m.content) ? 'nhanvien' as const : 'bot' as const)
+                : ctx.senderUid && m.senderUid === ctx.senderUid ? 'nhanvien' as const : 'khach' as const,
+              noiDung: m.content,
+            })),
+            log: r.log,
+            traLoi: r.traLoi,
+          });
+          if (pq.traLoiSua) traLoiGui = pq.traLoiSua;
+          taoGhiLog({ prisma: prisma as unknown as PrismaGhiLog, orgId: ctx.orgId, vai: 'giam_sat', conversationId: ctx.conversationId })({
+            toolName: 'giam_sat',
+            input: { cauNv: lenh.noiDung.slice(0, 300), traLoi: r.traLoi.slice(0, 1500), soTool: r.log.length },
+            output: JSON.stringify({ ok: pq.ok, loi: pq.loi, nguon: pq.nguon, lyDo: pq.lyDo, traLoiSua: pq.traLoiSua?.slice(0, 1500) }),
+            thanhCong: pq.ok,
+            durationMs: Date.now() - t1,
+            iteration: 0,
+          });
+          if (!pq.ok) {
+            logger.warn({ loi: pq.loi, nguon: pq.nguon, ms: pq.ms, conversationId: ctx.conversationId }, '[giam-sat] đã sửa bản nháp trước khi gửi');
+          }
+        }
+      } } catch (err) {
+        logger.warn({ err, conversationId: ctx.conversationId }, '[giam-sat] hỏng ở tầng móc — gửi bản gốc');
+      }
       // Nhân viên KHÔNG cần giả nhịp người — họ biết đang nói với bot.
-      await guiTin(dich, r.traLoi, false);
+      await guiTin(dich, traLoiGui, false);
       // Hoá đơn: ảnh để xem, link để bấm vào xử lý — gửi link DÙ ảnh lỗi.
       if (r.hoaDon) {
         if (r.hoaDon.anh) {
