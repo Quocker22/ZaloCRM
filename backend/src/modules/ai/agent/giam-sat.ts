@@ -39,6 +39,12 @@ export interface PhanQuyet {
   /** 'llm' = model phán; 'fail_open' = giám sát lỗi/chậm, gửi bản gốc. */
   nguon: 'llm' | 'fail_open' | 'tat';
   ms: number;
+  /** Đoạn độc thoại/nhại câu NV code đã lột khỏi bản nháp (đo được, không cần model). */
+  docThoaiBiLot?: string[];
+  /** Mã/tiền trong bản nháp KHÔNG có trong tool ∪ câu NV ∪ lịch sử — chứng cứ bịa số. */
+  soLa?: string[];
+  /** Bản sửa của model làm mất mã/tiền đúng → đã bỏ, dùng bản gốc đã lột. */
+  banSuaMatSo?: boolean;
 }
 
 export interface DauVaoGiamSat {
@@ -75,6 +81,122 @@ export function botDongBiChep(traLoi: string, dongChep: string[]): string {
   let t = traLoi;
   for (const d of dongChep) t = t.split(d).join('');
   return t.replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/**
+ * ĐỘC THOẠI BỊ CHÉP RA TIN — đo 24h đầu (26/08): 13/20 ca bị sửa là lo_noi_bo,
+ * và phần lớn KHÔNG phải chép output tool mà là model viết suy nghĩ của nó vào
+ * bản nháp rồi mới viết câu trả lời:
+ *   "Có bạn gái chưa" là câu đùa/cá nhân… Tôi đáp ngắn, không gọi tool.
+ *   Nhân viên đang nhắn đùa là chưa dùng ảnh để đọc được. Đây là câu trả lời…
+ *   Theo luật nhân viên: sau khi in đơn, nếu khách yêu cầu 'xuất đơn'…
+ *   Tôi cần dùng báo cáo linh hoạt để đo lợi nhuận. Nhưng… Hãy thử báo cáo…
+ * và tật NHẠI câu NV ở đầu: Anh/chị nhắn "Có bao nhiêu người tên Linh" ạ. /
+ * in giúp tôi hoá đơn INV/… — em đã in bản này rồi.
+ * Những đoạn này nhận ra được bằng code, tất định, không tốn một lượt LLM;
+ * lột trước rồi mới đưa model soi phần còn lại. Lột xong mà rỗng → giữ bản
+ * gốc (thà lộ còn hơn câm).
+ */
+const DOC_THOAI = [
+  /^(Tôi|Ta|Mình)\s/u,
+  /(?:^|\s)(gọi tool|không gọi tool|dùng tool|tool nào|tool tương ứng|qua tool|báo cáo linh hoạt với|doc_odoo|kham_pha_odoo|tra_[a-z_]+|sua_don|tao_don_nhap|bao_cao_[a-z_]+|\bmodel\b)/iu,
+  /^Theo luật nhân viên\s*:/iu,
+  /^(Đây|Đó) là (câu|yêu cầu|góp ý|thông tin)/iu,
+  /^Nhân viên (đang|hỏi|nhắn|muốn|vừa|cần|nói|bảo)/iu,
+  /^(Câu|Yêu cầu) (này|đó) (cần|là|nói|hỏi)/iu,
+  /^(Hãy|Thực ra|Thực tế|Vậy|Tóm lại|Kết luận|Như vậy|Do đó|Để trả lời|Trước hết)\b/iu,
+  /(?:^|\s)(hãy (cố gắng|dùng|thử|kiểm tra)|nói rõ (rằng|là)|trả lời (rằng|thẳng|ngắn)|cần trả lời)\b/iu,
+  /^Người dùng|^The user/iu,
+];
+
+function laDoanDocThoai(doan: string): boolean {
+  const d = doan.trim();
+  if (!d) return false;
+  return DOC_THOAI.some((r) => r.test(d));
+}
+
+const chuanSo = (s: string): string =>
+  s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/[^a-z0-9]+/g, ' ').trim();
+
+/**
+ * Lột độc thoại và câu nhại NV. Trả bản sạch + danh sách đoạn đã lột (để log).
+ * Không đụng đoạn nói VỚI người chat ("Anh/chị ơi…", "Dạ…", "Em…").
+ */
+/**
+ * Đoạn nhại có phải câu NV không: mọi token của câu NV nằm trong đoạn nhại và
+ * đoạn nhại không dài hơn câu NV quá 3 token ("in giúp tôi hoá đơn INV/…" nhại
+ * "in hoá đơn INV/…" — chèn "giúp tôi" vẫn là nhại).
+ */
+function laNhaiCauNv(doan: string, nv: string): boolean {
+  const a = chuanSo(doan).split(' ').filter(Boolean);
+  const b = nv.split(' ').filter(Boolean);
+  if (b.length === 0 || a.length === 0 || a.length > b.length + 3) return false;
+  const co = new Set(a);
+  return b.every((t) => co.has(t));
+}
+
+export function lotDocThoai(traLoi: string, cauNv: string): { sach: string; daLot: string[]; toanBoDocThoai?: true } {
+  const daLot: string[] = [];
+  // Soi theo DÒNG: độc thoại hay đứng một dòng riêng dính liền câu trả lời
+  // ("Vậy trả lời thẳng:\nAnh ơi…") — tách theo đoạn trống thì lọt.
+  const giu: string[] = [];
+  for (const dong of traLoi.split('\n')) {
+    if (laDoanDocThoai(dong)) { daLot.push(dong.trim()); continue; }
+    giu.push(dong);
+  }
+  let sach = giu.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  // Nhại câu NV ở đầu bản nháp.
+  const nv = chuanSo(cauNv.replace(/^\s*\[[^\]]*\]\s*/, ''));
+  if (nv.length >= 6) {
+    const m1 = sach.match(/^(?:Tin nhắn )?(?:anh\/chị|anh|chị)(?: vừa)? (?:nhắn|hỏi|bảo|nói)\s*[“"']([^”"']{4,200})[”"']\s*(?:ạ|nhé|à)?[.!,]?\s*(?:[—–-]\s*)?/iu);
+    if (m1 && laNhaiCauNv(m1[1], nv)) { daLot.push(m1[0].trim()); sach = sach.slice(m1[0].length).trim(); }
+    // "in giúp tôi hoá đơn INV/… — em đã in…": dòng đầu chính là câu NV rồi gạch ngang.
+    const m2 = sach.match(/^([^\n—–]{4,200}?)\s*[—–]\s+/u);
+    if (m2 && laNhaiCauNv(m2[1], nv)) { daLot.push(m2[0].trim()); sach = sach.slice(m2[0].length).trim(); }
+    // Bắt đầu bằng chữ thường sau khi lột ("nhưng em thấy…") → viết hoa cho tử tế.
+    if (daLot.length > 0 && sach.length > 0) sach = sach[0].toUpperCase() + sach.slice(1);
+  }
+  // Lột xong chẳng còn gì: model chỉ viết suy nghĩ, chưa viết câu trả lời.
+  // Trả bản gốc để model giám sát còn có gì mà viết lại, kèm cờ để caller
+  // biết KHÔNG được gửi bản này khi fail-open.
+  if (sach.length < 10) return { sach: traLoi, daLot: [], ...(daLot.length > 0 ? { toanBoDocThoai: true as const } : {}) };
+  return { sach, daLot };
+}
+
+/** Mã đơn / số hoá đơn / mã KH / số tiền — thứ không được bịa và không được làm mất. */
+const MAU_SO_MA = /INV\/\d{4}\/\d{3,}|\bS\d{4,}\b|\bKH\d{5,}[A-Z-]*|\bP\d{4,}\b|\d{1,3}(?:\.\d{3})+(?:\s?đ|\s?d\b|đ)?|\b\d{4,}\s?(?:đ|d)\b|\b\d{2,}\s?k\b|\b\d+(?:[.,]\d)?\s?(?:tr|triệu)\b/giu;
+
+/** "70k" → "70000", "445,3tr" → "445300000", "1.440.000đ" → "1440000" — cùng một số phải ra cùng một chuỗi. */
+function chuanMa(x: string): string {
+  const t = x.toLowerCase().replace(/\s+/g, '');
+  const mK = t.match(/^(\d+)k$/u);
+  if (mK) return String(Number(mK[1]) * 1000);
+  const mTr = t.match(/^(\d+(?:[.,]\d)?)(?:tr|triệu)$/u);
+  if (mTr) return String(Math.round(Number(mTr[1].replace(',', '.')) * 1_000_000));
+  return t.replace(/đ$|d$/u, '').replace(/[.,]/g, '');
+}
+
+export function soMaTrong(s: string): string[] {
+  return [...new Set((s.match(MAU_SO_MA) ?? []).map(chuanMa).filter((x) => x.length >= 4))];
+}
+
+/**
+ * Bản sửa của model phải GIỮ mọi mã/tiền có trong bản gốc mà tool xác nhận
+ * (có trong output tool). Ca 25/08 23:xx: danh sách 10 khách + doanh số từ
+ * tool bị phán bia_so → nếu bản sửa cắt số đúng thì tệ hơn bản gốc.
+ */
+export function giuSoMaDung(goc: string, sua: string, log: ToolCallLog[]): boolean {
+  const tool = new Set(soMaTrong(log.map((l) => String(l.output ?? '')).join('\n')));
+  const trongSua = new Set(soMaTrong(sua));
+  return soMaTrong(goc).filter((x) => tool.has(x)).every((x) => trongSua.has(x));
+}
+
+/** Mã/tiền trong bản nháp không có ở tool ∪ câu NV ∪ lịch sử — nghi bịa. */
+export function soLaTrongBanNhap(vao: DauVaoGiamSat, traLoi: string): string[] {
+  const nguon = new Set(soMaTrong(
+    [vao.cauNv, ...vao.lichSu.map((m) => m.noiDung), ...vao.log.map((l) => `${JSON.stringify(l.input)}\n${String(l.output ?? '')}`)].join('\n'),
+  ));
+  return soMaTrong(traLoi).filter((x) => !nguon.has(x));
 }
 
 const phanQuyetDefinition: ToolDefinition = {
@@ -138,7 +260,38 @@ const SYSTEM = [
   'Bản nháp ổn → ok=true, loi=[]. Có lỗi → ok=false, liệt kê loi, và VIẾT LẠI',
   'tra_loi_sua: tiếng Việt, xưng em, ngắn gọn, đúng số liệu tool, nếu tool ghi thất',
   'bại thì nói "chưa sửa được vì … , anh/chị …". Đừng thêm việc bot chưa làm.',
+  'KHÔNG PHẢI LỖI (đo 26/08, 12/20 ca sửa là báo động giả): bản nháp HỎI CHỌN khi tool',
+  'trả nhiều ứng viên hoặc từ chối vì trùng tên/mơ hồ → ĐÚNG, ok=true; số liệu có',
+  'trong output tool (danh sách khách, doanh số, biểu đồ) → KHÔNG phải bia_so; lỗi',
+  'diễn đạt nhỏ, hơi dài → ok=true. Chỉ sửa khi lỗi làm nhân viên HIỂU SAI hoặc',
+  'MẤT VIỆC. Bản sửa phải giữ nguyên mọi mã/số tiền đúng của bản nháp.',
+  'KHI hua_leo/bia_so: bản sửa TUYỆT ĐỐI không được chứa "đã thêm/đã sửa/đã lên/đã',
+  'xuất/đã gửi" cho việc chưa có tool ghi OK — phải viết "em CHƯA thêm được …",',
+  'và KHÔNG nêu con số tổng nào không có trong output tool. Sai luật này là bản',
+  'sửa vô giá trị (đo 26/08: model viết "em đã thêm phí… nhưng phần mềm chưa ghi").',
 ].join('\n');
+
+// (?:^|\s) thay cho \b: JS regex không coi "đ" là ký tự chữ nên \b trước "đã"
+// không bao giờ khớp — đo test 26/08.
+const DONG_TU_GHI = /(?:^|\s)đã\s+(thêm|sửa|lên|xuất|gửi|tạo|huỷ|hủy|xoá|xóa|cập nhật|ghi)(?:\s|$|[,.!])/i;
+
+/**
+ * HÀNG RÀO CODE cho bản sửa: phán `hua_leo`/`bia_so` mà bản sửa vẫn nói "đã
+ * <ghi>" thì nó tự mâu thuẫn (đo model thật 26/08: "Em đã thêm phí vận chuyển
+ * 70k nhưng phần mềm chưa ghi nhận") → thay bằng câu nói-thật tất định dựng
+ * từ output tool, không tin lời model nữa.
+ */
+export function banSuaConHuaLeo(loi: MaLoi[], sua: string): boolean {
+  return (loi.includes('hua_leo') || loi.includes('bia_so')) && DONG_TU_GHI.test(sua);
+}
+
+export function cauNoiThatTatDinh(log: ToolCallLog[]): string {
+  const that = log.filter((l) => !l.thanhCong);
+  const lyDo = that.length > 0
+    ? that.map((l) => String(l.output ?? '').split('\n')[0].slice(0, 160)).join('; ')
+    : 'em chưa gọi được thao tác ghi tương ứng trên hệ thống';
+  return `Dạ em CHƯA thực hiện được yêu cầu này trên hệ thống ạ (${lyDo}). Anh/chị nhắn lại giúp em theo cách khác, hoặc thao tác trực tiếp trên Odoo ạ.`;
+}
 
 export async function giamSatTraLoi(
   generate: ToolAwareGenerate,
@@ -146,22 +299,37 @@ export async function giamSatTraLoi(
   timeoutMs: number = TIMEOUT_GIAM_SAT_MS,
 ): Promise<PhanQuyet> {
   const t0 = Date.now();
-  const dongChep = dongDanModelBiChep(vao.traLoi, vao.log);
-  const goiY = dongChep.length > 0
-    ? `\nCODE PHÁT HIỆN: bản nháp chép nguyên ${dongChep.length} dòng dặn-model từ output tool → chắc chắn lo_noi_bo.`
-    : '';
+  // BƯỚC CODE TRƯỚC: lột độc thoại/nhại câu NV, lột dòng dặn-model bị chép.
+  // Model chỉ soi phần còn lại; không có model vẫn có bản sạch để gửi.
+  const lot = lotDocThoai(vao.traLoi, vao.cauNv);
+  const dongChep = dongDanModelBiChep(lot.sach, vao.log);
+  const goc = dongChep.length > 0 ? botDongBiChep(lot.sach, dongChep) : lot.sach;
+  const codeDaSua = goc !== vao.traLoi;
+  const soLa = soLaTrongBanNhap(vao, goc);
+  const goiY =
+    (dongChep.length > 0 ? `\nCODE PHÁT HIỆN: bản nháp chép nguyên ${dongChep.length} dòng dặn-model từ output tool (đã lột).` : '') +
+    (lot.daLot.length > 0 ? `\nCODE ĐÃ LỘT ${lot.daLot.length} đoạn độc thoại/nhại câu NV — bản nháp dưới đây là bản sau khi lột.` : '') +
+    (lot.toanBoDocThoai ? '\nCODE PHÁT HIỆN: TOÀN BỘ bản nháp là độc thoại của model, chưa có câu trả lời cho nhân viên → ok=false, PHẢI viết tra_loi_sua từ output tool.' : '') +
+    (soLa.length > 0 ? `\nCODE PHÁT HIỆN mã/số tiền KHÔNG có trong output tool, câu NV hay lịch sử: ${soLa.join(', ')} → soi kỹ bia_so.` : '');
   const userMessage =
     `LỊCH SỬ GẦN NHẤT:\n${hienLichSu(vao.lichSu)}\n\n` +
     `CÂU NHÂN VIÊN VỪA GỬI: "${vao.cauNv}"\n\n` +
     `TOOL BOT ĐÃ GỌI LƯỢT NÀY:\n${hienTool(vao.log)}\n\n` +
-    `BẢN NHÁP BOT ĐỊNH GỬI:\n"""${vao.traLoi}"""${goiY}`;
+    `BẢN NHÁP BOT ĐỊNH GỬI:\n\"\"\"${goc}\"\"\"${goiY}`;
+  const themDoDac = {
+    ...(lot.daLot.length > 0 ? { docThoaiBiLot: lot.daLot } : {}),
+    ...(soLa.length > 0 ? { soLa } : {}),
+  };
 
   const failOpen = (lyDo: string): PhanQuyet => {
-    // Không có model thì ít nhất lột dòng dặn-model bị chép (hàng rào tối thiểu).
-    const sua = dongChep.length > 0 ? botDongBiChep(vao.traLoi, dongChep) : undefined;
+    // Toàn bộ là độc thoại mà model giám sát cũng hỏng → thà nói "em chưa xử
+    // lý được" còn hơn phơi suy nghĩ nội bộ ra nhóm.
+    if (lot.toanBoDocThoai) {
+      return { ok: false, loi: ['lo_noi_bo'], traLoiSua: cauNoiThatTatDinh(vao.log), lyDo, nguon: 'fail_open', ms: Date.now() - t0, ...themDoDac };
+    }
     return {
-      ok: !sua, loi: sua ? ['lo_noi_bo'] : [], ...(sua ? { traLoiSua: sua } : {}),
-      lyDo, nguon: 'fail_open', ms: Date.now() - t0,
+      ok: !codeDaSua, loi: codeDaSua ? ['lo_noi_bo'] : [], ...(codeDaSua ? { traLoiSua: goc } : {}),
+      lyDo, nguon: 'fail_open', ms: Date.now() - t0, ...themDoDac,
     };
   };
 
@@ -174,16 +342,41 @@ export async function giamSatTraLoi(
     if (!call) return failOpen('model không gọi phan_quyet');
     const raw = call.input as Record<string, unknown>;
     const loi = (Array.isArray(raw.loi) ? raw.loi : []).filter((x): x is MaLoi => (MA_LOI as readonly string[]).includes(String(x)));
-    const ok = raw.ok === true && loi.length === 0;
+    const modelOk = raw.ok === true && loi.length === 0;
     const sua = typeof raw.tra_loi_sua === 'string' ? raw.tra_loi_sua.trim() : '';
-    // Nói có lỗi mà không đưa bản sửa → không tin, gửi bản gốc (đã lột dòng chép).
-    if (!ok && sua.length < 5) return failOpen('model báo lỗi nhưng không đưa bản sửa');
-    // Bản sửa vẫn còn dòng dặn-model → lột nốt bằng code.
-    const suaSach = ok ? undefined : botDongBiChep(sua, dongDanModelBiChep(sua, vao.log));
+    // Model bảo ổn → gửi bản code đã lột (code có lột thì vẫn tính là "sửa").
+    if (modelOk && lot.toanBoDocThoai) return failOpen('model bảo ok nhưng bản nháp toàn độc thoại');
+    if (modelOk) {
+      return {
+        ok: !codeDaSua, loi: codeDaSua ? ['lo_noi_bo'] : [], ...(codeDaSua ? { traLoiSua: goc } : {}),
+        ...(typeof raw.ly_do === 'string' ? { lyDo: raw.ly_do.slice(0, 300) } : {}),
+        nguon: 'llm', ms: Date.now() - t0, ...themDoDac,
+      };
+    }
+    // Nói có lỗi mà không đưa bản sửa → không tin, gửi bản gốc (đã lột).
+    if (sua.length < 5) return failOpen('model báo lỗi nhưng không đưa bản sửa');
+    // Bản sửa vẫn còn dòng dặn-model → lột nốt bằng code; vẫn "đã <ghi>" dù
+    // phán hứa lèo/bịa số → thay bằng câu nói-thật tất định.
+    // Ép câu nói-thật CHỈ khi thật sự không có gì được làm: có tool thất bại,
+    // hoặc không gọi tool nào. Mọi tool đều OK (báo cáo + ảnh biểu đồ đi kênh
+    // riêng, không nằm trong log) mà bản sửa nói "đã gửi ảnh" là ĐÚNG — ép
+    // "em CHƯA thực hiện được" ở đây là làm bản sửa sai (test gd2 27/08).
+    const noiThat = cauNoiThatTatDinh(vao.log);
+    // …hoặc bản nháp mang SỐ LẠ (tổng tiền không tool nào trả) — ca 26/08
+    // "đã thêm phí 70k, tổng 1.320.000đ" trong khi sua_don chỉ sửa số lượng.
+    const khongLamDuocGi = vao.log.length === 0 || vao.log.some((l) => !l.thanhCong) || soLa.length > 0;
+    let suaSach = banSuaConHuaLeo(loi, sua) && khongLamDuocGi ? noiThat : botDongBiChep(sua, dongDanModelBiChep(sua, vao.log));
+    // Bản sửa làm MẤT mã/tiền đúng (có trong tool) → bản gốc đã lột tốt hơn.
+    let banSuaMatSo = false;
+    if (suaSach !== noiThat && !giuSoMaDung(goc, suaSach, vao.log)) {
+      banSuaMatSo = true;
+      suaSach = goc;
+    }
+    const doiThat = suaSach !== vao.traLoi;
     return {
-      ok, loi, ...(suaSach ? { traLoiSua: suaSach } : {}),
+      ok: !doiThat, loi: doiThat ? loi : [], ...(doiThat ? { traLoiSua: suaSach } : {}),
       ...(typeof raw.ly_do === 'string' ? { lyDo: raw.ly_do.slice(0, 300) } : {}),
-      nguon: 'llm', ms: Date.now() - t0,
+      nguon: 'llm', ms: Date.now() - t0, ...themDoDac, ...(banSuaMatSo ? { banSuaMatSo: true } : {}),
     };
   } catch (err) {
     logger.warn({ err }, '[giam-sat] lỗi/timeout — fail-open gửi bản gốc');

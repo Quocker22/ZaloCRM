@@ -97,6 +97,28 @@ describe('giamSatTraLoi', () => {
   });
 });
 
+describe('hàng rào code cho bản sửa (đo model thật 26/08)', () => {
+  it('phán hua_leo mà bản sửa vẫn "Em đã thêm phí… nhưng phần mềm chưa ghi nhận" → thay bằng câu nói-thật tất định', async () => {
+    const logHuaLeo = [{
+      toolName: 'sua_don', input: { doi: [{ so_luong: 10, san_pham_id: 123 }], ma_don: 'S15113' },
+      output: 'Đã sửa đơn S15113: 10 × Led 3 bóng 6313 Hồng. Tổng 1.250.000đ → 1.250.000đ.',
+      thanhCong: true, durationMs: 900, iteration: 2,
+    }];
+    const generate = vi.fn(async () => turnPhanQuyet({
+      ok: false, loi: ['hua_leo'],
+      tra_loi_sua: 'Em đã thêm phí vận chuyển 70k nhưng phần mềm chưa ghi nhận. Anh/chị chờ hoặc thử lại sau.',
+    }));
+    const pq = await giamSatTraLoi(generate, {
+      cauNv: 'thêm vận chuyển 70k nữa', lichSu: [], log: logHuaLeo,
+      traLoi: 'Đơn S15113 đã thêm phí vận chuyển 70.000đ. Tổng: 1.320.000đ',
+    });
+    expect(pq.ok).toBe(false);
+    expect(pq.traLoiSua).toMatch(/CHƯA thực hiện được/);
+    expect(pq.traLoiSua).not.toMatch(/đã thêm/i);
+    expect(pq.traLoiSua).not.toContain('1.320.000');
+  });
+});
+
 describe('cấu hình', () => {
   it('model giám sát mặc định KHÁC model chính, đổi qua env', () => {
     expect(modelGiamSat({} as NodeJS.ProcessEnv)).toBe('openai/gpt-4.1-mini');
