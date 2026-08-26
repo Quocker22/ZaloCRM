@@ -65,6 +65,8 @@ export type KetQuaLaiGopKhach =
       sanPham: DongLaiGop[];
       /** Số dòng có giá vốn = 0 cả hai nguồn — lãi bị thổi lên, phải nói. */
       dongKhongVon: number;
+      /** Bot không có quyền đọc standard_price → dòng purchase_price=0 tính vốn 0. */
+      khongDocDuocVon: boolean;
       biCat: boolean;
     }
   | {
@@ -75,6 +77,7 @@ export type KetQuaLaiGopKhach =
       tong: { doanhThu: number; giaVon: number; lai: number; soDon: number; soKhach: number };
       khach: DongLaiGop[];
       dongKhongVon: number;
+      khongDocDuocVon: boolean;
       biCat: boolean;
     }
   | { trangThai: 'loi'; lyDo: string };
@@ -185,11 +188,20 @@ export async function laiGopKhach(
   // ── Giá vốn dự phòng: standard_price hiện tại cho dòng purchase_price = 0 ─
   const spThieuVon = [...new Set(dong.filter((d) => !d.purchase_price && d.product_id).map((d) => (d.product_id as [number, string])[0]))];
   const vonHienTai = new Map<number, number>();
-  for (let i = 0; i < spThieuVon.length; i += 500) {
-    const rows = await deps.odoo.searchRead<{ id: number; standard_price: number }>(
-      'product.product', [['id', 'in', spThieuVon.slice(i, i + 500)]], ['id', 'standard_price'], { limit: 500 },
-    );
-    for (const r of rows) vonHienTai.set(r.id, Number(r.standard_price) || 0);
+  // Đo prod 26/08: user Odoo của bot (bot_zalo) KHÔNG được đọc standard_price
+  // (Odoo chặn theo nhóm "Incokit POS / Quản lý"). Thiếu quyền thì vẫn ra số
+  // bằng purchase_price, dòng thiếu vốn đếm vào `dongKhongVon` và text nói rõ
+  // — chết cả tool vì một trường dự phòng là phạt nhầm người.
+  let khongDocDuocVon = false;
+  for (let i = 0; i < spThieuVon.length && !khongDocDuocVon; i += 500) {
+    try {
+      const rows = await deps.odoo.searchRead<{ id: number; standard_price: number }>(
+        'product.product', [['id', 'in', spThieuVon.slice(i, i + 500)]], ['id', 'standard_price'], { limit: 500 },
+      );
+      for (const r of rows) vonHienTai.set(r.id, Number(r.standard_price) || 0);
+    } catch {
+      khongDocDuocVon = true;
+    }
   }
 
   // ── Cộng ────────────────────────────────────────────────────────────────
@@ -252,7 +264,7 @@ export async function laiGopKhach(
     return {
       trangThai: 'ok', cheDo: 'mot_khach', ky, boLoc, khach,
       tong: { doanhThu: tongDt, giaVon: tongVon, lai: tongDt - tongVon, soDon },
-      thang, sanPham, dongKhongVon, biCat,
+      thang, sanPham, dongKhongVon, khongDocDuocVon, biCat,
     };
   }
 
@@ -261,7 +273,7 @@ export async function laiGopKhach(
   return {
     trangThai: 'ok', cheDo: 'xep_hang', ky, boLoc,
     tong: { doanhThu: tongDt, giaVon: tongVon, lai: tongDt - tongVon, soDon, soKhach: theoKhach.size },
-    khach: xep, dongKhongVon, biCat,
+    khach: xep, dongKhongVon, khongDocDuocVon, biCat,
   };
 }
 
@@ -281,7 +293,10 @@ const CHU_THICH =
 export function dinhDangLaiGopKhach(kq: KetQuaLaiGopKhach, coAnh: boolean): string {
   if (kq.trangThai === 'loi') return `Không tính được lãi gộp: ${kq.lyDo}`;
   const canhBao =
-    (kq.dongKhongVon > 0 ? `\nLƯU Ý: ${kq.dongKhongVon} dòng hàng chưa có giá vốn (vốn = 0) nên lãi ở đó bị tính cao hơn thật.` : '') +
+    (kq.dongKhongVon > 0
+      ? `\nLƯU Ý: ${kq.dongKhongVon} dòng hàng chưa có giá vốn (vốn = 0) nên lãi ở đó bị tính cao hơn thật.` +
+        (kq.khongDocDuocVon ? ' Nguyên nhân: tài khoản Odoo của bot chưa được quyền đọc giá vốn hiện tại (standard_price) — cần quản trị cấp quyền cho user bot_zalo thì số mới khớp web 100%.' : '')
+      : '') +
     (kq.biCat ? '\nLƯU Ý: kỳ quá dài, dữ liệu bị cắt ở 20.000 dòng — thu hẹp kỳ để đủ số.' : '');
   const duoi =
     (coAnh ? '\nẢNH BIỂU ĐỒ đã gửi kèm tự động — nhắc nhân viên xem ảnh, ĐỪNG tự vẽ bảng dài.' : '') +

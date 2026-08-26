@@ -177,6 +177,23 @@ describe('laiGopKhach — xếp hạng', () => {
   });
 });
 
+describe('thiếu quyền đọc standard_price (prod 26/08: bot_zalo bị Odoo chặn)', () => {
+  it('product.product ném lỗi quyền → vẫn ra số bằng purchase_price, dòng thiếu vốn đếm + text nêu cần cấp quyền', async () => {
+    const { odoo } = odooGia();
+    const goc = odoo.searchRead.getMockImplementation()!;
+    odoo.searchRead.mockImplementation(async (model: string, ...rest: unknown[]) => {
+      if (model === 'product.product') throw new Error("- standard_price (được phép cho nhóm 'Incokit POS / LEDNELIA / Quản lý')");
+      return goc(model, ...(rest as [unknown[], string[], { limit?: number }]));
+    });
+    const kq = await laiGopKhach({ odoo: odoo as never, bayGio: BAY_GIO }, { khach_hang_id: 1233, ky: 'thang_nay' });
+    if (kq.trangThai !== 'ok' || kq.cheDo !== 'mot_khach') throw new Error('phải ra số, không được chết');
+    expect(kq.tong.giaVon).toBe(8_200_000 + 4_100_000); // dòng Nguồn (pp=0) vốn 0
+    expect(kq.dongKhongVon).toBe(1);
+    expect(kq.khongDocDuocVon).toBe(true);
+    expect(dinhDangLaiGopKhach(kq, false)).toContain('bot_zalo');
+  });
+});
+
 describe('dinhDangLaiGopKhach + định nghĩa', () => {
   it('text nêu chú thích chưa trừ vận chuyển, cảnh báo dòng không vốn, nhắc ảnh khi có', async () => {
     const { odoo } = odooGia();
