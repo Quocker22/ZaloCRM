@@ -531,6 +531,15 @@ async function goiModelDocFile(orgId: string, args: {
   });
 }
 
+/**
+ * Đọc ảnh theo URL → chữ (null = đọc hỏng). Cho luồng nhân viên ghép ẢNH GỬI
+ * TRƯỚC vào lệnh tag sau (anh-truoc-do.ts, ca 16:19 26/08) — cùng model/prompt
+ * với đường ảnh có caption, chỉ khác điểm gọi.
+ */
+export async function docAnhTuUrl(orgId: string, url: string, chuThich: string): Promise<string | null> {
+  return docAnh({ goiModel: (a) => goiModelNhinAnh(orgId, a) }, { url, chuThich });
+}
+
 /** Gọi provider nhìn ảnh — lấy key/URL từ cùng nguồn với luồng chat. */
 async function goiModelNhinAnh(orgId: string, args: {
   model: string; anhBase64: string; kieuAnh: string; chuThich: string;

@@ -158,7 +158,7 @@ async function timDon(
 async function timKhach(
   deps: InHoaDonDeps,
   khach: string,
-): Promise<{ khach: KhachHang } | { loi: string }> {
+): Promise<{ khach: KhachHang } | { ungVien: KhachHang[]; loi: string } | { loi: string }> {
   const kh = khach.trim();
   // MÃ KHÁCH (ref) — Odoo có ref mang đuôi phân loại ("KH000129-SACDL") nên
   // "KH000129" tra `=ilike` không ra; tra chứa rồi giữ ref BẮT ĐẦU bằng mã.
@@ -183,7 +183,10 @@ async function timKhach(
   if (kq.trangThai === 'nhieu_ket_qua' && kq.tuChot) return { khach: kq.tuChot };
   if (kq.trangThai === 'nhieu_ket_qua') {
     const ds = kq.danhSach.slice(0, 6).map((k) => `${k.ten}${k.ma ? ` [${k.ma}]` : ''}`).join('; ');
-    return { loi: `Có nhiều khách khớp "${kh}": ${ds}${kq.conNua ? '; …' : ''}. Hỏi NV chọn đúng khách (mã KH hoặc tên đầy đủ) rồi gọi lại — ĐỪNG tự chọn.` };
+    return {
+      ungVien: kq.danhSach,
+      loi: `Có nhiều khách khớp "${kh}": ${ds}${kq.conNua ? '; …' : ''}. Hỏi NV chọn đúng khách (mã KH hoặc tên đầy đủ) rồi gọi lại — ĐỪNG tự chọn.`,
+    };
   }
   return { loi: `Không tìm thấy khách "${kh}" trong Odoo.` };
 }
@@ -215,11 +218,32 @@ export async function inHoaDon(
 
     // Khách NV nêu tên — vừa là đường tìm đơn, vừa là HÀNG RÀO chủ đơn.
     const khachNeu = input.khach?.trim() ?? '';
+    const theoMaDon = Boolean(input.don_id || input.ma_don?.trim());
     let khachTimDuoc: KhachHang | null = null;
     if (khachNeu && !input.so_hoa_don?.trim()) {
       const kq = await timKhach(deps, khachNeu);
-      if ('loi' in kq) return { trangThai: 'loi', lyDo: kq.loi };
-      khachTimDuoc = kq.khach;
+      if ('khach' in kq) {
+        khachTimDuoc = kq.khach;
+      } else if (theoMaDon) {
+        // Ca thật 17:35 26/08: "in đơn này" (trả lời link S15333) → model đưa
+        // don_id + khach="Anh Vũ Hải"; tra tên ra 3 người → tool từ chối dù
+        // ĐÃ CÓ mã đơn. Có mã đơn thì tên chỉ để KIỂM chủ đơn (tenKhopKhach
+        // bên dưới), không được là lý do chặn.
+        khachTimDuoc = null;
+      } else if ('ungVien' in kq && deps.conversationId?.trim()) {
+        // Ca thật 17:35 26/08: "in đơn anh vũ hải" ngay sau khi vừa lên
+        // S15333 cho Anh Vũ Hải trong CHÍNH hội thoại này → 3 khách trùng
+        // (Vũ Hải / Luật Vũ - Hải Dương / Vũ Thới Hải Phòng), tool bắt chọn
+        // lại. Đơn mới nhất của hội thoại thuộc về đúng MỘT ứng viên thì đó
+        // là người NV đang nói tới — chọn, không hỏi.
+        const gan = await timDon(deps, {});
+        const chuGan = gan && Array.isArray(gan.partner_id) ? Number(gan.partner_id[0]) : NaN;
+        const trung = kq.ungVien.find((u) => u.id === chuGan);
+        if (!trung) return { trangThai: 'loi', lyDo: kq.loi };
+        khachTimDuoc = trung;
+      } else {
+        return { trangThai: 'loi', lyDo: kq.loi };
+      }
     }
 
     // Đường 1: nhân viên đưa thẳng số hoá đơn (INV/2026/00042).
@@ -237,7 +261,6 @@ export async function inHoaDon(
     // Đường 2: qua đơn bán → hoá đơn mới nhất chưa huỷ của đơn.
     if (!hoaDon) {
       let don = await timDon(deps, input);
-      const theoMaDon = Boolean(input.don_id || input.ma_don?.trim());
       if (!don && khachTimDuoc && !theoMaDon) {
         don = await donMoiNhatCuaKhach(deps, khachTimDuoc);
         if (!don) {

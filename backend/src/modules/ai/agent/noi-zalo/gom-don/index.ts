@@ -639,6 +639,13 @@ async function chayTraCuu(
   if (hd.don) {
     viec.push((async () => {
       const ds = await timDonNhap(deps, ctx.conversationId, ctx.maDon, ctx.loaiDon ?? 'ban');
+      // Dấu vết để lần sau còn truy: ca 16:27 26/08 bot đáp "không thấy đơn
+      // nháp nào" ngay sau khi vừa lên S15326 trong cùng hội thoại (Odoo lúc
+      // đó có 4 đơn nháp) — không có dòng log nào nói tool tra với mã gì.
+      logger.info(
+        { conversationId: ctx.conversationId, maDon: ctx.maDon ?? null, loaiDon: ctx.loaiDon ?? 'ban', soDon: ds.length, ma: ds.map((d) => d.ma) },
+        '[gom-don] tra đơn nháp để sửa',
+      );
       if (ds.length === 1) {
         p.donSua = ds[0];
         // NẠP DÒNG THẬT của đơn (14/08, ca 22:32): "giá 175k đó" / "sửa giá

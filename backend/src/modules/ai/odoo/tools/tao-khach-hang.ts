@@ -104,9 +104,17 @@ export async function taoKhachHang(
   if (sdt) {
     const dang = bienTheSdt(sdt);
     if (dang.length > 0) {
+      // Ca thật 16:23 26/08: Odoo có "Anh Tuấn - QC Hoàng NGuyên" phone
+      // "+84 98 927 12 75" (có khoảng trắng — 258 khách lưu kiểu này) → 'in'
+      // theo 3 biến thể trượt → tạo khách trùng KH003233. Odoo 17 có sẵn
+      // `phone_sanitized` (E.164, bỏ mọi khoảng trắng) — so thêm cột đó.
+      const e164 = dang.find((d) => d.startsWith('+'));
+      const dkSdt: unknown[] = e164
+        ? ['|', '|', ['phone', 'in', dang], ['mobile', 'in', dang], ['phone_sanitized', '=', e164]]
+        : ['|', ['phone', 'in', dang], ['mobile', 'in', dang]];
       const cu = await deps.odoo.searchRead<{ id: number; name: string; ref: string | null }>(
         'res.partner',
-        ['|', ['phone', 'in', dang], ['mobile', 'in', dang]],
+        dkSdt,
         FIELDS,
         { limit: 1 },
       );

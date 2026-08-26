@@ -18,7 +18,11 @@ import { hanGioLuot } from './dung.js';
 import { tomTatDoDang } from './ngan-sach.js';
 import { dungGenerate, dungGenerateTheoModel } from './llm.js';
 import { giamSatTraLoi, modelGiamSat, giamSatDangBat } from '../giam-sat.js';
-import { layOdoo, layAnhClient, timTriThuc, layLichSu, seqTuMessageId, coTinKhachMoiHon } from './du-lieu.js';
+import { layOdoo, layAnhClient, timTriThuc, layLichSu, seqTuMessageId, coTinKhachMoiHon, timAnhGanNhat } from './du-lieu.js';
+import { ghepAnhTruocDo, CUA_SO_ANH_TRUOC_MS } from './anh-truoc-do.js';
+// Vòng import luong-media ⇄ luong-nhan-vien: cả hai chỉ dùng hàm của nhau BÊN
+// TRONG thân hàm (không ở mức module) nên ESM giải được; đừng đưa lên top-level.
+import { docAnhTuUrl, ghepCauTuAnh } from './luong-media.js';
 import { themJobIn as themJobVaoHangIn, type PrismaHangDoiIn } from '../../may-in/hang-doi-in.js';
 import { ippConfigTuEnv } from '../../may-in/tu-env.js';
 import type { ThemJobInHoaDon } from '../../odoo/tools/in-hoa-don.js';
@@ -195,6 +199,27 @@ async function xuLyTinNhanVienTuanTu(ctx: NgữCanhTin): Promise<boolean> {
       { gop: gop.slice(0, 60) }, '[agent/nv] tag trống — lấy nội dung từ tin trước',
     );
     lenh.noiDung = gop;
+  }
+
+  // ẢNH GỬI TRƯỚC, LỆNH TAG SAU (ca 16:19 26/08 nhóm "Dậy học cho AI"): ảnh
+  // không tag bị cổng nhóm bỏ qua, rồi "@bot đơn như này…" tới mà không có
+  // "này" nào để nhìn. Câu có chỉ dấu → lấy ảnh gần nhất của CHÍNH người này
+  // trong cửa sổ ngắn, đọc, ghép y như ảnh có caption. Lỗi gì cũng để nguyên
+  // câu — đây là bước phụ, không được chặn lượt.
+  if (ctx.senderUid && !lenh.noiDung.includes('[Khách gửi ảnh')) {
+    const uid = ctx.senderUid;
+    const cauGhep = await ghepAnhTruocDo(
+      {
+        timAnh: () => timAnhGanNhat(ctx.conversationId, uid, ctx.messageId, CUA_SO_ANH_TRUOC_MS),
+        docAnh: (url, chuThich) => docAnhTuUrl(ctx.orgId, url, chuThich),
+        ghep: ghepCauTuAnh,
+      },
+      lenh.noiDung,
+    ).catch(() => null);
+    if (cauGhep) {
+      logger.info({ conversationId: ctx.conversationId, noiDung: lenh.noiDung.slice(0, 60) }, '[agent/nv] ghép ảnh gửi trước vào lệnh');
+      lenh.noiDung = cauGhep;
+    }
   }
 
   // KHOÁ VIỆC — chặn hai lượt cùng xử lý MỘT câu lệnh (bug 21:34:22-24 10/08:

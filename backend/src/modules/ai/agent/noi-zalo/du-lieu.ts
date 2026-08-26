@@ -8,6 +8,7 @@ import { HoaDonAnhClient } from '../../odoo/hoa-don-anh.js';
 import { searchKnowledge } from '../../knowledge/knowledge-service.js';
 import { generateEmbedding } from '../../knowledge/embedding.js';
 import { soTinLichSu } from './cong-tac.js';
+import { bocUrlAnh } from './doc-anh.js';
 
 // Client dựng MỘT LẦN rồi dùng lại: OdooClient nhớ uid sau khi đăng nhập, tạo
 // mới mỗi tin là mỗi tin một lần authenticate thừa.
@@ -26,6 +27,30 @@ export function layAnhClient(): HoaDonAnhClient | undefined {
     username: process.env.ODOO_USERNAME!, password: process.env.ODOO_PASSWORD!,
   });
   return anhCache;
+}
+
+/**
+ * Ảnh GẦN NHẤT của chính người gửi trong hội thoại (bỏ tin đang xử lý) — cho
+ * luồng nhân viên ghép "ảnh gửi trước, lệnh tag sau" (anh-truoc-do.ts). Chỉ
+ * lấy trong cửa sổ ngắn; ngoài cửa sổ trả null để khỏi tốn một lần đọc ảnh.
+ */
+export async function timAnhGanNhat(
+  conversationId: string,
+  senderUid: string,
+  messageId: string,
+  cuaSoMs: number,
+): Promise<{ url: string; sentAt: Date } | null> {
+  const m = await prisma.message.findFirst({
+    where: {
+      conversationId, senderUid, contentType: 'image', isDeleted: false,
+      id: { not: messageId }, sentAt: { gte: new Date(Date.now() - cuaSoMs) },
+    },
+    orderBy: { sentAt: 'desc' },
+    select: { content: true, sentAt: true },
+  });
+  if (!m?.content || !m.sentAt) return null;
+  const url = bocUrlAnh(m.content);
+  return url ? { url, sentAt: m.sentAt } : null;
 }
 
 /**

@@ -230,7 +230,13 @@ export async function traKhachHang(
     bienThe = bienTheSdt(sdt);
     if (bienThe.length === 0) return { trangThai: 'khong_thay', sdtDaTra: [] };
     // phone in [...] OR mobile in [...]
-    dieuKien = ['|', ['phone', 'in', bienThe], ['mobile', 'in', bienThe]];
+    // Kèm `phone_sanitized` (E.164 Odoo tự chuẩn hoá): DB có 258 khách lưu
+    // "+84 98 927 12 75" kiểu có khoảng trắng — 'in' theo biến thể trượt sạch
+    // (ca 16:23 26/08 tạo khách trùng vì thế).
+    const e164 = bienThe.find((d) => d.startsWith('+'));
+    dieuKien = e164
+      ? ['|', '|', ['phone', 'in', bienThe], ['mobile', 'in', bienThe], ['phone_sanitized', '=', e164]]
+      : ['|', ['phone', 'in', bienThe], ['mobile', 'in', bienThe]];
   } else {
     // TRA THEO TÊN — tách từ khoá, mỗi từ một điều kiện AND.
     // Cùng lý do như tra_san_pham: "qc hoàng sơn" phải khớp được cả khi tên

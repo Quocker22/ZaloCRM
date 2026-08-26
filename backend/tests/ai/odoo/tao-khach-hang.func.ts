@@ -61,6 +61,15 @@ describe('Chống trùng — LỚP 2: số điện thoại', () => {
 
     expect(JSON.stringify(odoo.searchRead.mock.calls[1][1])).toContain('mobile');
   });
+
+  it('tra thêm phone_sanitized E.164 — ca 16:23 26/08: Odoo lưu "+84 98 927 12 75" (khoảng trắng) nên tạo khách trùng KH003233', async () => {
+    const odoo = odooGia([[], [CU]]);
+    await taoKhachHang({ odoo, zaloUid: 'moi' }, { ten: 'QC Hoàng Nguyên', dien_thoai: '0989271275' });
+
+    const domain = JSON.stringify(odoo.searchRead.mock.calls[1][1]);
+    expect(domain).toContain('"phone_sanitized","=","+84989271275"');
+    expect(odoo.execute).not.toHaveBeenCalled();
+  });
 });
 
 describe('Chống trùng — LỚP 3: tên chính xác', () => {

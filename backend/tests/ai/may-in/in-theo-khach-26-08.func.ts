@@ -57,7 +57,8 @@ function fakeOdoo() {
         if (f === 'state' && op === 'in') return (v as string[]).includes(d.state);
         return true;
       }));
-      if (opts?.order?.includes('date_order desc')) r = [...r].sort((a, b) => b.date_order.localeCompare(a.date_order));
+      // 'date_order desc' (đường khách) và 'create_date desc' (đường hội thoại) — fake coi như cùng thứ tự thời gian.
+      if (opts?.order?.includes('date_order desc') || opts?.order?.includes('create_date desc')) r = [...r].sort((a, b) => b.date_order.localeCompare(a.date_order));
       return r.slice(0, opts?.limit ?? r.length);
     }
     if (model === 'account.move') {
@@ -128,6 +129,24 @@ describe('in_hoa_don theo KHÁCH (ca 10:36 / 10:49 26/08)', () => {
     const kq = await inHoaDon({ odoo: fakeOdoo(), themJob, xuatHoaDon: xhdGia() }, { khach: 'anh linh hà tĩnh' });
     expect(kq.trangThai).toBe('da_xep_hang');
     expect(themJob.mock.calls[0][0]).toMatchObject({ soHoaDon: 'INV/2026/028500' });
+  });
+
+  it('ca 17:35 26/08: "in đơn này" + don_id + khach trùng 3 người → có mã đơn thì tên chỉ để kiểm, vẫn in', async () => {
+    const themJob = vi.fn(async () => {});
+    // "Linh" khớp 3 người; đơn S15285 (28203) của Anh Linh Hà Tĩnh — tenKhopKhach("Linh", tên) = true
+    const kq = await inHoaDon({ odoo: fakeOdoo(), themJob, xuatHoaDon: xhdGia() }, { khach: 'Linh', don_id: 28203 });
+    expect(kq.trangThai === 'loi' ? kq.lyDo : 'ok').toBe('ok');
+    // S15285 chưa có hoá đơn → tự xuất (xhdGia trả INV/2026/028500 id 9285) rồi in
+    expect(themJob.mock.calls[0][0]).toMatchObject({ hoaDonId: 9285, soHoaDon: 'INV/2026/028500' });
+  });
+
+  it('ca 17:35 26/08: "in đơn anh linh" trùng 3 người NHƯNG đơn mới nhất hội thoại là của một trong số đó → chọn, in luôn', async () => {
+    const themJob = vi.fn(async () => {});
+    // fakeOdoo: đường hội thoại (client_order_ref) trả đơn mới nhất = S15285 của Anh Linh Hà Tĩnh (3423)
+    const kq = await inHoaDon({ odoo: fakeOdoo(), themJob, conversationId: 'c1', xuatHoaDon: xhdGia() }, { khach: 'Linh' });
+    expect(kq.trangThai === 'loi' ? kq.lyDo : 'ok').toBe('ok');
+    if (kq.trangThai === 'da_xep_hang') expect(kq.maDon).toBe('S15285');
+    expect(themJob).toHaveBeenCalledTimes(1);
   });
 
   it('khách trùng tên ("Linh" → 3 người) → lỗi liệt kê, KHÔNG in bừa', async () => {
