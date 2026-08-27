@@ -109,7 +109,9 @@ const DOC_THOAI = [
   /(?:^|\s)(gọi tool|không gọi tool|dùng tool|tool nào|tool tương ứng|qua tool|báo cáo linh hoạt với|doc_odoo|kham_pha_odoo|tra_[a-z_]+|sua_don|tao_don_nhap|bao_cao_[a-z_]+|\bmodel\b)/iu,
   /^Theo luật nhân viên\s*:/iu,
   /^(Đây|Đó) là (câu|yêu cầu|góp ý|thông tin)/iu,
-  /^Nhân viên (đang|hỏi|nhắn|muốn|vừa|cần|nói|bảo)/iu,
+  /^Nhân viên (?:chỉ |vừa |mới |lại )?(đang|hỏi|nhắn|muốn|vừa|cần|nói|bảo|gõ)/iu,
+  // "Hỏi lại để xác nhận." (replay S3 27/08 — cả câu trả lời là kế hoạch).
+  /^Hỏi lại\b/iu,
   /^(Câu|Yêu cầu) (này|đó) (cần|là|nói|hỏi)/iu,
   /^(Hãy|Thực ra|Thực tế|Vậy|Tóm lại|Kết luận|Như vậy|Do đó|Để trả lời|Trước hết)\b/iu,
   // "Tin này không thuộc 3 loại…", "Câu này là trao đổi nội bộ, không nên gửi…"

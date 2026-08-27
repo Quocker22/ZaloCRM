@@ -27,6 +27,14 @@ describe('lotDocThoai — độc thoại replay 27/08 (nói về NV ở ngôi th
   });
 });
 
+describe('lotDocThoai — "Nhân viên chỉ nhắn…" + "Hỏi lại để xác nhận" (replay S3 27/08)', () => {
+  it('đoạn kế hoạch bị lột, giữ câu hỏi thật gửi NV', () => {
+    const { sach, daLot } = lotDocThoai('Nhân viên chỉ nhắn "a", chưa rõ ý định gì. Hỏi lại để xác nhận.\n\nAnh/chị nhắn "a" là ý gì ạ? Em đang đợi xác nhận đơn S99004.', 'a');
+    expect(daLot.length).toBe(1);
+    expect(sach).toBe('Anh/chị nhắn "a" là ý gì ạ? Em đang đợi xác nhận đơn S99004.');
+  });
+});
+
 describe('lotDocThoai — độc thoại thật 26/08', () => {
   it('"có bạn gái chưa": bỏ đoạn "Tôi đáp ngắn, không gọi tool", giữ câu nói với NV', () => {
     const nhap = '"Có bạn gái chưa" là câu đùa/cá nhân, không liên quan công việc. Tôi đáp ngắn, không gọi tool.\n\n' +
