@@ -212,4 +212,24 @@ describe('cầm lái — hàng rào DỮ LIỆU (không đọc chữ)', () => {
     expect(kq).toMatchObject({ nhan: false, nguon: 'loi' });
     expect(a.tin).toEqual([]);
   });
+
+  it('khách mo_ho KHÔNG kèm giaTri nhưng model đã tra (traKhachCuoi) → liệt kê đúng danh sách; có goiY áp đảo → tự chốt', async () => {
+    const g1 = modelGia([goiTool('cap_nhat_phien', { y_dinh: 'dat_hang', che: 'dat_hang', khach: { trangThai: 'mo_ho', ghiChu: 'trùng 10 người' }, dong: [{ ten: 'Fa 100w', spId: 501, soLuong: { trangThai: 'da_co', giaTri: 2 }, donGia: { trangThai: 'thieu' }, tang: true }] })]);
+    const a = dungDeps(g1, timGia(KHACH_QUYET, { 'Fa 100w': SP_PHA }));
+    const p0 = phienTrong('nhanvien');
+    p0.bangChung = { khach: KHACH_QUYET, sp: SP_PHA, traKhachCuoi: { hoi: 'A quyết', ds: KHACH_QUYET, conNua: true } };
+    a.kho.set('c8', p0);
+    await laiLuotNhanVien(a.deps, { orgId: 'o', conversationId: 'c8', seq: 1, cau: 'A quyết. 2 cái Fa 100w', lichSu: [] });
+    expect(a.tin[0]).toContain('3) Anh Quyết Nelia');
+    expect(a.kho.get('c8')!.dangHoi?.khach?.ds.map((x) => x.id)).toContain(102);
+    const g2 = modelGia([goiTool('cap_nhat_phien', { y_dinh: 'dat_hang', che: 'dat_hang', khach: { trangThai: 'mo_ho', ghiChu: 'nhiều Long Led' }, dong: [{ ten: 'cáp', spId: 501, soLuong: { trangThai: 'da_co', giaTri: 16 }, donGia: { trangThai: 'da_co', giaTri: 7000 } }] })]);
+    const b = dungDeps(g2, timGia([], { cáp: SP_PHA }));
+    const p1 = phienTrong('nhanvien');
+    const LONG = [{ id: 1, ten: 'Anh Long Led', ma: 'KH000117', sdt: null }, { id: 2, ten: 'led bảo long Anh Long', ma: 'KH2', sdt: null }];
+    p1.bangChung = { khach: LONG, sp: SP_PHA, traKhachCuoi: { hoi: 'a long led', ds: LONG, conNua: false, goiY: 1 } };
+    b.kho.set('c9', p1);
+    await laiLuotNhanVien(b.deps, { orgId: 'o', conversationId: 'c9', seq: 1, cau: 'a long led, cáp 16 sợi 7k lên đơn', lichSu: [] });
+    expect(b.taoDon).toHaveBeenCalledTimes(1);
+    expect((b.taoDon.mock.calls[0][1] as { khach_hang_id: number }).khach_hang_id).toBe(1);
+  });
 });

@@ -89,6 +89,7 @@ export function boToolTim(tim: HamTim, bc: BangChungPhien): ToolKiemChung[] {
         const i = input as { ten?: string; sdt?: string; ma?: string };
         const r = await tim.khach(i);
         themBangChungKhach(bc, r.khach);
+        bc.traKhachCuoi = { hoi: i.ten ?? i.sdt ?? i.ma ?? '', ds: r.khach, conNua: r.conNua, ...(r.goiY ? { goiY: r.goiY } : {}) };
         return JSON.stringify({
           ket_qua: r.ketQua, con_nua: r.conNua, ...(r.goiY ? { goi_y_id: r.goiY } : {}),
           khach: r.khach.slice(0, 12).map((k) => ({ id: k.id, ten: k.ten, ma: k.ma ?? undefined, sdt: k.sdt ?? undefined })),

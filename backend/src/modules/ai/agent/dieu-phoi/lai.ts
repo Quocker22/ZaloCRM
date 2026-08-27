@@ -112,6 +112,8 @@ const DAN_LAI = [
   '- NV nêu THÔNG SỐ (140cm, 24V, 4000K, trắng/ấm) → chọn SP có ĐÚNG thông số đó; nhiều dòng khác thông số thì',
   '  phải ra spId KHÁC NHAU. Không chọn SP chung chung ("Cáp 16Pin") khi có SP cụ thể ("Cáp 16pin dài 140cm").',
   '- Khách mo_ho (trùng nhiều người) VẪN điền giaTri.ten nguyên văn NV gõ để máy liệt kê ứng viên cho NV chọn.',
+  '- Tin NV khớp NGUYÊN VĂN (bỏ dấu, hoa/thường, khoảng trắng) tên một ứng viên đang chờ chọn ("fa 50w trắng" = "Fa 50W',
+  '  Màu Trắng") → chọn ĐÚNG ứng viên đó, không tra lại, không hỏi lại.',
   '- Lệnh xuất/in hoá đơn, huỷ đơn theo mã, hỏi tồn, báo cáo, tán gẫu → y_dinh tương ứng (hoi_khac/hoi_ton/tan_gau),',
   '  không đổi ô; máy sẽ chuyển cho agent khác.',
 ].join('\n');
@@ -159,20 +161,32 @@ export interface UngVienConTreo {
 export async function traBu(deps: Pick<DepsLai, 'odoo' | 'ghiLog' | 'tim'>, p: PhienDon, bc: BangChungPhien): Promise<UngVienConTreo> {
   const treo: UngVienConTreo = { sp: [] };
   const tim = hamTim(deps);
-  // Khách chưa có id (da_co hoặc mo_ho có tên) → tra: một người rõ → điền, còn lại → danh sách chọn.
-  if ((p.khach.trangThai === 'da_co' || p.khach.trangThai === 'mo_ho') && p.khach.giaTri && p.khach.giaTri.id == null && !p.khach.giaTri.moi
-    && (p.khach.giaTri.ten || p.khach.giaTri.sdt || p.khach.giaTri.maKh)) {
-    const g = p.khach.giaTri;
-    const t0 = Date.now();
-    const r = await tim.khach({ ...(g.ten ? { ten: g.ten } : {}), ...(g.sdt ? { sdt: g.sdt } : {}), ...(g.maKh ? { ma: g.maKh } : {}) });
-    themBangChungKhach(bc, r.khach);
-    deps.ghiLog({ toolName: 'tim_khach', input: g, output: JSON.stringify(r).slice(0, 600), thanhCong: true, durationMs: Date.now() - t0, iteration: 0 });
-    if (r.ketQua === 'mot' || (r.ketQua === 'nhieu' && r.goiY != null && r.khach.length > 0)) {
-      const chon = r.ketQua === 'mot' ? r.khach[0] : r.khach.find((k) => k.id === r.goiY)!;
-      g.id = chon.id; g.ten = chon.ten; if (chon.ma) g.maKh = chon.ma;
-      p.khach = { trangThai: 'da_co', giaTri: g };
+  // Khách chưa có id (da_co hoặc mo_ho) và không phải khách mới → dùng lần tra
+  // gần nhất (model đã tra) hoặc tra mới theo ô; một người rõ / ứng viên áp
+  // đảo (goiY = xepHangKhach) → điền; còn lại → danh sách cho NV chọn.
+  const khachChuaId = (p.khach.trangThai === 'da_co' || p.khach.trangThai === 'mo_ho') && !p.khach.giaTri?.moi && p.khach.giaTri?.id == null;
+  if (khachChuaId) {
+    const g = p.khach.giaTri ?? { ten: '' };
+    let r: Awaited<ReturnType<HamTim['khach']>> & { hoi: string };
+    const cuoi = bc.traKhachCuoi;
+    const coCauHoi = Boolean(g.ten || g.sdt || g.maKh);
+    if (cuoi && (!coCauHoi || cuoi.hoi.trim().toLowerCase() === (g.ten ?? '').trim().toLowerCase())) {
+      r = { ketQua: cuoi.ds.length === 1 ? 'mot' : cuoi.ds.length === 0 ? 'khong' : 'nhieu', khach: cuoi.ds, conNua: cuoi.conNua, ...(cuoi.goiY ? { goiY: cuoi.goiY } : {}), hoi: cuoi.hoi };
+    } else if (coCauHoi) {
+      const t0 = Date.now();
+      const kq = await tim.khach({ ...(g.ten ? { ten: g.ten } : {}), ...(g.sdt ? { sdt: g.sdt } : {}), ...(g.maKh ? { ma: g.maKh } : {}) });
+      themBangChungKhach(bc, kq.khach);
+      bc.traKhachCuoi = { hoi: g.ten ?? g.sdt ?? g.maKh ?? '', ds: kq.khach, conNua: kq.conNua, ...(kq.goiY ? { goiY: kq.goiY } : {}) };
+      deps.ghiLog({ toolName: 'tim_khach', input: g, output: JSON.stringify(kq).slice(0, 600), thanhCong: true, durationMs: Date.now() - t0, iteration: 0 });
+      r = { ...kq, hoi: g.ten ?? '' };
     } else {
-      treo.khach = { ten: g.ten, ds: r.khach, conNua: r.conNua, khongThay: r.ketQua === 'khong' };
+      r = { ketQua: 'khong', khach: [], conNua: false, hoi: '' };
+    }
+    if (r.ketQua === 'mot' || (r.ketQua === 'nhieu' && r.goiY != null && r.khach.some((k) => k.id === r.goiY))) {
+      const chon = r.ketQua === 'mot' ? r.khach[0] : r.khach.find((k) => k.id === r.goiY)!;
+      p.khach = { trangThai: 'da_co', giaTri: { ...g, id: chon.id, ten: chon.ten, ...(chon.ma ? { maKh: chon.ma } : {}) } };
+    } else if (r.hoi || r.khach.length > 0) {
+      treo.khach = { ten: g.ten || r.hoi, ds: r.khach, conNua: r.conNua, khongThay: r.ketQua === 'khong' };
     }
   }
   for (const d of p.dong) {

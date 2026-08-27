@@ -69,6 +69,8 @@ export interface PhienDon {
   bangChung?: {
     khach: Array<{ id: number; ten: string; ma?: string | null; sdt?: string | null }>;
     sp: Array<{ id: number; ten: string; gia: number; donVi?: string | null }>;
+    /** Lần tra khách GẦN NHẤT (model hay code gọi) — để liệt kê cho NV chọn / tự chốt theo goiY. */
+    traKhachCuoi?: { hoi: string; ds: Array<{ id: number; ten: string; ma?: string | null; sdt?: string | null }>; conNua: boolean; goiY?: number };
   };
   /** Đơn vừa lên trong phiên này (để "sửa đơn" biết sửa cái nào). */
   donVuaLen?: { donId: number; maDon: string; tenKhach: string; khachId: number; luc: string };
