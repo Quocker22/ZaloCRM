@@ -2444,7 +2444,16 @@ export async function xuLyGomDon(
     // gì trên đơn" — đọc kịch bản luồng khách ("gõ SĐT hoặc mã KH") là kéo NV
     // về một bước không tồn tại trong luồng này.
     const dangSuaDon = phien.che === 'sua' && phien.donSua != null;
-    tin = dangSuaDon
+    // NV gõ lại SỐ ("3") khi KHÁCH ĐÃ CHỐT và không còn danh sách nào treo (ca
+    // thật 16:25 27/08: bấm "3" hai lần vì tưởng chưa nhận) → nói rõ đã lấy ai,
+    // rồi hỏi tiếp việc đang thiếu — không đem "3" đi tra hàng.
+    const soLacKhiDaChotKhach = khachDaXong && !dangSuaDon && !chiConSpTreo && /^\d{1,2}$/.test(loiNv.trim());
+    tin = soLacKhiDaChotKhach
+      ? `Em đã lấy ${phien.khachDaChot!.ten} rồi ạ. ` +
+        (phien.dong.length === 0
+          ? renderLoiNhan({ loai: 'hoi_thieu', thieu: 'sp' }, phien)
+          : 'Anh/chị cần thêm hay sửa gì cho đơn này nữa không ạ?')
+      : dangSuaDon
       ? chuaKhop('dòng nào trên đơn') +
         `Anh/chị nhắn "sửa giá <tên hàng> <giá mới>" (vd: "sửa giá nguồn 175k"), ` +
         '"<tên hàng> + SL mới", hoặc "huỷ" giúp em ạ.'

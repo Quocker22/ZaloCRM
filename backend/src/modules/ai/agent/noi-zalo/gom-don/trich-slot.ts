@@ -460,12 +460,20 @@ export function apKhachTheoXungHo(cau: string, trich: KetQuaTrich): void {
   trich.khach = cum;
 }
 
-/** "Giá 0 đồng"/"giá 0đ"/"0 đồng" (ca thật 16:22 27/08): model bỏ luôn giá 0 → điền 0 cho dòng duy nhất chưa có giá. */
+/**
+ * "Giá 0 đồng"/"giá 0đ"/"0 đồng" (ca thật 16:22 27/08): model bỏ luôn giá 0,
+ * mà giá 0 đi tiếp thì mọi tầng (`d.donGia ?`, hỏi giá, lệch giá) đều coi là
+ * CHƯA CÓ GIÁ rồi đi hỏi. Giá 0 do NV nói = cho không → đánh dấu dòng TẶNG:
+ * tool ghi 0đ, không hỏi giá, không soi lệch.
+ */
 export function apGiaKhong(cau: string, trich: KetQuaTrich): void {
   if (trich.dong?.length !== 1) return;
   const d = trich.dong[0];
-  if (d.gia != null || d.tang) return;
-  if (/(?:^|\s)(?:giá|gia)\s*0\s*(?:đ|d|đồng|dong|k)?(?=\s|$|[.,;])|(?:^|\s)0\s*(?:đồng|dong)\b/iu.test(cau)) d.gia = 0;
+  if ((d.gia != null && d.gia > 0) || d.tang) return;
+  if (/(?:^|\s)(?:giá|gia)\s*0\s*(?:đ|d|đồng|dong|k)?(?=\s|$|[.,;])|(?:^|\s)0\s*(?:đồng|dong)\b/iu.test(cau)) {
+    delete d.gia;
+    d.tang = true;
+  }
 }
 
 export function apSlTuongMinh(cau: string, trich: KetQuaTrich): void {

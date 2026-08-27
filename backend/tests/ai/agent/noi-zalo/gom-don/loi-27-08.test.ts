@@ -225,7 +225,8 @@ describe('replay 27/08 — 4 luật thêm sau khi chạy lại 8 kịch bản', 
     const a: KetQuaTrich = { lenDon: true, khach: 'A', dong: [{ sp: 'Fa 100w', sl: 2 }] };
     apKhachTheoXungHo(cau, a); apGiaKhong(cau, a);
     expect(a.khach).toBe('A quyết');
-    expect(a.dong?.[0].gia).toBe(0);
+    expect(a.dong?.[0].gia).toBeUndefined();
+    expect(a.dong?.[0].tang).toBe(true); // giá 0 = cho không → dòng tặng, không hỏi giá
     const b: KetQuaTrich = { lenDon: true, dong: [{ sp: 'Fa 100w', sl: 2 }] };
     apKhachTheoXungHo(cau, b);
     expect(b.khach).toBe('A quyết');
