@@ -79,7 +79,7 @@ export async function chayVongKiemChung(vao: VaoVong): Promise<KetQuaVong> {
 
   // Lượt ÉP CHỐT tắt reasoning: bằng chứng đã nằm trong ngữ cảnh, chỉ cần
   // điền tool — đo e2e 27/08: 2 vòng tra + 1 vòng chốt có reasoning vượt 25s.
-  const GIO_EP_MS = 8_000;
+  const GIO_EP_MS = Math.min(8_000, timeoutMs);
   const goiModel = async (chiToolCuoi: boolean) => {
     const ms = chiToolCuoi ? Math.max(conGio(), GIO_EP_MS) : conGio();
     if (ms <= 500) throw new Error('hết giờ kiểm chứng');
@@ -140,11 +140,10 @@ export async function chayVongKiemChung(vao: VaoVong): Promise<KetQuaVong> {
     return await epChot('ep_chot');
   } catch (err) {
     logger.warn({ err, soVong }, '[harness] vòng kiểm chứng lỗi/hết giờ');
-    // Vòng giữa hết giờ mà ĐÃ có bằng chứng → vẫn thử một lượt ép chốt nhanh
-    // (8s riêng) thay vì vứt hết công tra.
-    if (bangChung.length > 0) {
-      try { return await epChot('ep_chot'); } catch (err2) { logger.warn({ err: err2 }, '[harness] ép chốt cũng hỏng'); }
-    }
+    // Hết giờ (kể cả chưa có bằng chứng — prod 27/08: 4/11 lượt điều phối
+    // vượt 25s ngay vòng reasoning đầu) → vẫn thử MỘT lượt ép chốt nhanh
+    // TẮT reasoning (8s riêng): chậm 8s còn hơn mất cả lượt.
+    try { return await epChot('ep_chot'); } catch (err2) { logger.warn({ err: err2 }, '[harness] ép chốt cũng hỏng'); }
     return { chot: null, bangChung, soVong, ms: Date.now() - t0, nguon: 'khong_chot', lyDo: err instanceof Error ? err.message : String(err) };
   }
 }

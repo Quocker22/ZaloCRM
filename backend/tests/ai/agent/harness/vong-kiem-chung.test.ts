@@ -61,9 +61,19 @@ describe('chayVongKiemChung', () => {
     const generate = vi.fn().mockResolvedValueOnce(turnText('Tôi nghĩ…')).mockResolvedValueOnce(turnTools([{ name: 'phan_quyet', input: { ok: true } }]));
     const a = await chayVongKiemChung({ generate, system: 's', userMessage: 'u', kiemChung: [], toolCuoi: PHAN_QUYET });
     expect(a.nguon).toBe('chot');
-    const treo = vi.fn(() => new Promise<AgentTurn>(() => {}));
-    const b = await chayVongKiemChung({ generate: treo, system: 's', userMessage: 'u', kiemChung: [], toolCuoi: PHAN_QUYET, timeoutMs: 60 });
-    expect(b.nguon).toBe('khong_chot');
+    // Hết giờ ngay vòng đầu → vẫn ÉP CHỐT nhanh một lượt (tắt reasoning); ép ra tool → ep_chot.
+    const treoRoiChot = vi.fn()
+      .mockImplementationOnce(() => new Promise<AgentTurn>(() => {}))
+      .mockResolvedValueOnce(turnTools([{ name: 'phan_quyet', input: { ok: true } }]));
+    const b = await chayVongKiemChung({ generate: treoRoiChot, system: 's', userMessage: 'u', kiemChung: [], toolCuoi: PHAN_QUYET, timeoutMs: 600 });
+    expect(b.nguon).toBe('ep_chot');
+    expect(treoRoiChot.mock.calls[1][0].suyNghi).toBe(false);
+    // Ép cũng treo → khong_chot (ép có 8s riêng; ở test dùng mock trả text ngay để khỏi chờ).
+    const treoCa = vi.fn()
+      .mockImplementationOnce(() => new Promise<AgentTurn>(() => {}))
+      .mockResolvedValueOnce(turnText('không'));
+    const c = await chayVongKiemChung({ generate: treoCa, system: 's', userMessage: 'u', kiemChung: [], toolCuoi: PHAN_QUYET, timeoutMs: 600 });
+    expect(c.nguon).toBe('khong_chot');
   });
 
   it('catGon cắt kết quả dài và ghi rõ đã cắt', () => {

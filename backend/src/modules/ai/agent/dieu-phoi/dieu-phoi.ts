@@ -229,11 +229,14 @@ export async function dieuPhoiPhien(
     phien: vao.phien, yDinh: 'hoi_khac', canHoi: oConThieu(vao.phien), duDeLenDon: duDeLenDon(vao.phien),
     nguon: 'loi', ms: Date.now() - t0, lyDo,
   });
+  // Khối "[Trả lời tin: …]" hệ thống chèn có thể dài cả tin cũ — cắt còn 150
+  // ký tự (prod 27/08: các lượt vượt 25s đều mang khối này).
+  const cauMoi = vao.cauMoi.replace(/^\s*\[Trả lời tin:\s*([\s\S]{0,150})[\s\S]*?\]\s*/u, (_m, d: string) => `[Trả lời tin: ${d.trim()}…] `);
   const userMessage =
     `PHIÊN HIỆN TẠI:\n${tomTatPhien(vao.phien)}\n\n` +
     (vao.nguCanh ? `NGỮ CẢNH MÁY BIẾT:\n${vao.nguCanh.slice(0, 1500)}\n\n` : '') +
     `LỊCH SỬ GẦN NHẤT:\n${hienLichSu(vao.lichSu)}\n\n` +
-    `TIN MỚI (${vao.phien.vai === 'khach' ? 'KHÁCH' : 'NHÂN VIÊN'}): "${vao.cauMoi}"`;
+    `TIN MỚI (${vao.phien.vai === 'khach' ? 'KHÁCH' : 'NHÂN VIÊN'}): "${cauMoi}"`;
   try {
     // HARNESS (27/08): có tool chỉ-đọc → model được đi ≤2 vòng kiểm chứng
     // (khách trùng? SP nào? giá?) rồi mới chốt bằng cap_nhat_phien. Không có
