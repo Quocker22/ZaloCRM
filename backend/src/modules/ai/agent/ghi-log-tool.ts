@@ -18,7 +18,7 @@ export interface ThamSoGhiLog {
   prisma: PrismaGhiLog;
   orgId: string;
   /** 'giam_sat' (26/08) = phán quyết của agent giám sát — đo chặn bao nhiêu/đúng bao nhiêu. */
-  vai: 'nhanvien' | 'khach' | 'giam_sat';
+  vai: 'nhanvien' | 'khach' | 'giam_sat' | 'dieu_phoi';
   conversationId?: string;
   /** Nhận lỗi ghi log. Mặc định im lặng — xem `taoGhiLog`. */
   onError?: (err: unknown) => void;

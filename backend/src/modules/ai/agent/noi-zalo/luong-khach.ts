@@ -28,6 +28,7 @@ import { LOAI_VIEC } from './dich-bao.js';
 import { demVaKiemTra, CAU_XIN_PHEP } from './gioi-han.js';
 import { taoDung, taoMoc, chayCoHanGio, hanGioLuot } from './dung.js';
 import { thuGiuViec } from './khoa-viec.js';
+import { chayBongDieuPhoi } from '../dieu-phoi/bong.js';
 import type { NgữCanhTin } from './types.js';
 
 const prismaLog = prisma as unknown as PrismaGhiLog;
@@ -290,6 +291,15 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
         })),
       },
     ));
+
+    // ĐIỀU PHỐI PHIÊN chạy BÓNG (27/08) — xem luong-nhan-vien; luồng khách là
+    // nơi lợi nhất vì chưa có object đơn nào. Fire-and-forget.
+    void chayBongDieuPhoi({
+      orgId: ctx.orgId, conversationId: ctx.conversationId, vai: 'khach', cauMoi: ctx.content,
+      lichSu: lichSu.map((m) => ({ vai: m.senderType === 'self' ? 'bot' as const : 'khach' as const, noiDung: m.content })),
+      ...(r.trangThai === 'xong' ? { botTraLoi: r.traLoi } : {}),
+      generate,
+    });
 
     // TIN MỚI ĐẾN GIỮA CHỪNG (07/08, học Chatwoot): khách gõ tiếp trong lúc
     // bot gọi LLM. Nếu chưa ghi gì vào Odoo → BỎ câu trả lời này, im lặng, để

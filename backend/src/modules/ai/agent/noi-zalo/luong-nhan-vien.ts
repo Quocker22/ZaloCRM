@@ -23,6 +23,7 @@ import { ghepAnhTruocDo, CUA_SO_ANH_TRUOC_MS } from './anh-truoc-do.js';
 // Vòng import luong-media ⇄ luong-nhan-vien: cả hai chỉ dùng hàm của nhau BÊN
 // TRONG thân hàm (không ở mức module) nên ESM giải được; đừng đưa lên top-level.
 import { docAnhTuUrl, ghepCauTuAnh } from './luong-media.js';
+import { chayBongDieuPhoi } from '../dieu-phoi/bong.js';
 import { themJobIn as themJobVaoHangIn, type PrismaHangDoiIn } from '../../may-in/hang-doi-in.js';
 import { ippConfigTuEnv } from '../../may-in/tu-env.js';
 import type { ThemJobInHoaDon } from '../../odoo/tools/in-hoa-don.js';
@@ -420,6 +421,20 @@ async function xuLyTinNhanVienTuanTu(ctx: NgữCanhTin): Promise<boolean> {
       // hợp thêm một con agent giám sát, chấp nhận trả lời lâu hơn xíu". Model
       // KHÁC model chính; lỗi/chậm → fail-open gửi bản gốc; phán quyết ghi
       // tool_call_logs vai 'giam_sat' để đo chặn bao nhiêu / đúng bao nhiêu.
+      // ĐIỀU PHỐI PHIÊN chạy BÓNG (27/08, anh Quốc: object đơn cố định cho cả
+      // khách lẫn NV). Giai đoạn 1 chỉ ghi phiên + log để đo, KHÔNG đổi câu
+      // trả lời; fire-and-forget nên không làm chậm tin.
+      void chayBongDieuPhoi({
+        orgId: ctx.orgId, conversationId: ctx.conversationId, vai: 'nhanvien', cauMoi: lenh.noiDung,
+        lichSu: lichSu.map((m) => ({
+          vai: m.senderType === 'self'
+            ? (coTagBot(m.content) ? 'nhanvien' as const : 'bot' as const)
+            : ctx.senderUid && m.senderUid === ctx.senderUid ? 'nhanvien' as const : 'khach' as const,
+          noiDung: m.content,
+        })),
+        botTraLoi: r.traLoi,
+        generate,
+      });
       let traLoiGui = r.traLoi;
       // try/catch bọc CẢ khối: dựng model, ghi log… hỏng gì cũng không được
       // chặn tin của nhân viên — giám sát là phụ, trả lời là chính.

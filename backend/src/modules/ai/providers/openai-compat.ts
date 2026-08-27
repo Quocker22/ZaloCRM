@@ -302,6 +302,13 @@ export async function generateWithOpenaiCompatTools(args: {
    * sách thì dừng thử lại luôn thay vì chờ vô ích rồi bị tầng trên cắt.
    */
   hanChotMs?: number;
+  /**
+   * BẬT suy nghĩ riêng (reasoning) cho lượt này — chỉ cho lượt mà đầu ra BẮT
+   * BUỘC là tool call có cấu trúc (điều phối phiên, 27/08): suy nghĩ nằm ở
+   * reasoning_content, không thể rò ra tin nhắn. Mặc định vẫn TẮT (đo 08/08:
+   * bật trong vòng lặp tool là chậm 10× và rò suy nghĩ).
+   */
+  suyNghi?: boolean;
 }): Promise<AgentTurn> {
   const tokenParam = args.tokenParam ?? 'max_tokens';
   const toiDa = args.soLanThuLai ?? 3;
@@ -338,7 +345,7 @@ export async function generateWithOpenaiCompatTools(args: {
     // máy trạng thái cầm lái. Cần nghĩ sâu ở đâu thì bật riêng chỗ đó.
     // Chỉ gửi cho OpenRouter — gateway khác có thể 400 với tham số lạ.
     ...(args.url.includes('openrouter') && laModelThinking(args.model)
-      ? { reasoning: { enabled: false } }
+      ? { reasoning: { enabled: args.suyNghi === true } }
       : {}),
   });
 

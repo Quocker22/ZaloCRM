@@ -115,6 +115,8 @@ export type ToolAwareGenerate = (args: {
   messages: AgentMessage[];
   tools: ToolDefinition[];
   maxTokens?: number;
+  /** Bật suy nghĩ riêng (reasoning) — chỉ cho lượt bắt buộc trả tool có cấu trúc. */
+  suyNghi?: boolean;
 }) => Promise<AgentTurn>;
 
 /** Hàm chạy 1 tool thật. */
