@@ -421,7 +421,8 @@ export function tachSlDauTenSp(trich: KetQuaTrich): void {
     if (!m) continue;
     const so = Number(m[1]);
     if (!laTokenSl(so, m[2], m[3])) continue;
-    if (d.sl != null && d.sl !== so) continue;
+    // SL tường minh ở đầu tên THẮNG số model đoán (replay lần 3: model đưa
+    // sl=5200 từ "x 5200" rồi để "30b" dính tên → tra "30b f30" ra hàng sai).
     d.sl = so;
     d.sp = m[3].trim();
   }

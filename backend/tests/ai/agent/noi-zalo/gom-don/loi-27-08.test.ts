@@ -141,15 +141,15 @@ describe('replay 27/08 — 4 luật thêm sau khi chạy lại 8 kịch bản', 
     expect(b.dong?.[0].sl).toBe(16);
   });
 
-  it('tên hàng dính SL ở đầu: "270b Fi50 full 26803 đầu đục" → sl 270, sp "Fi50 …"; "3b 6214 trắng" giữ nguyên; sl model khác số đầu → không đụng', () => {
+  it('tên hàng dính SL ở đầu: "270b Fi50 full 26803 đầu đục" → sl 270, sp "Fi50 …"; "3b 6214 trắng" giữ nguyên; sl model khác số đầu → số đầu thắng', () => {
     const a: KetQuaTrich = { lenDon: true, dong: [{ sp: '270b Fi50 full 26803 đầu đục', gia: 7200 }] };
     tachSlDauTenSp(a);
     expect(a.dong?.[0]).toMatchObject({ sp: 'Fi50 full 26803 đầu đục', sl: 270 });
     const b: KetQuaTrich = { lenDon: true, dong: [{ sp: '3b 6214 trắng' }] };
     tachSlDauTenSp(b);
     expect(b.dong?.[0]).toMatchObject({ sp: '3b 6214 trắng' });
-    const c: KetQuaTrich = { lenDon: true, dong: [{ sp: '4 cái pha 50w trắng', sl: 9 }] };
-    tachSlDauTenSp(c);
-    expect(c.dong?.[0]).toMatchObject({ sp: '4 cái pha 50w trắng', sl: 9 });
+    const c: KetQuaTrich = { lenDon: true, dong: [{ sp: '30b f30 full', sl: 5200 }] };
+    tachSlDauTenSp(c); // model lấy 5200 từ "x 5200" → SL tường minh đầu tên thắng
+    expect(c.dong?.[0]).toMatchObject({ sp: 'f30 full', sl: 30 });
   });
 });
