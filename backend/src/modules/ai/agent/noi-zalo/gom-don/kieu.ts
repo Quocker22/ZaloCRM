@@ -269,7 +269,7 @@ export interface PhienGom {
    * mã đơn — docPhien vẫn trả phiên chứa dấu, xuLyGomDon tự tách ra và coi
    * như KHÔNG có phiên mở (mọi nhánh `!phien` giữ nguyên hành vi cũ).
    */
-  daXong?: { maDon: string; tenKhach: string };
+  daXong?: { maDon: string; tenKhach: string; dong?: Array<{ ten: string; sl: number }> };
   /**
    * NV nói RÕ "tạo phiếu nhập MỚI/thêm phiếu" — cho phép tạo phiếu trùng nội
    * dung với phiếu nháp đang có (17/08; guard chống-trùng-nội-dung sẽ nhường).

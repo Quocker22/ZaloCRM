@@ -442,6 +442,28 @@ export interface GomDonDeps {
  * "Red Sun : 2607 ấm 10000b" → S15342 sai người. Tên khớp (tenKhopKhach, cùng
  * luật với tao_don_nhap) thì giữ; khác hẳn thì đây là ĐƠN CHO NGƯỜI KHÁC.
  */
+/**
+ * Câu chỉ nhắc lại món ĐÃ CÓ trên đơn vừa lên: không khách, không khách mới,
+ * mọi dòng đều không SL/giá và tên gõ nằm trọn (từng từ) trong tên một dòng
+ * của đơn. Trả về các dòng đơn bị nhắc, hoặc null nếu không phải ca này.
+ */
+export function dongNhacLaiDonVuaLen(
+  trich: KetQuaTrich, donVuaLen: NonNullable<PhienGom['daXong']>,
+): Array<{ ten: string; sl: number }> | null {
+  if (!donVuaLen.dong?.length || trich.khach || trich.khachMoi || trich.sua || trich.maDon) return null;
+  if (!trich.dong?.length || (trich.boDong?.length ?? 0) > 0) return null;
+  if (trich.dong.some((d) => d.sl != null || d.gia != null || d.tang)) return null;
+  const ra: Array<{ ten: string; sl: number }> = [];
+  for (const d of trich.dong) {
+    const tu = boDau(d.sp).split(/[^a-z0-9]+/).filter((t) => t.length >= 2);
+    if (tu.length < 2) return null;
+    const khop = donVuaLen.dong.find((x) => { const tenBd = boDau(x.ten); return tu.every((t) => tenBd.includes(t)); });
+    if (!khop) return null;
+    ra.push(khop);
+  }
+  return ra;
+}
+
 export function khachKhacNguoiDaChot(p: PhienGom, khachTrich: string): boolean {
   if (!p.khachDaChot || p.che === 'sua') return false;
   return !tenKhopKhach(khachTrich, p.khachDaChot.ten);
@@ -1088,7 +1110,10 @@ async function taoDonVaBaoGia(
     `${daGuiAnh ? ' Báo giá ở ảnh trên.' : ''} Link xử lý: ${linkXuLyDon(deps.odooUrl, kq.donId)}` +
     '\nSai chỗ nào anh/chị nhắn "sửa đơn ..." em sửa ngay ạ.',
   );
-  p.daXong = { maDon: kq.maDon, tenKhach: p.khachDaChot!.ten };
+  p.daXong = {
+    maDon: kq.maDon, tenKhach: p.khachDaChot!.ten,
+    dong: p.dong.map((d) => ({ ten: d.daChot?.ten ?? d.tuKhoa, sl: d.sl ?? 1 })),
+  };
   return 'xong';
 }
 
@@ -1209,7 +1234,10 @@ async function taoPhieuNhapVaBao(
   );
   // Ảnh phiếu nhập — cùng lễ nghi với đơn bán (anh Quốc 22:41 16/08).
   await guiAnhPhieuNhap(deps, kq.donId, kq.maDon);
-  p.daXong = { maDon: kq.maDon, tenKhach: p.khachDaChot!.ten };
+  p.daXong = {
+    maDon: kq.maDon, tenKhach: p.khachDaChot!.ten,
+    dong: p.dong.map((d) => ({ ten: d.daChot?.ten ?? d.tuKhoa, sl: d.sl ?? 1 })),
+  };
   return 'xong';
 }
 
@@ -1426,6 +1454,19 @@ export async function xuLyGomDon(
     daHoiLlm = true;
     // Nhận việc khi model thấy ĐƠN BÁN hoặc ĐƠN MUA — cùng một máy, hai chế.
     if (!trich.lenDon && !trich.nhapHang) return false;
+    // NV GÕ LẠI ĐÚNG MÓN ĐÃ CÓ trên đơn vừa lên, không khách/SL/giá (replay
+    // 27/08: "4 bóng lixin 220V trung tính" ngay sau S99001) → máy từng mở
+    // phiên mới vô chủ, hỏi "lên cho khách nào?", rồi món đó dính vào đơn của
+    // khách kế tiếp. Trả lời "đã có rồi", không mở phiên.
+    const nhacLai = donVuaLen ? dongNhacLaiDonVuaLen(trich, donVuaLen) : null;
+    if (nhacLai) {
+      logger.info({ maDon: donVuaLen!.maDon, dong: nhacLai.map((d) => d.ten) }, '[gom-don] NV gõ lại món đã có trên đơn vừa lên — không mở phiên');
+      await deps.guiTin(
+        `Đơn ${donVuaLen!.maDon} của ${donVuaLen!.tenKhach} đã có ${nhacLai.map((d) => `${d.sl} × ${d.ten}`).join(', ')} rồi ạ. ` +
+        'Cần sửa gì anh/chị nhắn "sửa đơn ..." nhé.',
+      );
+      return true;
+    }
   }
 
   // ĐƯỜNG TẮT SỬA GIÁ — CODE TRƯỚC, MODEL SAU (14/08, ca 22:32-22:33). Câu

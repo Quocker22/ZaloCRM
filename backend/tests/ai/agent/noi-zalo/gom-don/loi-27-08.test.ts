@@ -7,7 +7,7 @@
 //  5. tạo khách trùng "red sun" dù đã có "Anh Thuận - Red Sun"
 import { describe, it, expect, vi } from 'vitest';
 import {
-  dapSlot, khachKhacNguoiDaChot, laLenhNgoaiGom, docCauSuaSl, cauNeuKhachKhac,
+  dapSlot, khachKhacNguoiDaChot, laLenhNgoaiGom, docCauSuaSl, cauNeuKhachKhac, dongNhacLaiDonVuaLen,
 } from '../../../../../src/modules/ai/agent/noi-zalo/gom-don/index.js';
 import { suaSlGiaNhamX, apSlTuongMinh, apKhachTheoGachCheo, tachSlDinhDauSp, tachSlDauTenSp, chonUngVienTheoCau, apKhachTheoXungHo, type KetQuaTrich } from '../../../../../src/modules/ai/agent/noi-zalo/gom-don/trich-slot.js';
 import { taoKhachHang } from '../../../../../src/modules/ai/odoo/tools/tao-khach-hang.js';
@@ -202,5 +202,14 @@ describe('replay 27/08 — 4 luật thêm sau khi chạy lại 8 kịch bản', 
     const q: PhienGom = { khachTuKhoa: 'Anh Long Led', khachUngVien: [], dong: [{ tuKhoa: 'cáp 16pin 140cm', sl: 16 }], che: 'len' };
     dapSlot(q, { lenDon: true, khach: 'a Long', dong: [{ sp: 'cáp 16pin 120cm', sl: 64 }] });
     expect(q.dong.length).toBe(2);
+  });
+
+  it('NV gõ lại món đã có trên đơn vừa lên (không khách/SL/giá) → nhận diện; có SL mới, khách, hay món lạ → không', () => {
+    const don = { maDon: 'S99001', tenKhach: 'anh việt nguyễn xiển', dong: [{ ten: 'Led 4 bóng Lixin 220V trong nhà Trung tính 4000K', sl: 400 }] };
+    expect(dongNhacLaiDonVuaLen({ lenDon: true, dong: [{ sp: '4 bóng lixin 220V trung tính' }] }, don)).toEqual(don.dong);
+    expect(dongNhacLaiDonVuaLen({ lenDon: true, dong: [{ sp: '4 bóng lixin 220V trung tính', sl: 500 }] }, don)).toBeNull();
+    expect(dongNhacLaiDonVuaLen({ lenDon: true, khach: 'anh tùng', dong: [{ sp: '4 bóng lixin' }] }, don)).toBeNull();
+    expect(dongNhacLaiDonVuaLen({ lenDon: true, dong: [{ sp: '12v400w nb' }] }, don)).toBeNull();
+    expect(dongNhacLaiDonVuaLen({ lenDon: true, dong: [{ sp: 'lixin' }] }, don)).toBeNull(); // 1 từ → quá mơ hồ
   });
 });
