@@ -9,7 +9,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   dapSlot, khachKhacNguoiDaChot, laLenhNgoaiGom, docCauSuaSl, cauNeuKhachKhac,
 } from '../../../../../src/modules/ai/agent/noi-zalo/gom-don/index.js';
-import { suaSlGiaNhamX, apSlTuongMinh, apKhachTheoGachCheo, tachSlDinhDauSp, tachSlDauTenSp, type KetQuaTrich } from '../../../../../src/modules/ai/agent/noi-zalo/gom-don/trich-slot.js';
+import { suaSlGiaNhamX, apSlTuongMinh, apKhachTheoGachCheo, tachSlDinhDauSp, tachSlDauTenSp, chonUngVienTheoCau, type KetQuaTrich } from '../../../../../src/modules/ai/agent/noi-zalo/gom-don/trich-slot.js';
 import { taoKhachHang } from '../../../../../src/modules/ai/odoo/tools/tao-khach-hang.js';
 import type { PhienGom } from '../../../../../src/modules/ai/agent/noi-zalo/gom-don/kieu.js';
 
@@ -151,5 +151,28 @@ describe('replay 27/08 — 4 luật thêm sau khi chạy lại 8 kịch bản', 
     const c: KetQuaTrich = { lenDon: true, dong: [{ sp: '30b f30 full', sl: 5200 }] };
     tachSlDauTenSp(c); // model lấy 5200 từ "x 5200" → SL tường minh đầu tên thắng
     expect(c.dong?.[0]).toMatchObject({ sp: 'f30 full', sl: 30 });
+  });
+
+  it('chọn SP theo câu gốc khi tên trích cụt: "… 26803 đầu trong" → F30 Trong; "4 bóng lixin 220v" không chọn Led dây Lixin; 2 loại đục hoà → hỏi', () => {
+    const f30 = [
+      { id: 1, ten: 'F30 full 26803 Đục 12V - ATX (bóng)' },
+      { id: 2, ten: 'F30 Full 26803 Trong 12V - ATX (bóng)' },
+      { id: 3, ten: 'led F30 Full đục DMX (bóng)' },
+    ];
+    expect(chonUngVienTheoCau('Lộc led 88 / 30b f30 full 26803 đầu trong x 5200', f30)?.id).toBe(2);
+    expect(chonUngVienTheoCau('Lộc led 88 / 30b f30 full 26803 đầu đục x 5200', f30)?.id).toBe(1); // "26803" loại DMX ra
+    expect(chonUngVienTheoCau('Lộc led 88 / 30b f30 full đầu đục x 5200', f30)).toBeNull(); // 2 loại đục hoà → hỏi
+    const lixin = [
+      { id: 1, ten: 'Led dây Lixin 12V-120b/m màu trung tính 4000K ip65 (20m/c) (mét)' },
+      { id: 2, ten: 'Led 4 bóng 24V Trong Nhà Trung Tính 4000K (bóng)' },
+      { id: 3, ten: 'Led 4 bóng 24V Ngoài Trời Trung Tính 4000K (bóng)' },
+    ];
+    expect(chonUngVienTheoCau('anh việt nguyễn xiển 400b 4 bóng lixin 220v 4000K giá 3200', lixin)).toBeNull();
+    const fi50 = [
+      { id: 1, ten: 'Led Fi50 Tự Nháy IC26803 24V fullcolor Đầu Đục (bóng)' },
+      { id: 2, ten: 'Led Fi50 Tự Nháy IC 26803 24V fullcolor Đầu Trong' },
+      { id: 3, ten: 'F30 full 26803 Đục 12V - ATX (bóng)' },
+    ];
+    expect(chonUngVienTheoCau('Led Trường An. 270b Fi50 full 26803 đầu đục giá 7200', fi50)).toBeNull(); // 2 loại đục, phủ thấp → hỏi
   });
 });

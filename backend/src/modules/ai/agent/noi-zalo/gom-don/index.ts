@@ -34,7 +34,7 @@ import { buocTiepTheo } from './buoc-tiep-theo.js';
 import { apDungChon, apChonDeXuat, dangChoChon, LA_KHACH_MOI } from './chon.js';
 import { laMaKh } from '../../../odoo/tools/tra-khach-hang.js';
 import { renderLoiNhan } from './loi-nhan.js';
-import { trichSlot, type KetQuaTrich } from './trich-slot.js';
+import { trichSlot, type KetQuaTrich, chonUngVienTheoCau } from './trich-slot.js';
 import { docPhien, luuPhien, xoaPhien, type DbPhienGomDon } from './phien-store.js';
 
 /** "lên/tạo/đặt + đơn/hàng" ở đầu từ — 'sửa đơn'/'báo cáo đơn' KHÔNG kích máy. */
@@ -912,8 +912,14 @@ async function chayTraCuu(
       // CHỐT — 10.000 tấm nhầm mặt hàng là 1,7 tỷ tiền sai. Hỏi thêm một
       // lượt rẻ hơn vô hạn so với nhập nhầm kho.
       const ganDung = meta.ganDung === true || meta.daNoiRong === true;
+      // Tên model trích CỤT nhưng CÂU GỐC đã nói rõ ("… 26803 đầu trong") →
+      // chọn theo câu, khỏi bắt NV chọn lại điều họ vừa gõ (replay 27/08).
+      const theoCau = !ganDung && list.length > 1 && ctx.cau ? chonUngVienTheoCau(ctx.cau, list) : null;
       if (list.length === 1 && !ganDung) {
         dong.daChot = { id: list[0].id, ten: list[0].ten, gia: list[0].gia };
+      } else if (theoCau) {
+        logger.info({ tuKhoa, chon: theoCau.ten, soUngVien: list.length }, '[gom-don] chọn SP theo câu gốc (tên trích cụt)');
+        dong.daChot = { id: theoCau.id, ten: theoCau.ten, gia: theoCau.gia };
       } else if (list.length >= 1) {
         dong.ungVien = list;
         // Sao lại để lúc chốt còn soi được "3 ứng viên này có phải cùng một

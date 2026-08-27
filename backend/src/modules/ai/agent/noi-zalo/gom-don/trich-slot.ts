@@ -9,6 +9,7 @@ import { logger } from '../../../../../shared/utils/logger.js';
 import type { ToolAwareGenerate, ToolDefinition } from '../../types.js';
 import type { PhienGom } from './kieu.js';
 import { lamSachPhuPhi } from '../../../odoo/tools/phu-phi.js';
+import { boDau } from '../../../odoo/tools/tra-san-pham.js';
 
 export interface KetQuaTrich {
   /** Tên/mã khách — ĐÃ bỏ xưng hô (anh/chị/em). */
@@ -735,4 +736,34 @@ function chuanTenSo(s: string): string {
     .replace(/đ/g, 'd')
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
+}
+
+/**
+ * Model trích tên hàng CỤT ("f30 full" từ câu "30b f30 full 26803 đầu trong x
+ * 5200") → tra ra nhiều loại và bắt NV chọn, dù câu gốc đã nói rõ "trong".
+ * Chọn ứng viên theo CÂU GỐC: từ phân biệt (không chung cho mọi ứng viên) của
+ * ứng viên nào nằm trong câu nhiều nhất, duy nhất, và tên nó được câu phủ
+ * ≥ 60% → chọn. Mọi ca hoà / phủ thấp ("4 bóng lixin" ra Led dây Lixin phủ
+ * 2/13) → null, để hỏi như cũ. Chỉ dùng cho kết quả KHÔNG gần đúng.
+ */
+export function chonUngVienTheoCau<T extends { ten: string }>(cau: string, ungVien: T[]): T | null {
+  if (ungVien.length < 2) return null;
+  const veHang = cau.replace(/@\S+/g, ' ').split(/\s\/\s|\s:\s|:\s/u).pop() ?? cau;
+  const tokCau = new Set(boDau(veHang).replace(/\bx\s*[\d.,]+\s*[kđ₫]?\b/gu, ' ').split(/[^a-z0-9]+/).filter((t) => t.length >= 2));
+  const tokUv = ungVien.map((u) => new Set(boDau(u.ten).replace(/\([^)]*\)/g, ' ').split(/[^a-z0-9]+/).filter((t) => t.length >= 2)));
+  const chung = [...tokUv[0]].filter((t) => tokUv.every((s) => s.has(t)));
+  const diem = tokUv.map((s) => {
+    const rieng = [...s].filter((t) => !chung.includes(t));
+    const hit = rieng.filter((t) => tokCau.has(t)).length;
+    const phu = s.size === 0 ? 0 : [...s].filter((t) => tokCau.has(t)).length / s.size;
+    return { hit, phu };
+  });
+  const maxHit = Math.max(...diem.map((d) => d.hit));
+  if (maxHit <= 0) return null;
+  const top = diem.map((d, i) => ({ ...d, i })).filter((d) => d.hit === maxHit);
+  if (top.length !== 1) return null;
+  const chon = top[0];
+  if (chon.phu < 0.6) return null;
+  if (diem.some((d, i) => i !== chon.i && d.phu >= chon.phu)) return null;
+  return ungVien[chon.i];
 }
