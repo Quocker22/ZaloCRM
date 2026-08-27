@@ -9,7 +9,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   dapSlot, khachKhacNguoiDaChot, laLenhNgoaiGom, docCauSuaSl, cauNeuKhachKhac,
 } from '../../../../../src/modules/ai/agent/noi-zalo/gom-don/index.js';
-import { suaSlGiaNhamX, apSlTuongMinh, apKhachTheoGachCheo, tachSlDinhDauSp, type KetQuaTrich } from '../../../../../src/modules/ai/agent/noi-zalo/gom-don/trich-slot.js';
+import { suaSlGiaNhamX, apSlTuongMinh, apKhachTheoGachCheo, tachSlDinhDauSp, tachSlDauTenSp, type KetQuaTrich } from '../../../../../src/modules/ai/agent/noi-zalo/gom-don/trich-slot.js';
 import { taoKhachHang } from '../../../../../src/modules/ai/odoo/tools/tao-khach-hang.js';
 import type { PhienGom } from '../../../../../src/modules/ai/agent/noi-zalo/gom-don/kieu.js';
 
@@ -139,5 +139,17 @@ describe('replay 27/08 — 4 luật thêm sau khi chạy lại 8 kịch bản', 
     const b: KetQuaTrich = { lenDon: true, dong: [{ sp: 'cáp 16PIN 140cm', sl: 140 }] };
     apSlTuongMinh('a long led ,cáp 16PIN 140cm = 16 sợi', b);
     expect(b.dong?.[0].sl).toBe(16);
+  });
+
+  it('tên hàng dính SL ở đầu: "270b Fi50 full 26803 đầu đục" → sl 270, sp "Fi50 …"; "3b 6214 trắng" giữ nguyên; sl model khác số đầu → không đụng', () => {
+    const a: KetQuaTrich = { lenDon: true, dong: [{ sp: '270b Fi50 full 26803 đầu đục', gia: 7200 }] };
+    tachSlDauTenSp(a);
+    expect(a.dong?.[0]).toMatchObject({ sp: 'Fi50 full 26803 đầu đục', sl: 270 });
+    const b: KetQuaTrich = { lenDon: true, dong: [{ sp: '3b 6214 trắng' }] };
+    tachSlDauTenSp(b);
+    expect(b.dong?.[0]).toMatchObject({ sp: '3b 6214 trắng' });
+    const c: KetQuaTrich = { lenDon: true, dong: [{ sp: '4 cái pha 50w trắng', sl: 9 }] };
+    tachSlDauTenSp(c);
+    expect(c.dong?.[0]).toMatchObject({ sp: '4 cái pha 50w trắng', sl: 9 });
   });
 });

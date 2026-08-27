@@ -410,6 +410,23 @@ function tokenSlThat(cau: string): Array<{ so: number; index: number }> {
  * câu có ĐÚNG MỘT token tường minh và trích ra ĐÚNG MỘT dòng (nhiều dòng thì
  * model đã tự ghép từng dòng).
  */
+/**
+ * Tên hàng model trích còn dính SL tường minh ở ĐẦU ("270b Fi50 full 26803
+ * đầu đục" — replay 27/08 làm tra SP ra F30 thay vì Fi50) → tách: SL = 270,
+ * tên = phần còn lại. "3b 6214" (3 bóng) là mảnh tên → laTokenSl chặn.
+ */
+export function tachSlDauTenSp(trich: KetQuaTrich): void {
+  for (const d of trich.dong ?? []) {
+    const m = d.sp.match(/^(\d{1,7})\s?(b|bong|bóng|c|cai|cái|thanh|cuon|cuộn|chiec|chiếc|tam|tấm|bo|bộ|soi|sợi|goi|gói|thung|thùng)\s+(\S.{2,})$/iu);
+    if (!m) continue;
+    const so = Number(m[1]);
+    if (!laTokenSl(so, m[2], m[3])) continue;
+    if (d.sl != null && d.sl !== so) continue;
+    d.sl = so;
+    d.sp = m[3].trim();
+  }
+}
+
 export function apSlTuongMinh(cau: string, trich: KetQuaTrich): void {
   if (trich.dong?.length !== 1) return;
   const tk = tokenSlThat(cau).filter((m) => {
@@ -654,6 +671,7 @@ export async function trichSlot(
     suaGiaNhanBua(cau, kq);
     tachSlDinhDauSp(kq);
     suaSlGiaNhamX(cau, kq);
+    tachSlDauTenSp(kq);
     apSlTuongMinh(cau, kq);
     apKhachTheoGachCheo(cau, kq);
     boSungGiaTuKhoiAnh(cau, kq);

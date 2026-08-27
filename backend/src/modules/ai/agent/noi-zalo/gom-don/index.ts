@@ -1645,6 +1645,16 @@ export async function xuLyGomDon(
   // Đã hỏi LLM ở cửa vào thì DÙNG LẠI kết quả — đừng gọi lần hai cho cùng câu.
   if (!daChon && !daHoiLlm) trich = await trichSlot(deps.generate, input.cau, phien);
 
+  // CÂU SỬA SỐ LƯỢNG THUẦN ("sửa đơn số lượng 30b") mà model trích "30b" thành
+  // tên hàng → máy đi tra SP "30b" rồi báo không thấy (replay 27/08). Bỏ các
+  // dòng chỉ là "<số><đơn vị>" để đường tắt sửa SL bên dưới cầm việc.
+  if ((laLenhSua || trich.sua || phien?.che === 'sua') && docCauSuaSl(boDau(cauChon)) != null
+    && (trich.dong?.length ?? 0) > 0
+    && trich.dong!.every((d) => /^(\d{1,7}\s?)?(b|bong|bóng|c|cai|cái|chiec|chiếc|thanh|soi|sợi|cuon|cuộn|tam|tấm)$/iu.test(d.sp.trim()))) {
+    logger.info({ dong: trich.dong }, '[gom-don] câu sửa SL thuần — bỏ dòng "<số><đơn vị>" model trích');
+    trich = { ...trich, dong: [], sua: true };
+  }
+
   // ĐANG TREO CHỌN KHÁCH/NCC thì câu lạ KHÔNG được thành từ khoá tra mới
   // (vá 22:59 12/08). Ca thật 08:56: "1aaaaaa theo thứ tự từ trên xuống" bị
   // model trích thành tên NCC → máy đi tra → "chưa khớp được ... với nhà cung
@@ -2120,6 +2130,13 @@ export async function xuLyGomDon(
     const slMoi = docCauSuaSl(boDau(cauChon));
     if (slMoi != null) {
       const d = phien.donSua.dong[0];
+      if (d.sl === slMoi) {
+        // Đơn ĐÃ đúng số đó (NV nhắc lại cho chắc) → nói thẳng, không sửa gì.
+        logger.info({ ma: phien.donSua.ma, ten: d.ten, sl: d.sl }, '[gom-don] sửa SL trùng số đang có — không đổi');
+        await luuPhien(deps.prisma, { orgId: input.orgId, conversationId: input.conversationId, phien });
+        await deps.guiTin(`Đơn ${phien.donSua.ma} đang đúng ${slMoi} × ${d.ten} rồi ạ, em không đổi gì. Cần sửa khác anh/chị nhắn "sửa đơn ..." nhé.`);
+        return true;
+      }
       logger.info({ ma: phien.donSua.ma, ten: d.ten, slCu: d.sl, slMoi }, '[gom-don] đường tắt sửa SL đơn một dòng');
       phien.dong.push({ tuKhoa: d.ten, sl: slMoi, daChot: { id: d.spId, ten: d.ten, gia: d.gia } });
       hd = buocTiepTheo(phien);
