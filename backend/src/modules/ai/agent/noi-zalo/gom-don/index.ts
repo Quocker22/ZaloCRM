@@ -1452,12 +1452,12 @@ export async function xuLyGomDon(
   if (!phien && !regexLen && !laLenhSua && !regexNhap) {
     trich = await trichSlot(deps.generate, input.cau, null);
     daHoiLlm = true;
-    // Nhận việc khi model thấy ĐƠN BÁN hoặc ĐƠN MUA — cùng một máy, hai chế.
-    if (!trich.lenDon && !trich.nhapHang) return false;
     // NV GÕ LẠI ĐÚNG MÓN ĐÃ CÓ trên đơn vừa lên, không khách/SL/giá (replay
     // 27/08: "4 bóng lixin 220V trung tính" ngay sau S99001) → máy từng mở
     // phiên mới vô chủ, hỏi "lên cho khách nào?", rồi món đó dính vào đơn của
-    // khách kế tiếp. Trả lời "đã có rồi", không mở phiên.
+    // khách kế tiếp; model bảo "không phải lên đơn" thì rơi xuống agent tự do
+    // và nó bịa "đã ghi". Kiểm TRƯỚC cờ lenDon: trả lời "đã có rồi", không mở
+    // phiên, không nhường agent.
     const nhacLai = donVuaLen ? dongNhacLaiDonVuaLen(trich, donVuaLen) : null;
     if (nhacLai) {
       logger.info({ maDon: donVuaLen!.maDon, dong: nhacLai.map((d) => d.ten) }, '[gom-don] NV gõ lại món đã có trên đơn vừa lên — không mở phiên');
@@ -1467,6 +1467,8 @@ export async function xuLyGomDon(
       );
       return true;
     }
+    // Nhận việc khi model thấy ĐƠN BÁN hoặc ĐƠN MUA — cùng một máy, hai chế.
+    if (!trich.lenDon && !trich.nhapHang) return false;
   }
 
   // ĐƯỜNG TẮT SỬA GIÁ — CODE TRƯỚC, MODEL SAU (14/08, ca 22:32-22:33). Câu
