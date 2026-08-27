@@ -93,6 +93,20 @@ describe('tên khách lệch / mã đơn (harness code-side)', () => {
     expect(tenKhachLech(log, 'Em đã xếp in hoá đơn của anh Tấn Anh Bình Định ạ.')).toEqual([]);
     expect(tenKhachLech([{ toolName: 'tao_don_nhap', input: {}, output: 'Đơn cho Anh Vũ Hải (KH000147): 8 × Nguồn', thanhCong: true, durationMs: 1, iteration: 1 }], 'Đã lên đơn cho Vũ Hải')).toEqual([]);
   });
+  it('prod 07:14 27/08: tra_san_pham "…khách cần…" KHÔNG được coi là tên khách (chỉ tool hành động mới có chủ đơn)', () => {
+    const log = [{ toolName: 'tra_san_pham', input: { ten: 'fa 50w' }, output: 'Tìm thấy 14 sản phẩm: id=246 | Fa SMD 50w Màu Trắng (cái) | CHƯA CÓ GIÁ — hỏi khách cần loại nào', thanhCong: true, durationMs: 1, iteration: 1 }];
+    expect(tenKhachLech(log, 'Có chứ, "fa 50w" có 3 loại… lên cho khách Qc T&T ạ.')).toEqual([]);
+  });
+
+  it('prod 07:30 27/08: bản nháp "Tin này không thuộc 3 loại…" bị lột; bản SỬA của model mang "Câu này là trao đổi nội bộ, không nên gửi…" cũng bị lột', async () => {
+    const nhap = 'Tin này không thuộc 3 loại — đang là câu hỏi trao đổi nhỏ về vụ in đơn có vấn đề.\n\nVụ in đơn không phải chỗ em xử lý được, anh/chị xem lại máy in giúp em, còn chuyện đơn hàng em hỗ trợ tiếp ạ.';
+    expect(lotDocThoai(nhap, 'Vậy ak').sach).toMatch(/^Vụ in đơn không phải chỗ em/);
+    const generate = vi.fn(async () => turn({ ok: false, loi: ['lo_noi_bo'], tra_loi_sua: 'Câu này là trao đổi nội bộ, không nên gửi như hiện tại.\nVấn đề in ấn máy in vui lòng kiểm tra bên kỹ thuật ạ.' }));
+    const pq = await giamSatTraLoi(generate, { cauNv: 'Vậy ak', lichSu: [], log: [], traLoi: nhap });
+    expect(pq.traLoiSua).not.toMatch(/không nên gửi|Câu này/);
+    expect(pq.traLoiSua).toContain('kiểm tra bên kỹ thuật');
+  });
+
   it('maDonTrong lấy S…/INV… không trùng, tối đa 4', () => {
     expect(maDonTrong('in S15274 và s15274, hoá đơn INV/2026/028301, S1 không tính')).toEqual(['S15274', 'INV/2026/028301']);
   });

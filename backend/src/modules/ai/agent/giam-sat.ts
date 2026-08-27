@@ -110,6 +110,9 @@ const DOC_THOAI = [
   /^Nhân viên (đang|hỏi|nhắn|muốn|vừa|cần|nói|bảo)/iu,
   /^(Câu|Yêu cầu) (này|đó) (cần|là|nói|hỏi)/iu,
   /^(Hãy|Thực ra|Thực tế|Vậy|Tóm lại|Kết luận|Như vậy|Do đó|Để trả lời|Trước hết)\b/iu,
+  // "Tin này không thuộc 3 loại…", "Câu này là trao đổi nội bộ, không nên gửi…"
+  /^(Tin|Tin nhắn|Câu|Yêu cầu) (này|đó|trên)\b/iu,
+  /(không (nên|được) gửi|trao đổi nội bộ)/iu,
   /(?:^|\s)(hãy (cố gắng|dùng|thử|kiểm tra)|nói rõ (rằng|là)|trả lời (rằng|thẳng|ngắn)|cần trả lời)\b/iu,
   /^Người dùng|^The user/iu,
 ];
@@ -211,14 +214,19 @@ export function soLaTrongBanNhap(vao: DauVaoGiamSat, traLoi: string): string[] {
  * Định", bản nháp "QC Bách Phát"). Model gpt-4.1-mini e2e 27/08 vẫn phán ok
  * dù hai tên nằm cạnh nhau → code phải chỉ tận tay.
  */
+/** Tool ĐÃ LÀM VIỆC cho một khách cụ thể — chỉ output của chúng mới có "tên chủ đơn". */
+const TOOL_HANH_DONG = new Set(['in_hoa_don', 'xuat_hoa_don', 'tao_don_nhap', 'sua_don', 'gui_hoa_don', 'sua_vat', 'xoa_don', 'huy_don']);
+
 export function tenKhachLech(log: ToolCallLog[], traLoi: string): string[] {
   const ra: string[] = [];
   const draft = chuanSo(traLoi);
-  for (const l of log) {
+  // CHỈ tool hành động: prod 27/08 07:14 tra_san_pham "…khách cần…" bị bắt
+  // thành tên khách "cần" → bản nháp đúng bị thay bằng câu "NHẦM đơn" vô nghĩa.
+  for (const l of log.filter((x) => TOOL_HANH_DONG.has(x.toolName) && x.thanhCong)) {
     const out = String(l.output ?? '');
     const ten: string[] = [];
     for (const m of out.matchAll(/·\s*([^·\n]{3,60}?)\s*·\s*[\d.]+\s?đ/gu)) ten.push(m[1]);
-    for (const m of out.matchAll(/(?:Đơn cho|đơn của|khách)\s+([^\n(:·,]{3,60}?)\s*(?:\(|\[|:|·|,|$)/giu)) ten.push(m[1]);
+    for (const m of out.matchAll(/(?:Đơn cho|đơn của)\s+([^\n(:·,]{3,60}?)\s*(?:\(|\[|:|·|,|$)/giu)) ten.push(m[1]);
     for (const t of ten) {
       const tt = t.trim();
       const tk = chuanSo(tt).split(' ').filter((x) => x.length >= 2);
@@ -473,7 +481,11 @@ export async function giamSatTraLoi(
     // …hoặc bản nháp mang SỐ LẠ (tổng tiền không tool nào trả) — ca 26/08
     // "đã thêm phí 70k, tổng 1.320.000đ" trong khi sua_don chỉ sửa số lượng.
     const khongLamDuocGi = vao.log.length === 0 || vao.log.some((l) => !l.thanhCong) || soLa.length > 0;
-    let suaSach = banSuaConHuaLeo(loi, sua) && khongLamDuocGi ? noiThat : botDongBiChep(sua, dongDanModelBiChep(sua, vao.log));
+    // Bản sửa của model cũng có thể mang độc thoại ("Câu này là trao đổi nội
+    // bộ, không nên gửi như hiện tại…" — prod 07:30 27/08) → lột như bản nháp.
+    const suaLot = lotDocThoai(sua, vao.cauNv);
+    const suaSachDocThoai = suaLot.toanBoDocThoai ? goc : suaLot.sach;
+    let suaSach = banSuaConHuaLeo(loi, sua) && khongLamDuocGi ? noiThat : botDongBiChep(suaSachDocThoai, dongDanModelBiChep(suaSachDocThoai, vao.log));
     // TOOL LÀM CHO NGƯỜI KHÁC (tên khách lệch) mà bản sửa không thừa nhận nhầm
     // → câu nói-thật tất định, không tin lời viết lại "cho đẹp".
     if (tenLech.length > 0 && !banSuaThuaNhanNham(suaSach)) suaSach = cauNhamNguoi(vao.log, tenLech);
