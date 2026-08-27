@@ -73,6 +73,8 @@ import { zaloDashboardRoutes } from './modules/zalo/zalo-dashboard-routes.js';
 import { zaloPool } from './modules/zalo/zalo-pool.js';
 import { registerZaloSocketHandlers } from './modules/zalo/zalo-socket.js';
 import { registerSocketAuth } from './shared/realtime/socket-auth.js';
+import { registerAgentWs } from './modules/ai/may-in/agent-ws.js';
+import { agentRegistry } from './modules/ai/may-in/agent-registry.js';
 import { registerPrivacyLeakGuard } from './modules/privacy/privacy-leak-guard.js';
 import { registerSecurityHeaders } from './shared/security/security-headers.js';
 import { notificationRoutes } from './modules/notifications/notification-routes.js';
@@ -235,6 +237,12 @@ async function bootstrap() {
   // Phase 1b 2026-06-07 — Socket.IO auth PHẢI đăng ký TRƯỚC mọi handler:
   // io.use() verify JWT + auto-join org room từ token (vá P0 IDOR cross-tenant WS).
   registerSocketAuth(io, app);
+
+  // MÁY IN shop (25/08) — namespace /print-agent riêng cho agent PC-cầu-nối,
+  // auth bằng token cố định (AI_MAY_IN_AGENT_TOKEN), KHÔNG dùng JWT user.
+  // Dùng agentRegistry singleton — cron (Task 4) đọc hàng đợi print_jobs và
+  // gọi agentRegistry.guiJob() PHẢI thấy cùng agent đã đăng ký ở đây.
+  registerAgentWs(io, agentRegistry);
 
   io.on('connection', (socket) => {
     logger.info(`Socket connected: ${socket.id}`);

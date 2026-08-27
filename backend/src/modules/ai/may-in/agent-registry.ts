@@ -113,3 +113,15 @@ export class AgentRegistry {
     }
   }
 }
+
+/**
+ * Singleton dùng chung toàn tiến trình — MỘT registry duy nhất phải giữ mọi
+ * agent online, vì cron (Task 4, đọc hàng đợi print_jobs rồi gọi guiJob) và
+ * WS handler (Task 3, agent-ws.ts, gọi dangKy khi agent connect) PHẢI thấy
+ * chung một Map agents. Hai instance riêng sẽ khiến cron luôn thấy
+ * coAgent=false dù agent đã kết nối ở phía WS.
+ *
+ * Test không dùng singleton này — mỗi test tự `new AgentRegistry()` để cô
+ * lập trạng thái giữa các case (xem agent-ws.func.ts, agent-client.func.ts).
+ */
+export const agentRegistry = new AgentRegistry();
