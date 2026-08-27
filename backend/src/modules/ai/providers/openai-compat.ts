@@ -345,7 +345,7 @@ export async function generateWithOpenaiCompatTools(args: {
     // máy trạng thái cầm lái. Cần nghĩ sâu ở đâu thì bật riêng chỗ đó.
     // Chỉ gửi cho OpenRouter — gateway khác có thể 400 với tham số lạ.
     ...(args.url.includes('openrouter') && laModelThinking(args.model)
-      ? { reasoning: { enabled: args.suyNghi === true } }
+      ? { reasoning: args.suyNghi === true ? { enabled: true, effort: 'low' } : { enabled: false } }
       : {}),
   });
 

@@ -19,6 +19,8 @@
 import { logger } from '../../../shared/utils/logger.js';
 import type { ToolAwareGenerate, ToolDefinition } from './types.js';
 import type { ToolCallLog } from './staff-agent.js';
+import { chayVongKiemChung, tomTatBangChung, type BangChung } from './harness/vong-kiem-chung.js';
+import { boToolKiemChung, type DepsKiemChung } from './harness/tool-kiem-chung.js';
 
 export const MA_LOI = [
   'lo_noi_bo',      // chép chữ dặn model / tiếng Anh / meta ("em mới tra được tới đây")
@@ -45,6 +47,9 @@ export interface PhanQuyet {
   soLa?: string[];
   /** Bản sửa của model làm mất mã/tiền đúng → đã bỏ, dùng bản gốc đã lột. */
   banSuaMatSo?: boolean;
+  /** Harness: tool chỉ-đọc đã gọi để kiểm chứng trước khi phán. */
+  bangChung?: BangChung[];
+  soVong?: number;
 }
 
 export interface DauVaoGiamSat {
@@ -54,8 +59,8 @@ export interface DauVaoGiamSat {
   traLoi: string;
 }
 
-/** Mặc định 8s — quá thì gửi bản gốc, NV không phải chờ máy soi. */
-export const TIMEOUT_GIAM_SAT_MS = 8_000;
+/** Mặc định 14s (có vòng kiểm chứng) — quá thì gửi bản gốc, NV không phải chờ máy soi. */
+export const TIMEOUT_GIAM_SAT_MS = 14_000;
 const LICH_SU_TOI_DA = 8;
 const OUTPUT_TOOL_TOI_DA = 900;
 
@@ -260,6 +265,11 @@ const SYSTEM = [
   'Bản nháp ổn → ok=true, loi=[]. Có lỗi → ok=false, liệt kê loi, và VIẾT LẠI',
   'tra_loi_sua: tiếng Việt, xưng em, ngắn gọn, đúng số liệu tool, nếu tool ghi thất',
   'bại thì nói "chưa sửa được vì … , anh/chị …". Đừng thêm việc bot chưa làm.',
+  'KIỂM CHỨNG TRƯỚC KHI PHÁN (harness): nếu có tool chỉ-đọc, và bản nháp nêu khách/đơn/',
+  'hoá đơn/tổng tiền mà output tool lượt này KHÔNG xác nhận (vd bản nháp "đã in đơn',
+  'QC Bách Phát" nhưng tool in S15274 không nói chủ đơn là ai) → TRA (doc_odoo sale.order',
+  'name/partner_id, tra_khach_hang, tra_san_pham) rồi mới phán. Tối đa 2 lượt tra.',
+  'Bản nháp không nêu gì cần đối chiếu → phán ngay, đừng tra cho có.',
   'KHÔNG PHẢI LỖI (đo 26/08, 12/20 ca sửa là báo động giả): bản nháp HỎI CHỌN khi tool',
   'trả nhiều ứng viên hoặc từ chối vì trùng tên/mơ hồ → ĐÚNG, ok=true; số liệu có',
   'trong output tool (danh sách khách, doanh số, biểu đồ) → KHÔNG phải bia_so; lỗi',
@@ -297,6 +307,7 @@ export async function giamSatTraLoi(
   generate: ToolAwareGenerate,
   vao: DauVaoGiamSat,
   timeoutMs: number = TIMEOUT_GIAM_SAT_MS,
+  deps: DepsKiemChung = {},
 ): Promise<PhanQuyet> {
   const t0 = Date.now();
   // BƯỚC CODE TRƯỚC: lột độc thoại/nhại câu NV, lột dòng dặn-model bị chép.
@@ -334,13 +345,18 @@ export async function giamSatTraLoi(
   };
 
   try {
-    const turn = await Promise.race([
-      generate({ system: SYSTEM, messages: [{ role: 'user', content: userMessage }], tools: [phanQuyetDefinition], maxTokens: 700 }),
-      new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`giám sát quá ${timeoutMs}ms`)), timeoutMs)),
-    ]);
-    const call = turn.toolCalls.find((c) => c.name === 'phan_quyet');
-    if (!call) return failOpen('model không gọi phan_quyet');
-    const raw = call.input as Record<string, unknown>;
+    // HARNESS (27/08): có tool chỉ-đọc → model đi ≤2 vòng kiểm chứng (đơn của
+    // ai, khách có thật không, giá SP) rồi mới phan_quyet; reasoning bật, đầu
+    // ra bắt buộc là tool. Không có tool → một lượt như cũ.
+    const kiemChung = boToolKiemChung(deps);
+    const vong = await chayVongKiemChung({
+      generate, system: SYSTEM, userMessage, kiemChung, toolCuoi: phanQuyetDefinition,
+      toiDaVong: kiemChung.length > 0 ? 2 : 1, timeoutMs, maxTokens: 900,
+    });
+    const doDac = { ...themDoDac, ...(vong.bangChung.length > 0 ? { bangChung: vong.bangChung } : {}), soVong: vong.soVong };
+    if (!vong.chot) return { ...failOpen(vong.lyDo ?? 'model không gọi phan_quyet'), ...doDac };
+    const raw = vong.chot;
+    const bangChungChu = vong.bangChung.length > 0 ? ` | kiểm chứng: ${tomTatBangChung(vong.bangChung).replace(/\n/g, ' ; ').slice(0, 400)}` : '';
     const loi = (Array.isArray(raw.loi) ? raw.loi : []).filter((x): x is MaLoi => (MA_LOI as readonly string[]).includes(String(x)));
     const modelOk = raw.ok === true && loi.length === 0;
     const sua = typeof raw.tra_loi_sua === 'string' ? raw.tra_loi_sua.trim() : '';
@@ -349,8 +365,8 @@ export async function giamSatTraLoi(
     if (modelOk) {
       return {
         ok: !codeDaSua, loi: codeDaSua ? ['lo_noi_bo'] : [], ...(codeDaSua ? { traLoiSua: goc } : {}),
-        ...(typeof raw.ly_do === 'string' ? { lyDo: raw.ly_do.slice(0, 300) } : {}),
-        nguon: 'llm', ms: Date.now() - t0, ...themDoDac,
+        ...(typeof raw.ly_do === 'string' ? { lyDo: raw.ly_do.slice(0, 300) + bangChungChu } : {}),
+        nguon: 'llm', ms: Date.now() - t0, ...doDac,
       };
     }
     // Nói có lỗi mà không đưa bản sửa → không tin, gửi bản gốc (đã lột).
@@ -375,8 +391,8 @@ export async function giamSatTraLoi(
     const doiThat = suaSach !== vao.traLoi;
     return {
       ok: !doiThat, loi: doiThat ? loi : [], ...(doiThat ? { traLoiSua: suaSach } : {}),
-      ...(typeof raw.ly_do === 'string' ? { lyDo: raw.ly_do.slice(0, 300) } : {}),
-      nguon: 'llm', ms: Date.now() - t0, ...themDoDac, ...(banSuaMatSo ? { banSuaMatSo: true } : {}),
+      ...(typeof raw.ly_do === 'string' ? { lyDo: raw.ly_do.slice(0, 300) + bangChungChu } : {}),
+      nguon: 'llm', ms: Date.now() - t0, ...doDac, ...(banSuaMatSo ? { banSuaMatSo: true } : {}),
     };
   } catch (err) {
     logger.warn({ err }, '[giam-sat] lỗi/timeout — fail-open gửi bản gốc');

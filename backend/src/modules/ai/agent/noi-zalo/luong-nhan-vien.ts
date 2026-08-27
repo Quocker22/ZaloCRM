@@ -434,6 +434,7 @@ async function xuLyTinNhanVienTuanTu(ctx: NgữCanhTin): Promise<boolean> {
         })),
         botTraLoi: r.traLoi,
         generate,
+        odoo: layOdoo(),
       });
       let traLoiGui = r.traLoi;
       // try/catch bọc CẢ khối: dựng model, ghi log… hỏng gì cũng không được
@@ -452,12 +453,16 @@ async function xuLyTinNhanVienTuanTu(ctx: NgữCanhTin): Promise<boolean> {
             })),
             log: r.log,
             traLoi: r.traLoi,
+          }, undefined, {
+            // HARNESS: tool chỉ-đọc để kiểm chứng trước khi phán (27/08).
+            odoo: layOdoo(),
+            lichSuDay: lichSu.map((m) => ({ vai: m.senderType === 'self' ? 'BOT/NV' : 'KHÁCH/NV', noiDung: m.content })),
           });
           if (pq.traLoiSua) traLoiGui = pq.traLoiSua;
           taoGhiLog({ prisma: prisma as unknown as PrismaGhiLog, orgId: ctx.orgId, vai: 'giam_sat', conversationId: ctx.conversationId })({
             toolName: 'giam_sat',
             input: { cauNv: lenh.noiDung.slice(0, 300), traLoi: r.traLoi.slice(0, 1500), soTool: r.log.length },
-            output: JSON.stringify({ ok: pq.ok, loi: pq.loi, nguon: pq.nguon, lyDo: pq.lyDo, traLoiSua: pq.traLoiSua?.slice(0, 1500) }),
+            output: JSON.stringify({ ok: pq.ok, loi: pq.loi, nguon: pq.nguon, lyDo: pq.lyDo, traLoiSua: pq.traLoiSua?.slice(0, 1500), soVong: pq.soVong, soLa: pq.soLa, banSuaMatSo: pq.banSuaMatSo, docThoaiBiLot: pq.docThoaiBiLot?.length, bangChung: (pq.bangChung ?? []).map((b) => ({ tool: b.tool, input: b.input, output: b.output.slice(0, 300) })) }),
             thanhCong: pq.ok,
             durationMs: Date.now() - t1,
             iteration: 0,

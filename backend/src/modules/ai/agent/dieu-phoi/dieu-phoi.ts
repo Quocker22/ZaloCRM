@@ -13,11 +13,13 @@
 // vẹn + nguon 'loi'; luồng gọi không bao giờ chờ nó để trả lời khách.
 import { logger } from '../../../../shared/utils/logger.js';
 import type { ToolAwareGenerate, ToolDefinition } from '../types.js';
+import { chayVongKiemChung, tomTatBangChung, type BangChung } from '../harness/vong-kiem-chung.js';
+import { boToolKiemChung, type DepsKiemChung } from '../harness/tool-kiem-chung.js';
 import {
   type PhienDon, type DongHang, type O, type TenO, type TrangThaiO, tomTatPhien, oConThieu, duDeLenDon,
 } from './phien-don.js';
 
-export const TIMEOUT_DIEU_PHOI_MS = 12_000;
+export const TIMEOUT_DIEU_PHOI_MS = 25_000;
 const LICH_SU_TOI_DA = 10;
 
 export type YDinh = 'hoi_gia' | 'dat_hang' | 'sua_don' | 'nhap_hang' | 'hoi_ton' | 'hoi_khac' | 'tan_gau' | 'buc' | 'xac_nhan' | 'huy';
@@ -33,6 +35,9 @@ export interface KetQuaDieuPhoi {
   nguon: 'llm' | 'loi';
   ms: number;
   lyDo?: string;
+  /** Tool chỉ-đọc model đã gọi để kiểm chứng (harness) — để log/đo. */
+  bangChung?: BangChung[];
+  soVong?: number;
 }
 
 export interface DauVaoDieuPhoi {
@@ -122,6 +127,10 @@ const SYSTEM = [
   'Tin tán gẫu/hỏi thông số/hỏi tồn không liên quan đơn → y_dinh tương ứng, che',
   'giữ nguyên, không đổi ô.',
   'Tên hàng ghi NGUYÊN VĂN (kể cả sai chính tả) — máy sẽ tra Odoo; đừng "sửa" tên.',
+  'Nếu có tool CHỈ ĐỌC (tra_khach_hang, tra_san_pham): DÙNG khi tên khách/hàng có',
+  'thể trùng nhiều người/nhiều loại hoặc giá chưa rõ — tra rồi ghi ô là da_co',
+  '(một kết quả) hay mo_ho (nhiều kết quả, ghiChu liệt kê ngắn). Tối đa 2 lượt',
+  'tra, rồi PHẢI gọi cap_nhat_phien.',
 ].join('\n');
 
 function hienLichSu(ls: DauVaoDieuPhoi['lichSu']): string {
@@ -148,6 +157,8 @@ function docO<T>(raw: unknown, kiem: (v: unknown) => v is T): O<T> | null {
 
 const laSo = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1_000_000_000;
 const laChuoi = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;
+/** SĐT VN hợp lý: 9–12 chữ số (đo e2e 27/08: model bịa "0980988983751075"). */
+const laSdtHopLy = (v: unknown): boolean => typeof v === 'string' && /^\+?\d{9,12}$/.test(v.replace(/[\s.-]/g, ''));
 const laKhach = (v: unknown): v is NonNullable<PhienDon['khach']['giaTri']> =>
   !!v && typeof v === 'object' && laChuoi((v as { ten?: unknown }).ten);
 const laPhuPhi = (v: unknown): v is Array<{ ten: string; tien: number }> =>
@@ -168,7 +179,11 @@ export function apCapNhat(cu: PhienDon, raw: Record<string, unknown>, bayGio: Da
   if (yDinh === 'huy') p.che = 'khong';
 
   const kh = docO(raw.khach, laKhach);
-  if (kh) p.khach = kh;
+  if (kh) {
+    // SĐT rác (quá dài/ngắn) → bỏ SĐT, giữ tên; không để rác vào Odoo sau này.
+    if (kh.giaTri && kh.giaTri.sdt !== undefined && !laSdtHopLy(kh.giaTri.sdt)) delete kh.giaTri.sdt;
+    p.khach = kh;
+  }
   if (Array.isArray(raw.dong)) {
     const dong: DongHang[] = [];
     for (const d of raw.dong as unknown[]) {
@@ -207,6 +222,7 @@ export async function dieuPhoiPhien(
   generate: ToolAwareGenerate,
   vao: DauVaoDieuPhoi,
   timeoutMs: number = TIMEOUT_DIEU_PHOI_MS,
+  deps: DepsKiemChung = {},
 ): Promise<KetQuaDieuPhoi> {
   const t0 = Date.now();
   const loi = (lyDo: string): KetQuaDieuPhoi => ({
@@ -219,16 +235,23 @@ export async function dieuPhoiPhien(
     `LỊCH SỬ GẦN NHẤT:\n${hienLichSu(vao.lichSu)}\n\n` +
     `TIN MỚI (${vao.phien.vai === 'khach' ? 'KHÁCH' : 'NHÂN VIÊN'}): "${vao.cauMoi}"`;
   try {
-    const turn = await Promise.race([
-      generate({ system: SYSTEM, messages: [{ role: 'user', content: userMessage }], tools: [capNhatPhienDefinition], maxTokens: 1200, suyNghi: true }),
-      new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`điều phối quá ${timeoutMs}ms`)), timeoutMs)),
-    ]);
-    const call = turn.toolCalls.find((c) => c.name === 'cap_nhat_phien');
-    if (!call) return loi('model không gọi cap_nhat_phien');
-    const ap = apCapNhat(vao.phien, call.input as Record<string, unknown>);
+    // HARNESS (27/08): có tool chỉ-đọc → model được đi ≤2 vòng kiểm chứng
+    // (khách trùng? SP nào? giá?) rồi mới chốt bằng cap_nhat_phien. Không có
+    // tool → một lượt như cũ.
+    const kiemChung = boToolKiemChung({ odoo: deps.odoo }).filter((t) => t.definition.name !== 'doc_odoo');
+    const vong = await chayVongKiemChung({
+      generate, system: SYSTEM, userMessage, kiemChung, toolCuoi: capNhatPhienDefinition,
+      toiDaVong: kiemChung.length > 0 ? 2 : 1, timeoutMs, maxTokens: 1200,
+    });
+    if (!vong.chot) {
+      return { ...loi(vong.lyDo ?? 'model không gọi cap_nhat_phien'), bangChung: vong.bangChung, soVong: vong.soVong };
+    }
+    const ap = apCapNhat(vao.phien, vong.chot);
+    if (vong.bangChung.length > 0) logger.info({ bangChung: tomTatBangChung(vong.bangChung).slice(0, 400) }, '[dieu-phoi] đã kiểm chứng');
     return {
       phien: ap.phien, yDinh: ap.yDinh, canHoi: oConThieu(ap.phien), duDeLenDon: duDeLenDon(ap.phien),
       ...(ap.luuY ? { luuY: ap.luuY } : {}), nguon: 'llm', ms: Date.now() - t0,
+      bangChung: vong.bangChung, soVong: vong.soVong,
     };
   } catch (err) {
     logger.warn({ err }, '[dieu-phoi] lỗi/timeout — giữ phiên cũ');

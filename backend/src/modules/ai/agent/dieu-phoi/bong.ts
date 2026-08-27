@@ -11,7 +11,8 @@ import { logger } from '../../../../shared/utils/logger.js';
 import { taoGhiLog, type PrismaGhiLog } from '../ghi-log-tool.js';
 import { dungGenerate } from '../noi-zalo/llm.js';
 import type { ToolAwareGenerate } from '../types.js';
-import { dieuPhoiPhien, type DauVaoDieuPhoi } from './dieu-phoi.js';
+import { dieuPhoiPhien, TIMEOUT_DIEU_PHOI_MS, type DauVaoDieuPhoi } from './dieu-phoi.js';
+import type { DepsKiemChung } from '../harness/tool-kiem-chung.js';
 import { docPhienDon, luuPhienDon } from './kho-phien.js';
 import { tomTatPhien, type PhienDon } from './phien-don.js';
 
@@ -34,6 +35,8 @@ export interface VaoBong {
    * dựng thêm một dungGenerate: test ngân sách/khoá việc đếm đúng 1 lần dựng.
    */
   generate?: ToolAwareGenerate;
+  /** Odoo chỉ-đọc cho vòng kiểm chứng (harness). */
+  odoo?: DepsKiemChung['odoo'];
 }
 
 export async function chayBongDieuPhoi(vao: VaoBong): Promise<void> {
@@ -45,14 +48,15 @@ export async function chayBongDieuPhoi(vao: VaoBong): Promise<void> {
     const phienCu = await docPhienDon(vao.conversationId, vao.vai);
     const kq = await dieuPhoiPhien(generate, {
       phien: phienCu, cauMoi: vao.cauMoi, lichSu: vao.lichSu, ...(vao.nguCanh ? { nguCanh: vao.nguCanh } : {}),
-    });
+    }, TIMEOUT_DIEU_PHOI_MS, { odoo: vao.odoo });
     if (kq.nguon === 'llm') await luuPhienDon(vao.conversationId, kq.phien);
     taoGhiLog({ prisma: prisma as unknown as PrismaGhiLog, orgId: vao.orgId, vai: 'dieu_phoi', conversationId: vao.conversationId })({
       toolName: 'dieu_phoi',
       input: { vai: vao.vai, cauMoi: vao.cauMoi.slice(0, 300), botTraLoi: vao.botTraLoi?.slice(0, 500), phienCu: tomTatPhien(phienCu).slice(0, 800) },
       output: JSON.stringify({
-        nguon: kq.nguon, ms: kq.ms, yDinh: kq.yDinh, che: kq.phien.che, canHoi: kq.canHoi, duDeLenDon: kq.duDeLenDon,
-        luuY: kq.luuY, lyDo: kq.lyDo, phien: tomTatPhien(kq.phien).slice(0, 1200),
+        nguon: kq.nguon, ms: kq.ms, soVong: kq.soVong, yDinh: kq.yDinh, che: kq.phien.che, canHoi: kq.canHoi, duDeLenDon: kq.duDeLenDon,
+        luuY: kq.luuY, lyDo: kq.lyDo, bangChung: (kq.bangChung ?? []).map((b) => ({ tool: b.tool, input: b.input, output: b.output.slice(0, 300) })),
+        phien: tomTatPhien(kq.phien).slice(0, 1200),
       }),
       thanhCong: kq.nguon === 'llm',
       durationMs: Date.now() - t0,

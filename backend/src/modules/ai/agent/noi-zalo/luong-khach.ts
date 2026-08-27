@@ -299,6 +299,7 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
       lichSu: lichSu.map((m) => ({ vai: m.senderType === 'self' ? 'bot' as const : 'khach' as const, noiDung: m.content })),
       ...(r.trangThai === 'xong' ? { botTraLoi: r.traLoi } : {}),
       generate,
+      odoo: layOdoo(),
     });
 
     // TIN MỚI ĐẾN GIỮA CHỪNG (07/08, học Chatwoot): khách gõ tiếp trong lúc
