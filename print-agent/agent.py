@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import logging
 import sys
-from typing import Any, Optional
 
 from config import Config, load_config
 from inprint import base64_to_bytes, in_pdf
