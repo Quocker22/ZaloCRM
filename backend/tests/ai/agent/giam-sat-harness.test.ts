@@ -121,4 +121,18 @@ describe('giamSatTraLoi + harness', () => {
     expect(g2.mock.calls[1][0].suyNghi).toBe(true);
     expect(g2.mock.calls[1][0].tools.length).toBeGreaterThan(1);
   });
+
+  it('replay 27/08: chỉ ĐỘC THOẠI (code đã lột) → tầng nhanh, không nghĩ sâu; tầng nhanh hết giờ không dấu hiệu nặng → fail-open bản đã lột, không leo tầng', async () => {
+    const VAO_DT = { cauNv: 'có bạn gái chưa', lichSu: [], log: [], traLoi: 'Câu hỏi cá nhân thì từ chối nhẹ thôi, không gọi tool.\n\nChưa có bạn gái đâu ạ 😊' };
+    const g1 = vi.fn().mockResolvedValueOnce(turnTools([{ name: 'phan_quyet', input: { ok: true, loi: [] } }]));
+    const a = await giamSatTraLoi(g1, VAO_DT, 5000, { odoo: { searchRead: vi.fn(async () => []), execute: vi.fn() } as never });
+    expect(a.nghiSau).toBe(false);
+    expect(a.traLoiSua).toBe('Chưa có bạn gái đâu ạ 😊');
+    expect(g1).toHaveBeenCalledTimes(1);
+    const treo = vi.fn(() => new Promise<AgentTurn>(() => {}));
+    const b = await giamSatTraLoi(treo, VAO_DT, 900, { odoo: { searchRead: vi.fn(async () => []), execute: vi.fn() } as never });
+    expect(b.nguon).toBe('fail_open');
+    expect(b.traLoiSua).toBe('Chưa có bạn gái đâu ạ 😊');
+    expect(treo).toHaveBeenCalledTimes(2); // tầng nhanh + 1 lượt ép, KHÔNG có tầng sâu
+  });
 });

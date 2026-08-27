@@ -451,22 +451,29 @@ export async function giamSatTraLoi(
     // tầng 2: harness đầy đủ, reasoning bật, ≤2 vòng tool chỉ-đọc, phán
     // quyết tầng 2 thắng. Đây là cách deepseek-harness dùng "nghĩ sâu": theo
     // mục tiêu, khi cần, không phải mọi lúc.
-    const dauHieu = lot.daLot.length > 0 || dongChep.length > 0 || soLa.length > 0 || tenLech.length > 0
-      || vao.log.some((l) => !l.thanhCong);
+    // Dấu hiệu NẶNG (cần bằng chứng/nghĩ sâu): số lạ, tên khách lệch, tool
+    // thất bại. Độc thoại/dòng chép code ĐÃ LỘT XONG — replay 27/08: "có bạn
+    // gái chưa" chỉ vì lột 1 dòng mà đi tầng sâu 21s; không đáng.
+    const dauHieuNang = soLa.length > 0 || tenLech.length > 0 || vao.log.some((l) => !l.thanhCong);
+    const conLai = () => Math.max(1_000, timeoutMs - (Date.now() - t0));
     const nghiSau = () => chayVongKiemChung({
       generate, system: SYSTEM, userMessage, kiemChung, toolCuoi: phanQuyetDefinition,
-      toiDaVong: kiemChung.length > 0 ? 2 : 1, timeoutMs, maxTokens: 900,
+      toiDaVong: kiemChung.length > 0 ? 2 : 1, timeoutMs: conLai(), maxTokens: 900,
     });
-    let canNghiSau = dauHieu;
+    let canNghiSau = dauHieuNang;
     let vong;
-    if (dauHieu) {
+    if (dauHieuNang) {
       vong = await nghiSau();
     } else {
       const nhanh = await chayVongKiemChung({
         generate, system: SYSTEM, userMessage, kiemChung: [], toolCuoi: phanQuyetDefinition,
         toiDaVong: 1, timeoutMs: Math.min(6_000, timeoutMs), maxTokens: 700, suyNghi: false,
       });
-      const nhanhOk = nhanh.chot != null && nhanh.chot.ok === true && (!Array.isArray(nhanh.chot.loi) || nhanh.chot.loi.length === 0);
+      // Tầng nhanh HẾT GIỜ (model chậm) mà không có dấu hiệu nặng → gửi bản
+      // đã lột luôn; leo tầng sâu lúc này chỉ cộng dồn timeout (replay: 6+6+14
+      // = 31s cho một câu ok). Tầng nhanh PHÁN lỗi → mới nghĩ sâu.
+      if (nhanh.chot == null) return failOpen(`tầng nhanh không chốt (${nhanh.lyDo ?? ''}) — không có dấu hiệu nặng, gửi bản đã lột`);
+      const nhanhOk = nhanh.chot.ok === true && (!Array.isArray(nhanh.chot.loi) || nhanh.chot.loi.length === 0);
       if (nhanhOk) vong = nhanh;
       else { canNghiSau = true; vong = await nghiSau(); }
     }
