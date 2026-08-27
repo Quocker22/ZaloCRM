@@ -23,7 +23,9 @@ import { ghepAnhTruocDo, CUA_SO_ANH_TRUOC_MS } from './anh-truoc-do.js';
 // Vòng import luong-media ⇄ luong-nhan-vien: cả hai chỉ dùng hàm của nhau BÊN
 // TRONG thân hàm (không ở mức module) nên ESM giải được; đừng đưa lên top-level.
 import { docAnhTuUrl, ghepCauTuAnh } from './luong-media.js';
-import { chayBongDieuPhoi } from '../dieu-phoi/bong.js';
+import { chayBongDieuPhoi, cheDieuPhoi } from '../dieu-phoi/bong.js';
+import { laiLuotNhanVien } from '../dieu-phoi/lai.js';
+import { docPhienDon, luuPhienDon, xoaPhienDon } from '../dieu-phoi/kho-phien.js';
 import { themJobIn as themJobVaoHangIn, type PrismaHangDoiIn } from '../../may-in/hang-doi-in.js';
 import { coMayIn } from '../../may-in/tu-env.js';
 import type { ThemJobInHoaDon } from '../../odoo/tools/in-hoa-don.js';
@@ -269,7 +271,45 @@ async function xuLyTinNhanVienTuanTu(ctx: NgữCanhTin): Promise<boolean> {
     // luat chi den agent thuong (chay SAU gom don). DB loi -> [] — khong cam.
     const luatNv = await napLuatNhanVien(prisma as unknown as PrismaLuatNv, ctx.orgId);
 
-    const gomDonNhan = await chayCoHanGio('nv', xuLyGomDon(
+    // ── CẦM LÁI (nhánh feat/dieu-phoi-cam-lai) ───────────────────────────
+    // AI_DIEU_PHOI=lai: con điều phối hiểu ý + quyết hỏi/ghi; máy gom đơn regex
+    // KHÔNG chạy. Nó nhường ('khong_viec') → agent thường; lỗi/chậm → rơi về
+    // đường cũ (gom đơn) để không câm.
+    let laiNhuongAgent = false;
+    if (cheDieuPhoi() === 'lai') {
+      const lichSuLai = await layLichSu(ctx.conversationId, ctx.messageId);
+      const kqLai = await chayCoHanGio('nv', laiLuotNhanVien(
+        {
+          odoo: layOdoo(), generate, anhClient: layAnhClient() ?? null, odooUrl: odooUrlCongKhai() ?? '',
+          guiTin: chot.bocGui((t: string) => guiTin(dich, t, false), 'lai/tin'),
+          guiAnhHoaDon: chot.bocGui(
+            async (anh: { duLieu: Buffer; tenFile: string }) => guiAnh(dich, await ghiAnhTam(anh.duLieu, anh.tenFile), false),
+            'lai/anh',
+          ),
+          ghiLog: ghiDb,
+          docPhien: (id) => docPhienDon(id, 'nhanvien'),
+          luuPhien: luuPhienDon,
+          xoaPhien: xoaPhienDon,
+        },
+        {
+          orgId: ctx.orgId, conversationId: ctx.conversationId, seq: seqTuMessageId(ctx.messageId), cau: lenh.noiDung,
+          lichSu: lichSuLai.map((m) => ({
+            vai: m.senderType === 'self'
+              ? (coTagBot(m.content) ? 'nhanvien' as const : 'bot' as const)
+              : ctx.senderUid && m.senderUid === ctx.senderUid ? 'nhanvien' as const : 'khach' as const,
+            noiDung: m.content,
+          })),
+        },
+      ));
+      if (kqLai.nhan) {
+        moc.xong(t0, { nhanh: 'dieu-phoi-lai', conversationId: ctx.conversationId, yDinh: kqLai.yDinh, ms: kqLai.ms });
+        return true;
+      }
+      laiNhuongAgent = kqLai.nguon === 'khong_viec';
+      logger.info({ nguon: kqLai.nguon, yDinh: kqLai.yDinh, conversationId: ctx.conversationId }, '[lai] không nhận — ' + (laiNhuongAgent ? 'agent thường' : 'rơi về gom đơn cũ'));
+    }
+
+    const gomDonNhan = laiNhuongAgent ? false : await chayCoHanGio('nv', xuLyGomDon(
       {
         prisma: prismaPhien, odoo: layOdoo(), generate, anhClient: layAnhClient() ?? null,
         luatNhanVien: luatNv,

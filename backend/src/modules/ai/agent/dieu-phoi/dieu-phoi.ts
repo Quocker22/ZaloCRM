@@ -13,7 +13,7 @@
 // vẹn + nguon 'loi'; luồng gọi không bao giờ chờ nó để trả lời khách.
 import { logger } from '../../../../shared/utils/logger.js';
 import type { ToolAwareGenerate, ToolDefinition } from '../types.js';
-import { chayVongKiemChung, tomTatBangChung, type BangChung } from '../harness/vong-kiem-chung.js';
+import { chayVongKiemChung, tomTatBangChung, type BangChung, type ToolKiemChung } from '../harness/vong-kiem-chung.js';
 import { boToolKiemChung, type DepsKiemChung } from '../harness/tool-kiem-chung.js';
 import {
   type PhienDon, type DongHang, type O, type TenO, type TrangThaiO, tomTatPhien, oConThieu, duDeLenDon,
@@ -75,7 +75,11 @@ const capNhatPhienDefinition: ToolDefinition = {
       che: { type: 'string', enum: ['khong', 'hoi_gia', 'dat_hang', 'sua_don', 'nhap_hang'], description: 'Chế độ phiên SAU tin này.' },
       khach: oSchema({
         type: 'object',
-        properties: { ten: { type: 'string' }, sdt: { type: 'string' }, maKh: { type: 'string' }, moi: { type: 'boolean', description: 'người ta nói rõ là khách mới' } },
+        properties: {
+          ten: { type: 'string' }, sdt: { type: 'string' }, maKh: { type: 'string' },
+          id: { type: 'number', description: 'id khách trên Odoo — CHỈ lấy từ kết quả tool tim_khach (đã tra lượt này hoặc lượt trước). Không có thì bỏ trống.' },
+          moi: { type: 'boolean', description: 'người ta nói rõ là khách mới' },
+        },
       }),
       dong: {
         type: 'array',
@@ -84,6 +88,7 @@ const capNhatPhienDefinition: ToolDefinition = {
           type: 'object',
           properties: {
             ten: { type: 'string' },
+            spId: { type: 'number', description: 'id SP trên Odoo — CHỈ lấy từ kết quả tool tim_sp. Người ta chọn "a"/"2"/"loại trong" thì đối chiếu danh sách bot đã hỏi trong lịch sử rồi điền id đó. Chưa rõ loại nào → bỏ trống + soLuong/donGia giữ nguyên.' },
             donVi: { type: 'string' },
             soLuong: oSchema({ type: 'number' }),
             donGia: oSchema({ type: 'number' }),
@@ -160,7 +165,7 @@ const laChuoi = (v: unknown): v is string => typeof v === 'string' && v.trim().l
 /** SĐT VN hợp lý: 9–12 chữ số (đo e2e 27/08: model bịa "0980988983751075"). */
 const laSdtHopLy = (v: unknown): boolean => typeof v === 'string' && /^\+?\d{9,12}$/.test(v.replace(/[\s.-]/g, ''));
 const laKhach = (v: unknown): v is NonNullable<PhienDon['khach']['giaTri']> =>
-  !!v && typeof v === 'object' && laChuoi((v as { ten?: unknown }).ten);
+  !!v && typeof v === 'object' && (laChuoi((v as { ten?: unknown }).ten) || laSo((v as { id?: unknown }).id));
 const laPhuPhi = (v: unknown): v is Array<{ ten: string; tien: number }> =>
   Array.isArray(v) && v.every((x) => x && typeof x === 'object' && laChuoi((x as { ten?: unknown }).ten) && laSo((x as { tien?: unknown }).tien));
 const laGiao = (v: unknown): v is NonNullable<PhienDon['giaoHang']['giaTri']> =>
@@ -193,11 +198,14 @@ export function apCapNhat(cu: PhienDon, raw: Record<string, unknown>, bayGio: Da
       if (!laChuoi(ten)) continue;
       const soLuong = docO(r.soLuong, laSo) ?? { trangThai: 'thieu' as const };
       const donGia = docO(r.donGia, laSo) ?? { trangThai: 'thieu' as const };
-      // Giữ spId code đã khớp nếu tên không đổi.
+      // spId: model điền (từ tim_sp) thắng; không điền thì giữ id đã khớp lượt
+      // trước nếu tên không đổi. Kiểm id có trong bằng chứng là việc của caller.
       const cuDong = cu.dong.find((x) => x.ten.trim().toLowerCase() === ten.trim().toLowerCase());
+      const spId = laSo(r.spId) && (r.spId as number) > 0 ? (r.spId as number) : cuDong?.spId;
       dong.push({
         ten: ten.trim().slice(0, 120),
-        ...(cuDong?.spId ? { spId: cuDong.spId } : {}),
+        ...(spId ? { spId } : {}),
+        ...(spId && cuDong?.spId === spId && cuDong.tenOdoo ? { tenOdoo: cuDong.tenOdoo, ...(cuDong.giaOdoo != null ? { giaOdoo: cuDong.giaOdoo } : {}) } : {}),
         soLuong, donGia,
         ...(laChuoi(r.donVi) ? { donVi: r.donVi.trim() } : {}),
         ...(laSo(r.chietKhauPhanTram) && r.chietKhauPhanTram <= 100 ? { chietKhauPhanTram: r.chietKhauPhanTram } : {}),
@@ -218,11 +226,23 @@ export function apCapNhat(cu: PhienDon, raw: Record<string, unknown>, bayGio: Da
   return { phien: p, yDinh, ...(luuY ? { luuY } : {}) };
 }
 
+export interface TuyChonDieuPhoi {
+  /** Bộ tool chỉ-đọc thay cho bộ mặc định (cầm lái: tim_khach/tim_sp trả JSON có id). */
+  kiemChung?: ToolKiemChung[];
+  toiDaVong?: number;
+  maxTokens?: number;
+  /** Đoạn dặn thêm cho vai cầm lái (cách chọn id, đọc câu trả lời chọn…). */
+  systemThem?: string;
+  /** Trần ký tự kết quả tool (JSON danh sách khách/SP cần rộng hơn 700 mặc định). */
+  tranKetQua?: number;
+}
+
 export async function dieuPhoiPhien(
   generate: ToolAwareGenerate,
   vao: DauVaoDieuPhoi,
   timeoutMs: number = TIMEOUT_DIEU_PHOI_MS,
   deps: DepsKiemChung = {},
+  tuyChon: TuyChonDieuPhoi = {},
 ): Promise<KetQuaDieuPhoi> {
   const t0 = Date.now();
   const loi = (lyDo: string): KetQuaDieuPhoi => ({
@@ -241,10 +261,11 @@ export async function dieuPhoiPhien(
     // HARNESS (27/08): có tool chỉ-đọc → model được đi ≤2 vòng kiểm chứng
     // (khách trùng? SP nào? giá?) rồi mới chốt bằng cap_nhat_phien. Không có
     // tool → một lượt như cũ.
-    const kiemChung = boToolKiemChung({ odoo: deps.odoo }).filter((t) => t.definition.name !== 'doc_odoo');
+    const kiemChung = tuyChon.kiemChung ?? boToolKiemChung({ odoo: deps.odoo }).filter((t) => t.definition.name !== 'doc_odoo');
     const vong = await chayVongKiemChung({
-      generate, system: SYSTEM, userMessage, kiemChung, toolCuoi: capNhatPhienDefinition,
-      toiDaVong: 1, timeoutMs, maxTokens: 1200,
+      generate, system: tuyChon.systemThem ? `${SYSTEM}\n${tuyChon.systemThem}` : SYSTEM, userMessage, kiemChung, toolCuoi: capNhatPhienDefinition,
+      toiDaVong: tuyChon.toiDaVong ?? 1, timeoutMs, maxTokens: tuyChon.maxTokens ?? 1200,
+      ...(tuyChon.tranKetQua ? { tranKetQua: tuyChon.tranKetQua } : {}),
     });
     if (!vong.chot) {
       return { ...loi(vong.lyDo ?? 'model không gọi cap_nhat_phien'), bangChung: vong.bangChung, soVong: vong.soVong };

@@ -25,8 +25,16 @@ export interface O<T> {
 export interface DongHang {
   /** Tên người ta nói, giữ nguyên văn (máy tra Odoo sau). */
   ten: string;
-  /** Mã/id SP đã khớp Odoo (do code điền, model không được bịa). */
+  /**
+   * id SP trên Odoo. Model CHỌN từ kết quả tool tim_sp (nó hiểu "a"/"loại
+   * trong"/"cái 26803"), code chỉ KIỂM id có nằm trong bằng chứng đã tra —
+   * id không có trong bằng chứng = bịa → bỏ, coi như chưa khớp.
+   */
   spId?: number;
+  /** Tên SP thật trên Odoo (điền cùng spId, từ bằng chứng). */
+  tenOdoo?: string;
+  /** Giá hệ thống của SP (từ bằng chứng) — 0 = chưa có giá. */
+  giaOdoo?: number;
   soLuong: O<number>;
   donVi?: string;
   /** Giá người ta báo / chấp nhận (đồng). Không có = lấy giá hệ thống. */
@@ -53,6 +61,17 @@ export interface PhienDon {
   capNhatLuc: string;
   /** Số lần hỏi cùng một ô — hỏi quá 2 lần thì thôi, chuyển người. */
   soLanHoi: Partial<Record<TenO, number>>;
+  /**
+   * BẰNG CHỨNG tra cứu tích luỹ trong phiên (kết quả tim_khach / tim_sp các
+   * lượt trước). Mọi id model điền phải nằm trong đây — hàng rào DỮ LIỆU duy
+   * nhất của code, thay cho việc đọc chữ.
+   */
+  bangChung?: {
+    khach: Array<{ id: number; ten: string; ma?: string | null; sdt?: string | null }>;
+    sp: Array<{ id: number; ten: string; gia: number; donVi?: string | null }>;
+  };
+  /** Đơn vừa lên trong phiên này (để "sửa đơn" biết sửa cái nào). */
+  donVuaLen?: { donId: number; maDon: string; tenKhach: string; khachId: number; luc: string };
 }
 
 export type TenO = 'khach' | 'dong' | 'soLuong' | 'donGia' | 'kho' | 'phuPhi' | 'vatPhanTram' | 'chietKhauDonPhanTram' | 'giaoHang' | 'thanhToan';
