@@ -212,7 +212,16 @@ export function apCapNhat(cu: PhienDon, raw: Record<string, unknown>, bayGio: Da
         ...(r.tang === true ? { tang: true } : {}),
       });
     }
-    p.dong = dong.slice(0, 40);
+    // Cùng tên (không dấu, thường) xuất hiện hai lần → giữ dòng có nhiều ô
+    // da_co hơn (model hay đẻ dòng trùng khi tên khách dính vào tên hàng).
+    const theoTen = new Map<string, DongHang>();
+    const diem = (d: DongHang): number => (d.soLuong.trangThai === 'da_co' ? 1 : 0) + (d.donGia.trangThai === 'da_co' ? 1 : 0) + (d.spId ? 1 : 0);
+    for (const d of dong) {
+      const k = d.ten.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+      const cu = theoTen.get(k);
+      if (!cu || diem(d) > diem(cu)) theoTen.set(k, d);
+    }
+    p.dong = [...theoTen.values()].slice(0, 40);
   }
   const kho = docO(raw.kho, laChuoi); if (kho) p.kho = kho;
   const pp = docO(raw.phuPhi, laPhuPhi); if (pp) p.phuPhi = pp;

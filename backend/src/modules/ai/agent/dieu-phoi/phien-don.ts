@@ -72,6 +72,14 @@ export interface PhienDon {
   };
   /** Đơn vừa lên trong phiên này (để "sửa đơn" biết sửa cái nào). */
   donVuaLen?: { donId: number; maDon: string; tenKhach: string; khachId: number; luc: string };
+  /**
+   * Bot ĐANG CHỜ NV chọn gì (danh sách khách / loại hàng đã hỏi lượt trước) —
+   * dữ liệu để lượt sau model đối chiếu "3"/"a"/"fa 50w trắng" với đúng danh sách.
+   */
+  dangHoi?: {
+    khach?: { ten: string; ds: Array<{ id: number; ten: string }> };
+    sp?: Array<{ ten: string; ds: Array<{ id: number; ten: string }> }>;
+  };
 }
 
 export type TenO = 'khach' | 'dong' | 'soLuong' | 'donGia' | 'kho' | 'phuPhi' | 'vatPhanTram' | 'chietKhauDonPhanTram' | 'giaoHang' | 'thanhToan';

@@ -33,7 +33,8 @@ import { NGUONG_GIA_AO } from '../../odoo/tools/tra-san-pham.js';
 import { guiHoaDon } from '../../odoo/tools/gui-hoa-don.js';
 import { linkXuLyDon, type HoaDonAnhClient, type AnhHoaDon } from '../../odoo/hoa-don-anh.js';
 import { dieuPhoiPhien, type DauVaoDieuPhoi, type KetQuaDieuPhoi, type YDinh } from './dieu-phoi.js';
-import { type PhienDon, type OCanHoi, oConThieu, tomTatPhien, phienTrong, ghiDaHoi } from './phien-don.js';
+import { type PhienDon, type DongHang, type OCanHoi, oConThieu, tomTatPhien, phienTrong, ghiDaHoi } from './phien-don.js';
+type DongHangCoId = DongHang & { spId?: number };
 import { boToolTim, bangChungTrong, hamTimOdoo, themBangChungKhach, themBangChungSp, tomTatBangChungPhien, type BangChungPhien, type HamTim } from './tool-tim.js';
 
 export const TIMEOUT_LAI_MS = 45_000;
@@ -104,6 +105,13 @@ const DAN_LAI = [
   '- Sau khi đơn đã lên (xem ĐƠN VỪA LÊN), NV "sửa…/đổi số lượng…/thêm…/bỏ…" → y_dinh=sua_don, che=sua_don,',
   '  dong = danh sách SAU KHI SỬA (đủ mọi dòng còn lại). NV chỉ nhắc lại món đã có, hay gõ lại số đã chọn → y_dinh=xac_nhan.',
   '- "Giá 0 đồng"/"tặng"/"miễn phí" → tang=true. Số lượng chỉ lấy số NV NÓI (30b = 30 bóng; "x 5200" là giá).',
+  '- Cụm ĐỨNG ĐẦU câu trước dấu ":" hoặc "/" hoặc "." ("Red Sun : 2607…", "Lộc led 88 / 30b…", "Qc T&T. 4 cái…") là',
+  '  KHÁCH, không phải tên hàng. Tên hàng không được chứa tên khách.',
+  '- Khi bot ĐANG CHỜ NV CHỌN (xem NGỮ CẢNH), tin NV là tên/biến thể tên một ứng viên ("fa 50w trắng", "loại Nelia",',
+  '  "cái 140cm") → đó là CÂU CHỌN: điền id ứng viên khớp, y_dinh=dat_hang, không phải hoi_khac.',
+  '- NV nêu THÔNG SỐ (140cm, 24V, 4000K, trắng/ấm) → chọn SP có ĐÚNG thông số đó; nhiều dòng khác thông số thì',
+  '  phải ra spId KHÁC NHAU. Không chọn SP chung chung ("Cáp 16Pin") khi có SP cụ thể ("Cáp 16pin dài 140cm").',
+  '- Khách mo_ho (trùng nhiều người) VẪN điền giaTri.ten nguyên văn NV gõ để máy liệt kê ứng viên cho NV chọn.',
   '- Lệnh xuất/in hoá đơn, huỷ đơn theo mã, hỏi tồn, báo cáo, tán gẫu → y_dinh tương ứng (hoi_khac/hoi_ton/tan_gau),',
   '  không đổi ô; máy sẽ chuyển cho agent khác.',
 ].join('\n');
@@ -125,6 +133,15 @@ export function doiChieuBangChung(p: PhienDon, bc: BangChungPhien): { khachBia: 
     if (!s) { spBia.push(d.ten); delete d.spId; delete d.tenOdoo; delete d.giaOdoo; }
     else { d.tenOdoo = s.ten; d.giaOdoo = s.gia; }
   }
+  // Hai dòng TÊN KHÁC NHAU mà cùng một spId (replay S8: 4 cỡ cáp → cùng "Cáp
+  // 16Pin") = khớp ẩu → bỏ id cả nhóm, tra bù/hỏi lại. Kiểm dữ liệu, không đọc chữ.
+  const theoId = new Map<number, DongHangCoId[]>();
+  for (const d of p.dong) if (d.spId != null) theoId.set(d.spId, [...(theoId.get(d.spId) ?? []), d as DongHangCoId]);
+  for (const nhom of theoId.values()) {
+    if (nhom.length > 1 && new Set(nhom.map((d) => d.ten.trim().toLowerCase())).size > 1) {
+      for (const d of nhom) { spBia.push(d.ten); delete d.spId; delete d.tenOdoo; delete d.giaOdoo; }
+    }
+  }
   return { khachBia, spBia };
 }
 
@@ -142,7 +159,9 @@ export interface UngVienConTreo {
 export async function traBu(deps: Pick<DepsLai, 'odoo' | 'ghiLog' | 'tim'>, p: PhienDon, bc: BangChungPhien): Promise<UngVienConTreo> {
   const treo: UngVienConTreo = { sp: [] };
   const tim = hamTim(deps);
-  if (p.khach.trangThai === 'da_co' && p.khach.giaTri && p.khach.giaTri.id == null && !p.khach.giaTri.moi) {
+  // Khách chưa có id (da_co hoặc mo_ho có tên) → tra: một người rõ → điền, còn lại → danh sách chọn.
+  if ((p.khach.trangThai === 'da_co' || p.khach.trangThai === 'mo_ho') && p.khach.giaTri && p.khach.giaTri.id == null && !p.khach.giaTri.moi
+    && (p.khach.giaTri.ten || p.khach.giaTri.sdt || p.khach.giaTri.maKh)) {
     const g = p.khach.giaTri;
     const t0 = Date.now();
     const r = await tim.khach({ ...(g.ten ? { ten: g.ten } : {}), ...(g.sdt ? { sdt: g.sdt } : {}), ...(g.maKh ? { ma: g.maKh } : {}) });
@@ -151,6 +170,7 @@ export async function traBu(deps: Pick<DepsLai, 'odoo' | 'ghiLog' | 'tim'>, p: P
     if (r.ketQua === 'mot' || (r.ketQua === 'nhieu' && r.goiY != null && r.khach.length > 0)) {
       const chon = r.ketQua === 'mot' ? r.khach[0] : r.khach.find((k) => k.id === r.goiY)!;
       g.id = chon.id; g.ten = chon.ten; if (chon.ma) g.maKh = chon.ma;
+      p.khach = { trangThai: 'da_co', giaTri: g };
     } else {
       treo.khach = { ten: g.ten, ds: r.khach, conNua: r.conNua, khongThay: r.ketQua === 'khong' };
     }
@@ -316,7 +336,14 @@ export async function laiLuotNhanVien(deps: DepsLai, vao: VaoLai): Promise<KetQu
   const t0 = Date.now();
   const phienCu = await deps.docPhien(vao.conversationId);
   const bc = phienCu.bangChung ?? bangChungTrong();
-  const nguCanh = [tomTatBangChungPhien(bc), phienCu.donVuaLen ? `ĐƠN VỪA LÊN: ${phienCu.donVuaLen.maDon} cho ${phienCu.donVuaLen.tenKhach} (${phienCu.donVuaLen.luc.slice(11, 16)} UTC)` : ''].filter(Boolean).join('\n');
+  const dangHoi = phienCu.dangHoi;
+  const moTaDangHoi = dangHoi
+    ? ['BOT ĐANG CHỜ NV CHỌN (tin mới có thể là câu trả lời cho mục này):',
+        ...(dangHoi.khach ? [`  khách "${dangHoi.khach.ten}": ${dangHoi.khach.ds.map((x, i) => `${i + 1}) id=${x.id} ${x.ten}`).join('; ')}`] : []),
+        ...(dangHoi.sp ?? []).map((s) => `  hàng "${s.ten}": ${s.ds.map((x, i) => `${String.fromCharCode(97 + i)}) id=${x.id} ${x.ten}`).join('; ')}`),
+      ].join('\n')
+    : '';
+  const nguCanh = [tomTatBangChungPhien(bc), moTaDangHoi, phienCu.donVuaLen ? `ĐƠN VỪA LÊN: ${phienCu.donVuaLen.maDon} cho ${phienCu.donVuaLen.tenKhach} (${phienCu.donVuaLen.luc.slice(11, 16)} UTC)` : ''].filter(Boolean).join('\n');
 
   const kq: KetQuaDieuPhoi = await dieuPhoiPhien(
     deps.generate,
@@ -346,6 +373,14 @@ export async function laiLuotNhanVien(deps: DepsLai, vao: VaoLai): Promise<KetQu
     await deps.guiTin(t);
     return { nhan: true, yDinh: kq.yDinh, daGui: [t], nguon: 'llm', ms: Date.now() - t0 };
   }
+  // Gõ lại số/chữ đã chọn sau khi đơn đã lên → nhắc đơn, không đẩy sang agent (ca 16:25 27/08).
+  if (kq.yDinh === 'xac_nhan' && p.donVuaLen && p.che !== 'sua_don' && p.che !== 'dat_hang') {
+    delete p.dangHoi;
+    await deps.luuPhien(vao.conversationId, p);
+    const t = `Đơn ${p.donVuaLen.maDon} của ${p.donVuaLen.tenKhach} đã lên rồi ạ. Cần sửa gì anh/chị nhắn "sửa đơn ..." nhé.`;
+    await deps.guiTin(t);
+    return { nhan: true, yDinh: kq.yDinh, daGui: [t], nguon: 'llm', ms: Date.now() - t0 };
+  }
   const laViecDon = Y_DINH_VIEC_DON.includes(kq.yDinh) && (p.che === 'dat_hang' || p.che === 'sua_don');
   if (!laViecDon) {
     await deps.luuPhien(vao.conversationId, p);
@@ -368,6 +403,14 @@ export async function laiLuotNhanVien(deps: DepsLai, vao: VaoLai): Promise<KetQu
     for (const c of canHoi.slice(0, 2)) ghiDaHoi(p, c.o);
     daGui.push(cau || 'Anh/chị cho em thêm thông tin đơn này với ạ.');
   }
+  // Nhớ bot đang chờ chọn gì (dữ liệu) — lượt sau model đối chiếu câu trả lời.
+  p.dangHoi = (treo.khach && !treo.khach.khongThay) || treo.sp.some((s) => !s.khongThay)
+    ? {
+        ...(treo.khach && !treo.khach.khongThay ? { khach: { ten: treo.khach.ten, ds: treo.khach.ds.slice(0, 10).map((x) => ({ id: x.id, ten: x.ten })) } } : {}),
+        ...(treo.sp.some((s) => !s.khongThay) ? { sp: treo.sp.filter((s) => !s.khongThay).map((s) => ({ ten: s.ten, ds: s.ds.slice(0, 8).map((x) => ({ id: x.id, ten: x.ten })) })) } : {}),
+      }
+    : undefined;
+  if (!p.dangHoi) delete p.dangHoi;
   await deps.luuPhien(vao.conversationId, p);
   for (const t of daGui) await deps.guiTin(t);
   logger.info({ conversationId: vao.conversationId, yDinh: kq.yDinh, che: p.che, soVong: kq.soVong, ms: Date.now() - t0 }, '[lai] xong lượt');
