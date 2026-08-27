@@ -382,6 +382,28 @@ const HAU_TO_NGHIN = /^(k|tr|m|củ|cu|nghìn|nghin|ngàn|ngan|triệu|trieu)/i;
 const SL_TUONG_MINH = /(?:^|\s)(\d{1,7})\s?(b|bong|bóng|c|cai|cái|thanh|m|met|mét|cuon|cuộn|chiec|chiếc|tam|tấm|bo|bộ|soi|sợi|goi|gói|thung|thùng)(?=\s|$|[,.;])/giu;
 
 /**
+ * Token "<số><đv>" nào THẬT là số lượng: "1m" trong "thanh toả 1m", "3b" trong
+ * "3b 6214" (3 bóng) là MẢNH TÊN HÀNG, không phải SL (test cũ 13/08 + 26/08
+ * đỏ khi thiếu rào này). Luật: đơn vị m/mét/b với số < 10 → tên hàng; token
+ * ngay sau là mã số (≥3 chữ số) → tên hàng; số phải > 0.
+ */
+function laTokenSl(so: number, donVi: string, sau: string): boolean {
+  if (!(so > 0)) return false;
+  const dv = donVi.toLowerCase();
+  if ((dv === 'm' || dv === 'met' || dv === 'mét' || dv === 'b') && so < 10) return false;
+  if (/^\s*\d{3,}/.test(sau)) return false;
+  return true;
+}
+function tokenSlThat(cau: string): Array<{ so: number; index: number }> {
+  const ra: Array<{ so: number; index: number }> = [];
+  for (const m of cau.matchAll(SL_TUONG_MINH)) {
+    const sau = cau.slice(m.index! + m[0].length, m.index! + m[0].length + 6);
+    if (laTokenSl(Number(m[1]), m[2], sau)) ra.push({ so: Number(m[1]), index: m.index! });
+  }
+  return ra;
+}
+
+/**
  * SL TƯỜNG MINH THẮNG (replay 27/08): "Lộc led 88 / 30b f30…" model lấy 88
  * (số nhà của khách) làm SL; "Red Sun : 2607 ấm 10000b" lấy 2607 (mã SP) làm
  * SL. NV đã ghi "30b"/"10000b" thì đó là số lượng, không bàn cãi. Chỉ áp khi
@@ -390,15 +412,25 @@ const SL_TUONG_MINH = /(?:^|\s)(\d{1,7})\s?(b|bong|bóng|c|cai|cái|thanh|m|met|
  */
 export function apSlTuongMinh(cau: string, trich: KetQuaTrich): void {
   if (trich.dong?.length !== 1) return;
-  const tk = [...cau.matchAll(SL_TUONG_MINH)].filter((m) => {
+  const tk = tokenSlThat(cau).filter((m) => {
     // "x 5200" / "x5200đ" là giá, không phải SL: bỏ số đứng ngay sau 'x'.
-    const truoc = cau.slice(Math.max(0, m.index! - 3), m.index!);
+    const truoc = cau.slice(Math.max(0, m.index - 3), m.index);
     return !/x\s*$/i.test(truoc);
   });
   if (tk.length !== 1) return;
-  const sl = Number(tk[0][1]);
+  const sl = tk[0].so;
   const d = trich.dong[0];
   if (!Number.isFinite(sl) || sl <= 0 || d.sl === sl || d.tang) return;
+  // Model ĐÃ có SL khác → chỉ ghi đè khi token đứng ĐẦU vế hàng ("… / 30b f30",
+  // "= 16 sợi") hoặc CUỐI câu (trước "x 950₫"). Token nằm giữa tên ("10 cáp
+  // 16 sợi nhỏ" — model lấy 10 đúng) là mảnh tên, không đụng.
+  if (d.sl != null) {
+    const truoc = cau.slice(0, tk[0].index).replace(/@\S+/g, '').trim();
+    const sau = cau.slice(tk[0].index).replace(SL_TUONG_MINH, '').replace(/@\S+/g, '')
+      .replace(/\b(x|giá|gia)\s*[\d.,]+\s*[kđ₫]?\b/giu, '').replace(/[\s.,;₫đk]+$/u, '').trim();
+    const dauVe = truoc === '' || /[\/:.,\-=]$/.test(truoc);
+    if (!dauVe && sau !== '') return;
+  }
   logger.warn({ sp: d.sp, slCu: d.sl, slMoi: sl }, '[trich-slot] SL tường minh trong câu khác SL model trích — lấy SL tường minh');
   d.sl = sl;
 }
@@ -409,7 +441,10 @@ export function apSlTuongMinh(cau: string, trich: KetQuaTrich): void {
  * nguyên văn; model hay cắt mất "88", "T&T" → khách sai người. Code ghi đè.
  */
 export function apKhachTheoGachCheo(cau: string, trich: KetQuaTrich): void {
-  const m = cau.replace(/@\S+/g, ' ').trim().match(/^([^\/\n]{2,60}?)\s*\/\s*\S/u);
+  // Bỏ khối hệ thống chèn ("[Trả lời tin: …]", "[Khách gửi ảnh…]") — trong đó
+  // cũng có dấu "/" (test 11/08 đỏ: khách thành '[Trả lời tin: …').
+  const sach = cau.replace(/\[Trả lời tin:[\s\S]*?\]\s*/gu, ' ').replace(/\[Khách gửi ảnh[\s\S]*\]\s*/gu, ' ');
+  const m = sach.replace(/@\S+/g, ' ').trim().match(/^([^\/\n\[\]]{2,60}?)\s*\/\s*\S/u);
   if (!m) return;
   const khach = m[1].trim().replace(/[.,:;]+$/, '');
   if (!khach || /\d{3,}\s*(b|c|cai|thanh|m)\b/i.test(khach)) return; // vế trước là hàng, không phải khách
@@ -422,9 +457,9 @@ export function apKhachTheoGachCheo(cau: string, trich: KetQuaTrich): void {
 export function tachSlDinhDauSp(trich: KetQuaTrich): void {
   for (const d of trich.dong ?? []) {
     if (d.sl != null) continue;
-    // Có SL tường minh trong tên ("2607 ấm 10000b") → số đầu là MÃ, không phải SL.
-    if (SL_TUONG_MINH.test(d.sp)) { SL_TUONG_MINH.lastIndex = 0; continue; }
-    SL_TUONG_MINH.lastIndex = 0;
+    // Có SL tường minh THẬT trong tên ("2607 ấm 10000b") → số đầu là MÃ, không
+    // phải SL. "9600 3b 6214" thì "3b" là mảnh tên → vẫn tách 9600 như cũ.
+    if (tokenSlThat(d.sp).length > 0) continue;
     const m = d.sp.match(/^(\d{3,})\s+(.{3,})$/);
     if (!m) continue;
     const so = Number(m[1]);

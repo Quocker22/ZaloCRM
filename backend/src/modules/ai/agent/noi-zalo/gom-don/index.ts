@@ -839,7 +839,11 @@ async function chayTraCuu(
         const trongCau = cauBd
           ? kq.danhSach.filter((k) => { const t = boDau(k.ten).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim(); return t.split(' ').length >= 2 && cauBd.includes(t); })
           : [];
-        if (trongCau.length === 1) {
+        // Nhưng tên đó là MẢNH của một ứng viên khác ("Chị Phương ALi" vs
+        // "Chị Phương ALi - Hà Nội", test 11/08) → vẫn phải hỏi chọn.
+        const tenChon = trongCau.length === 1 ? boDau(trongCau[0].ten).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim() : '';
+        const coNguoiCungKieu = tenChon !== '' && kq.danhSach.some((k) => k.id !== trongCau[0].id && boDau(k.ten).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').includes(tenChon));
+        if (trongCau.length === 1 && !coNguoiCungKieu) {
           p.khachDaChot = { id: trongCau[0].id, ten: trongCau[0].ten, ma: trongCau[0].ma, dienThoai: trongCau[0].dienThoai };
           p.khachTuChot = true;
           delete p.khachUngVienConNua;

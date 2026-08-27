@@ -119,4 +119,25 @@ describe('replay 27/08 — 4 luật thêm sau khi chạy lại 8 kịch bản', 
     expect(cauNeuKhachKhac('giá 9000k', 'Anh Long Led')).toBe(false);
     expect(cauNeuKhachKhac('a long led ,cáp 16PIN 140cm = 16 sợi', 'Anh Long Led')).toBe(false);
   });
+
+  it('rào mảnh tên: "thanh toả 1m" không phải SL 1; "9600 3b 6214" vẫn tách 9600; câu có khối [Trả lời tin] chứa "/" không thành khách', () => {
+    const a: KetQuaTrich = { lenDon: true, dong: [{ sp: 'Led thanh toả 1m ngoài trời Lixin màu Trắng' }] };
+    apSlTuongMinh('160 Led thanh toả 1m ngoài trời Lixin màu Trắng', a);
+    expect(a.dong?.[0].sl).toBeUndefined(); // "160" không có đơn vị, "1m" là tên → không đoán
+    const b: KetQuaTrich = { lenDon: true, dong: [{ sp: '9600 3b 6214 trắng' }] };
+    tachSlDinhDauSp(b);
+    expect(b.dong?.[0]).toMatchObject({ sp: '3b 6214 trắng', sl: 9600 });
+    const c: KetQuaTrich = { lenDon: true, khach: 'Trung Quốc', dong: [] };
+    apKhachTheoGachCheo('[Trả lời tin: "P10 / P5 full out"] nhập hàng Trung Quốc', c);
+    expect(c.khach).toBe('Trung Quốc');
+  });
+
+  it('model đã có SL → token giữa tên ("10 cáp 16 sợi nhỏ") không ghi đè; đầu vế ("/ 30b") và cuối câu ("10000b x 950₫") vẫn ghi đè', () => {
+    const a: KetQuaTrich = { lenDon: true, dong: [{ sp: 'cáp 16 sợi nhỏ', sl: 10 }] };
+    apSlTuongMinh('lên đơn cho khách mới Chiến Tàm Xá sdt 0969810330, 10 cáp 16 sợi nhỏ', a);
+    expect(a.dong?.[0].sl).toBe(10);
+    const b: KetQuaTrich = { lenDon: true, dong: [{ sp: 'cáp 16PIN 140cm', sl: 140 }] };
+    apSlTuongMinh('a long led ,cáp 16PIN 140cm = 16 sợi', b);
+    expect(b.dong?.[0].sl).toBe(16);
+  });
 });
