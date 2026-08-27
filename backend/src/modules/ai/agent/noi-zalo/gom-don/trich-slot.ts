@@ -428,6 +428,30 @@ export function suaGiaNhanBua(cau: string, trich: KetQuaTrich): void {
   }
 }
 
+/**
+ * "30b f30 full 26803 đầu trong x 5200" (27/08, ca thật 06:51): model lấy
+ * 5200 làm SỐ LƯỢNG và bỏ giá → đơn S15339 5.200 bóng = 27 triệu. Nếp NV:
+ * "<SL><đơn vị> <tên hàng> x <giá>" — số đứng sau "x" là GIÁ. Code sửa lại
+ * khi: câu có đúng mẫu đó, dòng trích có sl == số-sau-x, và chưa có giá.
+ */
+export function suaSlGiaNhamX(cau: string, trich: KetQuaTrich): void {
+  if (!trich.dong?.length) return;
+  const c = cau.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
+  const m = c.match(/(?:^|\s)(\d{1,6})\s*(b|bong|c|cai|thanh|m|met|cuon|chiec|tam|bo)\b[^x]*?\bx\s*(\d[\d.]*)\s*(k|d)?\b/u);
+  if (!m) return;
+  const sl = Number(m[1]);
+  const giaSo = Number(m[3].replace(/\./g, ''));
+  if (!Number.isFinite(sl) || !Number.isFinite(giaSo) || sl === giaSo) return;
+  const gia = m[4] === 'k' ? giaSo * 1000 : giaSo;
+  for (const d of trich.dong) {
+    if (d.gia == null && d.sl === giaSo) {
+      logger.warn({ sp: d.sp, slCu: d.sl, slMoi: sl, gia }, '[trich-slot] model lấy giá sau "x" làm số lượng — sửa lại');
+      d.sl = sl;
+      d.gia = gia;
+    }
+  }
+}
+
 export async function trichSlot(
   generate: ToolAwareGenerate,
   cau: string,
@@ -550,6 +574,7 @@ export async function trichSlot(
     const kq = lamSachTrich(call.input);
     suaGiaNhanBua(cau, kq);
     tachSlDinhDauSp(kq);
+    suaSlGiaNhamX(cau, kq);
     boSungGiaTuKhoiAnh(cau, kq);
     return kq;
   } catch (err) {

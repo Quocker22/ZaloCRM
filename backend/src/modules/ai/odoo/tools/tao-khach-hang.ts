@@ -146,6 +146,25 @@ export async function taoKhachHang(
     };
   }
 
+  // ── Lớp 3b: tên GẦN GIỐNG (27/08) ─────────────────────────────────────────
+  // Ca thật 07:03: NV "lên đơn cho red sun" → không có ai tên đúng "red sun"
+  // → tạo KH003235 "red sun" trong khi đã có "Anh Thuận - Red Sun" và "Cty Red
+  // Sun - Đông Anh". Tên mới NẰM TRỌN trong tên khách cũ (≥ 2 từ) → gần như
+  // chắc là cùng người/công ty: bắt chọn, không tạo. NV nói rõ "khách mới" thì
+  // bỏ phanh như lớp 3.
+  if (!boPhanh && ten.split(/\s+/).length >= 2) {
+    const ganGiong = await deps.odoo.searchRead<{ id: number; name: string; ref: string | null }>(
+      'res.partner', [['name', 'ilike', ten], ['customer_rank', '>', 0]], FIELDS, { limit: 5 },
+    );
+    if (ganGiong.length > 0) {
+      const ds = ganGiong.map((k) => `${k.name}${k.ref ? ` [${k.ref}]` : ''}`).join('; ');
+      return {
+        trangThai: 'loi',
+        lyDo: `Đã có khách tên gần giống "${ten}": ${ds}. Dùng tra_khach_hang chọn đúng người; chỉ khi nhân viên nói rõ "khách mới" mới tạo thêm.`,
+      };
+    }
+  }
+
   // ── Tạo mới ───────────────────────────────────────────────────────────────
   const data: Record<string, unknown> = {
     name: ten,

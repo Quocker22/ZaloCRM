@@ -13,7 +13,7 @@ import type { OdooClient } from '../../../odoo/client.js';
 import { traKhachHang, dinhDangKhachHang } from '../../../odoo/tools/tra-khach-hang.js';
 import { taoKhachHang, dinhDangTaoKhach, CHIA_BO_PHANH } from '../../../odoo/tools/tao-khach-hang.js';
 import { traSanPham, dinhDangSanPham, boDau, xungDotBienThe, laTenChungBienThe, NGUONG_GIA_AO } from '../../../odoo/tools/tra-san-pham.js';
-import { taoDonNhap, dinhDangTaoDon } from '../../../odoo/tools/tao-don-nhap.js';
+import { taoDonNhap, dinhDangTaoDon, tenKhopKhach } from '../../../odoo/tools/tao-don-nhap.js';
 // PHIẾU NHẬP HÀNG (11/08) — ca thật 22:09-22:11: bot đáp "chưa có tool tạo
 // phiếu nhập hàng ... nằm ngoài phạm vi em hỗ trợ" dù quyền ghi purchase.order
 // vốn đã có (đo prod: create=true/write=true, 5 đơn mua thật đang chạy).
@@ -432,9 +432,74 @@ export interface GomDonDeps {
   ghiAliasSp?: (v: { tuKhoa: string; productId: number; tenSp: string }) => Promise<void>;
 }
 
+/**
+ * NV NÊU KHÁCH KHÁC khi phiên đã chốt khách → làm lại phần khách (27/08).
+ *
+ * Ca thật 06:41 nhóm Nelia-Đơn hàng: phiên trước chốt "anh việt nguyễn xiển"
+ * (hàng chưa khớp), NV gõ tiếp "anh tùng triều khúc 10c 12v400w nb giá 150K"
+ * → máy giữ khách cũ, lên đơn S15336 + xuất hoá đơn INV/2026/028353 CHO SAI
+ * NGƯỜI. 07:02: khách tự chốt "Anh Lộc Led Beco" từ lượt trước dính sang
+ * "Red Sun : 2607 ấm 10000b" → S15342 sai người. Tên khớp (tenKhopKhach, cùng
+ * luật với tao_don_nhap) thì giữ; khác hẳn thì đây là ĐƠN CHO NGƯỜI KHÁC.
+ */
+export function khachKhacNguoiDaChot(p: PhienGom, khachTrich: string): boolean {
+  if (!p.khachDaChot || p.che === 'sua') return false;
+  return !tenKhopKhach(khachTrich, p.khachDaChot.ten);
+}
+
+/**
+ * LỆNH KHÔNG PHẢI VIỆC CỦA MÁY GOM ĐƠN — xuất/in hoá đơn, huỷ/xoá đơn theo mã,
+ * mọi câu mang số hoá đơn INV/… (27/08). Ca thật 06:59 "xuất đơn nhé" khi
+ * phiên còn dấu đơn-vừa-lên → model gác cửa coi là LÊN ĐƠN MỚI → hỏi "khách
+ * nào ạ?"; 07:32 "xuất đơn" sau S15353 → lên thêm S15354 TRÙNG rồi xuất hoá
+ * đơn cho đơn trùng; 07:09 "hủy đơn này INV/2026/028353" bị phiên đang chờ
+ * khách nuốt thành tên khách. Những câu này đi agent thường (có tool xuất/in).
+ */
+export const LENH_NGOAI_GOM =
+  /(?:^|\s)(?:xuất|xuat|in)\s+(?:lại\s+|lai\s+)?(?:đơn|don|hoá đơn|hóa đơn|hoa don|bill)\b|(?:^|\s)(?:huỷ|hủy|huy|xoá|xóa|xoa)\s+(?:đơn|don|hoá đơn|hóa đơn)\s+\S*\s*(?:S\d{4,}|INV\/)|INV\/\d{4}\/\d+/iu;
+export function laLenhNgoaiGom(cau: string): boolean {
+  return LENH_NGOAI_GOM.test(cau) && !NHAN_LENH_LEN_DON.test(cau) && !NHAN_LENH_SUA_DON.test(cau);
+}
+
+/**
+ * Câu SỬA SỐ LƯỢNG trần cho đơn MỘT dòng (27/08): "sửa 30 bóng", "đổi số
+ * lượng. Khách chỉ lấy 30 bóng thôi", "sửa đơn số lượng 30b". Ca thật
+ * 06:53-06:56: ba câu này đều bị máy đem "bóng" đi tra SP → liệt kê 3 loại
+ * F30 → NV bỏ cuộc, huỷ, lên lại (S15339 27tr nằm nháp). Trả số lượng khi câu
+ * chỉ gồm: từ lệnh + số + đơn vị, không có tên hàng nào khác.
+ */
+const TU_LENH_SL = new Set(['sua', 'doi', 'so', 'luong', 'sl', 'khach', 'chi', 'lay', 'thanh', 'thoi', 'con', 'lai', 'don', 'nhe', 'nha', 'em', 'a', 'anh', 'chi', 'giup', 'thanh', 'bot', 'them', 'ma', 'thi', 'la', 'thanh', 'thoi']);
+const DON_VI_SL = new Set(['b', 'bong', 'c', 'cai', 'thanh', 'm', 'met', 'cuon', 'chiec', 'tam', 'bo', 'goi', 'thung', 'soi', 'bich']);
+export function docCauSuaSl(cauBoDau: string): number | null {
+  const tk = cauBoDau.replace(/[.,!?]/g, ' ').split(/\s+/).filter(Boolean);
+  let so: number | null = null;
+  for (const t of tk) {
+    const m = t.match(/^(\d{1,6})([a-z]*)$/);
+    if (m) {
+      if (m[2] && !DON_VI_SL.has(m[2])) return null;
+      if (so != null) return null; // hai con số → không đoán
+      so = Number(m[1]);
+      continue;
+    }
+    if (TU_LENH_SL.has(t) || DON_VI_SL.has(t)) continue;
+    return null; // có chữ lạ (tên hàng, giá…) → không phải câu sửa SL trần
+  }
+  return so != null && so > 0 ? so : null;
+}
+
 /** Đắp kết quả trích LLM vào phiên. Trả true nếu phiên có thay đổi nội dung. */
 export function dapSlot(p: PhienGom, trich: KetQuaTrich): boolean {
   let doi = false;
+  if (trich.khach && khachKhacNguoiDaChot(p, trich.khach)) {
+    logger.info({ cu: p.khachDaChot?.ten, moi: trich.khach }, '[gom-don] NV nêu khách KHÁC khách đã chốt — làm lại phần khách');
+    delete p.khachDaChot;
+    delete p.khachUngVien;
+    delete p.khachUngVienConNua;
+    delete p.khachKhongThay;
+    delete p.khachTuChot;
+    p.khachTuKhoa = null;
+    doi = true;
+  }
   if (trich.khach && !p.khachDaChot) {
     // Ở chế NHẬP, bỏ tiền tố "nhà cung cấp"/"cty"… trước khi so (11/08).
     //
@@ -1286,6 +1351,13 @@ export async function xuLyGomDon(
   // Regex khớp → vào thẳng, KHỎI tốn lượt LLM cho ca thường gặp nhất.
   // Regex trượt và chưa có phiên → HỎI LLM một lượt: "đây có phải lệnh lên đơn
   // không". Nó nói không thì nhường agent thường như cũ.
+  // LỆNH NGOÀI VIỆC GOM (xuất/in/huỷ theo mã, số hoá đơn) → nhường agent
+  // thường, giữ nguyên phiên (27/08 — xem LENH_NGOAI_GOM).
+  if (laLenhNgoaiGom(cauChon)) {
+    logger.info({ cau: cauChon.slice(0, 60) }, '[gom-don] lệnh ngoài việc gom — nhường agent thường');
+    return false;
+  }
+
   let trich: KetQuaTrich = {};
   let daHoiLlm = false;
   if (!phien && !regexLen && !laLenhSua && !regexNhap) {
@@ -1994,6 +2066,18 @@ export async function xuLyGomDon(
         : phien.che === 'sua' && donVuaLen ? { maDon: donVuaLen.maDon } : {}),
     });
     hd = buocTiepTheo(phien);
+  }
+
+  // ĐƯỜNG TẮT SỬA SỐ LƯỢNG đơn MỘT dòng (27/08): "sửa 30 bóng" / "đổi số
+  // lượng. Khách chỉ lấy 30 bóng thôi" → đổi SL dòng duy nhất, không tra SP.
+  if (phien.che === 'sua' && phien.donSua?.dong?.length === 1 && phien.dong.length === 0) {
+    const slMoi = docCauSuaSl(boDau(cauChon));
+    if (slMoi != null) {
+      const d = phien.donSua.dong[0];
+      logger.info({ ma: phien.donSua.ma, ten: d.ten, slCu: d.sl, slMoi }, '[gom-don] đường tắt sửa SL đơn một dòng');
+      phien.dong.push({ tuKhoa: d.ten, sl: slMoi, daChot: { id: d.spId, ten: d.ten, gia: d.gia } });
+      hd = buocTiepTheo(phien);
+    }
   }
 
   // ÁP ĐƯỜNG TẮT SỬA GIÁ (14/08) — chạy SAU vòng tra để dòng thật của đơn đã
