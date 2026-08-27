@@ -531,6 +531,15 @@ export function dapSlot(p: PhienGom, trich: KetQuaTrich): boolean {
     const khachTrich = p.che === 'nhap' ? boTienToNcc(trich.khach) : trich.khach;
     const moi = boDau(khachTrich);
     if (!p.khachTuKhoa || boDau(p.khachTuKhoa) !== moi) {
+      // KHÁCH KHÁC HẲN + câu mang hàng riêng khi phiên còn treo chọn khách
+      // (replay 27/08: "anh tùng triều khúc 10c 12v400w" sau khi "anh việt…
+      // 400b lixin" đang chờ chọn trong 10 anh Việt) → đơn MỚI, bỏ dòng cũ,
+      // không gộp 400 bóng Lixin của anh Việt vào đơn anh Tùng.
+      if (p.khachTuKhoa && p.che !== 'sua' && p.dong.length > 0 && (trich.dong?.length ?? 0) > 0
+        && !tenKhopKhach(khachTrich, p.khachTuKhoa)) {
+        logger.info({ cu: p.khachTuKhoa, moi: khachTrich, boDong: p.dong.map((x) => x.tuKhoa) }, '[gom-don] khách khác hẳn khi đang treo chọn — bỏ dòng của khách cũ');
+        p.dong = [];
+      }
       // Đổi khách giữa chừng → làm lại phần khách từ đầu, bỏ ứng viên cũ.
       p.khachTuKhoa = khachTrich;
       delete p.khachUngVien;
@@ -835,14 +844,17 @@ async function chayTraCuu(
         // CÂU CHỨA NGUYÊN TÊN ứng viên (replay 27/08: "Led Trường An. 270b…" —
         // model trích khách "Trường An" → 10 người; nhưng "led truong an" nằm
         // nguyên trong câu NV, và chỉ một người có tên đó) → chốt, nói rõ.
+        // Tên Odoo hay kèm SĐT ("anh việt nguyễn xiển - 0911833666") → bỏ dãy
+        // số ≥6 trước khi so với câu.
+        const tenSach = (ten: string): string => boDau(ten).replace(/\d{6,}/g, ' ').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
         const cauBd = ctx.cau ? boDau(ctx.cau) : '';
         const trongCau = cauBd
-          ? kq.danhSach.filter((k) => { const t = boDau(k.ten).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim(); return t.split(' ').length >= 2 && cauBd.includes(t); })
+          ? kq.danhSach.filter((k) => { const t = tenSach(k.ten); return t.split(' ').length >= 2 && cauBd.includes(t); })
           : [];
         // Nhưng tên đó là MẢNH của một ứng viên khác ("Chị Phương ALi" vs
         // "Chị Phương ALi - Hà Nội", test 11/08) → vẫn phải hỏi chọn.
-        const tenChon = trongCau.length === 1 ? boDau(trongCau[0].ten).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim() : '';
-        const coNguoiCungKieu = tenChon !== '' && kq.danhSach.some((k) => k.id !== trongCau[0].id && boDau(k.ten).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').includes(tenChon));
+        const tenChon = trongCau.length === 1 ? tenSach(trongCau[0].ten) : '';
+        const coNguoiCungKieu = tenChon !== '' && kq.danhSach.some((k) => k.id !== trongCau[0].id && tenSach(k.ten).includes(tenChon));
         if (trongCau.length === 1 && !coNguoiCungKieu) {
           p.khachDaChot = { id: trongCau[0].id, ten: trongCau[0].ten, ma: trongCau[0].ma, dienThoai: trongCau[0].dienThoai };
           p.khachTuChot = true;

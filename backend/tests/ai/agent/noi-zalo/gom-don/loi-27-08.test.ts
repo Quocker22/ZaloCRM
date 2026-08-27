@@ -9,7 +9,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   dapSlot, khachKhacNguoiDaChot, laLenhNgoaiGom, docCauSuaSl, cauNeuKhachKhac,
 } from '../../../../../src/modules/ai/agent/noi-zalo/gom-don/index.js';
-import { suaSlGiaNhamX, apSlTuongMinh, apKhachTheoGachCheo, tachSlDinhDauSp, tachSlDauTenSp, chonUngVienTheoCau, type KetQuaTrich } from '../../../../../src/modules/ai/agent/noi-zalo/gom-don/trich-slot.js';
+import { suaSlGiaNhamX, apSlTuongMinh, apKhachTheoGachCheo, tachSlDinhDauSp, tachSlDauTenSp, chonUngVienTheoCau, apKhachTheoXungHo, type KetQuaTrich } from '../../../../../src/modules/ai/agent/noi-zalo/gom-don/trich-slot.js';
 import { taoKhachHang } from '../../../../../src/modules/ai/odoo/tools/tao-khach-hang.js';
 import type { PhienGom } from '../../../../../src/modules/ai/agent/noi-zalo/gom-don/kieu.js';
 
@@ -175,5 +175,32 @@ describe('replay 27/08 — 4 luật thêm sau khi chạy lại 8 kịch bản', 
       { id: 3, ten: 'F30 full 26803 Đục 12V - ATX (bóng)' },
     ];
     expect(chonUngVienTheoCau('Led Trường An. 270b Fi50 full 26803 đầu đục giá 7200', fi50)).toBeNull(); // 2 loại đục, phủ thấp → hỏi
+  });
+
+  it('khách theo xưng hô: model trích "việt" → "anh việt nguyễn xiển"; "lên đơn cho chị phương ali 4 bóng…" → "chị phương ali"; model trích đủ/khác → giữ; khách mới → giữ', () => {
+    const a: KetQuaTrich = { lenDon: true, khach: 'việt', dong: [{ sp: '4 bóng lixin 220v 4000K', sl: 400 }] };
+    apKhachTheoXungHo('anh việt nguyễn xiển 400b 4 bóng lixin 220v 4000K giá 3200', a);
+    expect(a.khach).toBe('anh việt nguyễn xiển');
+    const b: KetQuaTrich = { lenDon: true, dong: [] };
+    apKhachTheoXungHo('lên đơn cho chị phương ali 4 bóng lixin 4000k trung tính trong nhà 500 bóng giá 2800', b);
+    expect(b.khach).toBe('chị phương ali');
+    const c: KetQuaTrich = { lenDon: true, khach: 'Lộc led 88', dong: [] };
+    apKhachTheoXungHo('Anh Lộc led 88. 30b f30', c);
+    expect(c.khach).toBe('Lộc led 88');
+    const d: KetQuaTrich = { lenDon: true, khach: 'Long', khachMoi: { ten: 'Anh Long Hà Nam' }, dong: [] };
+    apKhachTheoXungHo('anh long hà nam 5 cái nguồn', d);
+    expect(d.khach).toBe('Long');
+    const e: KetQuaTrich = { lenDon: true, khach: 'a long led', dong: [] };
+    apKhachTheoXungHo('a long led ,cáp 16PIN 140cm = 16 sợi', e);
+    expect(e.khach).toBe('a long led');
+  });
+  it('phiên treo chọn khách + câu nêu khách KHÁC HẲN kèm hàng riêng → bỏ dòng khách cũ; cùng người viết khác → giữ dòng', () => {
+    const p: PhienGom = { khachTuKhoa: 'anh việt nguyễn xiển', khachUngVien: [{ id: 1, ten: 'Anh Việt', ma: 'KH1', dienThoai: null }], dong: [{ tuKhoa: '4 bóng lixin 220v', sl: 400 }], che: 'len' };
+    dapSlot(p, { lenDon: true, khach: 'anh tùng triều khúc', dong: [{ sp: '12v400w nb', sl: 10, gia: 150000 }] });
+    expect(p.dong.map((d) => d.tuKhoa)).toEqual(['12v400w nb']);
+    expect(p.khachTuKhoa).toBe('anh tùng triều khúc');
+    const q: PhienGom = { khachTuKhoa: 'Anh Long Led', khachUngVien: [], dong: [{ tuKhoa: 'cáp 16pin 140cm', sl: 16 }], che: 'len' };
+    dapSlot(q, { lenDon: true, khach: 'a Long', dong: [{ sp: 'cáp 16pin 120cm', sl: 64 }] });
+    expect(q.dong.length).toBe(2);
   });
 });

@@ -429,6 +429,26 @@ export function tachSlDauTenSp(trich: KetQuaTrich): void {
   }
 }
 
+/**
+ * Câu mở đầu bằng XƯNG HÔ + tên rồi tới số ("anh việt nguyễn xiển 400b 4 bóng…",
+ * "chị phương ali 4 bóng lixin…") mà model trích khách CỤT ("việt" → 10 khách
+ * tên Việt, replay 27/08) → lấy nguyên cụm trước số làm từ khoá khách. Chỉ áp
+ * khi model không trích hoặc trích ra cụm NGẮN HƠN nằm trong cụm này.
+ */
+export function apKhachTheoXungHo(cau: string, trich: KetQuaTrich): void {
+  if (trich.khachMoi) return;
+  const m = cau.replace(/@\S+/g, ' ').trim()
+    .match(/^(?:(?:lên|len)\s+(?:đơn|don)\s+(?:cho\s+)?|(?:đơn|don)\s+(?:cho\s+)?)?((?:anh|chị|chi|chú|chu|cô|co|bác|bac|cty|công ty|cong ty)\s+[^\d\/:,.;\n]{2,40}?)\s+(?=\d)/iu);
+  if (!m) return;
+  const cum = m[1].trim();
+  if (cum.split(/\s+/).length < 3) return; // "anh Hưng" (2 từ) để model; ≥3 từ mới đáng ghi đè
+  if (!trich.khach) { trich.khach = cum; return; }
+  const cu = boDau(trich.khach).trim();
+  const moi = boDau(cum);
+  if (cu === moi || !moi.includes(cu) || trich.khach.split(/\s+/).length >= cum.split(/\s+/).length) return;
+  trich.khach = cum;
+}
+
 export function apSlTuongMinh(cau: string, trich: KetQuaTrich): void {
   if (trich.dong?.length !== 1) return;
   const tk = tokenSlThat(cau).filter((m) => {
@@ -676,6 +696,7 @@ export async function trichSlot(
     tachSlDauTenSp(kq);
     apSlTuongMinh(cau, kq);
     apKhachTheoGachCheo(cau, kq);
+    apKhachTheoXungHo(cau, kq);
     boSungGiaTuKhoiAnh(cau, kq);
     return kq;
   } catch (err) {
