@@ -13,6 +13,20 @@ const turn = (input: Record<string, unknown>): AgentTurn => ({
   text: '', stopReason: 'tool_use', raw: null, usage, toolCalls: [{ id: 'g1', name: 'phan_quyet', input }],
 });
 
+describe('lotDocThoai — độc thoại replay 27/08 (nói về NV ở ngôi thứ ba)', () => {
+  it('lột hết 4 đoạn nghĩ, giữ câu hỏi thật gửi NV', () => {
+    const nhap = [
+      'Đây là loại 3? Hay có thể là sửa đơn?',
+      'Nhìn vào ngữ cảnh: đơn đã lên với "4 bóng Lixin 220V trong nhà Trung tính 4000K". Tin mới nhắc lại "4 bóng lixin 220V trung tính" — trùng khớp với thông tin đơn đã tạo. Có vẻ nhân viên đang xác nhận lại hoặc gõ lại.',
+      'Tuy nhiên, tin này khá mơ hồ — nó giống như chỉ lặp lại mô tả sản phẩm đã có trên đơn. Cần hỏi lại để chắc chắn ý nhân viên.',
+      'Đơn S99001 của anh Việt đã có 400 × Led 4 bóng Lixin 220V trong nhà Trung tính 4000K rồi ạ. Anh/chị muốn sửa gì trên đơn này không?',
+    ].join('\n\n');
+    const { sach, daLot } = lotDocThoai(nhap, '4 bóng lixin 220V trung tính');
+    expect(daLot.length).toBe(3);
+    expect(sach).toBe('Đơn S99001 của anh Việt đã có 400 × Led 4 bóng Lixin 220V trong nhà Trung tính 4000K rồi ạ. Anh/chị muốn sửa gì trên đơn này không?');
+  });
+});
+
 describe('lotDocThoai — độc thoại thật 26/08', () => {
   it('"có bạn gái chưa": bỏ đoạn "Tôi đáp ngắn, không gọi tool", giữ câu nói với NV', () => {
     const nhap = '"Có bạn gái chưa" là câu đùa/cá nhân, không liên quan công việc. Tôi đáp ngắn, không gọi tool.\n\n' +

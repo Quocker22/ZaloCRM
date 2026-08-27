@@ -117,6 +117,16 @@ const DOC_THOAI = [
   /(không (nên|được) gửi|trao đổi nội bộ)/iu,
   /(?:^|\s)(hãy (cố gắng|dùng|thử|kiểm tra)|nói rõ (rằng|là)|trả lời (rằng|thẳng|ngắn)|cần trả lời)\b/iu,
   /^Người dùng|^The user/iu,
+  // Replay 27/08 (lượt "4 bóng lixin 220V trung tính" nhắc lại): "Đây là loại
+  // 3? Hay có thể là sửa đơn?", "Nhìn vào ngữ cảnh: …", "Có vẻ nhân viên đang
+  // xác nhận lại", "Tuy nhiên, tin này khá mơ hồ", "Cần hỏi lại để chắc chắn ý
+  // nhân viên" — bot nói về NV ở ngôi thứ ba = đang nghĩ, không phải đang nói.
+  /^(Đây|Đó) là loại \d/iu,
+  /^(Nhìn vào|Xét|Dựa vào|Theo) (ngữ cảnh|bối cảnh|lịch sử)/iu,
+  /(?:^|\s)(có vẻ|dường như|chắc là|có lẽ) (nhân viên|NV|người dùng|họ) (đang|vừa|muốn|chỉ)/iu,
+  /^(Tuy nhiên|Nhưng),? (tin|câu|yêu cầu) (này|mới|đó)/iu,
+  /^Cần (hỏi lại|làm rõ|xác nhận) (để|với|xem)/iu,
+  /(?:^|\s)ý (nhân viên|NV|người dùng)\b/iu,
 ];
 
 function laDoanDocThoai(doan: string): boolean {

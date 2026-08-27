@@ -162,6 +162,7 @@ describe('replay 27/08 — 4 luật thêm sau khi chạy lại 8 kịch bản', 
     expect(chonUngVienTheoCau('Lộc led 88 / 30b f30 full 26803 đầu trong x 5200', f30)?.id).toBe(2);
     expect(chonUngVienTheoCau('Lộc led 88 / 30b f30 full 26803 đầu đục x 5200', f30)?.id).toBe(1); // "26803" loại DMX ra
     expect(chonUngVienTheoCau('Lộc led 88 / 30b f30 full đầu đục x 5200', f30)).toBeNull(); // 2 loại đục hoà → hỏi
+    expect(chonUngVienTheoCau('Lộc led 88 / 30b f30 full 26803 đầu trong x 5200', f30.slice(0, 2))?.id).toBe(2); // đúng ca prod (đường nới, 2 kq)
     const lixin = [
       { id: 1, ten: 'Led dây Lixin 12V-120b/m màu trung tính 4000K ip65 (20m/c) (mét)' },
       { id: 2, ten: 'Led 4 bóng 24V Trong Nhà Trung Tính 4000K (bóng)' },

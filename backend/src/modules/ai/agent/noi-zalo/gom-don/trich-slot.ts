@@ -763,7 +763,13 @@ export function chonUngVienTheoCau<T extends { ten: string }>(cau: string, ungVi
   const top = diem.map((d, i) => ({ ...d, i })).filter((d) => d.hit === maxHit);
   if (top.length !== 1) return null;
   const chon = top[0];
-  if (chon.phu < 0.6) return null;
+  // Chặt: câu KHÔNG chứa từ nào của ứng viên khác mà ứng viên chọn thiếu
+  // (câu nói "trong" thì "đục" không được xuất hiện), và tên được phủ ≥ 50%. Dùng
+  // được cả cho kết quả đường nới (daNoiRong) vì điều kiện này chặt hơn
+  // "1 kết quả nới = phải hỏi": phải có từ phân biệt do NV gõ ra.
+  const tokChon = tokUv[chon.i];
+  if (tokUv.some((s, i) => i !== chon.i && [...s].some((t) => tokCau.has(t) && !tokChon.has(t)))) return null;
+  if (chon.phu < 0.5) return null;
   if (diem.some((d, i) => i !== chon.i && d.phu >= chon.phu)) return null;
   return ungVien[chon.i];
 }

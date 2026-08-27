@@ -914,7 +914,9 @@ async function chayTraCuu(
       const ganDung = meta.ganDung === true || meta.daNoiRong === true;
       // Tên model trích CỤT nhưng CÂU GỐC đã nói rõ ("… 26803 đầu trong") →
       // chọn theo câu, khỏi bắt NV chọn lại điều họ vừa gõ (replay 27/08).
-      const theoCau = !ganDung && list.length > 1 && ctx.cau ? chonUngVienTheoCau(ctx.cau, list) : null;
+      // Áp cả đường nới (daNoiRong — "f30 full 26803 đầu trong" đi nới vì
+      // "đầu" không có trong tên) nhưng KHÔNG áp đường theo-mã (ganDung).
+      const theoCau = meta.ganDung !== true && list.length > 1 && ctx.cau ? chonUngVienTheoCau(ctx.cau, list) : null;
       if (list.length === 1 && !ganDung) {
         dong.daChot = { id: list[0].id, ten: list[0].ten, gia: list[0].gia };
       } else if (theoCau) {
