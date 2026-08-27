@@ -309,6 +309,12 @@ export async function generateWithOpenaiCompatTools(args: {
    * bật trong vòng lặp tool là chậm 10× và rò suy nghĩ).
    */
   suyNghi?: boolean;
+  /**
+   * ÉP gọi tool (tool_choice=required) — đo e2e 27/08: deepseek tắt reasoning
+   * hay trả text thay vì gọi phan_quyet ở lượt đầu → mất thêm một vòng nhắc
+   * (9s thay vì ~4s). Chỉ gửi cho OpenRouter, chỉ khi caller yêu cầu.
+   */
+  epTool?: boolean;
 }): Promise<AgentTurn> {
   const tokenParam = args.tokenParam ?? 'max_tokens';
   const toiDa = args.soLanThuLai ?? 3;
@@ -347,6 +353,7 @@ export async function generateWithOpenaiCompatTools(args: {
     ...(args.url.includes('openrouter') && laModelThinking(args.model)
       ? { reasoning: args.suyNghi === true ? { enabled: true, effort: 'low' } : { enabled: false } }
       : {}),
+    ...(args.epTool === true && args.url.includes('openrouter') && args.tools.length > 0 ? { tool_choice: 'required' } : {}),
   });
 
   let loiCuoi: unknown;

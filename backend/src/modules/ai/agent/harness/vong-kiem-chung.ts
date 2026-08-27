@@ -90,6 +90,9 @@ export async function chayVongKiemChung(vao: VaoVong): Promise<KetQuaVong> {
         system: vao.system, messages,
         tools: chiToolCuoi ? [vao.toolCuoi] : tools,
         maxTokens: vao.maxTokens ?? 1200, suyNghi: !chiToolCuoi && vao.suyNghi !== false,
+        // Lượt chỉ có tool cuối (ép chốt, hoặc tầng nhanh không tool kiểm
+        // chứng) → ép model phải gọi tool: khỏi mất vòng nhắc "bạn chưa chốt".
+        epTool: chiToolCuoi || vao.kiemChung.length === 0,
       }),
       new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`quá ${timeoutMs}ms`)), ms)),
     ]);

@@ -117,6 +117,8 @@ export type ToolAwareGenerate = (args: {
   maxTokens?: number;
   /** Bật suy nghĩ riêng (reasoning) — chỉ cho lượt bắt buộc trả tool có cấu trúc. */
   suyNghi?: boolean;
+  /** ÉP model phải gọi tool (tool_choice=required) — cho lượt chỉ có một tool chốt. */
+  epTool?: boolean;
 }) => Promise<AgentTurn>;
 
 /** Hàm chạy 1 tool thật. */

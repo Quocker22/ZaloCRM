@@ -68,6 +68,8 @@ describe('chayVongKiemChung', () => {
     const b = await chayVongKiemChung({ generate: treoRoiChot, system: 's', userMessage: 'u', kiemChung: [], toolCuoi: PHAN_QUYET, timeoutMs: 600 });
     expect(b.nguon).toBe('ep_chot');
     expect(treoRoiChot.mock.calls[1][0].suyNghi).toBe(false);
+    expect(treoRoiChot.mock.calls[1][0].epTool).toBe(true); // lượt ép chốt: bắt buộc gọi tool
+    expect(treoRoiChot.mock.calls[0][0].epTool).toBe(true); // không tool kiểm chứng → cũng ép
     // Ép cũng treo → khong_chot (ép có 8s riêng; ở test dùng mock trả text ngay để khỏi chờ).
     const treoCa = vi.fn()
       .mockImplementationOnce(() => new Promise<AgentTurn>(() => {}))
