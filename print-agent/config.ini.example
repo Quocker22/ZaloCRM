@@ -1,0 +1,28 @@
+; Mau config cho print-agent. Copy thanh config.ini roi dien gia tri that.
+; QUAN TRONG: config.ini chua token bi mat, KHONG commit vao git
+; (da co trong print-agent/.gitignore).
+
+[agent]
+; URL server ZaloCRM (co ca https:// hoac wss:// tuy backend cau hinh
+; socket.io — thuong dung https:// vi socket.io tu nang cap transport).
+server_url = https://crm.example.com
+
+; AGENT_TOKEN cap cho shop nay — lay tu quan tri ZaloCRM.
+token = DAN_TOKEN_THAT_VAO_DAY
+
+; ma to chuc (orgId) cua shop nay.
+org_id = DAN_ORG_ID_VAO_DAY
+
+; Ten may in y het nhu Windows hien thi trong "Devices and Printers"
+; (Control Panel), vi du: "HP LaserJet M1005" hoac "\\SERVER\HP-Shop1".
+printer_name = HP LaserJet M1005
+
+; Khay giay mac dinh neu job khong chi dinh. Dang 'tray-<n>'.
+; QUYET DINH khay: map sang SumatraPDF -print-settings bin=<n>.
+; VD: tray-2 -> bin=2. CAN VERIFY tren may Windows that xem so bin co
+; khop dung khay vat ly cua may in HP hay khong (xem muc "Verify tren
+; may that" trong README.md).
+tray = tray-1
+
+; Khoi giay mac dinh neu job khong chi dinh (A4, A5, ...).
+paper_size = A5
