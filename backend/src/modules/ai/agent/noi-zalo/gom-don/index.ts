@@ -452,13 +452,16 @@ export function dongNhacLaiDonVuaLen(
 ): Array<{ ten: string; sl: number }> | null {
   if (!donVuaLen.dong?.length || trich.khach || trich.khachMoi || trich.sua || trich.maDon) return null;
   if (!trich.dong?.length || (trich.boDong?.length ?? 0) > 0) return null;
-  if (trich.dong.some((d) => d.sl != null || d.gia != null || d.tang)) return null;
+  if (trich.dong.some((d) => d.gia != null || d.tang)) return null;
   const ra: Array<{ ten: string; sl: number }> = [];
   for (const d of trich.dong) {
     const tu = boDau(d.sp).split(/[^a-z0-9]+/).filter((t) => t.length >= 2);
     if (tu.length < 2) return null;
     const khop = donVuaLen.dong.find((x) => { const tenBd = boDau(x.ten); return tu.every((t) => tenBd.includes(t)); });
     if (!khop) return null;
+    // SL model trích phải trùng đơn, hoặc chính là con số trong TÊN hàng
+    // ("4 bóng lixin" → model hay trả sl=4) — SL khác thật sự là sửa đơn.
+    if (d.sl != null && d.sl !== khop.sl && !new RegExp(`(^|\\s)${d.sl}\\s?(b|bong|bóng)(\\s|$)`, 'iu').test(khop.ten)) return null;
     ra.push(khop);
   }
   return ra;

@@ -208,6 +208,11 @@ describe('replay 27/08 — 4 luật thêm sau khi chạy lại 8 kịch bản', 
     const don = { maDon: 'S99001', tenKhach: 'anh việt nguyễn xiển', dong: [{ ten: 'Led 4 bóng Lixin 220V trong nhà Trung tính 4000K', sl: 400 }] };
     expect(dongNhacLaiDonVuaLen({ lenDon: true, dong: [{ sp: '4 bóng lixin 220V trung tính' }] }, don)).toEqual(don.dong);
     expect(dongNhacLaiDonVuaLen({ lenDon: true, dong: [{ sp: '4 bóng lixin 220V trung tính', sl: 500 }] }, don)).toBeNull();
+    expect(dongNhacLaiDonVuaLen({ lenDon: true, dong: [{ sp: '4 bóng lixin 220V trung tính', sl: 4 }] }, don)).toEqual(don.dong); // "4" là số trong tên
+    const t: KetQuaTrich = { lenDon: true, dong: [{ sp: '4 bóng lixin 220V trung tính' }] };
+    tachSlDauTenSp(t); apSlTuongMinh('4 bóng lixin 220V trung tính', t);
+    expect(t.dong?.[0]).toMatchObject({ sp: '4 bóng lixin 220V trung tính' }); // không tách "4 bóng" thành SL
+    expect(t.dong?.[0].sl).toBeUndefined();
     expect(dongNhacLaiDonVuaLen({ lenDon: true, khach: 'anh tùng', dong: [{ sp: '4 bóng lixin' }] }, don)).toBeNull();
     expect(dongNhacLaiDonVuaLen({ lenDon: true, dong: [{ sp: '12v400w nb' }] }, don)).toBeNull();
     expect(dongNhacLaiDonVuaLen({ lenDon: true, dong: [{ sp: 'lixin' }] }, don)).toBeNull(); // 1 từ → quá mơ hồ

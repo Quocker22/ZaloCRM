@@ -391,7 +391,10 @@ const SL_TUONG_MINH = /(?:^|\s)(\d{1,7})\s?(b|bong|bóng|c|cai|cái|thanh|m|met|
 function laTokenSl(so: number, donVi: string, sau: string): boolean {
   if (!(so > 0)) return false;
   const dv = donVi.toLowerCase();
-  if ((dv === 'm' || dv === 'met' || dv === 'mét' || dv === 'b') && so < 10) return false;
+  // "4 bóng lixin", "2 bóng 2607", "3b 6214": catalog có họ hàng "Led N bóng"
+  // → số nhỏ + bóng/b là TÊN, không phải SL (replay 27/08 lượt "4 bóng lixin
+  // 220V trung tính" bị tách thành SL 4).
+  if ((dv === 'm' || dv === 'met' || dv === 'mét' || dv === 'b' || dv === 'bong' || dv === 'bóng') && so < 10) return false;
   if (/^\s*\d{3,}/.test(sau)) return false;
   return true;
 }
