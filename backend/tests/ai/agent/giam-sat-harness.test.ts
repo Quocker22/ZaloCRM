@@ -82,4 +82,18 @@ describe('giamSatTraLoi + harness', () => {
     expect(pq.ok).toBe(false);
     expect(pq.traLoiSua).toContain('Tấn Anh');
   });
+
+  it('e2e 27/08: model viết lại "in lại đơn QC Tấn Anh - Bình Định" (gộp tên, giấu nhầm) → thay bằng câu nói-thật NHẦM ĐƠN; model ok mà code tra ra chủ khác → cũng không tin', async () => {
+    const searchRead = vi.fn(async (model: string) => model === 'sale.order'
+      ? [{ id: 28192, name: 'S15274', partner_id: [3006, 'Tấn Anh - Bình Định'], state: 'sale', amount_total: 1433456 }] : []);
+    const g1 = vi.fn().mockResolvedValueOnce(turnTools([{ name: 'phan_quyet', input: { ok: false, loi: ['bia_so'], tra_loi_sua: 'Em đã xếp hàng in lại đơn QC Tấn Anh - Bình Định (0869130883) bản KHÔNG GIÁ ra máy in rồi ạ.' } }]));
+    const a = await giamSatTraLoi(g1, VAO, 5000, { odoo: { searchRead, execute: vi.fn() } as never });
+    expect(a.traLoiSua).toMatch(/NHẦM/);
+    expect(a.traLoiSua).toContain('Tấn Anh - Bình Định');
+    expect(a.traLoiSua).not.toMatch(/QC Tấn Anh/);
+    const g2 = vi.fn().mockResolvedValueOnce(turnTools([{ name: 'phan_quyet', input: { ok: true, loi: [] } }]));
+    const b = await giamSatTraLoi(g2, VAO, 5000, { odoo: { searchRead, execute: vi.fn() } as never });
+    expect(b.ok).toBe(false);
+    expect(b.traLoiSua).toMatch(/NHẦM/);
+  });
 });

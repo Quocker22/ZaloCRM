@@ -357,6 +357,21 @@ export function banSuaConHuaLeo(loi: MaLoi[], sua: string): boolean {
   return (loi.includes('hua_leo') || loi.includes('bia_so')) && DONG_TU_GHI.test(sua);
 }
 
+/**
+ * Câu nói-thật khi tool đã LÀM VIỆC CHO NGƯỜI KHÁC (ca 10:36 26/08): bản sửa
+ * của model e2e 27/08 vẫn viết "Em đã xếp hàng in lại đơn QC Tấn Anh - Bình
+ * Định…" — gộp hai tên thành một, giấu chuyện in nhầm. Dựng từ output tool.
+ */
+export function cauNhamNguoi(log: ToolCallLog[], tenTool: string[]): string {
+  const dongDau = log.map((l) => String(l.output ?? '').split('\n')[0].trim()).filter(Boolean).join('; ').slice(0, 220);
+  return `Dạ em vừa làm NHẦM đơn: hệ thống ghi nhận "${dongDau}" — là của khách "${tenTool.join('", "')}", không phải khách anh/chị nêu. Em CHƯA làm gì cho đúng khách đó; anh/chị cho em mã đơn hoặc tên đầy đủ để em làm lại ạ.`;
+}
+
+/** Bản sửa có thừa nhận việc nhầm/chưa làm không — thiếu là đang giấu. */
+export function banSuaThuaNhanNham(sua: string): boolean {
+  return /nhầm|không phải|chưa (in|làm|xử lý|sửa|lên|xuất|gửi)|sai (đơn|khách)/iu.test(sua);
+}
+
 export function cauNoiThatTatDinh(log: ToolCallLog[]): string {
   const that = log.filter((l) => !l.thanhCong);
   const lyDo = that.length > 0
@@ -432,6 +447,13 @@ export async function giamSatTraLoi(
     const sua = typeof raw.tra_loi_sua === 'string' ? raw.tra_loi_sua.trim() : '';
     // Model bảo ổn → gửi bản code đã lột (code có lột thì vẫn tính là "sửa").
     if (modelOk && lot.toanBoDocThoai) return failOpen('model bảo ok nhưng bản nháp toàn độc thoại');
+    if (modelOk && tenLech.length > 0 && bangChungMa.length > 0) {
+      // Code đã tra ra chủ đơn khác tên NV nêu mà model vẫn ok → không tin.
+      return {
+        ok: false, loi: ['bia_so'], traLoiSua: cauNhamNguoi(vao.log, tenLech),
+        lyDo: `model ok nhưng tool làm cho "${tenLech.join(', ')}" (code tra: ${bangChungMa[0]})`, nguon: 'llm', ms: Date.now() - t0, ...doDac,
+      };
+    }
     if (modelOk) {
       return {
         ok: !codeDaSua, loi: codeDaSua ? ['lo_noi_bo'] : [], ...(codeDaSua ? { traLoiSua: goc } : {}),
@@ -452,6 +474,9 @@ export async function giamSatTraLoi(
     // "đã thêm phí 70k, tổng 1.320.000đ" trong khi sua_don chỉ sửa số lượng.
     const khongLamDuocGi = vao.log.length === 0 || vao.log.some((l) => !l.thanhCong) || soLa.length > 0;
     let suaSach = banSuaConHuaLeo(loi, sua) && khongLamDuocGi ? noiThat : botDongBiChep(sua, dongDanModelBiChep(sua, vao.log));
+    // TOOL LÀM CHO NGƯỜI KHÁC (tên khách lệch) mà bản sửa không thừa nhận nhầm
+    // → câu nói-thật tất định, không tin lời viết lại "cho đẹp".
+    if (tenLech.length > 0 && !banSuaThuaNhanNham(suaSach)) suaSach = cauNhamNguoi(vao.log, tenLech);
     // Bản sửa làm MẤT mã/tiền đúng (có trong tool) → bản gốc đã lột tốt hơn.
     let banSuaMatSo = false;
     if (suaSach !== noiThat && !giuSoMaDung(goc, suaSach, vao.log)) {
