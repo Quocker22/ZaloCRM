@@ -137,7 +137,7 @@ const ketLuanSoDefinition: ToolDefinition = {
       ok: { type: 'boolean', description: 'true = mọi dòng đúng số NV nói' },
       dong: {
         type: 'array', description: 'CHỈ khi ok=false: danh sách dòng ĐÃ SỬA (giữ nguyên ten).',
-        items: { type: 'object', properties: { ten: { type: 'string' }, soLuong: { type: 'number' }, donGia: { type: 'number' }, tang: { type: 'boolean' } }, required: ['ten', 'soLuong'] },
+        items: { type: 'object', properties: { stt: { type: 'integer', description: 'số thứ tự dòng (1-based) như danh sách máy đưa' }, ten: { type: 'string' }, soLuong: { type: 'number' }, donGia: { type: 'number', description: 'đơn giá ĐỒNG: 150K = 150000, 5.2k = 5200' }, tang: { type: 'boolean' } }, required: ['stt', 'soLuong'] },
       },
       ly_do: { type: 'string' },
     },
@@ -149,11 +149,12 @@ const SYSTEM_SOAT_SO = [
   'số lượng và đơn giá có đúng CON SỐ nhân viên nói không. Chỉ soát số, không soát tên hàng.',
   'Cách NV viết: "400b" = 400 bóng; "10c" = 10 cái; "30b f30 … x 5200" = 30 bóng, giá 5200; "x 140k" = giá 140000;',
   '"1tr2" = 1200000; "Giá 0 đồng"/"tặng" = tặng. "4 bóng lixin"/"2 bóng 2607"/"3b 6214" là tên họ hàng, KHÔNG phải SL.',
-  'Không có giá trong tin → giữ giá máy đã điền (có thể là giá hệ thống). Mọi dòng đúng → ok=true. Sai → ok=false + dong đã sửa.',
+  'Giá ghi bằng ĐỒNG (150K → 150000). Tin có giá mà dòng máy để donGia=null → SAI, phải điền. Không có giá trong tin → giữ',
+  'giá máy đã điền. Mọi dòng đúng → ok=true. Sai → ok=false + dong đã sửa (đủ stt).',
 ].join('\n');
 
 export async function soatSoTruocKhiGhi(deps: Pick<DepsLai, 'generate' | 'ghiLog'>, vao: VaoLai, p: PhienDon): Promise<void> {
-  const dong = p.dong.map((d) => ({ ten: d.ten, soLuong: d.soLuong.giaTri ?? null, donGia: d.donGia.trangThai === 'da_co' ? d.donGia.giaTri ?? null : null, tang: d.tang === true }));
+  const dong = p.dong.map((d, i) => ({ stt: i + 1, ten: d.ten, soLuong: d.soLuong.giaTri ?? null, donGia: d.donGia.trangThai === 'da_co' ? d.donGia.giaTri ?? null : null, tang: d.tang === true }));
   const lichSu = vao.lichSu.slice(-6).map((m) => `[${m.vai === 'bot' ? 'BOT' : 'NV'}] ${m.noiDung.slice(0, 300)}`).join('\n');
   const t0 = Date.now();
   try {
@@ -166,7 +167,8 @@ export async function soatSoTruocKhiGhi(deps: Pick<DepsLai, 'generate' | 'ghiLog
     deps.ghiLog({ toolName: 'soat_so', input: { dong }, output: JSON.stringify(kl ?? { lyDo: vong.lyDo }).slice(0, 600), thanhCong: kl != null, durationMs: Date.now() - t0, iteration: 0 });
     if (!kl || kl.ok === true || !Array.isArray(kl.dong)) return;
     for (const raw of kl.dong as Array<Record<string, unknown>>) {
-      const d = p.dong.find((x) => x.ten.trim().toLowerCase() === String(raw.ten ?? '').trim().toLowerCase());
+      const stt = Number(raw.stt);
+      const d = (Number.isInteger(stt) && p.dong[stt - 1]) || p.dong.find((x) => x.ten.trim().toLowerCase() === String(raw.ten ?? '').trim().toLowerCase());
       if (!d) continue;
       if (typeof raw.soLuong === 'number' && raw.soLuong > 0 && raw.soLuong !== d.soLuong.giaTri) { d.soLuong = { trangThai: 'da_co', giaTri: raw.soLuong }; }
       if (typeof raw.donGia === 'number' && raw.donGia >= 0 && raw.donGia !== d.donGia.giaTri) { d.donGia = { trangThai: 'da_co', giaTri: raw.donGia }; }
@@ -442,6 +444,11 @@ export async function laiLuotNhanVien(deps: DepsLai, vao: VaoLai): Promise<KetQu
 
   const p = kq.phien;
   p.bangChung = bc;
+  // Ý định là việc đơn thì chế độ phiên phải khớp (replay S1: model trả
+  // y_dinh=dat_hang nhưng che=khong → máy tưởng không phải việc đơn).
+  if (kq.yDinh === 'dat_hang' && p.che !== 'sua_don') p.che = 'dat_hang';
+  if (kq.yDinh === 'sua_don') p.che = 'sua_don';
+  if (kq.yDinh === 'nhap_hang') p.che = 'nhap_hang';
   if (phienCu.donVuaLen && !p.donVuaLen) p.donVuaLen = phienCu.donVuaLen;
 
   if (kq.yDinh === 'huy') {

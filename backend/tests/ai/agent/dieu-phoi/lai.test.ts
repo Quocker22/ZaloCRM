@@ -240,7 +240,7 @@ describe('cầm lái — hàng rào DỮ LIỆU (không đọc chữ)', () => {
         khach: { trangThai: 'da_co', giaTri: { ten: 'anh việt nguyễn xiển', id: 2532 } },
         dong: [{ ten: '4 bóng lixin 220v 4000K', spId: 1921, soLuong: { trangThai: 'da_co', giaTri: 4 }, donGia: { trangThai: 'da_co', giaTri: 3200 } }],
       }),
-      goiTool('ket_luan_so', { ok: false, dong: [{ ten: '4 bóng lixin 220v 4000K', soLuong: 400, donGia: 3200 }], ly_do: '"400b" là 400 bóng' }),
+      goiTool('ket_luan_so', { ok: false, dong: [{ stt: 1, ten: '4 bóng lixin 220v 4000K', soLuong: 400, donGia: 3200 }], ly_do: '"400b" là 400 bóng' }),
     ]);
     const a = dungDeps(generate, timGia([{ id: 2532, ten: 'anh việt nguyễn xiển - 0911833666', ma: 'KH001033', sdt: null }], {}));
     a.deps.kiemSo = true;
