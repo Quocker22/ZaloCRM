@@ -156,8 +156,12 @@ export async function taoKhachHang(
     const ganGiong = await deps.odoo.searchRead<{ id: number; name: string; ref: string | null }>(
       'res.partner', [['name', 'ilike', ten], ['customer_rank', '>', 0]], FIELDS, { limit: 5 },
     );
-    if (ganGiong.length > 0) {
-      const ds = ganGiong.map((k) => `${k.name}${k.ref ? ` [${k.ref}]` : ''}`).join('; ');
+    // "Chị Lan" vs "Chị Lan (cũ)" là HAI người (đo 02/08) — bỏ ngoặc mà trùng
+    // hệt tên mới thì không tính là gần giống.
+    const chuan = (x: string): string => x.replace(/\(.*?\)/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+    const khac = ganGiong.filter((k) => chuan(k.name) !== chuan(ten));
+    if (khac.length > 0) {
+      const ds = khac.map((k) => `${k.name}${k.ref ? ` [${k.ref}]` : ''}`).join('; ');
       return {
         trangThai: 'loi',
         lyDo: `Đã có khách tên gần giống "${ten}": ${ds}. Dùng tra_khach_hang chọn đúng người; chỉ khi nhân viên nói rõ "khách mới" mới tạo thêm.`,

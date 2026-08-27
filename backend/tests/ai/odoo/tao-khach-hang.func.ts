@@ -81,13 +81,13 @@ describe('Chống trùng — LỚP 3: tên chính xác', () => {
     if (kq.trangThai === 'ok') expect(kq.khach.daCo).toBe(true);
   });
 
-  it('dùng "=" chứ KHÔNG "ilike" — "Chị Lan" không được khớp "Chị Lan (cũ)"', async () => {
-    // Đo thật 2026-08-02 khi thử gộp khách trùng: so khớp "chứa" bắt nhầm hai
-    // người khác nhau. Đó là lý do phải khớp chính xác.
-    const odoo = odooGia([[], [], []]);
-    await taoKhachHang({ odoo, zaloUid: 'moi' }, { ten: 'Chị Lan' });
-
-    expect(JSON.stringify(odoo.searchRead.mock.calls.at(-1)![1])).toContain('"="');
+  it('"Chị Lan" khi đã có "Chị Lan (cũ)" → vẫn TẠO (hai người khác nhau, đo 02/08); lớp 3b chỉ chặn tên nằm trọn trong tên khác ("red sun" ⊂ "Anh Thuận - Red Sun")', async () => {
+    // Thứ tự tra: ref → tên "=" → tên "ilike" (gần giống, 27/08).
+    const odoo = odooGia([[], [], [{ id: 9, name: 'Chị Lan (cũ)', ref: null }]]);
+    const kq = await taoKhachHang({ odoo, zaloUid: 'moi' }, { ten: 'Chị Lan' });
+    expect(kq.trangThai).toBe('ok');
+    if (kq.trangThai === 'ok') expect(kq.khach.daCo).toBe(false);
+    expect(odoo.execute).toHaveBeenCalled();
   });
 
   it('NHIỀU người cùng tên → BÁO LỖI, để nhân viên chọn (đừng tạo thêm)', async () => {
