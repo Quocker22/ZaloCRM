@@ -23,7 +23,8 @@
 //   chứng, KHÔNG thêm luật code.
 import { logger } from '../../../../shared/utils/logger.js';
 import type { OdooClient } from '../../odoo/client.js';
-import type { ToolAwareGenerate } from '../types.js';
+import type { ToolAwareGenerate, ToolDefinition } from '../types.js';
+import { chayVongKiemChung } from '../harness/vong-kiem-chung.js';
 import type { ToolCallLog } from '../staff-agent.js';
 import { taoDonNhap, dinhDangTaoDon, type DongDon, type VaoTaoDon, type KetQuaTaoDon, type TaoDonDeps } from '../../odoo/tools/tao-don-nhap.js';
 import { suaDon, dinhDangSuaDon, type DongSua, type KetQuaSuaDon } from '../../odoo/tools/sua-don.js';
@@ -51,6 +52,8 @@ export interface DepsLai {
   luuPhien: (conversationId: string, p: PhienDon) => Promise<void>;
   xoaPhien: (conversationId: string) => Promise<void>;
   timeoutMs?: number;
+  /** Soát số (SL/giá) bằng một lượt model riêng trước khi ghi Odoo — mặc định bật. */
+  kiemSo?: boolean;
   /** Tiêm hàm tra/ghi (test thay bằng giả) — mặc định đi Odoo thật qua `odoo`. */
   tim?: HamTim;
   ghi?: {
@@ -116,7 +119,62 @@ const DAN_LAI = [
   '  Màu Trắng") → chọn ĐÚNG ứng viên đó, không tra lại, không hỏi lại.',
   '- Lệnh xuất/in hoá đơn, huỷ đơn theo mã, hỏi tồn, báo cáo, tán gẫu → y_dinh tương ứng (hoi_khac/hoi_ton/tan_gau),',
   '  không đổi ô; máy sẽ chuyển cho agent khác.',
+  '- Cách NV viết số: "400b" = 400 bóng, "10c" = 10 cái, "30b … x 5200" = 30 bóng giá 5200, "x 140k" = giá 140.000.',
+  '  "4 bóng lixin", "2 bóng 2607", "3b 6214" là TÊN HỌ HÀNG (Led 2/3/4 bóng), không phải số lượng.',
+  '- Hai ứng viên cùng khớp tên NV gõ, chỉ khác ở chi tiết NV KHÔNG nhắc (SMD/COB, 12V/24V…) → để spId trống để hỏi.',
 ].join('\n');
+
+/* ───────────────────────── soát số trước khi ghi (model, không regex) ───────────────────────── */
+
+const ketLuanSoDefinition: ToolDefinition = {
+  name: 'ket_luan_so',
+  description: 'Kết luận số lượng / đơn giá / tặng của từng dòng có đúng con số NV nói không. LUÔN gọi tool này.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      ok: { type: 'boolean', description: 'true = mọi dòng đúng số NV nói' },
+      dong: {
+        type: 'array', description: 'CHỈ khi ok=false: danh sách dòng ĐÃ SỬA (giữ nguyên ten).',
+        items: { type: 'object', properties: { ten: { type: 'string' }, soLuong: { type: 'number' }, donGia: { type: 'number' }, tang: { type: 'boolean' } }, required: ['ten', 'soLuong'] },
+      },
+      ly_do: { type: 'string' },
+    },
+    required: ['ok'],
+  },
+};
+const SYSTEM_SOAT_SO = [
+  'Bạn là người SOÁT SỐ cho bot lên đơn LED. Đọc TIN NHÂN VIÊN (và lịch sử) rồi kiểm từng dòng máy sắp ghi:',
+  'số lượng và đơn giá có đúng CON SỐ nhân viên nói không. Chỉ soát số, không soát tên hàng.',
+  'Cách NV viết: "400b" = 400 bóng; "10c" = 10 cái; "30b f30 … x 5200" = 30 bóng, giá 5200; "x 140k" = giá 140000;',
+  '"1tr2" = 1200000; "Giá 0 đồng"/"tặng" = tặng. "4 bóng lixin"/"2 bóng 2607"/"3b 6214" là tên họ hàng, KHÔNG phải SL.',
+  'Không có giá trong tin → giữ giá máy đã điền (có thể là giá hệ thống). Mọi dòng đúng → ok=true. Sai → ok=false + dong đã sửa.',
+].join('\n');
+
+export async function soatSoTruocKhiGhi(deps: Pick<DepsLai, 'generate' | 'ghiLog'>, vao: VaoLai, p: PhienDon): Promise<void> {
+  const dong = p.dong.map((d) => ({ ten: d.ten, soLuong: d.soLuong.giaTri ?? null, donGia: d.donGia.trangThai === 'da_co' ? d.donGia.giaTri ?? null : null, tang: d.tang === true }));
+  const lichSu = vao.lichSu.slice(-6).map((m) => `[${m.vai === 'bot' ? 'BOT' : 'NV'}] ${m.noiDung.slice(0, 300)}`).join('\n');
+  const t0 = Date.now();
+  try {
+    const vong = await chayVongKiemChung({
+      generate: deps.generate, system: SYSTEM_SOAT_SO,
+      userMessage: `LỊCH SỬ:\n${lichSu || '(không)'}\n\nTIN NHÂN VIÊN: "${vao.cau.slice(0, 600)}"\n\nDÒNG MÁY SẮP GHI:\n${JSON.stringify(dong)}`,
+      kiemChung: [], toolCuoi: ketLuanSoDefinition, toiDaVong: 1, timeoutMs: 15_000, maxTokens: 700,
+    });
+    const kl = vong.chot;
+    deps.ghiLog({ toolName: 'soat_so', input: { dong }, output: JSON.stringify(kl ?? { lyDo: vong.lyDo }).slice(0, 600), thanhCong: kl != null, durationMs: Date.now() - t0, iteration: 0 });
+    if (!kl || kl.ok === true || !Array.isArray(kl.dong)) return;
+    for (const raw of kl.dong as Array<Record<string, unknown>>) {
+      const d = p.dong.find((x) => x.ten.trim().toLowerCase() === String(raw.ten ?? '').trim().toLowerCase());
+      if (!d) continue;
+      if (typeof raw.soLuong === 'number' && raw.soLuong > 0 && raw.soLuong !== d.soLuong.giaTri) { d.soLuong = { trangThai: 'da_co', giaTri: raw.soLuong }; }
+      if (typeof raw.donGia === 'number' && raw.donGia >= 0 && raw.donGia !== d.donGia.giaTri) { d.donGia = { trangThai: 'da_co', giaTri: raw.donGia }; }
+      if (raw.tang === true) d.tang = true;
+    }
+    logger.warn({ lyDo: kl.ly_do, dong: p.dong.map((d) => `${d.ten}: ${d.soLuong.giaTri} × ${d.donGia.giaTri ?? 'ht'}`), conversationId: vao.conversationId }, '[lai] soát số đã sửa dòng trước khi ghi');
+  } catch (err) {
+    logger.warn({ err }, '[lai] soát số lỗi — ghi theo object đang có');
+  }
+}
 
 /* ───────────────────────── kiểm dữ liệu (không đọc chữ) ───────────────────────── */
 
@@ -410,6 +468,7 @@ export async function laiLuotNhanVien(deps: DepsLai, vao: VaoLai): Promise<KetQu
   if (kq.yDinh === 'xac_nhan' && p.donVuaLen && p.che !== 'sua_don') {
     daGui.push(`Đơn ${p.donVuaLen.maDon} của ${p.donVuaLen.tenKhach} đã lên rồi ạ. Cần sửa gì anh/chị nhắn "sửa đơn ..." nhé.`);
   } else if (duDeGhi(p, treo)) {
+    if (deps.kiemSo !== false) await soatSoTruocKhiGhi(deps, vao, p);
     daGui.push(...await ghiOdoo(deps, vao, p));
   } else {
     const canHoi = oConThieu(p);

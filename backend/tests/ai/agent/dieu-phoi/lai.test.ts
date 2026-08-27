@@ -39,7 +39,7 @@ function dungDeps(generate: ToolAwareGenerate, tim: DepsLai['tim']) {
     guiTin: async (t) => { tin.push(t); }, guiAnhHoaDon: async () => {}, ghiLog: () => {},
     docPhien: async (id) => kho.get(id) ?? phienTrong('nhanvien'),
     luuPhien: async (id, p) => { kho.set(id, p); }, xoaPhien: async (id) => { kho.delete(id); },
-    tim, ghi: { taoDon, suaDon, taoKhach, dongDon: async () => [702] },
+    tim, ghi: { taoDon, suaDon, taoKhach, dongDon: async () => [702] }, kiemSo: false,
   };
   return { deps, kho, tin, taoDon, suaDon, taoKhach };
 }
@@ -231,5 +231,25 @@ describe('cầm lái — hàng rào DỮ LIỆU (không đọc chữ)', () => {
     await laiLuotNhanVien(b.deps, { orgId: 'o', conversationId: 'c9', seq: 1, cau: 'a long led, cáp 16 sợi 7k lên đơn', lichSu: [] });
     expect(b.taoDon).toHaveBeenCalledTimes(1);
     expect((b.taoDon.mock.calls[0][1] as { khach_hang_id: number }).khach_hang_id).toBe(1);
+  });
+
+  it('soát số trước khi ghi: model chính lấy "4 bóng" làm SL 4, lượt soát sửa thành 400 → Odoo nhận 400', async () => {
+    const generate = modelGia([
+      goiTool('cap_nhat_phien', {
+        y_dinh: 'dat_hang', che: 'dat_hang',
+        khach: { trangThai: 'da_co', giaTri: { ten: 'anh việt nguyễn xiển', id: 2532 } },
+        dong: [{ ten: '4 bóng lixin 220v 4000K', spId: 1921, soLuong: { trangThai: 'da_co', giaTri: 4 }, donGia: { trangThai: 'da_co', giaTri: 3200 } }],
+      }),
+      goiTool('ket_luan_so', { ok: false, dong: [{ ten: '4 bóng lixin 220v 4000K', soLuong: 400, donGia: 3200 }], ly_do: '"400b" là 400 bóng' }),
+    ]);
+    const a = dungDeps(generate, timGia([{ id: 2532, ten: 'anh việt nguyễn xiển - 0911833666', ma: 'KH001033', sdt: null }], {}));
+    a.deps.kiemSo = true;
+    const p0 = phienTrong('nhanvien');
+    p0.bangChung = { khach: [{ id: 2532, ten: 'anh việt nguyễn xiển - 0911833666', ma: 'KH001033', sdt: null }], sp: [{ id: 1921, ten: 'Led 4 bóng Lixin 220V trong nhà Trung tính 4000K', gia: 1, donVi: 'bóng' }] };
+    a.kho.set('c10', p0);
+    await laiLuotNhanVien(a.deps, { orgId: 'o', conversationId: 'c10', seq: 1, cau: 'anh việt nguyễn xiển 400b 4 bóng lixin 220v 4000K giá 3200', lichSu: [] });
+    expect(a.taoDon).toHaveBeenCalledTimes(1);
+    expect((a.taoDon.mock.calls[0][1] as { dong: unknown[] }).dong).toEqual([{ san_pham_id: 1921, so_luong: 400, don_gia: 3200 }]);
+    expect(generate.goi[1].tools.map((t) => t.name)).toEqual(['ket_luan_so']);
   });
 });
