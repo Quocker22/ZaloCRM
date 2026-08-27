@@ -9,8 +9,30 @@
 // VÌ SAO reject khi agent huỷ đăng ký giữa lúc đang chờ (thay vì treo mãi):
 // giống luật A3 ở ipp-client — mất kết nối giữa chừng thì KHÔNG BIẾT máy in
 // đã nhận job chưa, hàng đợi phải biết để chuyển khong_ro chứ không được coi
-// là "chưa gửi" (đó là lý do message chứa "agent rớt" chứ không phải "không
-// có agent" — AgentClient ở Task 2 phân loại 2 câu này khác nhau).
+// là "chưa gửi".
+//
+// VÌ SAO 2 class lỗi riêng thay vì phân biệt bằng message string: fix round 1
+// (review) — AgentClient trước đây regex-match substring của Error.message để
+// phân loại. Message đổi chữ (refactor, dịch lại câu) sẽ âm thầm rơi vào
+// catch-all LoiIpp(guiDuoc=true) — SAI HƯỚNG AN TOÀN, biến lỗi "không biết gì"
+// thành "retry được". Dùng `instanceof` để trình biên dịch + runtime đều ép
+// đúng, không phụ thuộc câu chữ.
+
+/** Chưa có agent online cho org — CHẮC CHẮN chưa gửi được gì, retry an toàn. */
+export class AgentKhongOnline extends Error {
+  constructor(orgId: string) {
+    super(`không có agent online cho org ${orgId}`);
+    this.name = 'AgentKhongOnline';
+  }
+}
+
+/** Agent ngắt kết nối GIỮA LÚC đang chờ trả lời — không biết job đã tới máy in chưa. */
+export class AgentRotGiuaChung extends Error {
+  constructor(orgId: string) {
+    super(`agent rớt giữa chừng khi đang chờ kết quả (org ${orgId})`);
+    this.name = 'AgentRotGiuaChung';
+  }
+}
 
 export interface JobIn {
   id: string;
@@ -51,7 +73,7 @@ export class AgentRegistry {
       // Mọi job đang chờ agent này trả lời giờ KHÔNG THỂ biết máy in đã nhận
       // chưa → reject rõ ràng, không được để Promise treo mãi.
       for (const { reject } of agent.cho.values()) {
-        reject(new Error(`agent rớt giữa chừng khi đang chờ kết quả (org ${orgId})`));
+        reject(new AgentRotGiuaChung(orgId));
       }
       agent.cho.clear();
     };
@@ -66,7 +88,7 @@ export class AgentRegistry {
     const agent = this.agents.get(orgId);
     if (!agent) {
       // Chưa gửi được gì — an toàn để hàng đợi retry (giống LoiIpp guiDuoc=false).
-      return Promise.reject(new Error(`không có agent online cho org ${orgId}`));
+      return Promise.reject(new AgentKhongOnline(orgId));
     }
     return new Promise<KetQuaAgent>((resolve, reject) => {
       agent.cho.set(job.id, { resolve, reject });
@@ -74,15 +96,20 @@ export class AgentRegistry {
     });
   }
 
-  /** Agent gọi lại (qua WS message) khi in xong hoặc lỗi. */
-  nhanKetQua(jobId: string, kq: KetQuaAgent): void {
-    for (const agent of this.agents.values()) {
-      const cho = agent.cho.get(jobId);
-      if (cho) {
-        agent.cho.delete(jobId);
-        cho.resolve(kq);
-        return;
-      }
+  /**
+   * Agent gọi lại (qua WS message) khi in xong hoặc lỗi. Nhận orgId thay vì
+   * quét mọi agent: fix round 1 (review) — job.id chỉ unique THEO QUY ƯỚC
+   * (prefix orgId ở AgentClient), không phải bất biến của registry. Quét
+   * `agents.values()` tìm jobId trùng có thể resolve NHẦM job của org khác
+   * nếu 2 org tình cờ sinh cùng id. WS layer (Task 3) luôn biết orgId của
+   * socket đang gửi kết quả nên truyền được, không mất khả năng gì.
+   */
+  nhanKetQua(orgId: string, jobId: string, kq: KetQuaAgent): void {
+    const agent = this.agents.get(orgId);
+    const cho = agent?.cho.get(jobId);
+    if (cho) {
+      agent!.cho.delete(jobId);
+      cho.resolve(kq);
     }
   }
 }

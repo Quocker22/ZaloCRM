@@ -3,7 +3,7 @@
 // job in và chờ kết quả theo id. Test KHÔNG dựng WS thật (đó là việc của
 // agent-ws.ts ở Task 3) — chỉ kiểm hành vi đăng ký/gửi/nhận của registry.
 import { describe, it, expect } from 'vitest';
-import { AgentRegistry } from '../../../src/modules/ai/may-in/agent-registry.js';
+import { AgentRegistry, AgentKhongOnline, AgentRotGiuaChung } from '../../../src/modules/ai/may-in/agent-registry.js';
 
 describe('AgentRegistry', () => {
   it('đăng ký agent rồi thấy online, huỷ thì offline', () => {
@@ -20,20 +20,34 @@ describe('AgentRegistry', () => {
     r.dangKy('org1', (msg) => { daGui = msg; });
     const p = r.guiJob('org1', { id: 'j1', pdfBase64: 'AAAA', paperSize: 'A5', tray: 'tray-2', copies: 1 });
     expect(daGui).toMatchObject({ loai: 'in', job: { id: 'j1', paperSize: 'A5' } });
-    r.nhanKetQua('j1', { trangThai: 'da_in' });
+    r.nhanKetQua('org1', 'j1', { trangThai: 'da_in' });
     await expect(p).resolves.toEqual({ trangThai: 'da_in' });
   });
 
-  it('agent rớt khi đang chờ kết quả → reject để hàng đợi vào khong_ro', async () => {
+  it('agent rớt khi đang chờ kết quả → reject AgentRotGiuaChung để hàng đợi vào khong_ro', async () => {
     const r = new AgentRegistry();
     const huy = r.dangKy('org1', () => {});
     const p = r.guiJob('org1', { id: 'j2', pdfBase64: 'A', paperSize: 'A5', tray: 'tray-2', copies: 1 });
     huy();
+    await expect(p).rejects.toBeInstanceOf(AgentRotGiuaChung);
     await expect(p).rejects.toThrow(/agent/i);
   });
 
-  it('không agent → reject "chưa gửi được"', async () => {
+  it('không agent → reject AgentKhongOnline', async () => {
     const r = new AgentRegistry();
-    await expect(r.guiJob('org1', { id: 'j3', pdfBase64: 'A', paperSize: 'A5', tray: 'tray-2', copies: 1 })).rejects.toThrow();
+    await expect(r.guiJob('org1', { id: 'j3', pdfBase64: 'A', paperSize: 'A5', tray: 'tray-2', copies: 1 })).rejects.toBeInstanceOf(AgentKhongOnline);
+  });
+
+  it('nhanKetQua tra đúng org — không resolve nhầm job trùng id ở org khác', async () => {
+    const r = new AgentRegistry();
+    r.dangKy('org1', () => {});
+    r.dangKy('org2', () => {});
+    const p1 = r.guiJob('org1', { id: 'jX', pdfBase64: 'A', paperSize: 'A5', tray: 'tray-2', copies: 1 });
+    const p2 = r.guiJob('org2', { id: 'jX', pdfBase64: 'A', paperSize: 'A5', tray: 'tray-2', copies: 1 });
+    r.nhanKetQua('org2', 'jX', { trangThai: 'da_in' });
+    await expect(p2).resolves.toEqual({ trangThai: 'da_in' });
+    // org1 vẫn đang treo, chưa được resolve nhầm bởi kết quả của org2.
+    r.nhanKetQua('org1', 'jX', { trangThai: 'loi', loiCuoi: 'hết giấy' });
+    await expect(p1).resolves.toEqual({ trangThai: 'loi', loiCuoi: 'hết giấy' });
   });
 });

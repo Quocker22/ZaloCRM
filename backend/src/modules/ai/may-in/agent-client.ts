@@ -2,16 +2,20 @@
 // AgentClient — bọc AgentRegistry (Task 1) thành ClientMayIn (hang-doi-in.ts)
 // để chayMotLuotIn dùng được thay IppClient, KHÔNG đổi gì ở hàng đợi.
 //
-// PHÂN LOẠI LỖI khớp đúng luật A3 (xem ipp-client.ts) — nhưng nguồn phân
-// loại ở đây là MESSAGE mà AgentRegistry.guiJob ném ra (không có kênh nào
-// khác để biết, vì agent chạy trên PC khác, chỉ nói qua JSON WS):
-//   "không có agent"  → agent PC chưa kết nối, CHẮC CHẮN chưa gửi gì
+// PHÂN LOẠI LỖI khớp đúng luật A3 (xem ipp-client.ts) — nguồn phân loại ở
+// đây là LOẠI LỖI mà AgentRegistry.guiJob ném ra:
+//   AgentKhongOnline  → agent PC chưa kết nối, CHẮC CHẮN chưa gửi gì
 //                        → LoiIpp guiDuoc=false (hàng đợi retry thoải mái).
-//   "agent rớt"       → agent ngắt kết nối GIỮA LÚC đang chờ trả lời, có thể
+//   AgentRotGiuaChung → agent ngắt kết nối GIỮA LÚC đang chờ trả lời, có thể
 //                        job đã tới PC/máy in → LoiKhongRo (cấm gửi lại mù).
 //   còn lại (agent trả trangThai:'loi', VD máy in hết giấy) → agent ĐÃ nhận
 //                        và đã trả lời rõ ràng là lỗi → LoiIpp guiDuoc=true.
-import type { AgentRegistry, JobIn } from './agent-registry.js';
+//
+// VÌ SAO instanceof thay vì regex message (fix round 1 — review): match
+// substring của Error.message giòn — đổi câu chữ (dịch lại, refactor) là lỗi
+// rơi vào catch-all LoiIpp(guiDuoc=true), tức coi lỗi mơ hồ là "retry được".
+// Đó là hướng SAI AN TOÀN cho luật A3. `instanceof` không phụ thuộc câu chữ.
+import { AgentRegistry, AgentKhongOnline, AgentRotGiuaChung, type JobIn } from './agent-registry.js';
 import { LoiIpp, LoiKhongRo } from './ipp-client.js';
 import type { ClientMayIn } from './hang-doi-in.js';
 import type { PhanHoiIpp } from './giao-thuc-ipp.js';
@@ -57,7 +61,11 @@ export class AgentClient implements ClientMayIn {
       // Agent đã nhận job và máy in ĐÃ trả lời từ chối — rõ ràng, retry an toàn.
       throw new LoiIpp(kq.loiCuoi ?? 'Agent báo lỗi in', true);
     }
-    return { jobId: 1, phanHoi: phanHoiRong() };
+    // jobId luôn null: agent không nói giao thức IPP nên không có job-id máy
+    // in thật nào để trả. Fix round 1 (review) — trước đây cứng =1, ghi vào
+    // cột ippJobId của DB thành giá trị vô nghĩa; hang-doi-in.ts.xacMinh() đã
+    // tự return sớm khi ippJobId==null nên không poll vô ích mỗi cron.
+    return { jobId: null, phanHoi: phanHoiRong() };
   }
 
   async traTrangThaiJob(_jobId: number): Promise<{ jobState: number | null; phanHoi: PhanHoiIpp }> {
@@ -73,13 +81,15 @@ export class AgentClient implements ClientMayIn {
   }
 
   private phanLoaiLoi(err: unknown): Error {
+    if (err instanceof AgentKhongOnline) {
+      return new LoiIpp(err.message, false);
+    }
+    if (err instanceof AgentRotGiuaChung) {
+      return new LoiKhongRo(err.message);
+    }
+    // Lỗi khác không rõ nguồn gốc (không phải 2 lỗi có chủ ý của registry) —
+    // coi như agent đã trả lời rõ ràng là lỗi, retry an toàn.
     const msg = err instanceof Error ? err.message : String(err);
-    if (/không có agent/i.test(msg)) {
-      return new LoiIpp(msg, false);
-    }
-    if (/agent rớt/i.test(msg)) {
-      return new LoiKhongRo(msg);
-    }
     return new LoiIpp(msg, true);
   }
 }
