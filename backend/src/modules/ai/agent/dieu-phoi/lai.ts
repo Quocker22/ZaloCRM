@@ -98,6 +98,8 @@ export interface KetQuaLai {
 const DAN_LAI = [
   'BẠN ĐANG CẦM LÁI luồng nhân viên: object bạn ghi sẽ được máy dùng để TRA và GHI Odoo thật, nên:',
   '- Có tool tim_khach / tim_sp: PHẢI tra khách (tên/SĐT/mã) và TỪNG mặt hàng chưa có spId, ngay trong lượt này.',
+  '  Tra khách bằng NGUYÊN CỤM NV gõ ("anh việt nguyễn xiển", "a long led") — tên Odoo hay kèm địa chỉ/biệt danh;',
+  '  chỉ rút gọn ("việt") khi cụm đầy đủ không ra ai.',
   '  Gọi nhiều tool cùng lúc được. Kết quả đúng MỘT (không gần đúng) → điền id. Nhiều ứng viên → để id trống,',
   '  máy sẽ hỏi NV chọn; TRỪ khi chính tin NV đã nói rõ loại nào ("đầu trong", "24V", "Nelia") thì chọn đúng cái đó.',
   '- NV trả lời câu chọn của bot ("3", "a", "2, a", "cái thứ 2", "loại trong", "Nelia") → đối chiếu với danh sách bot',
@@ -422,7 +424,10 @@ export async function laiLuotNhanVien(deps: DepsLai, vao: VaoLai): Promise<KetQu
     { phien: phienCu, cauMoi: vao.cau, lichSu: vao.lichSu, ...(nguCanh ? { nguCanh } : {}) },
     deps.timeoutMs ?? TIMEOUT_LAI_MS,
     { odoo: deps.odoo },
-    { kiemChung: boToolTim(hamTim(deps), bc), toiDaVong: 3, maxTokens: 1500, systemThem: DAN_LAI, tranKetQua: 2500 },
+    {
+      kiemChung: boToolTim(hamTim(deps), bc), toiDaVong: 3, maxTokens: 1500, systemThem: DAN_LAI, tranKetQua: 2500,
+      ...(dangHoi ? { nhacSauTin: '→ XÉT TRƯỚC: tin này có phải câu trả lời cho mục "BOT ĐANG CHỜ NV CHỌN" không (số thứ tự, chữ cái, tên hay biến thể tên một ứng viên)? Nếu có: điền đúng id ứng viên đó, y_dinh=dat_hang, KHÔNG tra lại, KHÔNG coi là hỏi thông tin.' } : {}),
+    },
   );
   deps.ghiLog({
     toolName: 'dieu_phoi_lai',

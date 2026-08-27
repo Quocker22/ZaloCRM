@@ -244,6 +244,8 @@ export interface TuyChonDieuPhoi {
   systemThem?: string;
   /** Trần ký tự kết quả tool (JSON danh sách khách/SP cần rộng hơn 700 mặc định). */
   tranKetQua?: number;
+  /** Dòng nhắc đặt NGAY SAU tin mới (vị trí cuối prompt — model chú ý nhất). */
+  nhacSauTin?: string;
 }
 
 export async function dieuPhoiPhien(
@@ -265,7 +267,8 @@ export async function dieuPhoiPhien(
     `PHIÊN HIỆN TẠI:\n${tomTatPhien(vao.phien)}\n\n` +
     (vao.nguCanh ? `NGỮ CẢNH MÁY BIẾT:\n${vao.nguCanh.slice(0, 1500)}\n\n` : '') +
     `LỊCH SỬ GẦN NHẤT:\n${hienLichSu(vao.lichSu)}\n\n` +
-    `TIN MỚI (${vao.phien.vai === 'khach' ? 'KHÁCH' : 'NHÂN VIÊN'}): "${cauMoi}"`;
+    `TIN MỚI (${vao.phien.vai === 'khach' ? 'KHÁCH' : 'NHÂN VIÊN'}): "${cauMoi}"` +
+    (tuyChon.nhacSauTin ? `\n${tuyChon.nhacSauTin}` : '');
   try {
     // HARNESS (27/08): có tool chỉ-đọc → model được đi ≤2 vòng kiểm chứng
     // (khách trùng? SP nào? giá?) rồi mới chốt bằng cap_nhat_phien. Không có
