@@ -2,7 +2,7 @@
 // Cấu hình máy in từ env — chưa đặt AI_MAY_IN_IPP_URL thì toàn hệ coi như
 // KHÔNG có máy in: tool không đăng ký, cron không chạy. Một biến bật/tắt.
 import { describe, it, expect } from 'vitest';
-import { ippConfigTuEnv, agentConfigTuEnv } from '../../../src/modules/ai/may-in/tu-env.js';
+import { ippConfigTuEnv, agentConfigTuEnv, coMayIn } from '../../../src/modules/ai/may-in/tu-env.js';
 
 describe('ippConfigTuEnv', () => {
   it('chưa đặt AI_MAY_IN_IPP_URL → null (hệ không có máy in)', () => {
@@ -52,5 +52,38 @@ describe('agentConfigTuEnv', () => {
         AI_MAY_IN_TRAY: 'tray-1',
       }),
     ).toEqual({ orgId: 'org1', paperSize: 'A4', tray: 'tray-1' });
+  });
+});
+
+describe('coMayIn', () => {
+  // Fix round review Task 5: luong-nhan-vien.ts trước đây chỉ gate tool
+  // in_hoa_don bằng ippConfigTuEnv() — triển khai thuần-agent (có
+  // AI_MAY_IN_AGENT_TOKEN+AI_MAY_IN_ORG_ID, KHÔNG có AI_MAY_IN_IPP_URL) thì
+  // cron in được (chonClientMayIn ưu tiên AgentClient) nhưng tool KHÔNG đăng
+  // ký — nhân viên không gọi được lệnh in dù hệ có máy in qua kênh agent.
+  it('không có gì → false', () => {
+    expect(coMayIn({})).toBe(false);
+  });
+
+  it('chỉ có IPP → true', () => {
+    expect(coMayIn({ AI_MAY_IN_IPP_URL: 'ipp://192.168.1.50:631/ipp/print' })).toBe(true);
+  });
+
+  it('chỉ có agent (token + orgId, KHÔNG có IPP) → true', () => {
+    expect(coMayIn({ AI_MAY_IN_AGENT_TOKEN: 'tok', AI_MAY_IN_ORG_ID: 'org1' })).toBe(true);
+  });
+
+  it('có agent token nhưng THIẾU orgId (agentConfigTuEnv trả null), không IPP → false', () => {
+    expect(coMayIn({ AI_MAY_IN_AGENT_TOKEN: 'tok' })).toBe(false);
+  });
+
+  it('có cả hai kênh → true', () => {
+    expect(
+      coMayIn({
+        AI_MAY_IN_IPP_URL: 'ipp://192.168.1.50:631/ipp/print',
+        AI_MAY_IN_AGENT_TOKEN: 'tok',
+        AI_MAY_IN_ORG_ID: 'org1',
+      }),
+    ).toBe(true);
   });
 });

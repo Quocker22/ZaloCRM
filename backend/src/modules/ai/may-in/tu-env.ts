@@ -46,3 +46,19 @@ export function agentConfigTuEnv(env: NodeJS.ProcessEnv = process.env): AgentCon
     tray: env.AI_MAY_IN_TRAY?.trim() || 'tray-2',
   };
 }
+
+/**
+ * Hệ có máy in qua BẤT KỲ kênh nào (IPP trực tiếp HOẶC agent PC-cầu-nối)?
+ *
+ * VÌ SAO tách hàm riêng thay vì gọi thẳng `ippConfigTuEnv() || agentConfigTuEnv()`
+ * ở nơi dùng: fix round review Task 5 — luong-nhan-vien.ts trước đây chỉ gate
+ * tool `in_hoa_don` bằng `ippConfigTuEnv()`. Triển khai thuần-agent (có
+ * AI_MAY_IN_AGENT_TOKEN + AI_MAY_IN_ORG_ID, KHÔNG có AI_MAY_IN_IPP_URL) thì
+ * cron in được (chonClientMayIn ưu tiên AgentClient — xem cron.ts) nhưng tool
+ * KHÔNG đăng ký → nhân viên không gọi được lệnh in dù máy in đã sẵn sàng. Một
+ * hàm thuần, test được độc lập, và dùng lại được ở mọi nơi cần cùng câu hỏi
+ * "hệ có máy in không" mà không phải nhớ ghép đúng 2 hàm con mỗi lần.
+ */
+export function coMayIn(env: NodeJS.ProcessEnv = process.env): boolean {
+  return Boolean(ippConfigTuEnv(env) || agentConfigTuEnv(env));
+}

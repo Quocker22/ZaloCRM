@@ -25,7 +25,7 @@ import { ghepAnhTruocDo, CUA_SO_ANH_TRUOC_MS } from './anh-truoc-do.js';
 import { docAnhTuUrl, ghepCauTuAnh } from './luong-media.js';
 import { chayBongDieuPhoi } from '../dieu-phoi/bong.js';
 import { themJobIn as themJobVaoHangIn, type PrismaHangDoiIn } from '../../may-in/hang-doi-in.js';
-import { ippConfigTuEnv } from '../../may-in/tu-env.js';
+import { coMayIn } from '../../may-in/tu-env.js';
 import type { ThemJobInHoaDon } from '../../odoo/tools/in-hoa-don.js';
 import { khoTaiLieuCuaOrg, trichNoiDungTaiLieu } from '../../knowledge/kho-tai-lieu.js';
 import { mucLucSanPham } from '../../knowledge/muc-luc.js';
@@ -325,9 +325,13 @@ async function xuLyTinNhanVienTuanTu(ctx: NgữCanhTin): Promise<boolean> {
         },
         ghiLog: ghiDb,
         anhClient: layAnhClient(),
-        // Máy in shop: chỉ mở tool in_hoa_don khi đã đặt AI_MAY_IN_IPP_URL —
-        // closure buộc sẵn prisma + orgId (registry không cần biết org).
-        ...(ippConfigTuEnv()
+        // Máy in shop: chỉ mở tool in_hoa_don khi hệ có máy in qua BẤT KỲ
+        // kênh nào (IPP trực tiếp HOẶC agent PC-cầu-nối) — fix round review
+        // Task 5: trước đây chỉ nhìn ippConfigTuEnv(), nên triển khai thuần-
+        // agent (không có AI_MAY_IN_IPP_URL) cron in được mà NV không gọi
+        // được lệnh in. closure buộc sẵn prisma + orgId (registry không cần
+        // biết org).
+        ...(coMayIn()
           ? {
               themJobIn: ((p) =>
                 themJobVaoHangIn(prisma as unknown as PrismaHangDoiIn, { ...p, orgId: ctx.orgId })) satisfies ThemJobInHoaDon,
