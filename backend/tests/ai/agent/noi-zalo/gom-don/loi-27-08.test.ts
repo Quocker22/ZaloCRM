@@ -7,9 +7,9 @@
 //  5. tạo khách trùng "red sun" dù đã có "Anh Thuận - Red Sun"
 import { describe, it, expect, vi } from 'vitest';
 import {
-  dapSlot, khachKhacNguoiDaChot, laLenhNgoaiGom, docCauSuaSl,
+  dapSlot, khachKhacNguoiDaChot, laLenhNgoaiGom, docCauSuaSl, cauNeuKhachKhac,
 } from '../../../../../src/modules/ai/agent/noi-zalo/gom-don/index.js';
-import { suaSlGiaNhamX, type KetQuaTrich } from '../../../../../src/modules/ai/agent/noi-zalo/gom-don/trich-slot.js';
+import { suaSlGiaNhamX, apSlTuongMinh, apKhachTheoGachCheo, tachSlDinhDauSp, type KetQuaTrich } from '../../../../../src/modules/ai/agent/noi-zalo/gom-don/trich-slot.js';
 import { taoKhachHang } from '../../../../../src/modules/ai/odoo/tools/tao-khach-hang.js';
 import type { PhienGom } from '../../../../../src/modules/ai/agent/noi-zalo/gom-don/kieu.js';
 
@@ -79,5 +79,44 @@ describe('5. tạo khách: tên gần giống khách cũ → không tạo', () =
     expect(kq.trangThai).toBe('loi');
     if (kq.trangThai === 'loi') expect(kq.lyDo).toContain('Anh Thuận - Red Sun');
     expect(execute).not.toHaveBeenCalled();
+  });
+});
+
+describe('replay 27/08 — 4 luật thêm sau khi chạy lại 8 kịch bản', () => {
+  it('SL tường minh thắng: "Lộc led 88 / 30b f30…" model lấy 88 → 30; "Red Sun : 2607 ấm 10000b" → 10000 và số đầu tên là mã, không phải SL', () => {
+    const a: KetQuaTrich = { lenDon: true, khach: 'Lộc led', dong: [{ sp: 'f30 full 26803 đầu trong', sl: 88, gia: 5200 }] };
+    apSlTuongMinh('Lộc led 88 / 30b f30 full 26803 đầu trong x 5200', a);
+    expect(a.dong?.[0].sl).toBe(30);
+    const b: KetQuaTrich = { lenDon: true, khach: 'Red Sun', dong: [{ sp: '2607 ấm 10000b' }] };
+    tachSlDinhDauSp(b);
+    expect(b.dong?.[0]).toMatchObject({ sp: '2607 ấm 10000b' }); // không tách 2607 thành SL
+    apSlTuongMinh('Red Sun : 2607 ấm 10000b x 950₫', b);
+    expect(b.dong?.[0].sl).toBe(10000);
+  });
+  it('SL tường minh KHÔNG áp khi: nhiều token (2 dòng), hoặc số nằm sau "x" (giá), hoặc dòng tặng', () => {
+    const a: KetQuaTrich = { lenDon: true, dong: [{ sp: 'pha 50w trắng', sl: 4 }] };
+    apSlTuongMinh('Qc T&T. 4 cái pha 50w trắng x 140k, 1 cái đồng hồ hẹn giờ x 120k', a);
+    expect(a.dong?.[0].sl).toBe(4); // 2 token → không đụng
+    const b: KetQuaTrich = { lenDon: true, dong: [{ sp: 'f30', sl: 30 }] };
+    apSlTuongMinh('30b f30 x 5200m', b); // "5200m" đứng sau x → không phải SL
+    expect(b.dong?.[0].sl).toBe(30);
+  });
+  it('khách theo dấu " / ": "Lộc led 88 / …" → khach "Lộc led 88" (model hay cắt mất 88); "Kiên định công / 4n…" → "Kiên định công"; câu không có " / " → giữ nguyên', () => {
+    const a: KetQuaTrich = { lenDon: true, khach: 'Lộc led', dong: [{ sp: 'f30', sl: 30 }] };
+    apKhachTheoGachCheo('Lộc led 88 / 30b f30 full 26803 đầu trong x 5200 @Tiểu Mã Nelia', a);
+    expect(a.khach).toBe('Lộc led 88');
+    const b: KetQuaTrich = { lenDon: true, khach: 'Kiên', dong: [] };
+    apKhachTheoGachCheo('Kiên định công / 4n 24v600w x 260k', b);
+    expect(b.khach).toBe('Kiên định công');
+    const c: KetQuaTrich = { lenDon: true, khach: 'Qc T&T', dong: [] };
+    apKhachTheoGachCheo('Qc T&T. 4 cái pha 50w trắng x 140k', c);
+    expect(c.khach).toBe('Qc T&T');
+  });
+  it('câu nêu KHÁCH KHÁC ngay sau đơn vừa lên → không phải tham chiếu sửa', () => {
+    expect(cauNeuKhachKhac('anh tùng triều khúc 10c 12v400w nb giá 150K', 'anh việt nguyễn xiển - 0911833666')).toBe(true);
+    expect(cauNeuKhachKhac('Red Sun : 2607 ấm 10000b x 950₫', 'Anh Lộc Led Beco Thanh Hóa')).toBe(false); // không có " / " và không bắt đầu bằng xưng hô → để model
+    expect(cauNeuKhachKhac('Lộc led 88 / 30b f30', 'Anh Lộc Led88')).toBe(false);
+    expect(cauNeuKhachKhac('giá 9000k', 'Anh Long Led')).toBe(false);
+    expect(cauNeuKhachKhac('a long led ,cáp 16PIN 140cm = 16 sợi', 'Anh Long Led')).toBe(false);
   });
 });

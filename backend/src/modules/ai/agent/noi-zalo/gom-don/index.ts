@@ -487,6 +487,25 @@ export function docCauSuaSl(cauBoDau: string): number | null {
   return so != null && so > 0 ? so : null;
 }
 
+/**
+ * Câu có NÊU một khách khác với `tenKhach` không — nhìn vế TÊN ở đầu câu:
+ * "<khách> / …" hoặc "anh|chị|a|c|qc|led|cty <tên> <số…>". Chỉ khi vế đó có
+ * ≥2 chữ và KHÔNG khớp tên khách đang so (`tenKhopKhach`).
+ */
+export function cauNeuKhachKhac(cau: string, tenKhach: string): boolean {
+  const c = cau.replace(/@\S+/g, ' ').trim();
+  let ve = '';
+  const mGach = c.match(/^([^\/\n]{2,60}?)\s*\/\s*\S/u);
+  if (mGach) ve = mGach[1];
+  else {
+    const mDau = c.match(/^((?:anh|chị|chi|a|c|em|qc|led|cty|công ty|cong ty|shop)\s+[^\d,/:]{2,50}?)\s+\d/iu);
+    if (mDau) ve = mDau[1];
+  }
+  ve = ve.trim().replace(/[.,:;]+$/, '');
+  if (ve.split(/\s+/).filter((t) => t.length >= 2).length < 2) return false;
+  return !tenKhopKhach(ve, tenKhach);
+}
+
 /** Đắp kết quả trích LLM vào phiên. Trả true nếu phiên có thay đổi nội dung. */
 export function dapSlot(p: PhienGom, trich: KetQuaTrich): boolean {
   let doi = false;
@@ -698,7 +717,7 @@ async function chayTraCuu(
   deps: GomDonDeps,
   p: PhienGom,
   hd: Extract<HanhDong, { loai: 'tra_cuu' }>,
-  ctx: { conversationId: string; maDon?: string; loaiDon?: 'ban' | 'mua' },
+  ctx: { conversationId: string; maDon?: string; loaiDon?: 'ban' | 'mua'; cau?: string },
 ): Promise<void> {
   const viec: Array<Promise<void>> = [];
   if (hd.don) {
@@ -813,10 +832,24 @@ async function chayTraCuu(
         p.khachTuChot = true;
         delete p.khachUngVienConNua;
       } else if (kq.trangThai === 'nhieu_ket_qua') {
-        p.khachUngVien = kq.danhSach;
-        // Chạm trần → danh sách CHƯA ĐỦ, loi-nhan phải nói rõ (bug 16:15 11/08).
-        if (kq.conNua) p.khachUngVienConNua = true;
-        else delete p.khachUngVienConNua;
+        // CÂU CHỨA NGUYÊN TÊN ứng viên (replay 27/08: "Led Trường An. 270b…" —
+        // model trích khách "Trường An" → 10 người; nhưng "led truong an" nằm
+        // nguyên trong câu NV, và chỉ một người có tên đó) → chốt, nói rõ.
+        const cauBd = ctx.cau ? boDau(ctx.cau) : '';
+        const trongCau = cauBd
+          ? kq.danhSach.filter((k) => { const t = boDau(k.ten).replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim(); return t.split(' ').length >= 2 && cauBd.includes(t); })
+          : [];
+        if (trongCau.length === 1) {
+          p.khachDaChot = { id: trongCau[0].id, ten: trongCau[0].ten, ma: trongCau[0].ma, dienThoai: trongCau[0].dienThoai };
+          p.khachTuChot = true;
+          delete p.khachUngVienConNua;
+          logger.info({ ten: trongCau[0].ten }, '[gom-don] chốt khách vì câu NV chứa nguyên tên');
+        } else {
+          p.khachUngVien = kq.danhSach;
+          // Chạm trần → danh sách CHƯA ĐỦ, loi-nhan phải nói rõ (bug 16:15 11/08).
+          if (kq.conNua) p.khachUngVienConNua = true;
+          else delete p.khachUngVienConNua;
+        }
       } else {
         p.khachKhongThay = true;
         delete p.khachUngVienConNua;
@@ -1332,6 +1365,10 @@ export async function xuLyGomDon(
   // minh: "lên đơn cho anh Hà" ngay sau đơn cũ vẫn là lệnh lên đơn MỚI.
   const thamChieuSua =
     donVuaLen != null && !regexNhap && !NHAN_LENH_LEN_DON.test(cauChon)
+    // Câu NÊU KHÁCH KHÁC ("anh tùng triều khúc 10c…" ngay sau đơn của anh
+    // Việt) là ĐƠN MỚI, không phải sửa đơn vừa lên (replay 27/08: máy hỏi
+    // "Đơn S… sửa gì ạ?" — trước đó còn lên đơn cho sai người).
+    && !cauNeuKhachKhac(cauChon, donVuaLen.tenKhach)
     && (NHAN_THAM_CHIEU_SUA.test(boDau(cauChon))
       // "<tên hàng> giá nhập 20099đ nhé" ngay sau phiếu — là sửa giá phiếu đó.
       || phanTichCauSuaGia(boDau(cauChon)) != null);
@@ -1697,6 +1734,10 @@ export async function xuLyGomDon(
         const tuKhoaCu = dongTreo[0].tuKhoa;
         // Tên NV vừa gõ mới là tên gọi thật của họ → alias học theo tên này.
         dongTreo[0].tuKhoa = tenMoi;
+        // Trích lượt này có thể đã đẩy thêm MỘT dòng mới cùng tên (SL 4 từ
+        // "4 bóng…", hoặc không SL) → bỏ nó, giữ dòng treo có SL thật (400)
+        // (replay 27/08: đơn lên 1 × thay vì 400 ×).
+        phien.dong = phien.dong.filter((d) => d === dongTreo[0] || boDau(d.tuKhoa) !== boDau(tenMoi));
         logger.info(
           { tuKhoaCu, tenMoi, soKq: traLai.length },
           '[gom-don] NV gõ lại tên hàng — tra lại catalog, thay ứng viên',
@@ -2060,6 +2101,7 @@ export async function xuLyGomDon(
     await chayTraCuu(deps, phien, hd, {
       conversationId: input.conversationId,
       loaiDon,
+      cau: input.cau,
       // NV không đọc mã thì lấy mã ĐƠN VỪA LÊN — chính là cái đơn họ đang bàn
       // ("giá 1800 đó" ngay sau S13848 là sửa S13848, không phải đơn nào khác).
       ...(trich.maDon ? { maDon: trich.maDon }

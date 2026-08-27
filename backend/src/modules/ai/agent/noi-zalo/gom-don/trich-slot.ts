@@ -378,9 +378,53 @@ const HAU_TO_NGHIN = /^(k|tr|m|củ|cu|nghìn|nghin|ngàn|ngan|triệu|trieu)/i;
  * chứ?"). Số THUẦN ≥3 chữ số đứng ĐẦU tên hàng, khi dòng chưa có sl, gần như
  * chắc chắn là số lượng — "3b"/"6214" giữa chuỗi không bị đụng (mã hàng).
  */
+/** "30b", "10000b", "4 cái", "160 thanh", "20m" — số lượng NV ghi TƯỜNG MINH kèm đơn vị. */
+const SL_TUONG_MINH = /(?:^|\s)(\d{1,7})\s?(b|bong|bóng|c|cai|cái|thanh|m|met|mét|cuon|cuộn|chiec|chiếc|tam|tấm|bo|bộ|soi|sợi|goi|gói|thung|thùng)(?=\s|$|[,.;])/giu;
+
+/**
+ * SL TƯỜNG MINH THẮNG (replay 27/08): "Lộc led 88 / 30b f30…" model lấy 88
+ * (số nhà của khách) làm SL; "Red Sun : 2607 ấm 10000b" lấy 2607 (mã SP) làm
+ * SL. NV đã ghi "30b"/"10000b" thì đó là số lượng, không bàn cãi. Chỉ áp khi
+ * câu có ĐÚNG MỘT token tường minh và trích ra ĐÚNG MỘT dòng (nhiều dòng thì
+ * model đã tự ghép từng dòng).
+ */
+export function apSlTuongMinh(cau: string, trich: KetQuaTrich): void {
+  if (trich.dong?.length !== 1) return;
+  const tk = [...cau.matchAll(SL_TUONG_MINH)].filter((m) => {
+    // "x 5200" / "x5200đ" là giá, không phải SL: bỏ số đứng ngay sau 'x'.
+    const truoc = cau.slice(Math.max(0, m.index! - 3), m.index!);
+    return !/x\s*$/i.test(truoc);
+  });
+  if (tk.length !== 1) return;
+  const sl = Number(tk[0][1]);
+  const d = trich.dong[0];
+  if (!Number.isFinite(sl) || sl <= 0 || d.sl === sl || d.tang) return;
+  logger.warn({ sp: d.sp, slCu: d.sl, slMoi: sl }, '[trich-slot] SL tường minh trong câu khác SL model trích — lấy SL tường minh');
+  d.sl = sl;
+}
+
+/**
+ * "<KHÁCH> / <hàng…>" — nếp gõ của NV Nelia (Kiên định công / 4n 24v600w…,
+ * Lộc led 88 / 30b f30…, Qc Tv T / 4 pha 50w…). Vế trước dấu " / " là KHÁCH
+ * nguyên văn; model hay cắt mất "88", "T&T" → khách sai người. Code ghi đè.
+ */
+export function apKhachTheoGachCheo(cau: string, trich: KetQuaTrich): void {
+  const m = cau.replace(/@\S+/g, ' ').trim().match(/^([^\/\n]{2,60}?)\s*\/\s*\S/u);
+  if (!m) return;
+  const khach = m[1].trim().replace(/[.,:;]+$/, '');
+  if (!khach || /\d{3,}\s*(b|c|cai|thanh|m)\b/i.test(khach)) return; // vế trước là hàng, không phải khách
+  if (trich.khach && trich.khach.trim().toLowerCase() === khach.toLowerCase()) return;
+  logger.info({ cu: trich.khach, moi: khach }, '[trich-slot] khách theo dấu " / " — lấy nguyên văn vế trước');
+  trich.khach = khach;
+  delete trich.khachMoi;
+}
+
 export function tachSlDinhDauSp(trich: KetQuaTrich): void {
   for (const d of trich.dong ?? []) {
     if (d.sl != null) continue;
+    // Có SL tường minh trong tên ("2607 ấm 10000b") → số đầu là MÃ, không phải SL.
+    if (SL_TUONG_MINH.test(d.sp)) { SL_TUONG_MINH.lastIndex = 0; continue; }
+    SL_TUONG_MINH.lastIndex = 0;
     const m = d.sp.match(/^(\d{3,})\s+(.{3,})$/);
     if (!m) continue;
     const so = Number(m[1]);
@@ -575,6 +619,8 @@ export async function trichSlot(
     suaGiaNhanBua(cau, kq);
     tachSlDinhDauSp(kq);
     suaSlGiaNhamX(cau, kq);
+    apSlTuongMinh(cau, kq);
+    apKhachTheoGachCheo(cau, kq);
     boSungGiaTuKhoiAnh(cau, kq);
     return kq;
   } catch (err) {
