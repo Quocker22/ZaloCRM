@@ -467,13 +467,17 @@ export async function laiLuotNhanVien(deps: DepsLai, vao: VaoLai): Promise<KetQu
   const bia = doiChieuBangChung(p, bc);
   if (bia.khachBia || bia.spBia.length) logger.warn({ bia, conversationId: vao.conversationId }, '[lai] model điền id không có trong bằng chứng — bỏ id');
   const treo = await traBu(deps, p, bc);
+  // SOÁT SỐ ngay khi tin mới mang dòng hàng (trước cả khi hỏi): replay S1 lượt
+  // 3 model bỏ mất "giá 150K" rồi máy đi hỏi giá — soát trước thì điền lại
+  // được và khỏi hỏi. Chỉ soát khi lượt này model có đụng tới dòng.
+  const modelDungDong = JSON.stringify(p.dong.map((d) => [d.ten, d.soLuong.giaTri, d.donGia.giaTri, d.tang])) !== JSON.stringify(phienCu.dong.map((d) => [d.ten, d.soLuong.giaTri, d.donGia.giaTri, d.tang]));
+  if (deps.kiemSo !== false && p.dong.length > 0 && modelDungDong) await soatSoTruocKhiGhi(deps, vao, p);
   danhDauGiaThieu(p);
 
   const daGui: string[] = [];
   if (kq.yDinh === 'xac_nhan' && p.donVuaLen && p.che !== 'sua_don') {
     daGui.push(`Đơn ${p.donVuaLen.maDon} của ${p.donVuaLen.tenKhach} đã lên rồi ạ. Cần sửa gì anh/chị nhắn "sửa đơn ..." nhé.`);
   } else if (duDeGhi(p, treo)) {
-    if (deps.kiemSo !== false) await soatSoTruocKhiGhi(deps, vao, p);
     daGui.push(...await ghiOdoo(deps, vao, p));
   } else {
     const canHoi = oConThieu(p);
