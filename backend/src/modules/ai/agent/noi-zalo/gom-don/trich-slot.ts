@@ -440,16 +440,32 @@ export function tachSlDauTenSp(trich: KetQuaTrich): void {
  */
 export function apKhachTheoXungHo(cau: string, trich: KetQuaTrich): void {
   if (trich.khachMoi) return;
-  const m = cau.replace(/@\S+/g, ' ').trim()
+  const sach = cau.replace(/@\S+/g, ' ').trim();
+  const m = sach
     .match(/^(?:(?:lên|len)\s+(?:đơn|don)\s+(?:cho\s+)?|(?:đơn|don)\s+(?:cho\s+)?)?((?:anh|chị|chi|chú|chu|cô|co|bác|bac|cty|công ty|cong ty)\s+[^\d\/:,.;\n]{2,40}?)\s+(?=\d)/iu);
-  if (!m) return;
-  const cum = m[1].trim();
-  if (cum.split(/\s+/).length < 3) return; // "anh Hưng" (2 từ) để model; ≥3 từ mới đáng ghi đè
-  if (!trich.khach) { trich.khach = cum; return; }
-  const cu = boDau(trich.khach).trim();
+  // "A quyết. 2 cái Fa 100w" (ca thật 16:22 27/08): xưng hô MỘT CHỮ + tên,
+  // kết bằng dấu chấm/phẩy rồi tới hàng — model trả "A" (1 chữ, bị bỏ) hay
+  // "A quyết" tuỳ lần → code cầm: cụm 2 từ là đủ vì có dấu ngắt rõ ràng.
+  const m1 = m ? null : sach.match(/^((?:a|c|e)\s+[^\d\/:,.;\n\s]{2,20})\s*[.,;:]\s/iu);
+  const cumTho = m ? m[1] : m1 ? m1[1] : '';
+  if (!cumTho) return;
+  const cum = cumTho.trim();
+  const toiThieu = m1 ? 2 : 3; // "anh Hưng" (2 từ, không dấu ngắt) để model; ≥3 từ mới đáng ghi đè
+  if (cum.split(/\s+/).length < toiThieu) return;
+  const khachHienTai = (trich.khach ?? '').trim();
+  if (!khachHienTai || /^(a|c|e|anh|chị|chi|em)$/iu.test(khachHienTai)) { trich.khach = cum; return; }
+  const cu = boDau(khachHienTai).trim();
   const moi = boDau(cum);
-  if (cu === moi || !moi.includes(cu) || trich.khach.split(/\s+/).length >= cum.split(/\s+/).length) return;
+  if (cu === moi || !moi.includes(cu) || khachHienTai.split(/\s+/).length >= cum.split(/\s+/).length) return;
   trich.khach = cum;
+}
+
+/** "Giá 0 đồng"/"giá 0đ"/"0 đồng" (ca thật 16:22 27/08): model bỏ luôn giá 0 → điền 0 cho dòng duy nhất chưa có giá. */
+export function apGiaKhong(cau: string, trich: KetQuaTrich): void {
+  if (trich.dong?.length !== 1) return;
+  const d = trich.dong[0];
+  if (d.gia != null || d.tang) return;
+  if (/(?:^|\s)(?:giá|gia)\s*0\s*(?:đ|d|đồng|dong|k)?(?=\s|$|[.,;])|(?:^|\s)0\s*(?:đồng|dong)\b/iu.test(cau)) d.gia = 0;
 }
 
 export function apSlTuongMinh(cau: string, trich: KetQuaTrich): void {
@@ -700,6 +716,7 @@ export async function trichSlot(
     apSlTuongMinh(cau, kq);
     apKhachTheoGachCheo(cau, kq);
     apKhachTheoXungHo(cau, kq);
+    apGiaKhong(cau, kq);
     boSungGiaTuKhoiAnh(cau, kq);
     return kq;
   } catch (err) {

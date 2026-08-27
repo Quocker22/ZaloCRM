@@ -177,6 +177,14 @@ function hoiThieu(thieu: 'khach' | 'sp' | 'sl' | 'ncc', p: PhienGom): string {
   if (thieu === 'khach') return 'Đơn này lên cho khách nào ạ? (tên, SĐT hoặc mã KH)';
   if (thieu === 'sp') {
     if (laNhap) return 'Anh/chị nhập những hàng gì ạ? (tên hàng + số lượng, có giá nhập càng tốt)';
+    // Món NV đã nêu mà máy tra không thấy (ca thật 16:22 27/08 "2 cái Fa
+    // 100w" → sau khi chốt khách bot hỏi trống "cần lên hàng gì?" như chưa
+    // từng nghe) → nhắc lại đúng món đó, không hỏi từ đầu.
+    const chuaThay = (p.daBaoKhongThay ?? []).map((x) => (typeof x === 'string' ? { ten: x as string, sl: null } : x)).filter((x) => x.ten);
+    if (!laSua && chuaThay.length > 0) {
+      const ds = chuaThay.map((x) => `"${x.ten}"${x.sl != null ? ` (${x.sl})` : ''}`).join(', ');
+      return `Món ${ds} em chưa tìm thấy trong hệ thống ạ. Anh/chị gõ lại tên khác (đúng tên trên Odoo) hoặc nhắn "tạo mới <tên hàng>" giúp em.`;
+    }
     return laSua
       ? `Đơn ${p.donSua?.ma ?? ''} sửa gì ạ? (tên hàng cần thêm hoặc đổi số lượng)`.replace('  ', ' ')
       : 'Anh/chị cần lên hàng gì ạ? (tên sản phẩm, có số lượng càng tốt)';

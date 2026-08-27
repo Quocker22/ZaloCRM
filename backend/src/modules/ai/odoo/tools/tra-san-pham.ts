@@ -326,6 +326,28 @@ export function doanTuDayDu(
     .map(([tu]) => tu);
 }
 
+/**
+ * BIẾN THỂ CHÍNH TẢ f ↔ ph (27/08, ca thật 16:22 anh Quốc "2 cái Fa 100w"):
+ * tiếng Việt không có "f", NV gõ "Fa 50w"/"pha 100w" tuỳ tay; catalog cũng
+ * lệch — đang bán "Fa 50W Màu Trắng" NHƯNG "Đèn Pha 100W Trắng" (bản "Pha 50W
+ * SMD" đã lưu trữ). Đây là LUẬT âm vị, không phải bảng từ điển: từ bắt đầu
+ * "ph"/"f" + nguyên âm thì tra CẢ HAI cách viết. Từ khác giữ nguyên.
+ */
+export function bienTheChinhTa(tu: string): string[] {
+  const b = boDau(tu);
+  // Âm tiết Việt: phụ âm đầu + nguyên âm + tối đa MỘT phụ âm cuối (+ số):
+  // "fa", "fi50", "phun" đổi được; "full", "fullcolor" (tiếng Anh) không.
+  if (/^f[aeiouy]+[a-z]?\d*$/.test(b)) return [tu, tu.replace(/^f/i, (c) => (c === 'F' ? 'Ph' : 'ph'))];
+  if (/^ph[aeiouy]+[a-z]?\d*$/.test(b)) return [tu, tu.replace(/^ph/i, (c) => (c === 'Ph' || c === 'PH' ? 'F' : 'f'))];
+  return [tu];
+}
+function khoiTuCoChinhTa(tu: string): unknown[] {
+  const cach = bienTheChinhTa(tu);
+  if (cach.length === 1) return dieuKienBienTheDau('name', tu);
+  const khoi = cach.map((c) => dieuKienBienTheDau('name', c));
+  return [...Array(khoi.length - 1).fill('|'), ...khoi.flat()];
+}
+
 export function domainTimKiem(ten: string): unknown[] {
   const dung = tuKhoaTraSp(ten);
 
@@ -345,12 +367,12 @@ export function domainTimKiem(ten: string): unknown[] {
 
   // Một từ: (name khớp một trong các biến thể) OR default_code ilike X
   if (dung.length === 1) {
-    return ['|', ...dieuKienBienTheDau('name', dung[0]), ['default_code', 'ilike', dung[0]]];
+    return ['|', ...khoiTuCoChinhTa(dung[0]), ['default_code', 'ilike', dung[0]]];
   }
 
   // Nhiều từ: (name chứa TẤT CẢ các từ) OR (default_code chứa nguyên chuỗi).
   // default_code là mã, không tách từ — nhân viên gõ mã thì gõ đủ.
-  const khoi = dung.map((t) => dieuKienBienTheDau('name', t));
+  const khoi = dung.map((t) => khoiTuCoChinhTa(t));
   const theoTen = [...Array(khoi.length - 1).fill('&'), ...khoi.flat()];
   return ['|', ...theoTen, ['default_code', 'ilike', ten]];
 }

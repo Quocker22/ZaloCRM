@@ -9,8 +9,10 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   dapSlot, khachKhacNguoiDaChot, laLenhNgoaiGom, docCauSuaSl, cauNeuKhachKhac, dongNhacLaiDonVuaLen,
 } from '../../../../../src/modules/ai/agent/noi-zalo/gom-don/index.js';
-import { suaSlGiaNhamX, apSlTuongMinh, apKhachTheoGachCheo, tachSlDinhDauSp, tachSlDauTenSp, chonUngVienTheoCau, apKhachTheoXungHo, type KetQuaTrich } from '../../../../../src/modules/ai/agent/noi-zalo/gom-don/trich-slot.js';
+import { suaSlGiaNhamX, apSlTuongMinh, apKhachTheoGachCheo, tachSlDinhDauSp, tachSlDauTenSp, chonUngVienTheoCau, apKhachTheoXungHo, apGiaKhong, type KetQuaTrich } from '../../../../../src/modules/ai/agent/noi-zalo/gom-don/trich-slot.js';
 import { taoKhachHang } from '../../../../../src/modules/ai/odoo/tools/tao-khach-hang.js';
+import { bienTheChinhTa, domainTimKiem } from '../../../../../src/modules/ai/odoo/tools/tra-san-pham.js';
+import { renderLoiNhan } from '../../../../../src/modules/ai/agent/noi-zalo/gom-don/loi-nhan.js';
 import type { PhienGom } from '../../../../../src/modules/ai/agent/noi-zalo/gom-don/kieu.js';
 
 const phienDaChot = (ten: string): PhienGom => ({
@@ -216,5 +218,38 @@ describe('replay 27/08 — 4 luật thêm sau khi chạy lại 8 kịch bản', 
     expect(dongNhacLaiDonVuaLen({ lenDon: true, khach: 'anh tùng', dong: [{ sp: '4 bóng lixin' }] }, don)).toBeNull();
     expect(dongNhacLaiDonVuaLen({ lenDon: true, dong: [{ sp: '12v400w nb' }] }, don)).toBeNull();
     expect(dongNhacLaiDonVuaLen({ lenDon: true, dong: [{ sp: 'lixin' }] }, don)).toBeNull(); // 1 từ → quá mơ hồ
+  });
+
+  it('ca thật 16:22 "A quyết. 2 cái Fa 100w . Giá 0 đồng. lên đơn": khách "A quyết" dù model trả "A"/rỗng, giá 0', () => {
+    const cau = 'A quyết. 2 cái Fa 100w . Giá 0 đồng. lên đơn';
+    const a: KetQuaTrich = { lenDon: true, khach: 'A', dong: [{ sp: 'Fa 100w', sl: 2 }] };
+    apKhachTheoXungHo(cau, a); apGiaKhong(cau, a);
+    expect(a.khach).toBe('A quyết');
+    expect(a.dong?.[0].gia).toBe(0);
+    const b: KetQuaTrich = { lenDon: true, dong: [{ sp: 'Fa 100w', sl: 2 }] };
+    apKhachTheoXungHo(cau, b);
+    expect(b.khach).toBe('A quyết');
+    const c: KetQuaTrich = { lenDon: true, khach: 'a long led', dong: [{ sp: 'cáp', sl: 2, gia: 7000 }] };
+    apKhachTheoXungHo('a long led ,cáp 16PIN 140cm = 16 sợi', c); apGiaKhong('a long led ,cáp 16PIN 140cm = 16 sợi', c);
+    expect(c.khach).toBe('a long led'); expect(c.dong?.[0].gia).toBe(7000);
+    const d: KetQuaTrich = { lenDon: true, dong: [{ sp: 'nguồn 12v400w', sl: 10 }] };
+    apGiaKhong('10 nguồn 12v400w giá 150k', d);
+    expect(d.dong?.[0].gia).toBeUndefined();
+  });
+  it('f ↔ ph là biến thể chính tả khi tra SP: "Fa 100w" tra cả "Pha", "pha 50w" tra cả "Fa"; "Fi50"/"full" không đổi', () => {
+    expect(bienTheChinhTa('Fa')).toEqual(['Fa', 'Pha']);
+    expect(bienTheChinhTa('pha')).toEqual(['pha', 'fa']);
+    expect(bienTheChinhTa('Fi50')).toEqual(['Fi50', 'Phi50']);
+    expect(bienTheChinhTa('full')).toEqual(['full']);
+    expect(bienTheChinhTa('f30')).toEqual(['f30']);
+    const dk = JSON.stringify(domainTimKiem('Fa 100w'));
+    expect(dk).toContain('"pha"'); // biến thể dấu chạy trên bản thường
+    expect(dk).toContain('"100w"');
+  });
+  it('sau khi chốt khách mà món đã báo không thấy → câu hỏi hàng nhắc đúng món, không hỏi trống', () => {
+    const p: PhienGom = { khachTuKhoa: 'A quyết', khachDaChot: { id: 1739, ten: 'Anh Quyết Nelia', ma: 'KH001836', dienThoai: null }, dong: [], che: 'len', daBaoKhongThay: [{ ten: 'Fa 100w', sl: 2 }] };
+    const tin = renderLoiNhan({ loai: 'hoi_thieu', thieu: 'sp' }, p);
+    expect(tin).toContain('Fa 100w');
+    expect(tin).not.toContain('cần lên hàng gì');
   });
 });
