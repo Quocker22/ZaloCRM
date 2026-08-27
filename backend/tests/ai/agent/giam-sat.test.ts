@@ -120,8 +120,8 @@ describe('hàng rào code cho bản sửa (đo model thật 26/08)', () => {
 });
 
 describe('cấu hình', () => {
-  it('model giám sát mặc định KHÁC model chính, đổi qua env', () => {
-    expect(modelGiamSat({} as NodeJS.ProcessEnv)).toBe('openai/gpt-4.1-mini');
+  it('model giám sát mặc định deepseek-v4-flash (anh Quốc 27/08: dùng deepseek + harness), đổi qua env', () => {
+    expect(modelGiamSat({} as NodeJS.ProcessEnv)).toBe('deepseek/deepseek-v4-flash');
     expect(modelGiamSat({ AI_MODEL_GIAM_SAT: 'x/y' } as NodeJS.ProcessEnv)).toBe('x/y');
   });
   it('mặc định BẬT, AI_GIAM_SAT_TAT=1 tắt khẩn', () => {

@@ -507,9 +507,15 @@ export async function giamSatTraLoi(
   }
 }
 
-/** Model giám sát — KHÁC model chính; đổi qua env, không cần deploy. */
+/**
+ * Model giám sát. Anh Quốc 27/08: "dùng deepseek và deepseek-harness để giám
+ * sát" — deepseek-v4-flash BẬT suy nghĩ riêng (reasoning) trong vòng kiểm
+ * chứng; khác biệt với model chính không nằm ở tên model mà ở CHẾ ĐỘ (chính:
+ * tắt reasoning, soạn câu; giám sát: bật reasoning, chỉ được nói bằng tool)
+ * và ở BẰNG CHỨNG code đưa tận tay. Đổi qua env, không cần deploy.
+ */
 export function modelGiamSat(env: NodeJS.ProcessEnv = process.env): string {
-  return env.AI_MODEL_GIAM_SAT?.trim() || 'openai/gpt-4.1-mini';
+  return env.AI_MODEL_GIAM_SAT?.trim() || 'deepseek/deepseek-v4-flash';
 }
 
 /** Công tắc tắt khẩn (env AI_GIAM_SAT_TAT=1) — mặc định BẬT cho luồng nhân viên. */

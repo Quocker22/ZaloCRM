@@ -77,7 +77,22 @@ export async function themJobIn(prisma: PrismaHangDoiIn, p: ThamSoThemJob): Prom
 }
 
 export interface ClientMayIn {
-  inPdf(pdf: Buffer, tenJob: string): Promise<{ jobId: number | null; phanHoi: PhanHoiIpp }>;
+  inPdf(pdf: Buffer, tenJob: string): Promise<{
+    jobId: number | null;
+    phanHoi: PhanHoiIpp;
+    /**
+     * true = việc IN ĐÃ XONG THẬT khi Promise này resolve (kênh đồng bộ —
+     * AgentClient: agent chỉ báo kết quả SAU khi máy in vật lý đã in xong).
+     * Bỏ trống/false = như IPP: gửi xong chỉ là ĐàNG_GỬI, còn cần lượt cron
+     * sau gọi traTrangThaiJob() xác minh mới biết in xong hay chưa.
+     *
+     * VÌ SAO field opt-in thay vì suy từ jobId==null: IppClient cũng có thể
+     * hợp lệ trả jobId null (máy in không trả job-id trong phản hồi) mà VẪN
+     * cần xác minh qua đường bất đồng bộ — không được lấy "không có jobId"
+     * làm tín hiệu "đã xong", hai chuyện độc lập nhau.
+     */
+    daInXong?: boolean;
+  }>;
   traTrangThaiJob(jobId: number): Promise<{ jobState: number | null; phanHoi: PhanHoiIpp }>;
 }
 
@@ -143,10 +158,24 @@ async function xuLyMotJob(deps: DepsChayLuot, job: JobIn): Promise<void> {
   await deps.prisma.printJob.update({ where: { id: job.id }, data: { trangThai: 'dang_gui' } });
   try {
     const kq = await deps.client.inPdf(pdf, job.soHoaDon);
-    await deps.prisma.printJob.update({
-      where: { id: job.id },
-      data: { trangThai: 'da_gui', ippJobId: kq.jobId, loiCuoi: null },
-    });
+    // Kênh đồng bộ (AgentClient) báo daInXong=true: Promise chỉ resolve SAU
+    // khi agent xác nhận máy in vật lý đã in xong — ghi thẳng da_in, không
+    // qua da_gui chờ xác minh. Thiếu field này (IPP) → giữ nguyên đường cũ:
+    // da_gui rồi lượt cron sau xacMinh() mới biết in xong hay chưa (fix
+    // round 1 review Task 5 — trước đây MỌI kênh đều đi qua da_gui nên
+    // AgentClient bị kẹt vĩnh viễn vì ippJobId luôn null khiến xacMinh() đứng
+    // yên mãi).
+    if (kq.daInXong) {
+      await deps.prisma.printJob.update({
+        where: { id: job.id },
+        data: { trangThai: 'da_in', ippJobId: kq.jobId, loiCuoi: null },
+      });
+    } else {
+      await deps.prisma.printJob.update({
+        where: { id: job.id },
+        data: { trangThai: 'da_gui', ippJobId: kq.jobId, loiCuoi: null },
+      });
+    }
   } catch (err) {
     if (err instanceof LoiKhongRo) {
       await deps.prisma.printJob.update({

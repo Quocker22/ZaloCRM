@@ -131,23 +131,19 @@ describe('e2e: server↔agent giả trọn vòng qua WebSocket (Task 5, phần 1
       },
     });
 
-    // AgentClient trả jobId:null (agent không nói IPP) → chayMotLuotIn ghi
-    // thẳng da_gui rồi xacMinh() thấy ippJobId==null thì ĐỨNG YÊN — nhưng ở
-    // đây agent đã báo 'ket-qua' NGAY trong lúc guiJob còn đang treo, nên
-    // Promise của guiJob đã resolve('da_in') TRƯỚC khi chayMotLuotIn ghi
-    // trạng thái — job phải đi thẳng lên da_gui trong CÙNG lượt gọi inPdf,
-    // vì AgentClient.inPdf() chỉ trả về SAU khi registry.guiJob() resolve.
-    expect(hang[0].trangThai).toBe('da_gui');
+    // Fix round 1 (review): AgentClient in ĐỒNG BỘ — registry.guiJob() chỉ
+    // resolve SAU KHI agent đã báo 'da_in' qua WS, tức máy in vật lý ĐÃ IN
+    // XONG THẬT ngay tại đây. inPdf() trả daInXong:true nên chayMotLuotIn ghi
+    // THẲNG da_in, không đi qua da_gui chờ xác minh (khác IPP — bất đồng bộ,
+    // 2 nhịp: gửi xong → lượt cron sau mới xác minh xong hay chưa). Nếu vẫn
+    // dừng ở da_gui thì job sẽ KẸT VĨNH VIỄN vì ippJobId luôn null khiến
+    // xacMinh() đứng yên mãi — đó chính là bug đã được vá.
+    expect(hang[0].trangThai).toBe('da_in');
     expect(hang[0].ippJobId).toBeNull();
-
-    // Lượt cron kế tiếp: da_gui + ippJobId null → xacMinh() đứng yên theo
-    // thiết kế (không có id thì không hỏi được máy in) — đây không phải bug
-    // của Task 5, đường agent không có khái niệm job-id IPP (agent-client.ts
-    // dòng ~64-68). Việc job "thực sự" đã in xong được xác nhận ở khẳng định
-    // trên: agent giả đã nhận đúng job và đã báo da_in qua đúng dây WS.
+    expect(hang[0].loiCuoi).toBeNull();
   });
 
-  it('2 job cho_in tuần tự → cả 2 đều tới đúng agent giả và job DB đều thành da_gui', async () => {
+  it('2 job cho_in tuần tự → cả 2 đều tới đúng agent giả và job DB đều thành da_in', async () => {
     const { prisma, hang } = prismaGia([{ soHoaDon: 'INV/A' }, { soHoaDon: 'INV/B' }]);
     const nhanDuoc: any[] = [];
     const c = ioClient(`http://localhost:${port}/print-agent`, {
@@ -169,7 +165,7 @@ describe('e2e: server↔agent giả trọn vòng qua WebSocket (Task 5, phần 1
     await chayMotLuotIn({ prisma, client, taiPdf: async () => Buffer.from('%PDF') });
 
     expect(nhanDuoc).toHaveLength(2);
-    expect(hang.map((j) => j.trangThai)).toEqual(['da_gui', 'da_gui']);
+    expect(hang.map((j) => j.trangThai)).toEqual(['da_in', 'da_in']);
     expect(hang.map((j) => j.soHoaDon).sort()).toEqual(['INV/A', 'INV/B']);
   });
 

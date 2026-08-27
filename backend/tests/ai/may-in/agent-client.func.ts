@@ -17,6 +17,11 @@ describe('AgentClient', () => {
     const kq = await c.inPdf(Buffer.from('%PDF'), 'INV/1');
     expect(reg.guiJob).toHaveBeenCalledWith('org1', expect.objectContaining({ paperSize: 'A5', tray: 'tray-2' }));
     expect(kq.jobId).toBeNull();
+    // Fix round 1 (review, Task 5): guiJob() chỉ resolve SAU khi agent báo
+    // 'da_in' — máy in vật lý đã in xong THẬT lúc đây. Thiếu daInXong:true
+    // thì hang-doi-in.ts ghi da_gui rồi kẹt mãi (ippJobId luôn null nên
+    // xacMinh() không bao giờ xác minh được).
+    expect(kq.daInXong).toBe(true);
   });
 
   it('không agent → LoiIpp guiDuoc=false', async () => {

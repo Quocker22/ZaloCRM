@@ -43,7 +43,7 @@ export class AgentClient implements ClientMayIn {
     private readonly cfg: AgentClientConfig,
   ) {}
 
-  async inPdf(pdf: Buffer, tenJob: string): Promise<{ jobId: number | null; phanHoi: PhanHoiIpp }> {
+  async inPdf(pdf: Buffer, tenJob: string): Promise<{ jobId: number | null; phanHoi: PhanHoiIpp; daInXong: boolean }> {
     const job: JobIn = {
       id: this.taoJobId(),
       pdfBase64: pdf.toString('base64'),
@@ -65,7 +65,14 @@ export class AgentClient implements ClientMayIn {
     // in thật nào để trả. Fix round 1 (review) — trước đây cứng =1, ghi vào
     // cột ippJobId của DB thành giá trị vô nghĩa; hang-doi-in.ts.xacMinh() đã
     // tự return sớm khi ippJobId==null nên không poll vô ích mỗi cron.
-    return { jobId: null, phanHoi: phanHoiRong() };
+    //
+    // daInXong: true — fix round 1 (review, Task 5 kiểm chéo): registry.guiJob()
+    // CHỈ resolve sau khi agent gọi 'ket-qua' báo trangThai:'da_in', tức máy in
+    // vật lý ĐÃ IN XONG THẬT lúc dòng này chạy tới (khác IPP: gửi xong chỉ là
+    // "đã gửi", còn cần xác minh riêng). Không báo true thì hang-doi-in.ts ghi
+    // da_gui rồi xacMinh() đứng yên mãi vì ippJobId==null — job kẹt vĩnh viễn,
+    // không bao giờ lên da_in dù đã in xong từ lâu.
+    return { jobId: null, phanHoi: phanHoiRong(), daInXong: true };
   }
 
   async traTrangThaiJob(_jobId: number): Promise<{ jobState: number | null; phanHoi: PhanHoiIpp }> {
