@@ -204,6 +204,68 @@ export function soLaTrongBanNhap(vao: DauVaoGiamSat, traLoi: string): string[] {
   return soMaTrong(traLoi).filter((x) => !nguon.has(x));
 }
 
+/**
+ * TÊN KHÁCH trong output tool (nếp formatter: "… · <tên khách> · <tiền>",
+ * "Đơn cho <tên> (KH…)", "khách <tên>") mà bản nháp KHÔNG nhắc tới — dấu hiệu
+ * bản nháp gán việc cho người khác (ca 10:36 26/08: tool "Tấn Anh - Bình
+ * Định", bản nháp "QC Bách Phát"). Model gpt-4.1-mini e2e 27/08 vẫn phán ok
+ * dù hai tên nằm cạnh nhau → code phải chỉ tận tay.
+ */
+export function tenKhachLech(log: ToolCallLog[], traLoi: string): string[] {
+  const ra: string[] = [];
+  const draft = chuanSo(traLoi);
+  for (const l of log) {
+    const out = String(l.output ?? '');
+    const ten: string[] = [];
+    for (const m of out.matchAll(/·\s*([^·\n]{3,60}?)\s*·\s*[\d.]+\s?đ/gu)) ten.push(m[1]);
+    for (const m of out.matchAll(/(?:Đơn cho|đơn của|khách)\s+([^\n(:·,]{3,60}?)\s*(?:\(|\[|:|·|,|$)/giu)) ten.push(m[1]);
+    for (const t of ten) {
+      const tt = t.trim();
+      const tk = chuanSo(tt).split(' ').filter((x) => x.length >= 2);
+      if (tk.length === 0) continue;
+      // Khớp lỏng: ≥ nửa token của tên có trong bản nháp là coi như có nhắc.
+      const co = tk.filter((x) => draft.includes(x)).length;
+      if (co * 2 < tk.length && !ra.includes(tt)) ra.push(tt);
+    }
+  }
+  return ra;
+}
+
+/** Mã đơn / số hoá đơn xuất hiện trong bản nháp ∪ output tool ∪ câu NV. */
+export function maDonTrong(s: string): string[] {
+  return [...new Set((s.match(/\bS\d{4,}\b|INV\/\d{4}\/\d{3,}/g) ?? []).map((x) => x.toUpperCase()))].slice(0, 4);
+}
+
+/**
+ * CODE TỰ TRA chủ đơn/hoá đơn theo mã — bằng chứng đưa thẳng vào prompt,
+ * không chờ model "có sáng kiến" gọi tool (e2e 27/08: nó không gọi).
+ */
+export async function bangChungTheoMa(
+  odoo: DepsKiemChung['odoo'], ma: string[],
+): Promise<string[]> {
+  if (!odoo || ma.length === 0) return [];
+  const ra: string[] = [];
+  const don = ma.filter((m) => m.startsWith('S'));
+  const hd = ma.filter((m) => m.startsWith('INV/'));
+  try {
+    if (don.length > 0) {
+      const rows = await odoo.searchRead<Record<string, unknown>>(
+        'sale.order', [['name', 'in', don]], ['name', 'partner_id', 'state', 'amount_total'], { limit: don.length },
+      );
+      for (const r of rows) ra.push(`${String(r.name)} → khách "${Array.isArray(r.partner_id) ? r.partner_id[1] : '?'}" · ${String(r.state)} · ${Number(r.amount_total ?? 0).toLocaleString('vi-VN')}đ`);
+    }
+    if (hd.length > 0) {
+      const rows = await odoo.searchRead<Record<string, unknown>>(
+        'account.move', [['name', 'in', hd]], ['name', 'partner_id', 'state', 'amount_total'], { limit: hd.length },
+      );
+      for (const r of rows) ra.push(`${String(r.name)} → khách "${Array.isArray(r.partner_id) ? r.partner_id[1] : '?'}" · ${String(r.state)} · ${Number(r.amount_total ?? 0).toLocaleString('vi-VN')}đ`);
+    }
+  } catch (err) {
+    logger.warn({ err }, '[giam-sat] tra chủ đơn theo mã lỗi — bỏ qua');
+  }
+  return ra;
+}
+
 const phanQuyetDefinition: ToolDefinition = {
   name: 'phan_quyet',
   description: 'Phán quyết về bản nháp trả lời. LUÔN gọi tool này, không trả lời text.',
@@ -317,11 +379,19 @@ export async function giamSatTraLoi(
   const goc = dongChep.length > 0 ? botDongBiChep(lot.sach, dongChep) : lot.sach;
   const codeDaSua = goc !== vao.traLoi;
   const soLa = soLaTrongBanNhap(vao, goc);
+  const tenLech = tenKhachLech(vao.log, goc);
+  // Code tự tra chủ đơn theo mã trong bản nháp + output tool (không chờ model).
+  const bangChungMa = await bangChungTheoMa(
+    deps.odoo,
+    maDonTrong([goc, vao.cauNv, ...vao.log.map((l) => String(l.output ?? ''))].join('\n')),
+  );
   const goiY =
     (dongChep.length > 0 ? `\nCODE PHÁT HIỆN: bản nháp chép nguyên ${dongChep.length} dòng dặn-model từ output tool (đã lột).` : '') +
     (lot.daLot.length > 0 ? `\nCODE ĐÃ LỘT ${lot.daLot.length} đoạn độc thoại/nhại câu NV — bản nháp dưới đây là bản sau khi lột.` : '') +
     (lot.toanBoDocThoai ? '\nCODE PHÁT HIỆN: TOÀN BỘ bản nháp là độc thoại của model, chưa có câu trả lời cho nhân viên → ok=false, PHẢI viết tra_loi_sua từ output tool.' : '') +
-    (soLa.length > 0 ? `\nCODE PHÁT HIỆN mã/số tiền KHÔNG có trong output tool, câu NV hay lịch sử: ${soLa.join(', ')} → soi kỹ bia_so.` : '');
+    (soLa.length > 0 ? `\nCODE PHÁT HIỆN mã/số tiền KHÔNG có trong output tool, câu NV hay lịch sử: ${soLa.join(', ')} → soi kỹ bia_so.` : '') +
+    (tenLech.length > 0 ? `\nCODE PHÁT HIỆN: output tool nói tới khách "${tenLech.join('", "')}" nhưng bản nháp KHÔNG nhắc tên đó (bản nháp gán việc cho người khác?) → soi kỹ bia_so/hua_leo, đối chiếu bằng chứng dưới.` : '') +
+    (bangChungMa.length > 0 ? `\nBẰNG CHỨNG CODE ĐÃ TRA ODOO:\n${bangChungMa.map((b) => `- ${b}`).join('\n')}` : '');
   const userMessage =
     `LỊCH SỬ GẦN NHẤT:\n${hienLichSu(vao.lichSu)}\n\n` +
     `CÂU NHÂN VIÊN VỪA GỬI: "${vao.cauNv}"\n\n` +

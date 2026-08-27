@@ -4,7 +4,7 @@
 // danh sách số từ tool bị phán bia_so). Fixture = bản nháp THẬT 26/08.
 import { describe, it, expect, vi } from 'vitest';
 import {
-  lotDocThoai, soMaTrong, giuSoMaDung, soLaTrongBanNhap, giamSatTraLoi,
+  lotDocThoai, soMaTrong, giuSoMaDung, soLaTrongBanNhap, giamSatTraLoi, tenKhachLech, maDonTrong,
 } from '../../../src/modules/ai/agent/giam-sat.js';
 import type { AgentTurn } from '../../../src/modules/ai/agent/types.js';
 
@@ -83,6 +83,18 @@ describe('bản nháp TOÀN độc thoại (model chưa viết câu trả lời)
     expect(a.traLoiSua).toMatch(/CHƯA thực hiện được/);
     const b = await giamSatTraLoi(vi.fn(async () => turn({ ok: false, loi: ['lo_noi_bo'], tra_loi_sua: 'Dạ anh, hệ thống chưa có lợi nhuận theo từng khách ạ.' })), VAO);
     expect(b.traLoiSua).toBe('Dạ anh, hệ thống chưa có lợi nhuận theo từng khách ạ.');
+  });
+});
+
+describe('tên khách lệch / mã đơn (harness code-side)', () => {
+  it('tool "· Tấn Anh - Bình Định · 1.433.456đ" mà bản nháp nói QC Bách Phát → lệch; bản nháp có nhắc → không', () => {
+    const log = [{ toolName: 'in_hoa_don', input: {}, output: 'Đã xếp hàng in hoá đơn INV/2026/028301 (đơn S15274) · Tấn Anh - Bình Định · 1.433.456đ — bản KHÔNG GIÁ.', thanhCong: true, durationMs: 1, iteration: 1 }];
+    expect(tenKhachLech(log, 'Em đã xếp in đơn QC Bách Phát rồi ạ.')).toEqual(['Tấn Anh - Bình Định']);
+    expect(tenKhachLech(log, 'Em đã xếp in hoá đơn của anh Tấn Anh Bình Định ạ.')).toEqual([]);
+    expect(tenKhachLech([{ toolName: 'tao_don_nhap', input: {}, output: 'Đơn cho Anh Vũ Hải (KH000147): 8 × Nguồn', thanhCong: true, durationMs: 1, iteration: 1 }], 'Đã lên đơn cho Vũ Hải')).toEqual([]);
+  });
+  it('maDonTrong lấy S…/INV… không trùng, tối đa 4', () => {
+    expect(maDonTrong('in S15274 và s15274, hoá đơn INV/2026/028301, S1 không tính')).toEqual(['S15274', 'INV/2026/028301']);
   });
 });
 

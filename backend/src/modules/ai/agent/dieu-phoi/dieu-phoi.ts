@@ -129,8 +129,8 @@ const SYSTEM = [
   'Tên hàng ghi NGUYÊN VĂN (kể cả sai chính tả) — máy sẽ tra Odoo; đừng "sửa" tên.',
   'Nếu có tool CHỈ ĐỌC (tra_khach_hang, tra_san_pham): DÙNG khi tên khách/hàng có',
   'thể trùng nhiều người/nhiều loại hoặc giá chưa rõ — tra rồi ghi ô là da_co',
-  '(một kết quả) hay mo_ho (nhiều kết quả, ghiChu liệt kê ngắn). Tối đa 2 lượt',
-  'tra, rồi PHẢI gọi cap_nhat_phien.',
+  '(một kết quả) hay mo_ho (nhiều kết quả, ghiChu liệt kê ngắn). Được tra MỘT',
+  'lượt (gọi nhiều tool cùng lúc), rồi PHẢI gọi cap_nhat_phien.',
 ].join('\n');
 
 function hienLichSu(ls: DauVaoDieuPhoi['lichSu']): string {
@@ -241,7 +241,7 @@ export async function dieuPhoiPhien(
     const kiemChung = boToolKiemChung({ odoo: deps.odoo }).filter((t) => t.definition.name !== 'doc_odoo');
     const vong = await chayVongKiemChung({
       generate, system: SYSTEM, userMessage, kiemChung, toolCuoi: capNhatPhienDefinition,
-      toiDaVong: kiemChung.length > 0 ? 2 : 1, timeoutMs, maxTokens: 1200,
+      toiDaVong: 1, timeoutMs, maxTokens: 1200,
     });
     if (!vong.chot) {
       return { ...loi(vong.lyDo ?? 'model không gọi cap_nhat_phien'), bangChung: vong.bangChung, soVong: vong.soVong };
