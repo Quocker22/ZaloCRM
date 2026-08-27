@@ -52,6 +52,8 @@ export interface VaoVong {
   maxTokens?: number;
   /** Kết quả tool bị cắt còn chừng này ký tự (tool-result pruner). */
   tranKetQua?: number;
+  /** Bật suy nghĩ riêng ở các vòng thường (mặc định bật). Lượt ép chốt luôn tắt. */
+  suyNghi?: boolean;
 }
 
 export const TOI_DA_VONG_MAC_DINH = 3;
@@ -87,7 +89,7 @@ export async function chayVongKiemChung(vao: VaoVong): Promise<KetQuaVong> {
       vao.generate({
         system: vao.system, messages,
         tools: chiToolCuoi ? [vao.toolCuoi] : tools,
-        maxTokens: vao.maxTokens ?? 1200, suyNghi: !chiToolCuoi,
+        maxTokens: vao.maxTokens ?? 1200, suyNghi: !chiToolCuoi && vao.suyNghi !== false,
       }),
       new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`quá ${timeoutMs}ms`)), ms)),
     ]);

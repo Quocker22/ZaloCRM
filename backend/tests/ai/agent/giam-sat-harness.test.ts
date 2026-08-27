@@ -96,4 +96,29 @@ describe('giamSatTraLoi + harness', () => {
     expect(b.ok).toBe(false);
     expect(b.traLoiSua).toMatch(/NHẦM/);
   });
+
+  it('HAI TẦNG (27/08, deepseek 14–21s/lượt): không dấu hiệu → tầng nhanh TẮT reasoning, không tool, 1 lượt; tầng nhanh phán lỗi → mới nghĩ sâu (reasoning + tool)', async () => {
+    const VAO_SACH = {
+      cauNv: 'thêm VAT 8% nữa', lichSu: [],
+      log: [{ toolName: 'sua_vat', input: { don_id: 28251, phan_tram: 8 }, output: 'Đã thêm VAT 8% cho 1 dòng của đơn S15333. Tiền hàng 1.440.000đ + thuế 115.200đ = 1.555.200đ', thanhCong: true, durationMs: 300, iteration: 1 }],
+      traLoi: 'Đã thêm VAT 8% cho đơn S15333 của Anh Vũ Hải. Tiền hàng 1.440.000đ + thuế 115.200đ = tổng 1.555.200đ ạ.',
+    };
+    const searchRead = vi.fn(async () => [{ id: 28251, name: 'S15333', partner_id: [3405, 'Anh Vũ Hải'], state: 'sale', amount_total: 1555200 }]);
+    const g1 = vi.fn().mockResolvedValueOnce(turnTools([{ name: 'phan_quyet', input: { ok: true, loi: [] } }]));
+    const a = await giamSatTraLoi(g1, VAO_SACH, 5000, { odoo: { searchRead, execute: vi.fn() } as never });
+    expect(a.ok).toBe(true);
+    expect(a.nghiSau).toBe(false);
+    expect(g1).toHaveBeenCalledTimes(1);
+    expect(g1.mock.calls[0][0].suyNghi).toBe(false);
+    expect(g1.mock.calls[0][0].tools.map((t: { name: string }) => t.name)).toEqual(['phan_quyet']);
+    // Tầng nhanh phán lỗi → tầng sâu chạy với reasoning + tool chỉ-đọc, phán quyết tầng sâu thắng.
+    const g2 = vi.fn()
+      .mockResolvedValueOnce(turnTools([{ name: 'phan_quyet', input: { ok: false, loi: ['vong_lap'], tra_loi_sua: 'x' } }]))
+      .mockResolvedValueOnce(turnTools([{ name: 'phan_quyet', input: { ok: true, loi: [] } }]));
+    const b = await giamSatTraLoi(g2, VAO_SACH, 5000, { odoo: { searchRead, execute: vi.fn() } as never });
+    expect(b.nghiSau).toBe(true);
+    expect(b.ok).toBe(true);
+    expect(g2.mock.calls[1][0].suyNghi).toBe(true);
+    expect(g2.mock.calls[1][0].tools.length).toBeGreaterThan(1);
+  });
 });

@@ -50,6 +50,8 @@ export interface PhanQuyet {
   /** Harness: tool chỉ-đọc đã gọi để kiểm chứng trước khi phán. */
   bangChung?: BangChung[];
   soVong?: number;
+  /** true = có dấu hiệu/tầng nhanh phán lỗi → đã chạy tầng nghĩ sâu (reasoning + tool). */
+  nghiSau?: boolean;
 }
 
 export interface DauVaoGiamSat {
@@ -442,11 +444,33 @@ export async function giamSatTraLoi(
     // ai, khách có thật không, giá SP) rồi mới phan_quyet; reasoning bật, đầu
     // ra bắt buộc là tool. Không có tool → một lượt như cũ.
     const kiemChung = boToolKiemChung(deps);
-    const vong = await chayVongKiemChung({
+    // HAI TẦNG (đo 27/08 với deepseek-v4-flash): reasoning bật là 14–21s cho
+    // cả bản nháp ĐÚNG — không thể bắt mọi tin NV gánh. Tầng 1: gác NHANH
+    // tắt reasoning, 1 vòng, không tool (~2–4s). Chỉ khi code thấy dấu hiệu
+    // (độc thoại, số lạ, tên lệch, tool thất bại) HOẶC tầng 1 phán có lỗi →
+    // tầng 2: harness đầy đủ, reasoning bật, ≤2 vòng tool chỉ-đọc, phán
+    // quyết tầng 2 thắng. Đây là cách deepseek-harness dùng "nghĩ sâu": theo
+    // mục tiêu, khi cần, không phải mọi lúc.
+    const dauHieu = lot.daLot.length > 0 || dongChep.length > 0 || soLa.length > 0 || tenLech.length > 0
+      || vao.log.some((l) => !l.thanhCong);
+    const nghiSau = () => chayVongKiemChung({
       generate, system: SYSTEM, userMessage, kiemChung, toolCuoi: phanQuyetDefinition,
       toiDaVong: kiemChung.length > 0 ? 2 : 1, timeoutMs, maxTokens: 900,
     });
-    const doDac = { ...themDoDac, ...(vong.bangChung.length > 0 ? { bangChung: vong.bangChung } : {}), soVong: vong.soVong };
+    let canNghiSau = dauHieu;
+    let vong;
+    if (dauHieu) {
+      vong = await nghiSau();
+    } else {
+      const nhanh = await chayVongKiemChung({
+        generate, system: SYSTEM, userMessage, kiemChung: [], toolCuoi: phanQuyetDefinition,
+        toiDaVong: 1, timeoutMs: Math.min(6_000, timeoutMs), maxTokens: 700, suyNghi: false,
+      });
+      const nhanhOk = nhanh.chot != null && nhanh.chot.ok === true && (!Array.isArray(nhanh.chot.loi) || nhanh.chot.loi.length === 0);
+      if (nhanhOk) vong = nhanh;
+      else { canNghiSau = true; vong = await nghiSau(); }
+    }
+    const doDac = { ...themDoDac, ...(vong.bangChung.length > 0 ? { bangChung: vong.bangChung } : {}), soVong: vong.soVong, nghiSau: canNghiSau };
     if (!vong.chot) return { ...failOpen(vong.lyDo ?? 'model không gọi phan_quyet'), ...doDac };
     const raw = vong.chot;
     const bangChungChu = vong.bangChung.length > 0 ? ` | kiểm chứng: ${tomTatBangChung(vong.bangChung).replace(/\n/g, ' ; ').slice(0, 400)}` : '';
