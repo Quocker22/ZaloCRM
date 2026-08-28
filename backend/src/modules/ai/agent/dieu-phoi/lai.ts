@@ -83,6 +83,10 @@ export interface VaoLai {
   seq: number;
   cau: string;
   lichSu: DauVaoDieuPhoi['lichSu'];
+  /** Mặc định 'nhanvien'. 'khach' = khách tự đặt: không đặt giá, phải xác nhận trước khi ghi. */
+  vai?: PhienDon['vai'];
+  /** Vai khách: chính người đang chat là khách của đơn (tên Zalo, SĐT nếu có). */
+  khachHoiThoai?: { ten: string; sdt?: string };
 }
 
 export interface KetQuaLai {
@@ -124,6 +128,18 @@ const DAN_LAI = [
   '- Cách NV viết số: "400b" = 400 bóng, "10c" = 10 cái, "30b … x 5200" = 30 bóng giá 5200, "x 140k" = giá 140.000.',
   '  "4 bóng lixin", "2 bóng 2607", "3b 6214" là TÊN HỌ HÀNG (Led 2/3/4 bóng), không phải số lượng.',
   '- Hai ứng viên cùng khớp tên NV gõ, chỉ khác ở chi tiết NV KHÔNG nhắc (SMD/COB, 12V/24V…) → để spId trống để hỏi.',
+].join('\n');
+
+const DAN_KHACH = [
+  'BẠN ĐANG CẦM LÁI luồng KHÁCH TỰ ĐẶT HÀNG: người chat là khách lẻ/sỉ, không phải nhân viên.',
+  '- Có tool tim_sp: PHẢI tra TỪNG mặt hàng khách nêu chưa có spId. Một kết quả rõ → điền spId; nhiều → để trống (máy hỏi chọn).',
+  '- Khách trả lời câu chọn của bot ("a", "cái thứ 2", "loại 12V", tên hàng) → đối chiếu mục ĐÃ TRA ĐƯỢC / BOT ĐANG CHỜ CHỌN, điền id.',
+  '- KHÔNG có tool tim_khach: khách chính là người đang chat, máy tự gắn. Không hỏi khách "tên khách hàng".',
+  '- Khách nói giá ("lấy giá 100đ") → KHÔNG ghi donGia (giá theo hệ thống); ghi vào luu_y để sale biết.',
+  '- Khách hỏi giá/tư vấn/so sánh/"còn hàng không" mà CHƯA nói mua → y_dinh=hoi_gia hoặc hoi_ton, che=hoi_gia; máy để agent tư vấn.',
+  '- Khách nói "lấy N cái"/"đặt"/"mua" (kể cả sau khi hỏi giá) → y_dinh=dat_hang, che=dat_hang; hàng là món vừa bàn trong lịch sử.',
+  '- "ok"/"đúng rồi"/"chốt" khi bot đang chờ xác nhận đơn → y_dinh=xac_nhan. Trả lời "chuyển khoản"/"tiền mặt"/"COD" → thanhToan.',
+  '- Khách xin gặp sale/nhân viên → y_dinh=hoi_khac (máy chuyển).',
 ].join('\n');
 
 /* ───────────────────────── soát số trước khi ghi (model, không regex) ───────────────────────── */
@@ -283,6 +299,7 @@ export function duDeGhi(p: PhienDon, treo: UngVienConTreo): boolean {
   if (p.khach.trangThai !== 'da_co' || !p.khach.giaTri) return false;
   if (p.khach.giaTri.id == null && !p.khach.giaTri.moi) return false;
   if (p.dong.length === 0 || treo.sp.length > 0 || treo.khach) return false;
+  if (p.vai === 'khach' && p.thanhToan.trangThai !== 'da_co' && p.thanhToan.trangThai !== 'tu_choi') return false;
   return p.dong.every((d) => d.spId != null && d.soLuong.trangThai === 'da_co' && (d.soLuong.giaTri ?? 0) > 0
     && (d.tang || d.donGia.trangThai === 'da_co' || d.donGia.trangThai === 'tu_choi' || (d.giaOdoo ?? 0) > NGUONG_GIA_AO));
 }
@@ -309,11 +326,16 @@ export function soanCauHoi(p: PhienDon, treo: UngVienConTreo, canHoi: OCanHoi[])
     }
   }
   if (doan.length === 0) {
+    const khach = p.vai === 'khach';
     for (const c of canHoi.slice(0, 2)) {
       if (c.o === 'khach') doan.push(c.trangThai === 'mo_ho' && c.ghiChu ? `Khách là ai ạ? (${c.ghiChu})` : 'Đơn này lên cho khách nào ạ? (tên, SĐT hoặc mã KH)');
-      else if (c.o === 'dong') doan.push('Anh/chị cần lên hàng gì ạ? (tên sản phẩm + số lượng)');
-      else if (c.o === 'soLuong') doan.push(`Anh/chị lấy mấy cái ${c.dong ?? ''} ạ?${c.ghiChu ? ` (${c.ghiChu})` : ''}`);
-      else if (c.o === 'donGia') doan.push(`${c.dong ?? 'Món này'}: ${c.ghiChu ?? 'giá chưa rõ'} — anh/chị báo giá giúp em (vd: 13k/cái) ạ.`);
+      else if (c.o === 'dong') doan.push(khach ? 'Anh/chị muốn lấy sản phẩm nào ạ? (tên + số lượng)' : 'Anh/chị cần lên hàng gì ạ? (tên sản phẩm + số lượng)');
+      else if (c.o === 'soLuong') doan.push(`Anh/chị lấy bao nhiêu ${c.dong ?? ''} ạ?${c.ghiChu ? ` (${c.ghiChu})` : ''}`);
+      else if (c.o === 'donGia') doan.push(khach
+        ? `${c.dong ?? 'Món này'} em chưa có giá sẵn trên hệ thống ạ — em chuyển sale báo giá cho anh/chị ngay nhé.`
+        : `${c.dong ?? 'Món này'}: ${c.ghiChu ?? 'giá chưa rõ'} — anh/chị báo giá giúp em (vd: 13k/cái) ạ.`);
+      else if (c.o === 'thanhToan') doan.push('Anh/chị thanh toán chuyển khoản hay tiền mặt/COD ạ?');
+      else if (c.o === 'giaoHang') doan.push('Anh/chị nhận hàng ở đâu ạ (địa chỉ giao, hay lấy tại kho)?');
       else doan.push(`Anh/chị cho em biết ${c.o} ạ.${c.ghiChu ? ` (${c.ghiChu})` : ''}`);
     }
   }
@@ -321,12 +343,25 @@ export function soanCauHoi(p: PhienDon, treo: UngVienConTreo, canHoi: OCanHoi[])
 }
 
 function dongDon(p: PhienDon): DongDon[] {
+  const khach = p.vai === 'khach';
   return p.dong.map((d) => ({
     san_pham_id: d.spId!,
     so_luong: d.soLuong.giaTri!,
-    ...(d.tang ? { tang: true } : d.donGia.trangThai === 'da_co' && d.donGia.giaTri != null ? { don_gia: d.donGia.giaTri } : {}),
-    ...(d.chietKhauPhanTram ? { chiet_khau: d.chietKhauPhanTram } : {}),
+    // Khách KHÔNG được đặt giá / tặng / chiết khấu — giá theo hệ thống (luật cũ giữ nguyên).
+    ...(khach ? {} : d.tang ? { tang: true } : d.donGia.trangThai === 'da_co' && d.donGia.giaTri != null ? { don_gia: d.donGia.giaTri } : {}),
+    ...(!khach && d.chietKhauPhanTram ? { chiet_khau: d.chietKhauPhanTram } : {}),
   }));
+}
+
+/** Tóm tắt cho KHÁCH xác nhận trước khi ghi — giá hệ thống, không có giá khách nói. */
+export function tomTatChoKhach(p: PhienDon): string {
+  const dong = p.dong.map((d) => {
+    const sl = d.soLuong.giaTri ?? 0; const gia = d.giaOdoo ?? 0;
+    return `- ${d.tenOdoo ?? d.ten} x${sl}: ${tien(gia)}đ = ${tien(sl * gia)}đ`;
+  }).join('\n');
+  const tong = p.dong.reduce((s, d) => s + (d.soLuong.giaTri ?? 0) * (d.giaOdoo ?? 0), 0);
+  const tt = p.thanhToan.trangThai === 'da_co' ? ` Thanh toán: ${({ chuyen_khoan: 'chuyển khoản', cod: 'COD', cong_no: 'công nợ', tien_mat: 'tiền mặt' })[p.thanhToan.giaTri ?? 'tien_mat']}.` : '';
+  return `Dạ em ghi nhận đơn của mình:\n${dong}\nTỔNG: ${tien(tong)}đ.${tt}\nAnh/chị xác nhận để em lên đơn nhé? (trả lời "ok" hoặc sửa lại giúp em)`;
 }
 
 export function tomTatDon(p: PhienDon, maDon: string, tong: number, link: string, laSua: boolean): string {
@@ -383,7 +418,7 @@ async function ghiOdoo(deps: DepsLai, vao: VaoLai, p: PhienDon): Promise<string[
     ...(thue ? { thue_id: thue.id } : {}),
   };
   const t0 = Date.now();
-  const kq = await ghi.taoDon({ odoo: deps.odoo, conversationId: vao.conversationId, seq: vao.seq, choPhepDatGia: true, xacNhanGiaLech: true }, donVao);
+  const kq = await ghi.taoDon({ odoo: deps.odoo, conversationId: vao.conversationId, seq: vao.seq, choPhepDatGia: p.vai !== 'khach', xacNhanGiaLech: p.vai !== 'khach' }, donVao);
   deps.ghiLog({ toolName: 'tao_don_nhap', input: donVao, output: dinhDangTaoDon(kq, true), thanhCong: kq.trangThai !== 'loi', durationMs: Date.now() - t0, iteration: 0 });
   if (kq.trangThai === 'loi') { gui.push(`Không tạo được đơn: ${kq.lyDo}`); return gui; }
   if (kq.trangThai === 'da_ton_tai') {
@@ -398,9 +433,12 @@ async function ghiOdoo(deps: DepsLai, vao: VaoLai, p: PhienDon): Promise<string[
       if (hd?.anh) await deps.guiAnhHoaDon(hd.anh);
     } catch (err) { logger.warn({ err, donId: kq.donId }, '[lai] ảnh báo giá lỗi (vẫn gửi link)'); }
   }
-  gui.push(tomTatDon(p, kq.maDon, kq.tongTien, linkXuLyDon(deps.odooUrl, kq.donId), false));
+  gui.push(p.vai === 'khach'
+    ? `Dạ em đã lên đơn ${kq.maDon} cho mình, tổng ${tien(kq.tongTien)}đ. Bên em sẽ liên hệ xác nhận và giao hàng sớm ạ. Cảm ơn anh/chị!`
+    : tomTatDon(p, kq.maDon, kq.tongTien, linkXuLyDon(deps.odooUrl, kq.donId), false));
   p.donVuaLen = { donId: kq.donId, maDon: kq.maDon, tenKhach: k.ten, khachId: k.id!, luc: new Date().toISOString() };
   p.che = 'khong';
+  delete p.choXacNhan;
   return gui;
 }
 
@@ -410,7 +448,14 @@ const Y_DINH_VIEC_DON: YDinh[] = ['dat_hang', 'sua_don', 'nhap_hang', 'xac_nhan'
 
 export async function laiLuotNhanVien(deps: DepsLai, vao: VaoLai): Promise<KetQuaLai> {
   const t0 = Date.now();
-  const phienCu = await deps.docPhien(vao.conversationId);
+  const vai: PhienDon['vai'] = vao.vai ?? 'nhanvien';
+  const phienCu = { ...(await deps.docPhien(vao.conversationId)), vai };
+  // Vai KHÁCH: khách chính là người đang chat — gắn sẵn, không hỏi; giao hàng
+  // để shop tự liên hệ (tu_choi) — chỉ hỏi thanh toán.
+  if (vai === 'khach') {
+    if (phienCu.khach.trangThai === 'thieu' && vao.khachHoiThoai) phienCu.khach = { trangThai: 'da_co', giaTri: { ten: vao.khachHoiThoai.ten, ...(vao.khachHoiThoai.sdt ? { sdt: vao.khachHoiThoai.sdt } : {}), moi: true } };
+    if (phienCu.giaoHang.trangThai === 'thieu') phienCu.giaoHang = { trangThai: 'tu_choi' };
+  }
   const bc = phienCu.bangChung ?? bangChungTrong();
   const dangHoi = phienCu.dangHoi;
   const moTaDangHoi = dangHoi
@@ -427,7 +472,8 @@ export async function laiLuotNhanVien(deps: DepsLai, vao: VaoLai): Promise<KetQu
     deps.timeoutMs ?? TIMEOUT_LAI_MS,
     { odoo: deps.odoo },
     {
-      kiemChung: boToolTim(hamTim(deps), bc), toiDaVong: 3, maxTokens: 1500, systemThem: DAN_LAI, tranKetQua: 2500,
+      kiemChung: vai === 'khach' ? boToolTim(hamTim(deps), bc).filter((t) => t.definition.name === 'tim_sp') : boToolTim(hamTim(deps), bc),
+      toiDaVong: 3, maxTokens: 1500, systemThem: vai === 'khach' ? DAN_KHACH : DAN_LAI, tranKetQua: 2500,
       ...(dangHoi ? { nhacSauTin: '→ XÉT TRƯỚC: tin này có phải câu trả lời cho mục "BOT ĐANG CHỜ NV CHỌN" không (số thứ tự, chữ cái, tên hay biến thể tên một ứng viên)? Nếu có: điền đúng id ứng viên đó, y_dinh=dat_hang, KHÔNG tra lại, KHÔNG coi là hỏi thông tin.' } : {}),
     },
   );
@@ -485,7 +531,14 @@ export async function laiLuotNhanVien(deps: DepsLai, vao: VaoLai): Promise<KetQu
   if (kq.yDinh === 'xac_nhan' && p.donVuaLen && p.che !== 'sua_don') {
     daGui.push(`Đơn ${p.donVuaLen.maDon} của ${p.donVuaLen.tenKhach} đã lên rồi ạ. Cần sửa gì anh/chị nhắn "sửa đơn ..." nhé.`);
   } else if (duDeGhi(p, treo)) {
-    daGui.push(...await ghiOdoo(deps, vao, p));
+    // KHÁCH: phải xác nhận tóm tắt (giá hệ thống) trước khi ghi Odoo — cổng
+    // xác nhận là trạng thái phiên (choXacNhan), không phải đọc chữ.
+    if (p.vai === 'khach' && !(p.choXacNhan && kq.yDinh === 'xac_nhan')) {
+      p.choXacNhan = true;
+      daGui.push(tomTatChoKhach(p));
+    } else {
+      daGui.push(...await ghiOdoo(deps, vao, p));
+    }
   } else {
     const canHoi = oConThieu(p);
     const cau = soanCauHoi(p, treo, canHoi);
