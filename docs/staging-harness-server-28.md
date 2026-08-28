@@ -217,6 +217,43 @@ Test: `backend/tests/ai/agent/dieu-phoi/*.test.ts` (tiêm `tim`/`ghi` giả, `ki
 
 ---
 
+## 9b. RAG & bộ nhớ của bot (chép nguyên từ prod, nằm trong DB staging)
+
+Tất cả nằm trong DB CRM (`zalo-stg-db`, chép từ dump prod) + volume ảnh + Redis. Không có pgvector, không có dịch vụ vector ngoài.
+
+### Tri thức (RAG) — `backend/src/modules/ai/knowledge/`
+
+| Thành phần | Ở đâu | Số liệu 28/08 | Ghi chú |
+|---|---|---|---|
+| Tài liệu | bảng `knowledge_documents` (`title`, `source`, `content`) | 112 tài liệu | gồm 93 PDF datasheet nạp từ file Zalo (24/08), tài liệu chữ, và 1 tài liệu `source='sheet-muc-luc'` |
+| Chunk + vector | bảng `knowledge_chunks` (`content`, `embedding Float[]`, `embed_provider/model/dim`) | 1.292 chunk, 3.072 chiều: 1.080 `gemini-embedding-001` + 212 `bge-m3` (đợt cũ) | vector là `double precision[]`, cosine tính trong Node (`cosine.ts`, `rank.ts`) |
+| Embedding | `ai_configs`: `embed_provider=gemini`, `embed_model=gemini-embedding-001`, `embed_base_url=https://generativelanguage.googleapis.com`; khoá `EMBED_API_KEY` trong `.env` | | Gemini quota theo **phút** → 429 thì chờ ~65s; đổi provider = đổi số chiều = phải nạp lại toàn bộ |
+| Tìm kiếm | `knowledge-service.ts#searchKnowledge` | top-k | **hybrid**: vector + khớp từ khoá, trộn xen kẽ 2 vector : 1 lexical; embed lỗi → rơi về lexical-only, không câm |
+| Cờ org | `ai_configs`: `kb_enabled=t`, `auto_reply_enabled=t`, `auto_reply_confidence_threshold=0.5`, `guideline_engine_mode=off` | | luồng khách dùng `rag-reply.ts` (một lượt, KB nhồi prompt) song song với agent tool |
+| Nạp | `POST /api/v1/ai/knowledge {title, content}` (JWT) hoặc script nạp file Zalo | | `ingestDocument` embed fail → đẻ tài liệu mồ côi 0 chunk; kiểm bằng `SELECT d.id FROM knowledge_documents d LEFT JOIN knowledge_chunks c ON c.document_id=d.id GROUP BY d.id HAVING count(c.id)=0` |
+| Mục lục SP | `knowledge_documents` `source='sheet-muc-luc'` (`muc-luc.ts`) | | sinh **tất định** từ Google Sheet (nguồn sự thật thông số + ảnh) bằng `scripts/dong-bo-sheet.mjs` (chạy trong container: `docker exec zalo-stg-app node scripts/dong-bo-sheet.mjs`); nhét vào prompt mọi lượt để trả lời câu tổng hợp "shop có những dòng nào" |
+| Kho file gửi được | **bảng `messages`** `content_type='file'` (`kho-tai-lieu.ts`) — không bảng riêng | | datasheet NV gửi vào nhóm là gửi lại được ngay; lọc bảng giá nội bộ ở code trước khi tool thấy; file tải về tmp trong container |
+| Ảnh SP | volume `zalocrm-staging_product_images` → `/app/product-images` + `_kb_match.json` (`product-image.ts`) | 252 file (đã `docker cp` từ prod 28/08) | chỉ gửi khi câu trả lời nhắc đúng 1 SP có ảnh |
+
+### Bộ nhớ (những gì bot "học"/nhớ)
+
+| Bộ nhớ | Ở đâu | Số liệu | Cơ chế |
+|---|---|---|---|
+| **Luật NV dặn** | bảng `ai_guidelines` `vai='nhanvien'` (`luat-nhan-vien.ts`) | 46 luật | NV nói "từ giờ…" → tool `ghi_luat`/`quen_luat`; mỗi lượt nạp tối đa **900 ký tự** (~15–20 luật), luật > 200 ký tự bị coi là bịa; lọc luật rỗng nghĩa; `guideline_match_logs` = 0 vì engine match `off` |
+| **Alias SP học được** | bảng `sp_alias` (`ten_goi` bỏ dấu → `product_id`, `dem_dung`, `locked`) (`sp-alias.ts`) | 43 alias | học khi NV chọn từ danh sách gần đúng; không học tên chung ("a" chọn màu); admin sửa tay → `locked=1`, bot không đè |
+| **Phiên gom đơn (đường cũ)** | bảng `phien_gom_don` (hạn 15') | | máy gom đơn regex — staging không dùng khi `AI_DIEU_PHOI=lai` |
+| **Phiên cầm lái** | Redis `zalo-stg-redis` key `dieu-phoi:phien:<conversationId>` (TTL 30') | | object phiên (mục 9) + bằng chứng tra cứu + đơn vừa lên + đang chờ chọn |
+| **Khoá việc / hàng đợi** | Redis (khoá theo hội thoại + nội dung) | | chống 2 lượt xử cùng một tin |
+| **Lịch sử hội thoại** | bảng `conversations`, `messages` (`layLichSu`) | 31 hội thoại / ~3.5k tin gắn cho nick test | ngữ cảnh cho agent + con điều phối; đây là dữ liệu training/test anh Quốc yêu cầu giữ |
+| **Nhật ký quyết định** | bảng `tool_call_logs` (`vai`: `nhanvien`/`khach`/`giam_sat`/`dieu_phoi`) | | mọi tool, giám sát, điều phối ghi vào đây → đo 4 chỉ số bot |
+| Danh sách NV | bảng NV của org (`agent-operator-service.ts`, `laNhanVienSync`) | | quyết ai đi luồng NV |
+
+### Đồng bộ lại các thứ trên từ prod
+- Luật NV, alias, tài liệu, chunk, mục lục, lịch sử: **đều nằm trong dump prod** → chạy lại mục 6 (rồi mục 7 gắn lịch sử). Khoá `EMBED_API_KEY`/`ENCRYPTION_KEY` chép sẵn nên vector cũ đọc được ngay.
+- Ảnh SP: `docker cp zalo-crm-app:/app/product-images /tmp/pi && docker cp /tmp/pi/. zalo-stg-app:/app/product-images/`.
+- Mục lục sheet: chạy `dong-bo-sheet.mjs` trong container staging (cần khoá Google Sheet trong env — chép từ prod).
+- Phiên Redis không cần chép (sống 30').
+
 ## 10. Replay trên dữ liệu thật (không gửi Zalo, không ghi Odoo)
 
 Cách kiểm nhanh nhất một thay đổi: chạy driver trong container tạm với `dist` mới, Odoo đọc thật, ghi giả lập. Script mẫu ở scratchpad phiên trước: `replay-lai.mjs` (NV, 7 kịch bản 27/08) và `replay-lai-khach.mjs` (hội thoại khách 27–28/08). Khung:
