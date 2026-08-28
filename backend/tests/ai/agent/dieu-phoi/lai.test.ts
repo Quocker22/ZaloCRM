@@ -272,25 +272,30 @@ describe('cầm lái — hàng rào DỮ LIỆU (không đọc chữ)', () => {
     expect(a.kho.get('k1')!.khach.giaTri).toMatchObject({ ten: 'Viết Quốc', moi: true });
     expect(a.deps.generate).toBeDefined();
     expect(g1.goi[0].tools.map((t) => t.name)).toEqual(['tim_sp', 'cap_nhat_phien']); // khách không có tim_khach
-    // Lượt 2: "b" → model điền spId 12 → còn thiếu thanh toán → hỏi
+    // Lượt 2: "b" → model điền spId 12 → đủ hàng → TÓM TẮT (giá hệ thống) + hỏi xác nhận & thanh toán gộp, CHƯA ghi
     a.deps.generate = modelGia([goiTool('cap_nhat_phien', { y_dinh: 'dat_hang', che: 'dat_hang', dong: [{ ten: 'module p10', spId: 12, soLuong: { trangThai: 'da_co', giaTri: 100 }, donGia: { trangThai: 'thieu' } }] })]);
     kq = await laiLuotNhanVien(a.deps, { ...vao, seq: 2, cau: 'b', lichSu: [] });
+    expect(a.tin[1]).toContain('120.000');
+    expect(a.tin[1]).toContain('xác nhận');
     expect(a.tin[1]).toContain('thanh toán');
     expect(a.taoDon).not.toHaveBeenCalled();
-    // Lượt 3: "chuyển khoản" → đủ → tóm tắt chờ xác nhận, CHƯA ghi
+    expect(a.kho.get('k1')!.choXacNhan).toBe(true);
+    // Lượt 3: "chuyển khoản" khi đang chờ xác nhận = xác nhận + thanh toán → ghi, không don_gia
     a.deps.generate = modelGia([goiTool('cap_nhat_phien', { y_dinh: 'dat_hang', che: 'dat_hang', thanhToan: { trangThai: 'da_co', giaTri: 'chuyen_khoan' } })]);
     kq = await laiLuotNhanVien(a.deps, { ...vao, seq: 3, cau: 'chuyển khoản', lichSu: [] });
-    expect(a.tin[2]).toContain('xác nhận');
-    expect(a.tin[2]).toContain('120.000');
-    expect(a.taoDon).not.toHaveBeenCalled();
-    expect(a.kho.get('k1')!.choXacNhan).toBe(true);
-    // Lượt 4: "ok" → ghi, không don_gia
-    a.deps.generate = modelGia([goiTool('cap_nhat_phien', { y_dinh: 'xac_nhan', che: 'dat_hang' })]);
-    kq = await laiLuotNhanVien(a.deps, { ...vao, seq: 4, cau: 'ok', lichSu: [] });
     expect(a.taoDon).toHaveBeenCalledTimes(1);
     expect((a.taoDon.mock.calls[0][0] as { choPhepDatGia: boolean }).choPhepDatGia).toBe(false);
     expect((a.taoDon.mock.calls[0][1] as { dong: unknown[] }).dong).toEqual([{ san_pham_id: 12, so_luong: 100 }]);
     expect(a.taoKhach).toHaveBeenCalledTimes(1);
-    expect(a.tin[3]).toContain('đã lên đơn S99001');
+    expect(a.tin[2]).toContain('đã lên đơn S99001');
+    // Khách đang DẠO: câu tư vấn không đổi dòng; đặt món cụ thể khác → bỏ dòng cũ chưa khớp
+    const b = dungDeps(modelGia([goiTool('cap_nhat_phien', { y_dinh: 'hoi_gia', che: 'hoi_gia', dong: [{ ten: 'bóng ốp lon', soLuong: { trangThai: 'thieu' }, donGia: { trangThai: 'thieu' } }] })]), timGia([], {}));
+    const pb = phienTrong('khach'); pb.che = 'dat_hang'; pb.dong = [{ ten: 'module p10', soLuong: { trangThai: 'da_co', giaTri: 100 }, donGia: { trangThai: 'thieu' } }];
+    b.kho.set('k2', pb);
+    await laiLuotNhanVien(b.deps, { ...vao, conversationId: 'k2', cau: 'bóng ốp lon', lichSu: [] });
+    expect(b.kho.get('k2')!.dong.map((d) => d.ten)).toEqual(['module p10']);
+    b.deps.generate = modelGia([goiTool('cap_nhat_phien', { y_dinh: 'dat_hang', che: 'dat_hang', dong: [{ ten: 'module p10', soLuong: { trangThai: 'da_co', giaTri: 100 }, donGia: { trangThai: 'thieu' } }, { ten: 'Nguồn Đũa 12V24W-2A', soLuong: { trangThai: 'da_co', giaTri: 100 }, donGia: { trangThai: 'thieu' } }] })]);
+    await laiLuotNhanVien(b.deps, { ...vao, conversationId: 'k2', cau: 'Nguồn Đũa 12V24W-2A tôi lấy 100 cái', lichSu: [] });
+    expect(b.kho.get('k2')!.dong.map((d) => d.ten)).toEqual(['Nguồn Đũa 12V24W-2A']);
   });
 });

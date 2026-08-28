@@ -138,6 +138,8 @@ const DAN_KHACH = [
   '- Khách nói giá ("lấy giá 100đ") → KHÔNG ghi donGia (giá theo hệ thống); ghi vào luu_y để sale biết.',
   '- Khách hỏi giá/tư vấn/so sánh/"còn hàng không" mà CHƯA nói mua → y_dinh=hoi_gia hoặc hoi_ton, che=hoi_gia; máy để agent tư vấn.',
   '- Khách nói "lấy N cái"/"đặt"/"mua" (kể cả sau khi hỏi giá) → y_dinh=dat_hang, che=dat_hang; hàng là món vừa bàn trong lịch sử.',
+  '- dong = CHỈ những món khách đang MUA. Món khách chỉ hỏi/dạo qua rồi chuyển chủ đề thì KHÔNG đưa vào dong.',
+  '  Khách nêu một món cụ thể để mua ("Nguồn Đũa 12V24W-2A tôi lấy 100 cái") → dong chỉ còn món đó (trừ khi khách nói "thêm").',
   '- "ok"/"đúng rồi"/"chốt" khi bot đang chờ xác nhận đơn → y_dinh=xac_nhan. Trả lời "chuyển khoản"/"tiền mặt"/"COD" → thanhToan.',
   '- Khách xin gặp sale/nhân viên → y_dinh=hoi_khac (máy chuyển).',
 ].join('\n');
@@ -299,7 +301,7 @@ export function duDeGhi(p: PhienDon, treo: UngVienConTreo): boolean {
   if (p.khach.trangThai !== 'da_co' || !p.khach.giaTri) return false;
   if (p.khach.giaTri.id == null && !p.khach.giaTri.moi) return false;
   if (p.dong.length === 0 || treo.sp.length > 0 || treo.khach) return false;
-  if (p.vai === 'khach' && p.thanhToan.trangThai !== 'da_co' && p.thanhToan.trangThai !== 'tu_choi') return false;
+  // (khách: thanh toán hỏi gộp trong tóm tắt xác nhận — xem laiLuotNhanVien)
   return p.dong.every((d) => d.spId != null && d.soLuong.trangThai === 'da_co' && (d.soLuong.giaTri ?? 0) > 0
     && (d.tang || d.donGia.trangThai === 'da_co' || d.donGia.trangThai === 'tu_choi' || (d.giaOdoo ?? 0) > NGUONG_GIA_AO));
 }
@@ -361,7 +363,8 @@ export function tomTatChoKhach(p: PhienDon): string {
   }).join('\n');
   const tong = p.dong.reduce((s, d) => s + (d.soLuong.giaTri ?? 0) * (d.giaOdoo ?? 0), 0);
   const tt = p.thanhToan.trangThai === 'da_co' ? ` Thanh toán: ${({ chuyen_khoan: 'chuyển khoản', cod: 'COD', cong_no: 'công nợ', tien_mat: 'tiền mặt' })[p.thanhToan.giaTri ?? 'tien_mat']}.` : '';
-  return `Dạ em ghi nhận đơn của mình:\n${dong}\nTỔNG: ${tien(tong)}đ.${tt}\nAnh/chị xác nhận để em lên đơn nhé? (trả lời "ok" hoặc sửa lại giúp em)`;
+  const hoi = p.thanhToan.trangThai === 'da_co' ? 'Anh/chị xác nhận để em lên đơn nhé? (trả lời "ok" hoặc sửa lại giúp em)' : 'Anh/chị xác nhận đơn và cho em biết thanh toán chuyển khoản hay tiền mặt/COD ạ?';
+  return `Dạ em ghi nhận đơn của mình:\n${dong}\nTỔNG: ${tien(tong)}đ.${tt}\n${hoi}`;
 }
 
 export function tomTatDon(p: PhienDon, maDon: string, tong: number, link: string, laSua: boolean): string {
@@ -469,11 +472,11 @@ export async function laiLuotNhanVien(deps: DepsLai, vao: VaoLai): Promise<KetQu
   const kq: KetQuaDieuPhoi = await dieuPhoiPhien(
     deps.generate,
     { phien: phienCu, cauMoi: vao.cau, lichSu: vao.lichSu, ...(nguCanh ? { nguCanh } : {}) },
-    deps.timeoutMs ?? TIMEOUT_LAI_MS,
+    deps.timeoutMs ?? (vai === 'khach' ? 30_000 : TIMEOUT_LAI_MS),
     { odoo: deps.odoo },
     {
       kiemChung: vai === 'khach' ? boToolTim(hamTim(deps), bc).filter((t) => t.definition.name === 'tim_sp') : boToolTim(hamTim(deps), bc),
-      toiDaVong: 3, maxTokens: 1500, systemThem: vai === 'khach' ? DAN_KHACH : DAN_LAI, tranKetQua: 2500,
+      toiDaVong: vai === 'khach' ? 2 : 3, maxTokens: 1500, systemThem: vai === 'khach' ? DAN_KHACH : DAN_LAI, tranKetQua: 2500,
       ...(dangHoi ? { nhacSauTin: '→ XÉT TRƯỚC: tin này có phải câu trả lời cho mục "BOT ĐANG CHỜ NV CHỌN" không (số thứ tự, chữ cái, tên hay biến thể tên một ứng viên)? Nếu có: điền đúng id ứng viên đó, y_dinh=dat_hang, KHÔNG tra lại, KHÔNG coi là hỏi thông tin.' } : {}),
     },
   );
@@ -490,6 +493,19 @@ export async function laiLuotNhanVien(deps: DepsLai, vao: VaoLai): Promise<KetQu
 
   const p = kq.phien;
   p.bangChung = bc;
+  // KHÁCH đang DẠO (hỏi giá/tư vấn/hỏi tồn/tán gẫu) → không nhận thay đổi dòng
+  // hàng: replay 28/08 "bóng ốp lon" (trả lời câu tư vấn) bị đưa vào đơn rồi
+  // đeo bám mọi lượt sau. Dòng chỉ vào object khi khách nói MUA.
+  if (vai === 'khach' && !['dat_hang', 'sua_don', 'xac_nhan'].includes(kq.yDinh)) {
+    p.dong = phienCu.dong; p.che = phienCu.che;
+  }
+  // KHÁCH đặt món CỤ THỂ (tin mới đem dòng đã có spId hoặc tên mới) → bỏ các
+  // dòng CŨ chưa bao giờ khớp được SP (chưa spId) — đó là món đã dạo qua rồi bỏ.
+  if (vai === 'khach' && kq.yDinh === 'dat_hang') {
+    const tenCu = new Set(phienCu.dong.map((d) => d.ten.trim().toLowerCase()));
+    const coMonMoi = p.dong.some((d) => !tenCu.has(d.ten.trim().toLowerCase()));
+    if (coMonMoi) p.dong = p.dong.filter((d) => d.spId != null || !tenCu.has(d.ten.trim().toLowerCase()));
+  }
   // Ý định là việc đơn thì chế độ phiên phải khớp (replay S1: model trả
   // y_dinh=dat_hang nhưng che=khong → máy tưởng không phải việc đơn).
   if (kq.yDinh === 'dat_hang' && p.che !== 'sua_don') p.che = 'dat_hang';
@@ -524,7 +540,8 @@ export async function laiLuotNhanVien(deps: DepsLai, vao: VaoLai): Promise<KetQu
   // 3 model bỏ mất "giá 150K" rồi máy đi hỏi giá — soát trước thì điền lại
   // được và khỏi hỏi. Chỉ soát khi lượt này model có đụng tới dòng.
   const modelDungDong = JSON.stringify(p.dong.map((d) => [d.ten, d.soLuong.giaTri, d.donGia.giaTri, d.tang])) !== JSON.stringify(phienCu.dong.map((d) => [d.ten, d.soLuong.giaTri, d.donGia.giaTri, d.tang]));
-  if (deps.kiemSo !== false && p.dong.length > 0 && modelDungDong) await soatSoTruocKhiGhi(deps, vao, p);
+  // Khách: giá theo hệ thống, không có "x 5200"/"400b" kiểu NV → bỏ lượt soát số cho nhanh.
+  if (deps.kiemSo !== false && vai !== 'khach' && p.dong.length > 0 && modelDungDong) await soatSoTruocKhiGhi(deps, vao, p);
   danhDauGiaThieu(p);
 
   const daGui: string[] = [];
@@ -533,9 +550,12 @@ export async function laiLuotNhanVien(deps: DepsLai, vao: VaoLai): Promise<KetQu
   } else if (duDeGhi(p, treo)) {
     // KHÁCH: phải xác nhận tóm tắt (giá hệ thống) trước khi ghi Odoo — cổng
     // xác nhận là trạng thái phiên (choXacNhan), không phải đọc chữ.
-    if (p.vai === 'khach' && !(p.choXacNhan && kq.yDinh === 'xac_nhan')) {
+    const vuaChonThanhToan = phienCu.thanhToan.trangThai !== 'da_co' && p.thanhToan.trangThai === 'da_co';
+    if (p.vai === 'khach' && !(p.choXacNhan && (kq.yDinh === 'xac_nhan' || vuaChonThanhToan))) {
       p.choXacNhan = true;
       daGui.push(tomTatChoKhach(p));
+    } else if (p.vai === 'khach' && p.thanhToan.trangThai !== 'da_co' && p.thanhToan.trangThai !== 'tu_choi') {
+      daGui.push('Anh/chị thanh toán chuyển khoản hay tiền mặt/COD ạ? Em lên đơn ngay sau đó.');
     } else {
       daGui.push(...await ghiOdoo(deps, vao, p));
     }
