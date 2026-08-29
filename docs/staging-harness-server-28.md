@@ -186,12 +186,13 @@ docker cp /tmp/nelia_prod.dump incokit_db_prod:/tmp/ && docker exec incokit_db_p
 # tắt cron + mail để dev không tự chạy/gửi mail, khoá base url
 docker exec incokit_db_prod psql -U odoo -d nelia_test -c "UPDATE ir_cron SET active=false; UPDATE ir_mail_server SET active=false; UPDATE fetchmail_server SET active=false; UPDATE ir_config_parameter SET value='https://led.incokit.com' WHERE key='web.base.url';"
 # filestore + addon
-docker run --rm -v incokit_odoo_data_prod:/v -v /tmp:/t alpine sh -c 'rm -rf /v/filestore/nelia_test && tar xzf /t/nelia_fs.tgz -C /v/filestore && mv /v/filestore/nelia_prod /v/filestore/nelia_test && chown -R 100:101 /v/filestore/nelia_test'
+docker run --rm -v incokit_odoo_data_prod:/v -v /tmp:/t alpine sh -c 'rm -rf /v/filestore/nelia_test && tar xzf /t/nelia_fs.tgz -C /v/filestore && mv /v/filestore/nelia_prod /v/filestore/nelia_test && chown -R 101:101 /v/filestore/nelia_test'
 cd /opt/incokit/custom_addons && mv incokit_pos incokit_pos.bak-$(date +%Y%m%d) && tar xzf /tmp/incokit_pos.tgz
 docker start incokit_odoo_prod
 ```
 
 Kiểm: từ container staging `layOdoo().searchRead('res.users',[['login','=','bot_zalo']])` phải trả id 18.
+**Filestore phải thuộc user odoo của container (`docker exec incokit_odoo_prod id` → uid 101)** — 29/08 chown nhầm 100:101 → Odoo không ghi được bundle assets → `/web` **màn hình trắng**, log `PermissionError … filestore/nelia_test/checklist`. Sửa: `docker run --rm -v incokit_odoo_data_prod:/v alpine chown -R 101:101 /v/filestore/nelia_test` rồi restart.
 Lỗi log `res_users.incokit_must_change_password does not exist` là cron của DB `incokit` (tổ chức khác, có từ trước) — bỏ qua.
 
 ---
