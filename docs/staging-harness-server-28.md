@@ -16,7 +16,7 @@ Cập nhật lần cuối: 28/08/2026.
 | Container | `zalo-crm-app/db/redis/minio` | `zalo-stg-app/db/redis/minio/minio-init` |
 | Cổng app | 3080 → https://zalocrm.incokit.com | **3081 → https://bot.vantaiminhthuc.com** |
 | Odoo | `.45` = `100.78.104.45`, DB `nelia_prod`, https://quyetanh.com | `.28` container `incokit_odoo_prod`, DB **`nelia_test`**, https://led.incokit.com |
-| Nick Zalo bot | Tiểu Mã Nelia (uid 630640428799521839) | **Vận Tải Minh Thức** (uid 619833576870383279) |
+| Nick Zalo bot | Tiểu Mã Nelia (uid 630640428799521839) | **Vận Tải Minh Thức** (uid 619833576870383279) — lịch sử riêng, không chép từ Nelia |
 | Công tắc | `AI_DIEU_PHOI=bong` (chạy bóng) | **`AI_DIEU_PHOI=lai`** |
 
 Luật vàng: **mọi thứ có chữ `zalo-crm-*`, `zalocrm-zalo-xayzqq`, `quyetanh.com`, `nelia_prod`, `.45` là PROD.** Staging chỉ động vào `zalo-stg-*`, `/opt/zalocrm-staging`, `nelia_test`, `led.incokit.com`.
@@ -43,7 +43,7 @@ Luật vàng: **mọi thứ có chữ `zalo-crm-*`, `zalocrm-zalo-xayzqq`, `quye
 ├─ seed-db.sh                  # (bản cũ) chép DB prod vào staging — xem mục 6 cách đúng
 ├─ start.sh / stop.sh          # bật/tắt app staging (start.sh còn dừng bot Minh Thức cũ)
 ├─ fix-prod-zalo.sql           # SQL sửa tai nạn quét QR nhầm prod 28/08 (tham khảo)
-├─ relink.sql                  # gắn lịch sử Nelia sang nick test (mục 7)
+├─ relink.sql                  # (đã bỏ dùng) relink lịch sử — xem bài học mục 7
 ├─ prod.sql                    # dump DB CRM prod gần nhất
 └─ backup-zalo-accounts-*.sql  # backup bảng zalo_accounts + conversations prod trước khi sửa
 ```
@@ -151,20 +151,20 @@ docker compose -p zalocrm-staging -f docker-compose.staging.yml start app
 ```
 
 **Cấm `DELETE FROM zalo_accounts`**: FK `conversations.zalo_account_id` ON DELETE CASCADE → xoá sạch hội thoại + tin.
-Sau khi chép lại, phải **gắn lại lịch sử** cho nick test (mục 7) vì nick test có id riêng.
+Sau khi chép lại, **xoá hội thoại/tin của các nick prod** (mục 7) — không gắn sang nick test.
 
 Luôn dùng `docker exec -i` khi đưa SQL qua stdin; thiếu `-i` psql không nhận gì và **im lặng không chạy**.
 
 ---
 
-## 7. Nick Zalo test & lịch sử
+## 7. Nick Zalo test — KHÔNG chép lịch sử chat từ nick khác
 
-- Nick: **Vận Tải Minh Thức** (uid `619833576870383279`), đăng nhập bằng quét QR tại https://bot.vantaiminhthuc.com → Cài đặt → Tài khoản Zalo → *Kết nối kênh* (tài khoản web: `demo@shop.vn`, mật khẩu như prod). Trong DB staging hiện là dòng `d952cf36-12c9-48cf-b9dc-cf89ff5fda25`.
-- **Không dùng nút "Quét lại QR" trên thẻ nick khác**, và **không quét ở zalocrm.incokit.com** (prod) — 28/08 đã ghi đè nhầm nick Nelia, phải hoán đổi lại bằng `fix-prod-zalo.sql`.
-- Lịch sử Tiểu Mã Nelia (31 hội thoại, ~3.5k tin) đã gắn sang nick test bằng `relink.sql`: dồn tin của hội thoại trùng `external_thread_id`, rồi `UPDATE conversations SET zalo_account_id=<id nick test>`. Unique `(zalo_account_id, external_thread_id)` nên phải gộp trước khi đổi.
-- Nhận diện nhân viên: bảng NV của org (chép từ prod) — anh Quốc và NV thật nhắn 1-1 cho nick test là đi **luồng NV**; trong nhóm phải tag bot (`@Vận Tải Minh Thức`). Người lạ nhắn = luồng khách.
-
----
+- Nick test: **Vận Tải Minh Thức** (uid `619833576870383279`), quét QR tại https://bot.vantaiminhthuc.com → Cài đặt → Tài khoản Zalo → *Kết nối kênh* (web login `demo@shop.vn`, mật khẩu như prod). Dòng DB staging: `d952cf36-12c9-48cf-b9dc-cf89ff5fda25`.
+- **Không dùng "Quét lại QR" trên thẻ nick khác; không quét ở zalocrm.incokit.com (prod)** — 28/08 đã ghi đè nhầm nick Nelia, phải hoán đổi lại bằng `fix-prod-zalo.sql` (`zalo_uid` có unique index → đặt uid tạm trước).
+- **Bài học 29/08 — ID người trong chat 1-1 là ID theo từng nick nhìn thấy** (Trần Hưng = `1520…` dưới mắt Nelia, `3835…` dưới mắt Minh Thức). Chép hội thoại 1-1 của Nelia sang nick Minh Thức (relink `zalo_account_id`) làm bot trả lời vào thread vô nghĩa → Zalo `Tham số không hợp lệ [114]` cho mọi lệnh gửi/typing/xem hồ sơ. ID **nhóm** thì toàn cục nên nhóm vẫn chạy. Anh Quốc chốt: **hai nick không liên quan thì không đồng bộ lịch sử** — đã xoá sạch 31 hội thoại/3.5k tin chép từ Nelia khỏi nick test (29/08 17:49). Lịch sử Nelia để training vẫn có trong `prod.sql` và DB prod.
+- Nick test tự đồng bộ hội thoại của chính nó khi có tin mới (backfill khi kết nối). Muốn xoá trắng lại: `DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE zalo_account_id='<id nick>'); DELETE FROM conversations WHERE zalo_account_id='<id nick>';` rồi `docker restart zalo-stg-app`.
+- Nhận diện NV: bảng NV của org (chép từ prod). NV nhắn **1-1** cho nick test (từ Zalo cá nhân, hai nick phải là bạn) → luồng NV, không cần tag; trong **nhóm** phải tag `@Vận Tải Minh Thức`. Không tạo được hội thoại 1-1 từ phía CRM web trước — tin đầu phải đi từ điện thoại vào.
+- Ảnh cũ trong lịch sử trỏ `http://100.107.48.28:3080/files/media/…` (host prod) → không hiện trên domain staging, chỉ là cosmetic.
 
 ## 8. Odoo staging (`nelia_test`) — đồng bộ từ prod
 
@@ -244,12 +244,12 @@ Tất cả nằm trong DB CRM (`zalo-stg-db`, chép từ dump prod) + volume ả
 | **Phiên gom đơn (đường cũ)** | bảng `phien_gom_don` (hạn 15') | | máy gom đơn regex — staging không dùng khi `AI_DIEU_PHOI=lai` |
 | **Phiên cầm lái** | Redis `zalo-stg-redis` key `dieu-phoi:phien:<conversationId>` (TTL 30') | | object phiên (mục 9) + bằng chứng tra cứu + đơn vừa lên + đang chờ chọn |
 | **Khoá việc / hàng đợi** | Redis (khoá theo hội thoại + nội dung) | | chống 2 lượt xử cùng một tin |
-| **Lịch sử hội thoại** | bảng `conversations`, `messages` (`layLichSu`) | 31 hội thoại / ~3.5k tin gắn cho nick test | ngữ cảnh cho agent + con điều phối; đây là dữ liệu training/test anh Quốc yêu cầu giữ |
+| **Lịch sử hội thoại** | bảng `conversations`, `messages` (`layLichSu`) | nick test tự đồng bộ hội thoại của chính nó | ngữ cảnh cho agent + con điều phối; lịch sử Nelia để training nằm trong `prod.sql`/DB prod, KHÔNG chép sang nick khác (mục 7) |
 | **Nhật ký quyết định** | bảng `tool_call_logs` (`vai`: `nhanvien`/`khach`/`giam_sat`/`dieu_phoi`) | | mọi tool, giám sát, điều phối ghi vào đây → đo 4 chỉ số bot |
 | Danh sách NV | bảng NV của org (`agent-operator-service.ts`, `laNhanVienSync`) | | quyết ai đi luồng NV |
 
 ### Đồng bộ lại các thứ trên từ prod
-- Luật NV, alias, tài liệu, chunk, mục lục, lịch sử: **đều nằm trong dump prod** → chạy lại mục 6 (rồi mục 7 gắn lịch sử). Khoá `EMBED_API_KEY`/`ENCRYPTION_KEY` chép sẵn nên vector cũ đọc được ngay.
+- Luật NV, alias, tài liệu, chunk, mục lục: **đều nằm trong dump prod** → chạy lại mục 6 (lịch sử chat của Nelia thì không chép sang nick test — mục 7). Khoá `EMBED_API_KEY`/`ENCRYPTION_KEY` chép sẵn nên vector cũ đọc được ngay.
 - Ảnh SP: `docker cp zalo-crm-app:/app/product-images /tmp/pi && docker cp /tmp/pi/. zalo-stg-app:/app/product-images/`.
 - Mục lục sheet: chạy `dong-bo-sheet.mjs` trong container staging (cần khoá Google Sheet trong env — chép từ prod).
 - Phiên Redis không cần chép (sống 30').
@@ -310,4 +310,5 @@ docker compose -p zalocrm-staging -f docker-compose.staging.yml up -d app
 ## 13. Lịch sử thay đổi
 
 - 27/08: tách nhánh `feat/dieu-phoi-cam-lai`; driver `lai.ts`; 11 commit; replay NV 7 kịch bản ×2 lần đúng 100% object ghi Odoo.
-- 28/08: mode khách trong driver (chưa nối luồng); dựng staging `/opt/zalocrm-staging`; tai nạn quét QR nhầm prod và cách sửa (`fix-prod-zalo.sql`); trỏ bot.vantaiminhthuc.com → 3081; đồng bộ Odoo prod → `nelia_test`; gắn lịch sử Nelia sang nick test.
+- 28/08: mode khách trong driver (chưa nối luồng); dựng staging `/opt/zalocrm-staging`; tai nạn quét QR nhầm prod và cách sửa (`fix-prod-zalo.sql`); trỏ bot.vantaiminhthuc.com → 3081; đồng bộ Odoo prod → `nelia_test`.
+- 29/08: phát hiện ID 1-1 theo từng nick → bỏ relink lịch sử, xoá sạch hội thoại chép từ Nelia khỏi nick test; nhóm chạy OK, 1-1 phải bắt đầu từ điện thoại.
