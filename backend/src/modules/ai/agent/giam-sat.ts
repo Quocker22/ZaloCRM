@@ -129,6 +129,11 @@ const DOC_THOAI = [
   /^(Tuy nhiên|Nhưng),? (tin|câu|yêu cầu) (này|mới|đó)/iu,
   /^Cần (hỏi lại|làm rõ|xác nhận) (để|với|xem)/iu,
   /(?:^|\s)ý (nhân viên|NV|người dùng)\b/iu,
+  // Prod 10:59 28/08 — bản SỬA của giám sát rò: "Người đang nhắn là khách (@Quyết
+  // Bx) chứ không phải nhân viên… nhưng tôi là trợ lý bán hàng cho nhân viên SALE".
+  /^Người (đang|vừa|này|gửi)\b/iu,
+  /(?:^|\s)(tôi|em|mình) là (trợ lý|bot|AI|mô hình)\b/iu,
+  /(?:^|\s)(nhân viên|NV) (bán hàng )?nội bộ\b/iu,
 ];
 
 function laDoanDocThoai(doan: string): boolean {
