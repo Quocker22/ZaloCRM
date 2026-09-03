@@ -21,6 +21,18 @@ export function dieuPhoiDangBat(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.AI_DIEU_PHOI !== '0';
 }
 
+/**
+ * Chế độ điều phối (nhánh cầm lái 27/08): 'lai' = con điều phối cầm lái luồng
+ * NV (máy gom đơn regex KHÔNG chạy); 'bong' = chạy bóng như cũ; '0' = tắt.
+ * Đổi bằng env, không cần deploy — sai là về 'bong' trong một phút.
+ */
+export function cheDieuPhoi(env: NodeJS.ProcessEnv = process.env): 'lai' | 'bong' | '0' {
+  const v = (env.AI_DIEU_PHOI ?? 'bong').trim().toLowerCase();
+  if (v === '0' || v === 'off' || v === 'tat') return '0';
+  if (v === 'lai' || v === 'cam_lai' || v === '2') return 'lai';
+  return 'bong';
+}
+
 export interface VaoBong {
   orgId: string;
   conversationId: string;
