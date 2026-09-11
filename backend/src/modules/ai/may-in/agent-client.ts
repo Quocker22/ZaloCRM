@@ -39,7 +39,7 @@ export class AgentClient implements ClientMayIn {
 
   constructor(
     private readonly registry: AgentRegistry,
-    private readonly orgId: string,
+    private readonly token: string,
     private readonly cfg: AgentClientConfig,
   ) {}
 
@@ -53,7 +53,7 @@ export class AgentClient implements ClientMayIn {
     };
     let kq;
     try {
-      kq = await this.registry.guiJob(this.orgId, job);
+      kq = await this.registry.guiJob(this.token, job);
     } catch (err) {
       throw this.phanLoaiLoi(err);
     }
@@ -84,7 +84,7 @@ export class AgentClient implements ClientMayIn {
 
   private taoJobId(): string {
     this.demJob += 1;
-    return `${this.orgId}-${Date.now()}-${this.demJob}`;
+    return `${this.token}-${Date.now()}-${this.demJob}`;
   }
 
   private phanLoaiLoi(err: unknown): Error {

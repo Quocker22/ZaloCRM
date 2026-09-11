@@ -35,6 +35,7 @@ export const CONTEXT_EDITING_MAC_DINH: ContextManagementConfig = {
   ],
 };
 
+import type { PrintAgent } from '@prisma/client';
 import type { OdooClient } from '../odoo/client.js';
 import {
   traSanPham, traSanPhamDefinition, dinhDangSanPham,
@@ -214,6 +215,12 @@ export interface StaffAgentDeps {
    * thì bot không được hứa in (nếp gui_tai_lieu).
    */
   themJobIn?: ThemJobInHoaDon;
+  /**
+   * Danh sách máy in khả dụng (nhiều máy theo chi nhánh, Task 3). KHÔNG
+   * truyền → in_hoa_don vẫn hoạt động như trước (agentToken để trống, cron
+   * coi null = máy mặc định) — thiếu deps này KHÔNG được chặn việc in.
+   */
+  layDanhSachMayIn?: () => Promise<PrintAgent[]>;
   /** Tra tài liệu kỹ thuật (bảo hành, IP, công suất) — thứ Odoo không có. */
   timDoanTriThuc?: (cauHoi: string, soDoan: number) => Promise<Array<{ content: string; score?: number }>>;
   /**
@@ -407,6 +414,8 @@ export function buildStaffRegistry(deps: {
   odooUrl?: string;
   /** Xếp hoá đơn vào hàng in máy in shop. Không có → in_hoa_don KHÔNG đăng ký. */
   themJobIn?: ThemJobInHoaDon;
+  /** Máy in khả dụng theo chi nhánh (Task 3) — không có thì in_hoa_don vẫn chạy, agentToken để trống. */
+  layDanhSachMayIn?: () => Promise<PrintAgent[]>;
   /** Nguyên câu NV lượt này — hàng rào cuối của in_hoa_don (không qua LLM). */
   cauNv?: string;
   /** Nhận ảnh để caller đính kèm vào tin Zalo. */
@@ -1017,6 +1026,9 @@ export function buildStaffRegistry(deps: {
               conversationId: deps.conversationId,
               themJob,
               cauNv: deps.cauNv,
+              // Nhiều máy in theo chi nhánh (Task 3) — không có thì inHoaDon tự
+              // rơi về hành vi cũ (agentToken để trống).
+              layDanhSachMayIn: deps.layDanhSachMayIn,
               // Đơn chưa có hoá đơn → xuất trước rồi in; idempotent trong xuatHoaDon.
               xuatHoaDon: (inp) =>
                 xuatHoaDon(
@@ -1125,6 +1137,7 @@ export async function chayLenhNhanVien(
     anhClient: deps.anhClient,
     odooUrl: deps.odooUrl,
     themJobIn: deps.themJobIn,
+    layDanhSachMayIn: deps.layDanhSachMayIn,
     cauNv: lenh.noiDung,
     timDoanTriThuc: deps.timDoanTriThuc,
     lietTaiLieu: deps.lietTaiLieu,

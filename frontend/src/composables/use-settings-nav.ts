@@ -133,6 +133,8 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
       { id: 'ai-assistant', label: 'Trợ lý AI', icon: 'mdi-robot-outline', route: '/settings/crm/ai-assistant', permission: 'admin', resource: 'settings', aliases: ['ai', 'tro ly', 'virtual chat', 'gemini', 'prompt'] },
       { id: 'agent-operators', label: 'Nhân viên sai bot', icon: 'mdi-account-cog-outline', route: '/settings/crm/agent-operators', permission: 'admin', resource: 'settings', aliases: ['sai bot', 'nhân viên bot', 'uid nhân viên', 'operator', 'agent operator', 'quyền bot'] },
       { id: 'agent-notify', label: 'Người nhận thông báo', icon: 'mdi-bell-cog-outline', route: '/settings/crm/agent-notify', permission: 'admin', resource: 'settings', aliases: ['nhận thông báo', 'báo nhân viên', 'báo sale', 'nơi nhận', 'khách cần hỗ trợ', 'thread bao sale', 'notify'] },
+      // Máy in nhiều chi nhánh (Task 7, 10/09) — admin gen token cho app print-agent-rs.
+      { id: 'print-agents', label: 'Máy in', icon: 'mdi-printer', route: '/settings/crm/print-agents', permission: 'admin', resource: 'settings', aliases: ['máy in', 'print', 'in hoá đơn', 'token máy in', 'chi nhánh in'] },
       { id: 'api', label: 'API & Webhook', icon: 'mdi-api', route: '/settings/dev/api', permission: 'owner', resource: 'webhook', aliases: ['webhook', 'api key', 'dev'] },
     ],
   },

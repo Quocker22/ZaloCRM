@@ -4453,10 +4453,33 @@ model PrintJob {
   /// job-id máy in cấp qua IPP — chìa khoá xác minh trước khi nghĩ tới in lại.
   ippJobId       Int?      @map("ipp_job_id")
   loiCuoi        String?   @map("loi_cuoi")
+  /// Token của print_agents (máy in) đích cho job này — Task 3 (nhiều máy in
+  /// theo chi nhánh) ghi khi tạo job; null = job cũ trước tính năng này, cron
+  /// (Task 5) coi null = máy mặc định để tương thích ngược.
+  agentToken     String?   @map("agent_token")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
   @@index([trangThai, createdAt])
   @@index([orgId, createdAt])
   @@map("print_jobs")
+}
+
+/// Nhiều máy in theo chi nhánh (gen token ZaloCRM) — mỗi dòng 1 máy in đã đăng
+/// ký. warehouseIds = danh sách kho máy này phục vụ (HN ôm [2,4], HCM=[3]);
+/// laMacDinh = máy nhận đơn không khớp kho nào (đúng 1 máy = true, hiện = HN).
+/// token là bí mật gen ngẫu nhiên (randomBytes(32).base64url) — máy dán vào app,
+/// server tra token này để định tuyến job (agent-ws.ts, Task 4).
+model PrintAgent {
+  id           String   @id @default(cuid())
+  orgId        String   @map("org_id")
+  ten          String
+  token        String   @unique
+  warehouseIds Int[]    @map("warehouse_ids")
+  laMacDinh    Boolean  @default(false) @map("la_mac_dinh")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([orgId])
+  @@map("print_agents")
 }

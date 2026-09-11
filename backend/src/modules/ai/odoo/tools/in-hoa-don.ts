@@ -8,11 +8,13 @@
 // KHÁC xuat_hoa_don: cái đó GHI Odoo (xác nhận đơn + vào sổ lấy số). Tool này
 // chỉ in tờ giấy của hoá đơn ĐÃ vào sổ. Đơn chưa có hoá đơn → chỉ đường sang
 // xuat_hoa_don, không tự ý xuất (ghi ERP phải là quyết định rõ ràng của NV).
+import type { PrintAgent } from '@prisma/client';
 import type { OdooClient } from '../client.js';
 import type { ToolDefinition } from '../../agent/types.js';
 import { IDEMPOTENCY_PREFIX } from '../idempotency.js';
 import { REPORT_HOA_DON, type KetQuaXuatHoaDon } from './xuat-hoa-don.js';
 import { HAU_TO_KHONG_GIA, type ThamSoThemJob } from '../../may-in/hang-doi-in.js';
+import { chonMayIn, boTuChiNhanh } from '../../may-in/chon-may-in.js';
 import { traKhachHang, laMaKh, type KhachHang } from './tra-khach-hang.js';
 import { tenKhopKhach } from './tao-don-nhap.js';
 
@@ -37,8 +39,18 @@ export interface InHoaDonDeps {
    * NGUYÊN CÂU nhân viên nhắn — caller (staff-agent) đưa vào, KHÔNG qua LLM,
    * nên model không bịa được. Là hàng rào cuối: thứ NV nêu đích danh trong
    * câu (tên khách/mã) phải nằm trên đơn sắp in. Xem `kiemCauNvKhopDon`.
+   *
+   * Cũng là lời override chi nhánh in cho chonMayIn (Task 3, vd "in đơn HCM
+   * cho anh Hùng") — cùng một câu, hai công dụng, đọc bằng CODE cả hai.
    */
   cauNv?: string;
+  /**
+   * Danh sách máy in khả dụng (nhiều máy theo chi nhánh, Task 3). KHÔNG
+   * truyền → chưa cấu hình nhiều máy / cấu hình cũ: agentToken để trống,
+   * job xử lý theo đường mặc định cũ (Task 5 coi null = máy mặc định) —
+   * KHÔNG được chặn việc in vì thiếu deps này.
+   */
+  layDanhSachMayIn?: () => Promise<PrintAgent[]>;
 }
 
 /**
@@ -72,6 +84,14 @@ function chuanSo(s: string): string {
  * thứ NV nêu đích danh (sau khi bỏ từ đệm) phải xuất hiện trên đơn — tên
  * khách, mã đơn, số hoá đơn. Không nêu gì ("in đơn", "in lại") → cho qua.
  * Trả lý do từ chối, hoặc null nếu khớp.
+ *
+ * MIỄN TOKEN CHI NHÁNH (Task 3b, ca "in đơn HCM"): "hcm"/"hn" trong câu NV là
+ * lời ÉP CHI NHÁNH IN cho `chonMayIn` (tầng 1, override lời NV), KHÔNG phải
+ * tên khách — 2 cơ chế đọc CÙNG một `cauNv` nên phải thống nhất, nếu không
+ * hàng rào chủ đơn triệt tiêu chính override nó đang đọc chung câu. Loại cụm
+ * chi nhánh (`boTuChiNhanh`, nguồn DUY NHẤT ở chon-may-in.ts — KHÔNG khai lại
+ * ở đây) khỏi câu TRƯỚC khi tách token so khớp; token khách THẬT không nằm
+ * trong cụm chi nhánh (vd "Lan") vẫn phải khớp như cũ.
  */
 export function kiemCauNvKhopDon(
   cauNv: string,
@@ -87,7 +107,10 @@ export function kiemCauNvKhopDon(
   // Nêu đúng mã đơn / số hoá đơn → chính là đơn đó, khỏi so tên.
   if (maDon && cs.includes(maDon)) return null;
   if (soHd && cs.includes(soHd)) return null;
-  const neu = cs.split(' ').filter((t) => t.length >= 2 && !/^\d+$/.test(t) && !TU_DEM_IN.has(t));
+  // Loại cụm chi nhánh TRƯỚC khi tách token: "hcm"/"hn" là chỉ định nơi in,
+  // không phải thứ NV "nêu đích danh" cần khớp chủ đơn.
+  const csLoc = boTuChiNhanh(cs);
+  const neu = csLoc.split(' ').filter((t) => t.length >= 2 && !/^\d+$/.test(t) && !TU_DEM_IN.has(t));
   if (neu.length === 0) return null;
   const tren = ` ${chuanSo(don.tenKhach)} ${maDon} ${soHd} `;
   const lech = neu.filter((t) => !tren.includes(t));
@@ -110,8 +133,41 @@ export type KetQuaInHoaDon =
     }
   | { trangThai: 'loi'; lyDo: string };
 
-const FIELDS_DON = ['id', 'name', 'state', 'amount_total', 'partner_id', 'invoice_ids'];
+const FIELDS_DON = ['id', 'name', 'state', 'amount_total', 'partner_id', 'invoice_ids', 'warehouse_id'];
 const FIELDS_HD = ['id', 'name', 'state', 'amount_total', 'move_type', 'partner_id'];
+
+/** many2one Odoo trả [id, "tên"] hoặc id thẳng (đôi khi false khi rỗng) — chuẩn hoá về number|null. */
+function layWarehouseId(don: Record<string, unknown> | null | undefined): number | null {
+  const w = don?.warehouse_id;
+  if (w == null || w === false) return null;
+  const n = Array.isArray(w) ? Number(w[0]) : Number(w);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Task 3: chọn máy in đích cho hoá đơn — tra kho hoá đơn (đơn gốc sale.order)
+ * rồi gọi chonMayIn (Task 2, override lời NV + tầng kho + mặc định). HN KHÔNG
+ * được gián đoạn: thiếu deps.layDanhSachMayIn HOẶC chonMayIn ném lỗi (DB tra
+ * máy in hỏng, chưa seed máy mặc định…) → trả undefined, job vẫn tạo, cron
+ * (Task 5) coi agentToken null = máy mặc định.
+ */
+async function chonAgentTokenAnToan(
+  deps: InHoaDonDeps,
+  don: Record<string, unknown> | null | undefined,
+): Promise<string | undefined> {
+  if (!deps.layDanhSachMayIn) return undefined;
+  try {
+    const may = await chonMayIn(
+      { layDanhSachMayIn: deps.layDanhSachMayIn },
+      { warehouseId: layWarehouseId(don), cauNv: deps.cauNv ?? '' },
+    );
+    return may.token;
+  } catch {
+    // Lỗi tra kho/cấu hình máy in không được chặn việc in — job cứ xếp hàng,
+    // Task 5 tự về máy mặc định khi agentToken null.
+    return undefined;
+  }
+}
 
 /** Tìm đơn theo id → mã → đơn mới nhất của hội thoại (cùng nếp xuat_hoa_don). */
 async function timDon(
@@ -215,6 +271,10 @@ export async function inHoaDon(
     let hoaDon: Record<string, unknown> | null = null;
     let maDon = '';
     let tenKhach = '';
+    // Đơn gốc (sale.order) — dùng để tra warehouse_id -> chọn máy in (Task 3).
+    // Đường "so_hoa_don trực tiếp" (INV/...) không đi qua sale.order nên có
+    // thể vẫn null — chonAgentTokenAnToan xử lý null (rơi về máy mặc định).
+    let donChoChonMay: Record<string, unknown> | null = null;
 
     // Khách NV nêu tên — vừa là đường tìm đơn, vừa là HÀNG RÀO chủ đơn.
     const khachNeu = input.khach?.trim() ?? '';
@@ -274,6 +334,7 @@ export async function inHoaDon(
         };
       }
       if (don) {
+        donChoChonMay = don;
         maDon = String(don.name ?? '');
         tenKhach = Array.isArray(don.partner_id) ? String(don.partner_id[1] ?? '') : '';
         // HÀNG RÀO CHỦ ĐƠN: model đưa ma_don/don_id mà đơn đó không phải của
@@ -304,11 +365,13 @@ export async function inHoaDon(
           if (kqX.trangThai === 'loi') {
             return { trangThai: 'loi', lyDo: `Không xuất được hoá đơn để in: ${kqX.lyDo}` };
           }
+          const agentToken = await chonAgentTokenAnToan(deps, donChoChonMay);
           await deps.themJob({
             conversationId: deps.conversationId,
             hoaDonId: kqX.hoaDonId,
             soHoaDon: kqX.soHoaDon,
             report: `${REPORT_HOA_DON}${duoi}`,
+            ...(agentToken !== undefined ? { agentToken } : {}),
           });
           return {
             trangThai: 'da_xep_hang', soHoaDon: kqX.soHoaDon, maDon: kqX.maDon,
@@ -354,6 +417,7 @@ export async function inHoaDon(
       if (kqX.tenKhach) tenKhach = kqX.tenKhach;
     }
 
+    const agentToken = await chonAgentTokenAnToan(deps, donChoChonMay);
     await deps.themJob({
       conversationId: deps.conversationId,
       hoaDonId,
@@ -361,6 +425,7 @@ export async function inHoaDon(
       // MẶC ĐỊNH KHÔNG GIÁ (anh Quyết 10:08 26/08: "in đơn đều là in đơn không
       // giá") — tờ in cho kho soạn hàng; NV nói rõ "in có giá" mới in giá.
       report: `${REPORT_HOA_DON}${duoi}`,
+      ...(agentToken !== undefined ? { agentToken } : {}),
     });
     return { trangThai: 'da_xep_hang', soHoaDon, maDon, tenKhach, tongTien, coGia };
   } catch (err) {

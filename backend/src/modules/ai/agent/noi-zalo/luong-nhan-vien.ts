@@ -375,6 +375,7 @@ async function xuLyTinNhanVienTuanTu(ctx: NgữCanhTin): Promise<boolean> {
           ? {
               themJobIn: ((p) =>
                 themJobVaoHangIn(prisma as unknown as PrismaHangDoiIn, { ...p, orgId: ctx.orgId })) satisfies ThemJobInHoaDon,
+              layDanhSachMayIn: () => prisma.printAgent.findMany({ where: { orgId: ctx.orgId } }),
             }
           : {}),
         // Link cho NGƯỜI bấm — phải là domain công khai, không phải hostname

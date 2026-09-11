@@ -157,6 +157,8 @@ const routes: RouteRecordRaw[] = [
       { path: 'crm/ai-assistant',      name: 'Settings.AiAssistant',     component: () => import('@/views/settings/AiAssistantPage.vue'), meta: { resource: 'settings' } },
       { path: 'crm/agent-operators',   name: 'Settings.AgentOperators',  component: () => import('@/views/settings/AgentOperatorsPage.vue'), meta: { resource: 'settings' } },
       { path: 'crm/agent-notify',      name: 'Settings.AgentNotify',     component: () => import('@/views/settings/AgentNotifyTargetsPage.vue'), meta: { resource: 'settings' } },
+      // Máy in nhiều chi nhánh (Task 7, 10/09) — admin gen token cho app print-agent-rs.
+      { path: 'crm/print-agents',      name: 'Settings.PrintAgents',     component: () => import('@/views/settings/PrintAgentsPage.vue'), meta: { resource: 'settings' } },
       // 🔌 Channels & Integrations
       { path: 'channels/zalo',             name: 'Settings.ZaloAccounts',    component: () => import('@/views/ZaloAccountsView.vue'), meta: { resource: 'zalo_account' } },
       // 2026-06-18 — Trần SDK dời sang Cài đặt (gate 'settings', KHÔNG 'zalo_account') → sale ko đổi được.

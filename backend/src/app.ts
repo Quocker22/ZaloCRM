@@ -308,6 +308,10 @@ async function bootstrap() {
   // AI_AGENT_THREAD_BAO_SALE. Bảng rỗng thì vẫn chạy bằng env như cũ.
   const { registerAgentNotifyRoutes } = await import('./modules/ai/agent/agent-notify-routes.js');
   await app.register(registerAgentNotifyRoutes, { prefix: '/api/v1/agent-notify-targets' });
+
+  // Máy in nhiều chi nhánh (Task 6, 10/09) — admin CRUD + gen token print_agents.
+  const { registerPrintAgentRoutes } = await import('./modules/ai/may-in/print-agent-routes.js');
+  await app.register(registerPrintAgentRoutes, { prefix: '/api/v1/may-in-agents' });
   const { registerTuSoiRoutes } = await import('./modules/ai/agent/tu-soi/routes.js');
   await app.register(registerTuSoiRoutes);
   await app.register(scoringRoutes);

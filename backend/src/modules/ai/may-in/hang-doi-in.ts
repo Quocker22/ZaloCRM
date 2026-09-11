@@ -29,6 +29,14 @@ export interface JobIn {
   lanThu: number;
   ippJobId: number | null;
   loiCuoi: string | null;
+  /**
+   * Token của print_agents (máy in) đích cho job này — Task 3 ghi lúc tạo
+   * job (tra kho hoá đơn → chonMayIn). Task 5: cron đọc field này để resolve
+   * ĐÚNG client cho từng job (xem DepsChayLuot.chonClient). null = job cũ
+   * trước tính năng nhiều chi nhánh, hoặc tra kho fail lúc tạo job — coi như
+   * máy MẶC ĐỊNH (tương thích ngược, HN không gián đoạn).
+   */
+  agentToken: string | null;
 }
 
 /** Bề mặt Prisma tối thiểu — nhận cả PrismaClient thật lẫn bản giả trong test. */
@@ -59,6 +67,13 @@ export interface ThamSoThemJob {
   hoaDonId: number;
   soHoaDon: string;
   report: string;
+  /**
+   * Token của print_agents (máy in) đích — Task 3 (nhiều máy in theo chi
+   * nhánh): in-hoa-don.ts tra kho hoá đơn rồi gọi chonMayIn trước khi xếp
+   * hàng. Không truyền/undefined → cột agent_token = null, cron (Task 5) coi
+   * null = máy mặc định (tương thích job cũ, HN không gián đoạn).
+   */
+  agentToken?: string;
 }
 
 /** Xếp một hoá đơn vào hàng in. Không đụng máy in — cron lo. */
@@ -72,6 +87,7 @@ export async function themJobIn(prisma: PrismaHangDoiIn, p: ThamSoThemJob): Prom
       report: p.report,
       trangThai: 'cho_in',
       lanThu: 0,
+      agentToken: p.agentToken ?? null,
     },
   });
 }
@@ -98,12 +114,43 @@ export interface ClientMayIn {
 
 export interface DepsChayLuot {
   prisma: PrismaHangDoiIn;
-  client: ClientMayIn;
+  /**
+   * ĐƯỜNG CŨ (trước Task 5) — 1 client dùng chung cho MỌI job, bất kể
+   * agentToken. Giữ lại CHỈ để tương thích ngược với test/gọi nơi khác chưa
+   * cập nhật; nếu `chonClient` có mặt thì `chonClient` LUÔN thắng.
+   */
+  client?: ClientMayIn;
+  /**
+   * ĐƯỜNG MỚI (Task 5, "cron gửi job theo máy đích") — factory resolve
+   * client THEO agentToken của TỪNG job, để job HN đi máy HN, job HCM đi máy
+   * HCM, không còn 1 AgentClient duy nhất cho mọi job (khác cron.ts trước
+   * Task 5). Hợp đồng:
+   *   - agentToken null (job cũ / tra kho fail) → trả client máy MẶC ĐỊNH.
+   *   - agentToken có giá trị nhưng máy đó chưa từng biết tới / cấu hình sai
+   *     → được phép trả null: xuLyMotJob() coi như "chưa gửi được gì", GIỮ
+   *     cho_in, KHÔNG bao giờ rơi về máy khác (anh Quốc chốt: sai địa chỉ
+   *     còn tệ hơn chưa in). Phân biệt với "máy có nhưng ĐANG offline" — ca
+   *     đó vẫn trả một ClientMayIn (vd AgentClient(registry, token, cfg)),
+   *     và chính ClientMayIn đó ném AgentKhongOnline/LoiIpp(guiDuoc=false)
+   *     khi gọi inPdf — hai đường đều KẾT THÚC ở cùng một chỗ (catch LoiIpp
+   *     bên dưới → cho_in, lanThu+1), nên cron.ts nên ưu tiên đường thứ hai
+   *     (luôn trả client thật, để lỗi rõ + lanThu tăng, dễ quan sát bằng
+   *     loiCuoi) — factory trả null chỉ dùng khi THẬT SỰ không biết máy nào.
+   */
+  chonClient?: (agentToken: string | null) => ClientMayIn | null;
   /** Tải PDF hoá đơn từ Odoo (HoaDonAnhClient.taiPdf). */
   taiPdf: (hoaDonId: number, report: string) => Promise<Buffer>;
   /** Trần job mỗi lượt — vòng nền không được biến thành trận in ồ ạt. */
   gioiHan?: number;
   onLoi?: (jobId: string, err: unknown) => void;
+}
+
+/** Job không resolve được client nào (agentToken lạ / máy chưa cấu hình). */
+class KhongCoClient extends Error {
+  constructor(token: string | null) {
+    super(`không tìm được client máy in cho agentToken=${token ?? 'null'}`);
+    this.name = 'KhongCoClient';
+  }
 }
 
 /**
@@ -126,6 +173,20 @@ export async function chayMotLuotIn(deps: DepsChayLuot): Promise<void> {
   }
 }
 
+/**
+ * Resolve client cho MỘT job cụ thể — tách riêng để xuLyMotJob() kiểm được
+ * "có máy nào để gửi không" TRƯỚC khi tải PDF/đánh dấu dang_gui (rẻ, không
+ * đụng Odoo lẫn máy in cho một job biết chắc chưa gửi được).
+ *
+ * `chonClient` (Task 5, đường mới) LUÔN thắng nếu có mặt. `client` (đường cũ)
+ * chỉ dùng khi KHÔNG có `chonClient` — tương thích test/gọi nơi khác chưa cập
+ * nhật theo agentToken (coi như "1 máy cho mọi job", đúng hành vi trước Task 5).
+ */
+function resolveClient(deps: DepsChayLuot, job: JobIn): ClientMayIn | null {
+  if (deps.chonClient) return deps.chonClient(job.agentToken ?? null);
+  return deps.client ?? null;
+}
+
 async function xuLyMotJob(deps: DepsChayLuot, job: JobIn): Promise<void> {
   // Job đã từng chạm máy in (crash giữa chừng, timeout…) → CHỈ xác minh.
   if (job.trangThai !== 'cho_in') {
@@ -138,6 +199,17 @@ async function xuLyMotJob(deps: DepsChayLuot, job: JobIn): Promise<void> {
       where: { id: job.id },
       data: { trangThai: 'loi', loiCuoi: `Quá ${MAX_LAN_THU} lần thử: ${job.loiCuoi ?? 'không rõ'}` },
     });
+    return;
+  }
+
+  // Resolve client TRƯỚC khi đụng Odoo/máy in — không biết gửi đi đâu thì
+  // GIỮ NGUYÊN cho_in (KHÔNG tăng lanThu: đây không phải "máy từ chối", là
+  // "chưa từng biết máy này" — vd agentToken lạ, cấu hình sai — tăng lanThu
+  // sẽ âm thầm đưa job vào 'loi' sau MAX_LAN_THU dù chưa hề thử gửi lần nào.
+  // TUYỆT ĐỐI không rơi về máy khác — anh Quốc chốt: sai địa chỉ tệ hơn chưa in).
+  const client = resolveClient(deps, job);
+  if (!client) {
+    deps.onLoi?.(job.id, new KhongCoClient(job.agentToken ?? null));
     return;
   }
 
@@ -157,7 +229,7 @@ async function xuLyMotJob(deps: DepsChayLuot, job: JobIn): Promise<void> {
   // thấy dang_gui và chỉ xác minh, không gửi lại mù.
   await deps.prisma.printJob.update({ where: { id: job.id }, data: { trangThai: 'dang_gui' } });
   try {
-    const kq = await deps.client.inPdf(pdf, job.soHoaDon);
+    const kq = await client.inPdf(pdf, job.soHoaDon);
     // Kênh đồng bộ (AgentClient) báo daInXong=true: Promise chỉ resolve SAU
     // khi agent xác nhận máy in vật lý đã in xong — ghi thẳng da_in, không
     // qua da_gui chờ xác minh. Thiếu field này (IPP) → giữ nguyên đường cũ:
@@ -198,9 +270,11 @@ async function xuLyMotJob(deps: DepsChayLuot, job: JobIn): Promise<void> {
 /** Hỏi máy in về job đã có id; không có id thì đứng yên (chờ người quyết). */
 async function xacMinh(deps: DepsChayLuot, job: JobIn): Promise<void> {
   if (job.ippJobId == null) return;
+  const client = resolveClient(deps, job);
+  if (!client) return; // không biết máy nào để hỏi — giữ nguyên, không đoán bừa
   let jobState: number | null;
   try {
-    jobState = (await deps.client.traTrangThaiJob(job.ippJobId)).jobState;
+    jobState = (await client.traTrangThaiJob(job.ippJobId)).jobState;
   } catch {
     return; // máy in không trả lời được — giữ nguyên, lượt sau hỏi tiếp
   }
