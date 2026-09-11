@@ -31,7 +31,9 @@ function laAdmin(role: string): boolean {
  * riêng cho máy in vì socket.io mount chung server với REST API.
  */
 function layServerUrl(): string {
-  return config.appUrl.replace(/\/+$/, '');
+  // Domain PUBLIC agent noi toi (Cloudflare tunnel), KHONG phai APP_URL noi bo.
+  const base = (process.env.MAY_IN_SERVER_URL || config.appUrl || "").trim();
+  return base.replace(/\/+$/, "");
 }
 
 export async function registerPrintAgentRoutes(app: FastifyInstance): Promise<void> {
