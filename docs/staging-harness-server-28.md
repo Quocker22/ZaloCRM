@@ -1,8 +1,11 @@
 # Hệ thống HARNESS (cầm lái) — môi trường staging trên server .28
 
-Tài liệu vận hành cho agent/người mới: dựng, chạy, cập nhật, test và dọn hệ thống bot **cầm lái**
-(nhánh `feat/dieu-phoi-cam-lai`) trên server **.28**, dùng **Odoo staging `nelia_test`** — tách hoàn toàn khỏi prod.
-Cập nhật lần cuối: 28/08/2026.
+> **ĐỌC HẾT MỤC 0 TRƯỚC KHI GÕ LỆNH NÀO.** Áp dụng cho cả người lẫn AI agent.
+> Tài liệu này là nguồn sự thật về staging. Sai một bước là đụng vào PROD đang phục vụ khách thật.
+
+Tài liệu vận hành cho agent/người mới: dựng, chạy, cập nhật, test và dọn môi trường **staging**
+trên server **.28**, dùng **Odoo staging `nelia_test`** — tách hoàn toàn khỏi prod.
+Cập nhật lần cuối: **12/09/2026** (staging chuyển sang Dokploy autodeploy).
 
 ---
 
@@ -11,21 +14,38 @@ Cập nhật lần cuối: 28/08/2026.
 | | **PROD** (đừng đụng) | **STAGING / HARNESS** (tài liệu này) |
 |---|---|---|
 | Server bot | `.28` = `100.107.48.28` (Tailscale) | `.28` = `100.107.48.28` |
-| Code | repo `Quocker22/ZaloCRM`, nhánh `feat/kb-9router-handoff-fixes`, Dokploy autoDeploy | repo `Quocker22/ZaloCRM`, nhánh **`feat/dieu-phoi-cam-lai`**, build tay tại `/opt/zalocrm-staging` |
-| Bộ não luồng NV | máy gom đơn regex (`gom-don/`) | **con điều phối cầm lái** `dieu-phoi/lai.ts` (object phiên + DeepSeek suy nghĩ + tool tìm; không regex) |
+| Nhánh Git | `prod` | **`staging`** |
+| Deploy | push `prod` → Dokploy tự build | **push `staging` → Dokploy tự build** (giống hệt prod) |
+| Dokploy app | `zalo-lednelia` (`zalocrm-zalo-xayzqq`) | `zalo-lednelia-staging` (`zalocrm-zaloledneliastaging-fpajdy`) |
+| File compose | `./docker-compose.yml` | **`./docker-compose.staging.yml`** |
+| Bộ não luồng NV | máy gom đơn (`gom-don/`) + điều phối `dieu-phoi/lai.ts` | y hệt prod (staging = bản sao prod) |
+| Máy in | BẬT (in ra máy thật ở shop) | **TẮT** — không có `AI_MAY_IN_AGENT_TOKEN`, cố ý |
 | Container | `zalo-crm-app/db/redis/minio` | `zalo-stg-app/db/redis/minio/minio-init` |
 | Cổng app | 3080 → https://zalocrm.incokit.com | **3081 → https://bot.vantaiminhthuc.com** |
 | Odoo | `.45` = `100.78.104.45`, DB `nelia_prod`, https://quyetanh.com | `.28` container `incokit_odoo_prod`, DB **`nelia_test`**, https://led.incokit.com |
 | Nick Zalo bot | Tiểu Mã Nelia (uid 630640428799521839) | **Vận Tải Minh Thức** (uid 619833576870383279) — lịch sử riêng, không chép từ Nelia |
 | Công tắc | `AI_DIEU_PHOI=bong` (chạy bóng) | **`AI_DIEU_PHOI=lai`** |
 
-Luật vàng: **mọi thứ có chữ `zalo-crm-*`, `zalocrm-zalo-xayzqq`, `quyetanh.com`, `nelia_prod`, `.45` là PROD.** Staging chỉ động vào `zalo-stg-*`, `/opt/zalocrm-staging`, `nelia_test`, `led.incokit.com`.
+### Luật vàng — nhận diện PROD trong 1 giây
+
+**Thấy bất kỳ chữ nào sau đây là PROD, ĐỪNG GHI:**
+`zalo-crm-*` · `zalocrm-zalo-xayzqq` · `quyetanh.com` · `nelia_prod` · `.45` / `100.78.104.45` · `zalocrm.incokit.com` · cổng `3080`
+
+**Staging chỉ được động vào:**
+`zalo-stg-*` · `zalocrm-zaloledneliastaging-fpajdy` · `zalocrm-staging_*` (volume) · `nelia_test` · `led.incokit.com` · `bot.vantaiminhthuc.com` · cổng `3081`
+
+Kiểm nhanh trước khi chạy lệnh ghi:
+```bash
+docker inspect <container> --format '{{index .Config.Labels "com.docker.compose.project"}}'
+# zalocrm-zaloledneliastaging-fpajdy = staging, an toàn
+# zalocrm-zalo-xayzqq                = PROD, DỪNG LẠI
+```
 
 ---
 
 ## 1. Server & truy cập
 
-- **.28** — `ssh root@100.107.48.28` (Tailscale). Ubuntu, Docker + Docker Compose v2, Dokploy (quản lý compose prod; staging KHÔNG qua Dokploy).
+- **.28** — `ssh root@100.107.48.28` (Tailscale). Ubuntu, Docker + Docker Compose v2, Dokploy (quản lý **cả prod lẫn staging** — 2 app riêng, xem mục 5).
   Đĩa `/` ~175G (dùng ~50%). Mỗi lần build image ZaloCRM đẻ ~1GB layer; `docker image prune` khi đầy.
 - **.45** — `ssh root@100.78.104.45` — Odoo **thật**. Chỉ dùng khi đồng bộ dữ liệu (đọc/pg_dump), không ghi.
 - Bí mật (khoá LLM, DB pass, MinIO, JWT…) nằm trong env container prod; staging chép sang bằng `setup-env.sh` (mục 4). Không in ra log/chat.
@@ -34,11 +54,23 @@ Luật vàng: **mọi thứ có chữ `zalo-crm-*`, `zalocrm-zalo-xayzqq`, `quye
 
 ## 2. Thư mục & file trên .28
 
+**Từ 12/09/2026 code staging do Dokploy quản.** Thư mục Dokploy dùng để build:
+
+```
+/etc/dokploy/compose/zalocrm-zaloledneliastaging-fpajdy/
+└─ code/                       # clone nhánh `staging` — Dokploy TỰ QUẢN
+                               # ⚠️ ĐỪNG sửa/commit ở đây: mỗi lần deploy Dokploy
+                               #    git reset --hard về GitHub, commit local MẤT SẠCH
+```
+
+Thư mục cũ (thời build tay) — **giữ lại vì có `.env` và backup, ĐỪNG sửa code trong đó**:
+
 ```
 /opt/zalocrm-staging/
-├─ code/                       # source nhánh feat/dieu-phoi-cam-lai (rsync từ máy dev, KHÔNG có .git)
-├─ docker-compose.staging.yml  # compose riêng (project name: zalocrm-staging)
-├─ .env                        # env staging (chmod 600) — tạo bằng setup-env.sh
+├─ code/                       # BẢN THỪA từ thời build tay (có .git, nhánh staging).
+│                              # Sửa ở đây KHÔNG có tác dụng — Dokploy build từ clone riêng.
+├─ docker-compose.staging.yml  # BẢN CŨ ngoài repo. Bản đang chạy nằm TRONG repo.
+├─ .env                        # env staging (chmod 600) — nguồn để dán vào ô Environment Dokploy
 ├─ setup-env.sh                # tạo .env từ env container prod + override staging
 ├─ seed-db.sh                  # (bản cũ) chép DB prod vào staging — xem mục 6 cách đúng
 ├─ start.sh / stop.sh          # bật/tắt app staging (start.sh còn dừng bot Minh Thức cũ)
@@ -54,11 +86,14 @@ Odoo staging: config `/opt/incokit/odoo.prod.conf` (mount vào `/etc/odoo/odoo.c
 
 ## 3. Container, mạng, cổng, volume
 
-### 3.1 Staging (project `zalocrm-staging`, network `zalocrm-staging_default`)
+### 3.1 Staging (project `zalocrm-zaloledneliastaging-fpajdy`, network `..._default`)
+
+> Project name do Dokploy đặt. **Volume vẫn mang tên cũ `zalocrm-staging_*`** vì compose khai
+> `external: true` — cố ý, để giữ dữ liệu từ thời build tay.
 
 | Container | Image | Cổng host | Ghi chú |
 |---|---|---|---|
-| `zalo-stg-app` | `zalocrm-staging-app:latest` (build tay) | `0.0.0.0:3081 → 3000` | Node 20, entry `node dist/app.js`; healthcheck HTTP `/` |
+| `zalo-stg-app` | `zalocrm-zaloledneliastaging-fpajdy-app` (Dokploy build) | `0.0.0.0:3081 → 3000` | Node 20, entry `node dist/app.js`; healthcheck HTTP `/` |
 | `zalo-stg-db` | `postgres:16-alpine` | `127.0.0.1:5437 → 5432` | user `crmuser`, db `zalocrm`; volume `zalocrm-staging_pg_data` |
 | `zalo-stg-redis` | `redis:7-alpine` | `127.0.0.1:6382 → 6379` | phiên điều phối (TTL 30'), khoá việc; volume `zalocrm-staging_redis_data` |
 | `zalo-stg-minio` | `minio/minio` | `0.0.0.0:9012 → 9000`, `127.0.0.1:9013 → 9001` | bucket `zalocrm-stg`; volume `zalocrm-staging_minio_data` |
@@ -107,31 +142,56 @@ Khoá LLM (OpenRouter → `deepseek/deepseek-v4-flash-0731`) lấy từ bảng `
 
 ## 5. Build & deploy code mới
 
-Staging không có Dokploy/GitHub. Quy trình từ máy dev (worktree `ZaloCRM-dieu-phoi`, nhánh `feat/dieu-phoi-cam-lai`):
+**Deploy staging = push nhánh `staging`.** Không rsync, không build tay, không copy file.
 
 ```bash
-# 1. (máy dev) test xanh rồi push nhánh
-cd ZaloCRM-dieu-phoi/backend && npx vitest run && npx vitest run --config vitest.func.config.ts
-git push origin feat/dieu-phoi-cam-lai
+# 1. (máy dev) test xanh
+cd backend && npx vitest run && npx vitest run --config vitest.func.config.ts
 
-# 2. (máy dev) đồng bộ source lên .28 — không gửi node_modules/dist/.git/.env
-rsync -az --delete --exclude node_modules --exclude dist --exclude .git \
-  --exclude 'backend/product-images' --exclude 'backend/.env' \
-  ./ root@100.107.48.28:/opt/zalocrm-staging/code/
-
-# 3. (.28) build image (10–25 phút; Dockerfile 3 stage: frontend → backend → runtime alpine)
-ssh root@100.107.48.28 'cd /opt/zalocrm-staging && docker build -f code/docker/Dockerfile -t zalocrm-staging-app:latest code'
-
-# 4. (.28) lên container mới
-ssh root@100.107.48.28 'cd /opt/zalocrm-staging && docker compose -p zalocrm-staging -f docker-compose.staging.yml up -d app'
+# 2. push -> Dokploy tự build + deploy (~3-8 phút)
+git push origin staging
 ```
 
-Lưu ý: `docker compose build` **không dùng được** khi thiếu `.env` (MinIO vars bắt buộc) — vì thế build bằng `docker build` rồi compose trỏ `image: zalocrm-staging-app:latest`.
-Prisma: image đã `prisma generate`; schema DB tới từ dump prod nên không cần migrate (nếu nhánh mới có migration, chạy `docker exec zalo-stg-app npx prisma migrate deploy`).
+Xem tiến trình: Dokploy UI → app `zalo-lednelia-staging` → tab **Deployments**.
 
-Nhanh hơn khi chỉ đổi backend: build `dist` trên máy dev (`npx tsc`) rồi mount thử vào container tạm (xem mục 9 replay) — nhưng để chạy bot thật vẫn phải build image.
+Prod y hệt, chỉ khác tên nhánh:
+```bash
+git push origin prod     # -> Dokploy app zalo-lednelia
+```
 
----
+### Cấu hình Dokploy staging (đã đặt, chỉ đọc để hiểu)
+
+| Mục | Giá trị |
+|---|---|
+| App | `zalo-lednelia-staging` → appName `zalocrm-zaloledneliastaging-fpajdy` |
+| Repository / Branch | `Quocker22/ZaloCRM` / **`staging`** |
+| Compose Path | **`./docker-compose.staging.yml`** ⚠️ KHÔNG phải `./docker-compose.yml` (đó là PROD) |
+| Trigger | On Push, Autodeploy BẬT |
+| Environment | dán nguyên khối từ `/opt/zalocrm-staging/.env` (34 biến) |
+
+### `docker-compose.staging.yml` khác compose prod ĐÚNG 3 điểm
+
+1. **`container_name: zalo-stg-*`** (prod `zalo-crm-*`) — tránh trùng tên container trên cùng máy.
+2. **`volumes: external: true`** trỏ vào `zalocrm-staging_*` — giữ dữ liệu staging (DB có lịch sử chat thật).
+   Bỏ `external` đi là staging khởi động TRẮNG.
+3. **Bỏ service `backup` + `clamav`** — staging không cần.
+
+Mọi thứ khác giữ y hệt prod để staging soi đúng prod. Port/DB/Odoo tách bằng ENV.
+
+### Bẫy đã gặp (12/09) — đọc trước khi deploy lần đầu trên máy mới
+
+**"container name zalo-stg-db is already in use"**: stack build-tay cũ đang giữ tên container.
+Dokploy dùng project name khác nên coi nó là container lạ. Xử:
+```bash
+cd /opt/zalocrm-staging && docker compose -f docker-compose.staging.yml down   # KHÔNG có -v
+```
+`down` không `-v` chỉ xoá container, **volume giữ nguyên**. Rồi bấm Deploy lại.
+
+**Migration Prisma**: image đã `prisma generate`. Nhánh có migration mới thì:
+```bash
+docker exec zalo-stg-app npx prisma migrate deploy
+```
+
 
 ## 6. Dữ liệu CRM staging
 
@@ -141,13 +201,13 @@ DB staging = **bản dump prod** (`prod.sql`), giữ nguyên hội thoại/tin �
 ssh root@100.107.48.28
 cd /opt/zalocrm-staging
 docker exec zalo-crm-db pg_dump -U crmuser -d zalocrm --no-owner --no-acl > prod.sql
-docker compose -p zalocrm-staging -f docker-compose.staging.yml stop app
+docker stop zalo-stg-app      # hoặc Dokploy UI -> Stop
 docker exec zalo-stg-db psql -U crmuser -d zalocrm -qc 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'
 docker exec -i zalo-stg-db psql -U crmuser -d zalocrm -q < prod.sql
 # VÔ HIỆU các nick prod chép sang — KHÔNG được để staging dùng phiên Zalo của Nelia thật
 docker exec zalo-stg-db psql -U crmuser -d zalocrm -c \
  "UPDATE zalo_accounts SET session_data=NULL, status='disconnected', archived_at=coalesce(archived_at, now())"
-docker compose -p zalocrm-staging -f docker-compose.staging.yml start app
+docker start zalo-stg-app     # hoặc Dokploy UI -> Start
 ```
 
 **Cấm `DELETE FROM zalo_accounts`**: FK `conversations.zalo_account_id` ON DELETE CASCADE → xoá sạch hội thoại + tin.
@@ -266,9 +326,9 @@ scp /tmp/dist-lai.tgz replay-lai.mjs root@100.107.48.28:/tmp/
 # .28 — env lấy từ container staging (không in ra)
 ssh root@100.107.48.28 'rm -rf /tmp/dist-lai && mkdir /tmp/dist-lai && tar xzf /tmp/dist-lai.tgz -C /tmp/dist-lai
  && docker inspect zalo-stg-app --format "{{range .Config.Env}}{{println .}}{{end}}" > /tmp/env-stg && chmod 600 /tmp/env-stg
- && docker run --rm --network zalocrm-staging_default --env-file /tmp/env-stg -e AI_DIEU_PHOI=lai \
+ && docker run --rm --network zalocrm-zaloledneliastaging-fpajdy_default --env-file /tmp/env-stg -e AI_DIEU_PHOI=lai \
       -v /tmp/dist-lai/dist:/app/dist:ro -v /tmp/replay-lai.mjs:/app/replay-lai.mjs:ro \
-      zalocrm-staging-app:latest node /app/replay-lai.mjs'
+      zalocrm-zaloledneliastaging-fpajdy-app node /app/replay-lai.mjs'
 ```
 
 Script import từ `/app/dist/...`, phiên giữ trong `Map`, `deps.ghi` giả lập `taoDon/suaDon/taoKhach`, in `NV / LAI / BOT / PHIÊN` từng lượt. Tiêu chí: object gọi Odoo (khách id, SP id, SL, giá) đúng — không so chữ.
@@ -286,11 +346,17 @@ docker logs -f --since 10m zalo-stg-app | grep -E '\[lai\]|\[agent/nv\]|\[dieu-p
 docker exec zalo-stg-db psql -U crmuser -d zalocrm -c "SELECT created_at, tool_name, left(output,200) FROM tool_call_logs WHERE tool_name IN ('dieu_phoi_lai','soat_so','tao_don_nhap','sua_don') ORDER BY created_at DESC LIMIT 20"
 # phiên cầm lái đang mở
 docker exec zalo-stg-redis redis-cli --scan --pattern 'dieu-phoi:phien:*'
-# đổi công tắc không cần build: sửa AI_DIEU_PHOI trong .env rồi
-docker compose -p zalocrm-staging -f docker-compose.staging.yml up -d app
-# tắt / bật
-/opt/zalocrm-staging/stop.sh   # stop app + bật lại bot Minh Thức cũ (không cần nữa, có thể bỏ dòng docker start)
-/opt/zalocrm-staging/start.sh
+# đổi biến môi trường: sửa ở Dokploy UI -> tab Environment -> Deploy
+#   (KHÔNG sửa /opt/zalocrm-staging/.env nữa — file đó chỉ còn là bản gốc để dán)
+# tắt / bật / deploy lại: Dokploy UI -> app zalo-lednelia-staging -> Start/Stop/Deploy
+#   (start.sh / stop.sh cũ KHÔNG dùng nữa — chúng thao tác stack build-tay đã ngừng)
+```
+
+### Kiểm nhanh staging sống hay chết
+```bash
+curl -s -o /dev/null -w "staging: %{http_code}\n" https://bot.vantaiminhthuc.com/
+curl -s -o /dev/null -w "prod:    %{http_code}\n" http://localhost:3080/     # phải luôn 200
+docker ps --filter name=zalo-stg --format '{{.Names}}\t{{.Status}}'
 ```
 
 Đơn test nằm trong Odoo staging https://led.incokit.com (đăng nhập tài khoản Odoo dev). Không cần huỷ.
@@ -303,8 +369,20 @@ docker compose -p zalocrm-staging -f docker-compose.staging.yml up -d app
 - Đừng `DELETE FROM zalo_accounts` (cascade). Đừng bật `session_data` của nick prod trong staging.
 - Đừng quét QR ở zalocrm.incokit.com cho việc test; đừng "Quét lại QR" trên thẻ nick đang chạy.
 - Đừng thêm regex/if-else đọc chữ NV vào `dieu-phoi/` — đó là lý do nhánh này tồn tại.
-- Đừng `docker compose down -v` (mất volume DB/MinIO staging). Dùng `stop`.
+- Đừng `docker compose down -v` (mất volume DB/MinIO staging). `down` KHÔNG `-v` thì an toàn.
 - Đừng chạy hai bot cùng một nick Zalo (prod + staging) — phiên sẽ đá nhau.
+
+**Từ 12/09 (Dokploy) thêm:**
+- Đừng sửa/commit code trong `/etc/dokploy/compose/*/code` — Dokploy `git reset --hard` mỗi lần
+  deploy, commit local **mất sạch**. Sửa ở máy dev rồi push.
+- Đừng đổi Compose Path của app staging sang `./docker-compose.yml` — đó là compose PROD
+  (`container_name: zalo-crm-*`), deploy sẽ đâm vào container prod đang chạy.
+- Đừng xoá `external: true` trong `docker-compose.staging.yml` — staging sẽ khởi động với
+  volume rỗng, mất toàn bộ lịch sử chat.
+- Đừng thêm `AI_MAY_IN_AGENT_TOKEN` / `AI_MAY_IN_IPP_URL` vào env staging — sẽ đẩy lệnh in
+  xuống **máy in thật ở shop**. Thiếu 2 biến này là cố ý; code tự tắt tính năng in.
+- Đừng nhúng token GitHub vào `git remote` trên server (nằm chữ thường trong `.git/config`).
+- Đừng sửa code ở `/opt/zalocrm-staging/code` rồi tưởng đã deploy — thư mục đó là bản thừa.
 
 ---
 
@@ -312,4 +390,14 @@ docker compose -p zalocrm-staging -f docker-compose.staging.yml up -d app
 
 - 27/08: tách nhánh `feat/dieu-phoi-cam-lai`; driver `lai.ts`; 11 commit; replay NV 7 kịch bản ×2 lần đúng 100% object ghi Odoo.
 - 28/08: mode khách trong driver (chưa nối luồng); dựng staging `/opt/zalocrm-staging`; tai nạn quét QR nhầm prod và cách sửa (`fix-prod-zalo.sql`); trỏ bot.vantaiminhthuc.com → 3081; đồng bộ Odoo prod → `nelia_test`.
+- **11-12/09: git-hoá staging + chuyển sang Dokploy autodeploy.**
+  `/opt/zalocrm-staging/code` trước là copy tay không git. Đã: backup 5 lớp → đo diff với 3 nhánh
+  (`prod` 3799 dòng / `feat/dieu-phoi-cam-lai` = `kb9` 1913 dòng — 2 nhánh này TRÙNG tree hash)
+  → soi từng file xác nhận không có code người khác → tắt RAG sản phẩm (`RAG_SAN_PHAM=0`,
+  drop bảng `product_index` 1292 dòng, dump giữ ở `/root/staging-backups/`) → dựng nhánh `staging`
+  tách từ `prod` → thêm `docker-compose.staging.yml` vào repo → tạo Dokploy app.
+  Bài học: (a) volume Docker prefix theo **project name**, prod và staging cùng khai `pg_data`
+  vẫn KHÔNG đè nhau; (b) `container_name` cứng thì trùng, phải `down` stack cũ trước;
+  (c) `git checkout -- .` + `git clean -fd` là 2 lệnh xoá code — backup trước, và lưu `git diff`
+  ra file để hoàn tác được.
 - 29/08: phát hiện ID 1-1 theo từng nick → bỏ relink lịch sử, xoá sạch hội thoại chép từ Nelia khỏi nick test; nhóm chạy OK, 1-1 phải bắt đầu từ điện thoại.
