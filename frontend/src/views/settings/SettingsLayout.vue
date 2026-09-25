@@ -37,6 +37,7 @@
             :to="item.route"
             class="sl-item"
             :class="{ active: isItemActive(item.route) }"
+            @click="moMenuHep = false"
           >
             <v-icon class="sl-item-icon" :icon="item.icon" size="18" />
             <span class="sl-item-label">{{ item.label }}</span>
@@ -64,6 +65,7 @@
                 :to="item.route"
                 class="sl-item"
                 :class="{ active: isItemActive(item.route) }"
+                @click="moMenuHep = false"
               >
                 <v-icon class="sl-item-icon" :icon="item.icon" size="18" />
                 <span class="sl-item-label">{{ item.label }}</span>
@@ -77,7 +79,10 @@
 
     <!-- Content panel -->
     <main class="sl-content" role="main">
-      <header class="sl-breadcrumb" v-if="activeItem">
+      <!-- Nút "Mục cài đặt" phải có ở MỌI trang cài đặt trên màn hẹp — kể cả trang không có
+           mục trong menu (phiên đăng nhập, giao diện, thẻ…: không có đường dẫn); trên màn rộng
+           thanh chỉ-có-nút bị ẩn, bố cục desktop giữ nguyên. -->
+      <header class="sl-breadcrumb" :class="{ 'sl-breadcrumb--chi-nut': !activeItem }">
         <button
           type="button"
           class="sl-nut-menu"
@@ -88,11 +93,13 @@
           <v-icon icon="mdi-menu" size="18" aria-hidden="true" />
           <span>Mục cài đặt</span>
         </button>
-        <RouterLink to="/settings" class="bc-root">Cài đặt</RouterLink>
-        <span class="bc-sep">/</span>
-        <span class="bc-group">{{ activeItem.group.label }}</span>
-        <span class="bc-sep">/</span>
-        <span class="bc-current">{{ activeItem.item.label }}</span>
+        <template v-if="activeItem">
+          <RouterLink to="/settings" class="bc-root">Cài đặt</RouterLink>
+          <span class="bc-sep">/</span>
+          <span class="bc-group">{{ activeItem.group.label }}</span>
+          <span class="bc-sep">/</span>
+          <span class="bc-current">{{ activeItem.item.label }}</span>
+        </template>
       </header>
       <div class="sl-content-body">
         <RouterView />
@@ -102,7 +109,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted } from 'vue';
+import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useSettingsNav } from '@/composables/use-settings-nav';
 
@@ -131,6 +138,12 @@ const moMenuHep = ref(false);
 watch(() => route.fullPath, () => {
   moMenuHep.value = false;
 });
+/** Esc đóng ngăn (bàn phím / trình đọc màn hình). */
+function dongKhiEsc(e: KeyboardEvent): void {
+  if (e.key === 'Escape' && moMenuHep.value) moMenuHep.value = false;
+}
+onMounted(() => window.addEventListener('keydown', dongKhiEsc));
+onBeforeUnmount(() => window.removeEventListener('keydown', dongKhiEsc));
 
 // Group collapsed state — persist in localStorage
 const SECTION_KEY_PREFIX = 'settings-nav.group.';
@@ -407,7 +420,7 @@ onMounted(() => {
 .sl-content-body::-webkit-scrollbar-thumb { background: #D4D6DB; border-radius: 4px; }
 
 /* ── Màn hẹp (< 768px — cùng mốc useMobile): nội dung chiếm đủ bề ngang, sidebar thành ngăn trượt ── */
-.sl-nut-menu, .sl-man-che { display: none; }
+.sl-nut-menu, .sl-man-che, .sl-breadcrumb--chi-nut { display: none; }
 @media (max-width: 767px) {
   .settings-layout { grid-template-columns: minmax(0, 1fr); position: relative; }
   .sl-sidebar {
@@ -422,6 +435,7 @@ onMounted(() => {
     font: inherit; font-size: 12.5px; font-weight: 600; color: #1F2D3D;
   }
   .sl-breadcrumb { padding: 8px 12px; gap: 6px; flex-wrap: wrap; }
+  .sl-breadcrumb--chi-nut { display: flex; }
   .bc-group, .bc-group + .bc-sep { display: none; }
   .sl-content-body { padding: 16px 12px; }
 }

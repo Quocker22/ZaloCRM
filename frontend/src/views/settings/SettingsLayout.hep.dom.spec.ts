@@ -8,19 +8,24 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { defineComponent, h, reactive, computed } from 'vue';
 import { mount, flushPromises } from '@vue/test-utils';
 
-const { route } = vi.hoisted(() => ({ route: { path: '/settings/crm/print-agents', fullPath: '/settings/crm/print-agents', query: {} as Record<string, string> } }));
+const { route, trang } = vi.hoisted(() => ({
+  route: { path: '/settings/crm/print-agents', fullPath: '/settings/crm/print-agents', query: {} as Record<string, string> },
+  // Trang hiện tại có mục trong menu không (vd /settings/personal/sessions thì không).
+  trang: { coMuc: true },
+}));
 const routeReactive = reactive(route);
 vi.mock('vue-router', () => ({
   useRoute: () => routeReactive,
   useRouter: () => ({ replace: vi.fn() }),
 }));
 // RouterLink / RouterView là component toàn cục của vue-router — gắn vỏ qua global.components.
-const RouterLink = defineComponent({ props: { to: String }, setup(p, { slots }) { return () => h('a', { href: p.to }, slots.default?.()); } });
+// preventDefault: jsdom không điều hướng được (listener @click của trang vẫn chạy — gộp attrs).
+const RouterLink = defineComponent({ props: { to: String }, setup(p, { slots }) { return () => h('a', { href: p.to, onClick: (e: Event) => e.preventDefault() }, slots.default?.()); } });
 const RouterView = defineComponent({ setup() { return () => h('div', { class: 'vo-router-view' }, 'Trang Máy in'); } });
 vi.mock('@/composables/use-settings-nav', () => ({
   useSettingsNav: () => ({
     visibleGroups: computed(() => [{ id: 'he_thong', label: 'Hệ thống', icon: 'mdi-cog', items: [{ route: '/settings/crm/print-agents', label: 'Máy in', icon: 'mdi-printer' }] }]),
-    activeItem: computed(() => ({ group: { id: 'he_thong', label: 'Hệ thống' }, item: { label: 'Máy in' } })),
+    activeItem: computed(() => (trang.coMuc ? { group: { id: 'he_thong', label: 'Hệ thống' }, item: { label: 'Máy in' } } : null)),
     searchItems: () => [],
     defaultRoute: computed(() => '/settings/crm/print-agents'),
   }),
@@ -32,13 +37,14 @@ const vo = (the: string) => defineComponent({ setup(_, { slots }) { return () =>
 
 beforeEach(() => {
   vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => {} });
+  trang.coMuc = true;
 });
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function gan() {
-  return mount(SettingsLayout, { global: { components: { VIcon: vo('i'), RouterLink, RouterView } } });
+function gan(tuy: { attachTo?: HTMLElement } = {}) {
+  return mount(SettingsLayout, { ...tuy, global: { components: { VIcon: vo('i'), RouterLink, RouterView } } });
 }
 
 describe('SettingsLayout — màn hẹp: sidebar thành ngăn trượt', () => {
@@ -66,6 +72,29 @@ describe('SettingsLayout — màn hẹp: sidebar thành ngăn trượt', () => {
     await flushPromises();
     expect(w.find('.settings-layout').classes()).not.toContain('settings-layout--mo-menu');
     expect(w.find('.vo-router-view').text()).toBe('Trang Máy in');
+    w.unmount();
+  });
+
+  it('trang KHÔNG có mục trong menu (phiên đăng nhập, giao diện…) vẫn có nút "Mục cài đặt"', async () => {
+    trang.coMuc = false;
+    const w = gan();
+    const thanh = w.find('.sl-breadcrumb');
+    expect(thanh.classes()).toContain('sl-breadcrumb--chi-nut');
+    expect(thanh.find('.bc-root').exists()).toBe(false);
+    await w.find('.sl-nut-menu').trigger('click');
+    expect(w.find('.settings-layout').classes()).toContain('settings-layout--mo-menu');
+    w.unmount();
+  });
+
+  it('Esc đóng ngăn; bấm một mục (kể cả trang đang mở) cũng đóng', async () => {
+    const w = gan({ attachTo: document.body });
+    await w.find('.sl-nut-menu').trigger('click');
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await flushPromises();
+    expect(w.find('.settings-layout').classes()).not.toContain('settings-layout--mo-menu');
+    await w.find('.sl-nut-menu').trigger('click');
+    await w.find('.sl-item').trigger('click');
+    expect(w.find('.settings-layout').classes()).not.toContain('settings-layout--mo-menu');
     w.unmount();
   });
 });
