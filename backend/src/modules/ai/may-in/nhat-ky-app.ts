@@ -117,6 +117,9 @@ export const LUAT_MUC_DO_APP: readonly LuatMucDoApp[] = [
     mucDo: 'loi',
     suKien: ['theo_doi_tiep_mat', 'theo_doi_tiep_het_han', 'tu_choi_ket_noi', 'sumatra_qua_han', 'sumatra_loi_cho'],
   },
+  // Bổ sung sau khi đối chiếu mã app 0.2.6 thật ghi ra (hợp đồng §5 sót): app đã tạm dừng một job
+  // Windows mà KHÔNG cho chạy tiếp được — hoá đơn kẹt "Paused" trong hàng đợi Windows.
+  { mucDo: 'loi', suKien: ['tiep_tuc_loi'] },
   { mucDo: 'canh_bao', suKien: ['trang_thai_may_in'], noiDung: { tuDauLa: ['het_muc'] } },
   { mucDo: 'canh_bao', suKien: ['usb_doc'], noiDung: { chua: ['KHONG DOC DUOC'] } },
   {
@@ -127,6 +130,9 @@ export const LUAT_MUC_DO_APP: readonly LuatMucDoApp[] = [
     ],
   },
   { mucDo: 'canh_bao', suKien: ['huy_ket_qua'], noiDung: { tuDauBatDau: 'ok=false' } },
+  // Bổ sung (app 0.2.6): mất kết nối quá lâu → dựng lại client; server không gửi cau-hinh trong
+  // 10 s (bản cũ); theo dõi tiếp bỏ qua job lúc khởi động.
+  { mucDo: 'canh_bao', suKien: ['noi_lai_tu_dau', 'server_ban_cu', 'theo_doi_tiep_bo_qua'] },
 ];
 
 const nfc = (x: string): string => x.normalize('NFC');

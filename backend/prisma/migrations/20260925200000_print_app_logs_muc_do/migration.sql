@@ -22,10 +22,12 @@ FROM (
     WHEN normalize("su_kien", NFC) IN (normalize('trang_thai_may_in', NFC)) AND coalesce(substring(normalize("noi_dung", NFC) from E'^[ \t\r\n]*([^ \t\r\n]*)'), '') NOT IN (normalize('binh_thuong', NFC), normalize('het_muc', NFC)) THEN 'loi'
     WHEN normalize("su_kien", NFC) IN (normalize('usb_doc', NFC)) AND (strpos(normalize("noi_dung", NFC), normalize('TRỐNG', NFC)) > 0 OR strpos(normalize("noi_dung", NFC), normalize('báo lỗi', NFC)) > 0 OR strpos(normalize("noi_dung", NFC), normalize('hết giấy', NFC)) > 0) THEN 'loi'
     WHEN normalize("su_kien", NFC) IN (normalize('theo_doi_tiep_mat', NFC), normalize('theo_doi_tiep_het_han', NFC), normalize('tu_choi_ket_noi', NFC), normalize('sumatra_qua_han', NFC), normalize('sumatra_loi_cho', NFC)) THEN 'loi'
+    WHEN normalize("su_kien", NFC) IN (normalize('tiep_tuc_loi', NFC)) THEN 'loi'
     WHEN normalize("su_kien", NFC) IN (normalize('trang_thai_may_in', NFC)) AND coalesce(substring(normalize("noi_dung", NFC) from E'^[ \t\r\n]*([^ \t\r\n]*)'), '') IN (normalize('het_muc', NFC)) THEN 'canh_bao'
     WHEN normalize("su_kien", NFC) IN (normalize('usb_doc', NFC)) AND (strpos(normalize("noi_dung", NFC), normalize('KHONG DOC DUOC', NFC)) > 0) THEN 'canh_bao'
     WHEN normalize("su_kien", NFC) IN (normalize('noi_that_bai', NFC), normalize('mat_ket_noi', NFC), normalize('gui_nhat_ky_loi', NFC), normalize('app_bo_dong', NFC), normalize('mat_job', NFC), normalize('ngat_client_cham', NFC), normalize('hop_thu_tran', NFC), normalize('theo_doi_tiep_bo', NFC), normalize('bo_theo_doi', NFC)) THEN 'canh_bao'
     WHEN normalize("su_kien", NFC) IN (normalize('huy_ket_qua', NFC)) AND left(coalesce(substring(normalize("noi_dung", NFC) from E'^[ \t\r\n]*([^ \t\r\n]*)'), ''), 8) = normalize('ok=false', NFC) THEN 'canh_bao'
+    WHEN normalize("su_kien", NFC) IN (normalize('noi_lai_tu_dau', NFC), normalize('server_ban_cu', NFC), normalize('theo_doi_tiep_bo_qua', NFC)) THEN 'canh_bao'
     ELSE 'thong_tin'
   END AS "muc_do"
   FROM "print_app_logs"
