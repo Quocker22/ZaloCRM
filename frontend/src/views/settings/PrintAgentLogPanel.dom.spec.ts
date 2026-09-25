@@ -46,6 +46,7 @@ const vo = (the: string) => defineComponent({
 const VUETIFY_VO = {
   VSwitch: vo('div'), VBtn: vo('button'), VSpacer: vo('span'), VTextField: vo('div'), VSelect: vo('div'),
   VBtnToggle: vo('div'), VAlert: vo('div'), VProgressLinear: vo('div'), VTable: vo('table'), VChip: vo('span'),
+  VIcon: vo('i'), VProgressCircular: vo('span'),
 };
 
 function gan(mayIns = [{ id: 'm1', ten: 'Máy HCM', warehouseIds: [], laMacDinh: true, tokenDuoi: 'ab12', online: true }]) {

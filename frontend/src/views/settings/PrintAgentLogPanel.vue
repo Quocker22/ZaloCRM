@@ -8,196 +8,205 @@
   phản hồi của thế hệ cũ bị bỏ — đổi bộ lọc nhanh không bao giờ để trang cũ đè trang mới.
   Tự làm mới 15 giây: chỉ lấy trang ĐẦU rồi gộp dòng mới lên trên (giữ các trang đã "Tải
   thêm"); bỏ lượt khi tab ẩn hoặc đang có yêu cầu khác; dọn interval khi rời trang.
+
+  Giao diện (25/09, khuôn Atlas như trang cha): tiêu đề mục + công tắc tự làm mới ở ngoài,
+  MỘT khung trắng gồm thanh lọc (tìm · máy · khoảng) + hàng "viên" mức độ (một chạm, không
+  menu) + bảng 5 cột; mức độ hiện bằng biểu tượng màu + vạch mép trái dòng.
 -->
 <template>
-  <section v-if="!biCam" class="nk-card" aria-labelledby="nk-tieu-de">
-    <header class="nk-head">
-      <div>
-        <h2 id="nk-tieu-de">Nhật ký máy in</h2>
-        <p>
-          Mọi sự kiện in của các máy: nhận lệnh, gửi máy in, đã in, lỗi, hết giấy, kẹt giấy…
-          Lưu 90 ngày.
-        </p>
+  <section v-if="!biCam" class="nk" aria-labelledby="nk-tieu-de">
+    <div class="nk-head">
+      <div class="nk-head-trai">
+        <h2 id="nk-tieu-de" class="nk-h2">Nhật ký máy in</h2>
+        <p class="nk-phu">Nhận lệnh, gửi máy in, đã in, lỗi, hết giấy, kẹt giấy… · lưu 90 ngày</p>
       </div>
-      <v-spacer />
-      <v-switch
-        v-model="tuLamMoi"
-        label="Tự làm mới 15 giây"
-        color="primary"
-        density="compact"
-        hide-details
-        inset
-        class="nk-switch"
-      />
-      <v-btn
-        icon="mdi-refresh"
-        variant="text"
-        size="small"
-        aria-label="Tải lại nhật ký"
-        title="Tải lại nhật ký"
-        :loading="dangTai"
-        @click="taiLai"
-      />
-    </header>
-
-    <div class="nk-toolbar">
-      <v-text-field
-        v-model="oTim"
-        class="nk-tim"
-        label="Tìm trong nhật ký"
-        placeholder="Tìm số hoá đơn, tên khách, lỗi… (không cần dấu)"
-        prepend-inner-icon="mdi-magnify"
-        variant="outlined"
-        density="compact"
-        hide-details
-        clearable
-        persistent-placeholder
-        @keydown.enter="apDungTuKhoaNgay"
-      />
-      <v-select
-        v-model="mayInId"
-        class="nk-may"
-        :items="luaChonMayIn"
-        label="Máy in"
-        variant="outlined"
-        density="compact"
-        hide-details
-      />
+      <div class="nk-head-phai">
+        <span class="nk-dem" aria-live="polite">{{ dongTrangThai }}</span>
+        <div class="nk-tu-lam-moi" title="Tự tải sự kiện mới mỗi 15 giây">
+          <v-switch
+            v-model="tuLamMoi"
+            label="Tự làm mới"
+            color="primary"
+            density="compact"
+            hide-details
+            class="nk-switch"
+          />
+        </div>
+        <v-btn
+          icon="mdi-refresh"
+          variant="text"
+          size="small"
+          density="comfortable"
+          aria-label="Tải lại nhật ký"
+          title="Tải lại nhật ký"
+          :loading="dangTai"
+          @click="taiLai"
+        />
+      </div>
     </div>
 
-    <div class="nk-toolbar">
-      <v-btn-toggle
-        v-model="mucDo"
-        mandatory
-        divided
-        density="compact"
-        variant="outlined"
-        color="primary"
-        role="group"
-        aria-label="Lọc theo mức độ"
-      >
-        <v-btn
+    <div class="nk-card">
+      <div class="nk-toolbar">
+        <v-text-field
+          v-model="oTim"
+          class="nk-tim"
+          placeholder="Tìm số hoá đơn, tên khách, lỗi… (không cần dấu)"
+          prepend-inner-icon="mdi-magnify"
+          variant="outlined"
+          density="compact"
+          hide-details
+          clearable
+          aria-label="Tìm trong nhật ký"
+          @keydown.enter="apDungTuKhoaNgay"
+        />
+        <v-select
+          v-model="mayInId"
+          class="nk-may"
+          :items="luaChonMayIn"
+          prepend-inner-icon="mdi-printer-outline"
+          variant="outlined"
+          density="compact"
+          hide-details
+          aria-label="Máy in"
+        />
+        <v-select
+          v-model="khoang"
+          class="nk-khoang"
+          :items="KHOANG_DS"
+          prepend-inner-icon="mdi-calendar-range"
+          variant="outlined"
+          density="compact"
+          hide-details
+          aria-label="Khoảng thời gian"
+        />
+      </div>
+
+      <div class="nk-muc-loc" role="radiogroup" aria-label="Lọc theo mức độ">
+        <button
           v-for="o in LUA_CHON_MUC_DO"
           :key="o.value"
-          :value="o.value"
-          size="small"
-          :aria-pressed="mucDo === o.value"
-        >{{ o.title }}</v-btn>
-      </v-btn-toggle>
-      <v-btn-toggle
-        v-model="khoang"
-        mandatory
-        divided
+          type="button"
+          role="radio"
+          class="nk-pill"
+          :class="{ 'nk-pill--chon': mucDo === o.value }"
+          :aria-checked="mucDo === o.value"
+          @click="mucDo = o.value"
+        >
+          <span v-if="o.value !== 'tat_ca'" class="nk-pill-dot" :class="`nk-pill-dot--${o.value}`" aria-hidden="true" />
+          {{ o.title }}
+        </button>
+      </div>
+
+      <v-alert
+        v-if="loi"
+        type="error"
+        variant="tonal"
         density="compact"
-        variant="outlined"
-        color="primary"
-        role="group"
-        aria-label="Khoảng thời gian"
+        class="nk-loi"
       >
-        <v-btn
-          v-for="o in LUA_CHON_KHOANG"
-          :key="o.value"
-          :value="o.value"
-          size="small"
-          :aria-pressed="khoang === o.value"
-        >{{ o.title }}</v-btn>
-      </v-btn-toggle>
-      <v-spacer />
-      <span class="nk-dem" aria-live="polite">{{ dongTrangThai }}</span>
-    </div>
+        {{ loi }}
+        <template #append>
+          <v-btn size="small" variant="text" @click="taiLai">Thử lại</v-btn>
+        </template>
+      </v-alert>
 
-    <v-alert
-      v-if="loi"
-      type="error"
-      variant="tonal"
-      density="compact"
-      class="mb-3"
-    >
-      {{ loi }}
-      <template #append>
-        <v-btn size="small" variant="text" @click="taiLai">Thử lại</v-btn>
-      </template>
-    </v-alert>
+      <v-progress-linear
+        :active="dangTai && items.length > 0"
+        indeterminate
+        color="primary"
+        height="2"
+        aria-hidden="true"
+      />
 
-    <v-progress-linear
-      :active="dangTai && items.length > 0"
-      indeterminate
-      color="primary"
-      height="2"
-      aria-hidden="true"
-    />
-
-    <v-table density="compact" class="nk-bang" :aria-busy="dangTai">
-      <thead>
-        <tr>
-          <th class="nk-c-luc">Thời gian (giờ VN)</th>
-          <th>Máy in</th>
-          <th>Mức</th>
-          <th>Sự kiện</th>
-          <th>Hoá đơn</th>
-          <th>Khách</th>
-          <th>Nội dung</th>
-        </tr>
-      </thead>
-      <tbody :class="{ 'nk-mo': dangTai && items.length > 0 }">
-        <template v-for="k in items" :key="k.id">
-          <tr class="nk-dong" :class="{ 'nk-dong--mo': moRong.has(k.id) }" @click="bamDong(k.id)">
-            <td class="nk-c-luc">
-              <v-btn
-                :icon="moRong.has(k.id) ? 'mdi-chevron-down' : 'mdi-chevron-right'"
-                variant="text"
-                size="x-small"
-                density="comfortable"
-                :aria-expanded="moRong.has(k.id)"
-                :aria-controls="`nk-ct-${k.id}`"
-                :aria-label="moRong.has(k.id) ? 'Ẩn chi tiết' : 'Xem chi tiết'"
-                @click.stop="doiMoRong(k.id)"
-              />
-              <span :title="dinhDangGioVN(k.luc, { coNam: true })">{{ dinhDangGioVN(k.luc) }}</span>
-            </td>
-            <td>{{ k.mayInTen || '—' }}</td>
-            <td>
-              <v-chip
-                size="small"
-                variant="tonal"
-                :color="kieuMucDo(k.mucDo).mau"
-                :prepend-icon="kieuMucDo(k.mucDo).bieuTuong"
-              >{{ kieuMucDo(k.mucDo).nhan }}</v-chip>
-            </td>
-            <td class="nk-su-kien">{{ nhanCua(k.loai) }}</td>
-            <td class="nk-nowrap">{{ k.soHoaDon || '—' }}</td>
-            <td>{{ k.tenKhach || '—' }}</td>
-            <td class="nk-noi-dung">{{ k.noiDung }}</td>
+      <v-table class="nk-bang" :aria-busy="dangTai">
+        <thead>
+          <tr>
+            <th class="nk-c-luc" title="Giờ Việt Nam">Thời gian</th>
+            <th class="nk-c-su-kien">Sự kiện</th>
+            <th class="nk-c-may">Máy in</th>
+            <th class="nk-c-hd">Hoá đơn · Khách</th>
+            <th>Nội dung</th>
           </tr>
-          <tr v-if="moRong.has(k.id)" :id="`nk-ct-${k.id}`" class="nk-ct-dong">
-            <td colspan="7">
-              <div class="nk-ct">
-                <div class="nk-ct-meta">
-                  <span><b>Lúc:</b> {{ dinhDangGioVN(k.luc, { coNam: true }) }}</span>
-                  <span><b>Mã sự kiện:</b> <code>{{ k.loai }}</code></span>
-                  <span v-if="k.printJobId"><b>Lệnh in:</b> <code>{{ k.printJobId }}</code></span>
+        </thead>
+        <tbody :class="{ 'nk-mo': dangTai && items.length > 0 }">
+          <template v-for="k in items" :key="k.id">
+            <tr
+              class="nk-dong"
+              :class="[`nk-dong--${k.mucDo}`, { 'nk-dong--mo': moRong.has(k.id) }]"
+              @click="bamDong(k.id)"
+            >
+              <td class="nk-c-luc">
+                <div class="nk-luc">
+                  <v-btn
+                    :icon="moRong.has(k.id) ? 'mdi-chevron-down' : 'mdi-chevron-right'"
+                    variant="text"
+                    size="x-small"
+                    density="comfortable"
+                    class="nk-mo-nut"
+                    :aria-expanded="moRong.has(k.id)"
+                    :aria-controls="`nk-ct-${k.id}`"
+                    :aria-label="moRong.has(k.id) ? 'Ẩn chi tiết' : 'Xem chi tiết'"
+                    @click.stop="doiMoRong(k.id)"
+                  />
+                  <span class="nk-gio" :title="dinhDangGioVN(k.luc, { coNam: true })">{{ dinhDangGioVN(k.luc) }}</span>
                 </div>
-                <p v-if="k.noiDung" class="nk-ct-noi-dung">{{ k.noiDung }}</p>
-                <pre v-if="chiTietDep(k.chiTiet)" class="nk-ct-json">{{ chiTietDep(k.chiTiet) }}</pre>
-                <p v-else class="nk-muted">Không có chi tiết thêm.</p>
+              </td>
+              <td class="nk-c-su-kien">
+                <div class="nk-su-kien" :title="kieuMucDo(k.mucDo).nhan">
+                  <v-icon
+                    size="16"
+                    :color="kieuMucDo(k.mucDo).mau"
+                    :icon="kieuMucDo(k.mucDo).bieuTuong"
+                    aria-hidden="true"
+                  />
+                  <span class="nk-an">{{ kieuMucDo(k.mucDo).nhan }}: </span>
+                  <span class="nk-su-kien-chu">{{ nhanCua(k.loai) }}</span>
+                </div>
+              </td>
+              <td class="nk-c-may">{{ k.mayInTen || '—' }}</td>
+              <td class="nk-c-hd">
+                <div v-if="k.soHoaDon" class="nk-hd">{{ k.soHoaDon }}</div>
+                <div v-if="k.tenKhach" class="nk-khach">{{ k.tenKhach }}</div>
+                <span v-if="!k.soHoaDon && !k.tenKhach" class="nk-gach">—</span>
+              </td>
+              <td><div class="nk-noi-dung">{{ k.noiDung }}</div></td>
+            </tr>
+            <tr v-if="moRong.has(k.id)" :id="`nk-ct-${k.id}`" class="nk-ct-dong">
+              <td colspan="5">
+                <div class="nk-ct">
+                  <dl class="nk-ct-meta">
+                    <div><dt>Lúc</dt><dd>{{ dinhDangGioVN(k.luc, { coNam: true }) }}</dd></div>
+                    <div><dt>Mã sự kiện</dt><dd><code>{{ k.loai }}</code></dd></div>
+                    <div v-if="k.printJobId"><dt>Lệnh in</dt><dd><code>{{ k.printJobId }}</code></dd></div>
+                  </dl>
+                  <p v-if="k.noiDung" class="nk-ct-noi-dung">{{ k.noiDung }}</p>
+                  <pre v-if="chiTietDep(k.chiTiet)" class="nk-ct-json">{{ chiTietDep(k.chiTiet) }}</pre>
+                  <p v-else class="nk-muted">Không có chi tiết thêm.</p>
+                </div>
+              </td>
+            </tr>
+          </template>
+          <tr v-if="dangTai && items.length === 0">
+            <td colspan="5" class="nk-rong">
+              <v-progress-circular indeterminate size="18" width="2" color="primary" class="mr-2" />
+              Đang tải nhật ký…
+            </td>
+          </tr>
+          <tr v-else-if="daTai && items.length === 0 && !loi">
+            <td colspan="5" class="nk-rong">
+              <div class="nk-rong-ico" aria-hidden="true"><v-icon size="22" icon="mdi-text-box-search-outline" /></div>
+              <div class="nk-rong-chu">Không có sự kiện nào khớp bộ lọc trong {{ tenKhoang }}.</div>
+              <div v-if="mucDo === 'loi_canh_bao'" class="nk-rong-phu">
+                Chọn "Tất cả" để xem cả sự kiện thông tin (đã in, đã gửi…).
               </div>
             </td>
           </tr>
-        </template>
-        <tr v-if="dangTai && items.length === 0">
-          <td colspan="7" class="nk-rong">Đang tải nhật ký…</td>
-        </tr>
-        <tr v-else-if="daTai && items.length === 0 && !loi">
-          <td colspan="7" class="nk-rong">
-            Không có sự kiện nào khớp bộ lọc trong {{ tenKhoang }}.
-            <template v-if="mucDo === 'loi_canh_bao'">Chọn "Tất cả" để xem cả sự kiện thông tin (đã in, đã gửi…).</template>
-          </td>
-        </tr>
-      </tbody>
-    </v-table>
+        </tbody>
+      </v-table>
 
-    <div v-if="tiepTheo" class="nk-them">
-      <v-btn variant="tonal" :loading="dangTaiThem" :disabled="dangTai" @click="taiThem">Tải thêm</v-btn>
+      <div v-if="tiepTheo" class="nk-them">
+        <v-btn variant="tonal" size="small" :loading="dangTaiThem" :disabled="dangTai" @click="taiThem">Tải thêm</v-btn>
+      </div>
     </div>
   </section>
 </template>
@@ -233,6 +242,8 @@ const LUA_CHON_MUC_DO: ReadonlyArray<{ value: LuaChonMucDo; title: string }> = [
   { value: 'thong_tin', title: 'Thông tin' },
   { value: 'tat_ca', title: 'Tất cả' },
 ];
+// v-select nhận mảng thường, không nhận ReadonlyArray.
+const KHOANG_DS = [...LUA_CHON_KHOANG];
 
 // ── Bộ lọc ────────────────────────────────────────────────────────────────
 const oTim = ref<string | null>('');       // chữ đang gõ (clearable đặt về null)
@@ -492,37 +503,135 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.nk-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px 14px 10px; margin-bottom: 16px; }
-.nk-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
-.nk-head h2 { font-size: 16px; font-weight: 700; margin: 0 0 2px; }
-.nk-head p { color: #555; font-size: 13px; line-height: 1.5; margin: 0; }
+/* Cùng bộ token Atlas với trang cha (PrintAgentsPage bọc .airtable-scope + nạp airtable.css);
+   giá trị dự phòng để mục vẫn đúng màu nếu gắn ở chỗ khác. */
+.nk { margin-bottom: 24px; }
+.nk-head {
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 8px 16px;
+  flex-wrap: wrap; margin-bottom: 12px;
+}
+.nk-head-trai { min-width: 0; }
+.nk-h2 { font-size: 14px; font-weight: 700; color: var(--at-ink, #141a24); margin: 0; }
+.nk-phu { font-size: 12px; color: var(--at-muted, #6b7488); margin: 2px 0 0; }
+.nk-head-phai { display: flex; align-items: center; gap: 4px 12px; flex-wrap: wrap; }
+.nk-dem { font-size: 12px; color: var(--at-muted, #6b7488); font-variant-numeric: tabular-nums; }
+.nk-tu-lam-moi { display: flex; align-items: center; gap: 6px; }
 .nk-switch { flex: none; }
-.nk-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
-.nk-tim { flex: 1 1 320px; min-width: 240px; }
-.nk-may { flex: 0 1 240px; min-width: 180px; }
-.nk-dem { font-size: 12px; color: #6b7280; }
-.nk-bang :deep(th) { white-space: nowrap; font-size: 12px; font-weight: 600; color: #6b7280; }
-.nk-bang :deep(td) { font-size: 13px; vertical-align: top; padding-top: 6px !important; padding-bottom: 6px !important; }
+.nk-switch :deep(.v-label) { font-size: 12.5px; color: var(--at-body, #475066); opacity: 1; }
+
+.nk-card {
+  background: var(--at-canvas, #fff); border: 1px solid var(--at-hairline, #e7eaf0); border-radius: 12px;
+  box-shadow: var(--at-shadow-card, 0 1px 2px rgba(20, 26, 36, 0.05)); overflow: hidden;
+}
+
+/* Thanh lọc */
+.nk-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 14px 8px; }
+.nk-tim { flex: 1 1 300px; min-width: 220px; }
+.nk-may { flex: 0 1 220px; min-width: 170px; }
+.nk-khoang { flex: 0 0 150px; }
+.nk-toolbar :deep(.v-field) { border-radius: 8px; font-size: 13px; }
+.nk-toolbar :deep(.v-field__input) { font-size: 13px; }
+
+.nk-muc-loc {
+  display: flex; flex-wrap: wrap; gap: 6px; padding: 0 14px 12px;
+  border-bottom: 1px solid var(--at-hairline, #e7eaf0);
+}
+.nk-pill {
+  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px;
+  border-radius: 9999px; border: 1px solid var(--at-hairline, #e7eaf0); background: var(--at-canvas, #fff);
+  font: inherit; font-size: 12.5px; font-weight: 500; color: var(--at-body, #475066); cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.nk-pill:hover { background: var(--at-surface-soft, #f1f4f9); }
+.nk-pill:focus-visible { outline: 2px solid var(--at-action, #1786be); outline-offset: 2px; }
+.nk-pill--chon, .nk-pill--chon:hover {
+  background: var(--at-action-soft, #e4f1f8); border-color: #93c5fd; color: var(--at-action, #1786be); font-weight: 600;
+}
+.nk-pill-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.nk-pill-dot--loi_canh_bao { background: linear-gradient(135deg, var(--at-atlas-danger, #f04438) 50%, var(--at-atlas-warning, #f5a524) 50%); }
+.nk-pill-dot--loi { background: var(--at-atlas-danger, #f04438); }
+.nk-pill-dot--canh_bao { background: var(--at-atlas-warning, #f5a524); }
+.nk-pill-dot--thong_tin { background: var(--at-action, #1786be); }
+
+.nk-loi { margin: 12px 14px 0; }
+
+/* Bảng */
+.nk-bang :deep(table) { table-layout: auto; }
+.nk-bang :deep(th) {
+  white-space: nowrap; height: 36px !important;
+  font-size: 11px !important; font-weight: 600 !important; letter-spacing: 0.4px; text-transform: uppercase;
+  color: var(--at-muted, #6b7488) !important; background: #fafbfd;
+}
+.nk-bang :deep(td) {
+  font-size: 13px; color: var(--at-body, #475066); vertical-align: top;
+  padding-top: 9px !important; padding-bottom: 9px !important; height: auto !important;
+  border-bottom-color: var(--at-hairline, #e7eaf0) !important;
+}
 .nk-mo { opacity: 0.55; transition: opacity 0.15s; }
 .nk-dong { cursor: pointer; }
-.nk-dong:hover td, .nk-dong--mo td { background: #f8fafc; }
-.nk-c-luc { white-space: nowrap; }
-.nk-nowrap { white-space: nowrap; }
-.nk-su-kien { min-width: 140px; }
+.nk-dong:hover td, .nk-dong--mo td { background: #f7f9fc; }
+/* Vạch màu mức độ ở mép trái dòng */
+.nk-dong > td:first-child { box-shadow: inset 3px 0 0 transparent; }
+.nk-dong--loi > td:first-child { box-shadow: inset 3px 0 0 var(--at-atlas-danger, #f04438); }
+.nk-dong--canh_bao > td:first-child { box-shadow: inset 3px 0 0 var(--at-atlas-warning, #f5a524); }
+
+.nk-c-luc { white-space: nowrap; width: 1%; }
+.nk-luc { display: flex; align-items: center; gap: 2px; margin-left: -6px; }
+.nk-mo-nut { color: var(--at-hint, #97a0b3) !important; }
+.nk-gio { font-variant-numeric: tabular-nums; color: var(--at-ink, #141a24); font-size: 12.5px; }
+.nk-c-su-kien { min-width: 150px; }
+.nk-su-kien { display: flex; align-items: flex-start; gap: 6px; }
+.nk-su-kien :deep(.v-icon) { margin-top: 1px; flex: none; }
+.nk-su-kien-chu { font-weight: 600; color: var(--at-ink, #141a24); }
+.nk-c-may { white-space: nowrap; }
+.nk-c-hd { min-width: 150px; }
+.nk-hd {
+  font-family: var(--mono, 'Roboto Mono', ui-monospace, monospace); font-size: 12px;
+  color: var(--at-ink, #141a24); white-space: nowrap;
+}
+.nk-khach { font-size: 12px; color: var(--at-muted, #6b7488); margin-top: 1px; }
+.nk-gach { color: var(--at-hint, #97a0b3); }
 .nk-noi-dung {
-  min-width: 220px; color: #374151;
+  min-width: 220px; color: var(--at-body, #475066); line-height: 1.45;
   display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
-.nk-ct-dong td { background: #f8fafc; }
-.nk-ct { padding: 6px 4px 10px 36px; }
-.nk-ct-meta { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12.5px; color: #4b5563; margin-bottom: 6px; }
-.nk-ct-meta code { font-size: 12px; background: #eef2f7; padding: 1px 5px; border-radius: 4px; }
-.nk-ct-noi-dung { font-size: 13px; margin: 0 0 6px; white-space: pre-wrap; }
+.nk-an {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
+/* Chi tiết khi mở dòng */
+.nk-ct-dong td { background: #f7f9fc; }
+.nk-ct { padding: 4px 4px 12px 30px; }
+.nk-ct-meta { display: flex; flex-wrap: wrap; gap: 6px 22px; margin: 0 0 8px; }
+.nk-ct-meta > div { display: flex; align-items: baseline; gap: 6px; }
+.nk-ct-meta dt {
+  font-size: 10.5px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase;
+  color: var(--at-hint, #97a0b3);
+}
+.nk-ct-meta dd { margin: 0; font-size: 12.5px; color: var(--at-body, #475066); }
+.nk-ct-meta code {
+  font-family: var(--mono, 'Roboto Mono', ui-monospace, monospace); font-size: 11.5px;
+  background: #fff; border: 1px solid var(--at-hairline, #e7eaf0); padding: 1px 5px; border-radius: 4px;
+}
+.nk-ct-noi-dung { font-size: 13px; color: var(--at-ink, #141a24); margin: 0 0 8px; white-space: pre-wrap; }
 .nk-ct-json {
-  font-size: 12px; line-height: 1.45; background: #0f172a; color: #e2e8f0; border-radius: 8px;
+  font-family: var(--mono, 'Roboto Mono', ui-monospace, monospace);
+  font-size: 12px; line-height: 1.5; background: #fff; color: #334155;
+  border: 1px solid var(--at-hairline, #e7eaf0); border-radius: 8px;
   padding: 10px 12px; margin: 0; max-height: 320px; overflow: auto; white-space: pre-wrap; word-break: break-word;
 }
-.nk-rong { text-align: center; color: #999; padding: 20px 0 !important; }
-.nk-muted { color: #999; font-size: 12.5px; margin: 0; }
-.nk-them { display: flex; justify-content: center; padding: 10px 0 4px; }
+.nk-muted { color: var(--at-hint, #97a0b3); font-size: 12.5px; margin: 0; }
+
+/* Trống / đang tải */
+.nk-rong { text-align: center; color: var(--at-muted, #6b7488); padding: 32px 16px !important; }
+.nk-rong-ico {
+  width: 40px; height: 40px; border-radius: 10px; margin: 0 auto 10px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--at-surface-soft, #f1f4f9); color: var(--at-muted, #6b7488);
+}
+.nk-rong-chu { font-size: 13px; font-weight: 600; color: var(--at-ink, #141a24); }
+.nk-rong-phu { font-size: 12.5px; margin-top: 4px; }
+
+.nk-them { display: flex; justify-content: center; padding: 12px 0; border-top: 1px solid var(--at-hairline, #e7eaf0); }
 </style>
