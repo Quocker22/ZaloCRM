@@ -74,7 +74,7 @@ describe('e2e: server↔agent giả trọn vòng qua WebSocket (Task 5, phần 1
     httpServer = createServer();
     io = new IoServer(httpServer);
     registry = new AgentRegistry();
-    registerAgentWs(io, registry);
+    registerAgentWs(io, registry, { layMayInTheoToken: async () => null, ghiNhatKy: () => {} });
     await new Promise<void>((resolve) => httpServer.listen(0, () => resolve()));
     const addr = httpServer.address();
     if (addr && typeof addr === 'object') port = addr.port;
@@ -115,7 +115,7 @@ describe('e2e: server↔agent giả trọn vòng qua WebSocket (Task 5, phần 1
       clients[0].on('connect_error', (err) => reject(err));
     });
 
-    const client = new AgentClient(registry, ORG_ID, { paperSize: 'A5', tray: 'tray-2' });
+    const client = new AgentClient(registry, TOKEN_DUNG, { paperSize: 'A5', tray: 'tray-2' });
     const pdfGoc = Buffer.from('%PDF-1.4 noi-dung-hoa-don-that');
     const taiPdf = async () => pdfGoc;
 
@@ -130,6 +130,8 @@ describe('e2e: server↔agent giả trọn vòng qua WebSocket (Task 5, phần 1
         pdfBase64: pdfGoc.toString('base64'),
       },
     });
+    // Chủ chốt 24/09: app nhận thêm `name` = tên file in, chứa đúng job.id.
+    expect(msg.job.name).toBe(`AI-INV_2026_00099-Khong_ro-${msg.job.id}.pdf`);
 
     // Fix round 1 (review): AgentClient in ĐỒNG BỘ — registry.guiJob() chỉ
     // resolve SAU KHI agent đã báo 'da_in' qua WS, tức máy in vật lý ĐÃ IN
@@ -161,7 +163,7 @@ describe('e2e: server↔agent giả trọn vòng qua WebSocket (Task 5, phần 1
       c.on('connect_error', (err) => reject(err));
     });
 
-    const client = new AgentClient(registry, ORG_ID, { paperSize: 'A5', tray: 'tray-2' });
+    const client = new AgentClient(registry, TOKEN_DUNG, { paperSize: 'A5', tray: 'tray-2' });
     await chayMotLuotIn({ prisma, client, taiPdf: async () => Buffer.from('%PDF') });
 
     expect(nhanDuoc).toHaveLength(2);
@@ -172,7 +174,7 @@ describe('e2e: server↔agent giả trọn vòng qua WebSocket (Task 5, phần 1
   it('không agent online → chayMotLuotIn để job cho_in retry (lanThu+1), không quăng lỗi ra ngoài', async () => {
     const { prisma, hang } = prismaGia([{}]);
     // KHÔNG kết nối agent giả nào — registry rỗng.
-    const client = new AgentClient(registry, ORG_ID, { paperSize: 'A5', tray: 'tray-2' });
+    const client = new AgentClient(registry, TOKEN_DUNG, { paperSize: 'A5', tray: 'tray-2' });
     await chayMotLuotIn({ prisma, client, taiPdf: async () => Buffer.from('%PDF') });
     expect(hang[0]).toMatchObject({ trangThai: 'cho_in', lanThu: 1 });
     expect(hang[0].loiCuoi).toMatch(/agent/i);

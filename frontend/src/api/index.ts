@@ -4,6 +4,21 @@ import axios from 'axios';
 import { router } from '@/router/index';
 import { useToast } from '@/composables/use-toast';
 
+// Nhật ký máy in 24/09/2026 — cờ riêng từng request: widget CHỈ admin (nhật ký máy in) tự ẩn
+// khi bị 403 nên KHÔNG muốn toast 403 toàn cục (người không có quyền không thấy lỗi đỏ).
+// Mặc định vắng mặt = hành vi cũ. Cờ ở config phía client, không gửi lên server.
+declare module 'axios' {
+  interface AxiosRequestConfig {
+    boQuaToast403?: boolean;
+    /**
+     * Lượt chạy NGẦM (tự làm mới 15 s trang Máy in, 25/09): lỗi 5xx đã hiện ngay
+     * trong mục đó — không toast chung, kẻo backend sập là mỗi tab mở trang Máy
+     * in bắn toast đỏ mỗi 15 giây.
+     */
+    boQuaToast5xx?: boolean;
+  }
+}
+
 const api = axios.create({
   baseURL: '/api/v1',
   timeout: 30000,
@@ -162,6 +177,8 @@ api.interceptors.response.use(
 
     if (status === 401) {
       clearAuthAndRedirect();
+    } else if (status === 403 && original.boQuaToast403) {
+      // Người gọi tự xử 403 (ẩn widget) — không toast.
     } else if (status === 403) {
       // RBAC enforce 2026-06-08 — backend từ chối quyền. Toast, KHÔNG redirect
       // (403 có thể đến từ 1 widget phụ, không nên giật cả trang).
@@ -173,6 +190,8 @@ api.interceptors.response.use(
     } else if (status === 404) {
       // 404 thường là logic (entity không tồn tại) — chỉ log, không toast
       console.warn(`[api] 404 Not Found: ${url}`);
+    } else if (typeof status === 'number' && status >= 500 && original.boQuaToast5xx) {
+      console.warn(`[api] ${status} (chạy ngầm, không toast): ${url}`);
     } else if (typeof status === 'number' && status >= 500) {
       console.error(`[api] ${status} server error: ${url}`, error.response?.data);
       const now = Date.now();

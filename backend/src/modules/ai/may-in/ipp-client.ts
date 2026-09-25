@@ -33,6 +33,11 @@ export class LoiIpp extends Error {
     /** true = request đã tới nơi và bị từ chối; false = chưa tới được. */
     readonly guiDuoc: boolean,
     readonly ippStatus?: number,
+    /**
+     * Mã sự cố (nhat-ky.ts MA_SU_CO: het_giay, ket_giay…) khi app PC báo được
+     * nguyên nhân — chỉ để ghi nhật ký/hiện nhãn, KHÔNG đổi luật retry.
+     */
+    readonly ma?: string,
   ) {
     super(message);
     this.name = 'LoiIpp';
@@ -41,7 +46,20 @@ export class LoiIpp extends Error {
 
 /** Đã nối được mà không có trả lời — job CÓ THỂ đã vào máy in. Cấm retry mù. */
 export class LoiKhongRo extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    /**
+     * Mã nguyên nhân khi biết: mã sự cố từ app (het_giay…) hoặc 'het_gio_cho'
+     * (app không trả lời trong hạn chờ). Chỉ để ghi nhật ký — vẫn KHÔNG retry.
+     */
+    readonly ma?: string,
+    /**
+     * App báo job CÒN trong hàng đợi Windows (đang được app theo dõi tiếp — sẽ
+     * báo trễ khi in xong) hay KHÔNG còn (có thể nằm trong bộ nhớ máy in).
+     * undefined = không biết (app cũ). Chỉ để chọn câu hướng dẫn.
+     */
+    readonly conTrongHangDoi?: boolean,
+  ) {
     super(message);
     this.name = 'LoiKhongRo';
   }

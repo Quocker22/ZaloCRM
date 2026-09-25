@@ -69,14 +69,32 @@ describe('themJobIn', () => {
 });
 
 describe('chayMotLuotIn — đường vui', () => {
-  it('cho_in → gửi máy in → da_gui kèm ippJobId, job-name là số hoá đơn', async () => {
+  it('cho_in → gửi máy in → da_gui kèm ippJobId, tên job = "AI-<số HĐ>-Khong_ro" khi không có layTenKhach', async () => {
     const { prisma, hang } = prismaGia([{}]);
     const client = clientOk();
     const taiPdf = taiPdfOk();
     await chayMotLuotIn({ prisma, client, taiPdf });
     expect(taiPdf).toHaveBeenCalledWith(7001, 'incokit_pos.report_invoice_document_kiotviet');
-    expect(client.inPdf).toHaveBeenCalledWith(expect.any(Buffer), 'INV/2026/00042');
+    expect(client.inPdf).toHaveBeenCalledWith(expect.any(Buffer), 'AI-INV_2026_00042-Khong_ro', expect.objectContaining({ soHoaDon: 'INV/2026/00042' }));
     expect(hang[0]).toMatchObject({ trangThai: 'da_gui', ippJobId: 118 });
+  });
+
+  it('có tên khách → tên job "AI-INV_2026_00042-<Ten_Khach_khong_dau>" (chủ chốt 24/09)', async () => {
+    const { prisma } = prismaGia([{}]);
+    const client = clientOk();
+    const layTenKhach = vi.fn(async () => 'Anh Lộc Beco Thanh Hoá');
+    await chayMotLuotIn({ prisma, client, taiPdf: taiPdfOk(), layTenKhach });
+    expect(layTenKhach).toHaveBeenCalledWith(7001, 'incokit_pos.report_invoice_document_kiotviet');
+    expect(client.inPdf).toHaveBeenCalledWith(expect.any(Buffer), 'AI-INV_2026_00042-Anh_Loc_Beco_Thanh_Hoa', expect.objectContaining({ soHoaDon: 'INV/2026/00042' }));
+  });
+
+  it('đọc tên khách LỖI → vẫn in, tên "Khong_ro" (tên file không bao giờ chặn việc in)', async () => {
+    const { prisma, hang } = prismaGia([{}]);
+    const client = clientOk();
+    const layTenKhach = vi.fn(async () => { throw new Error('Odoo sập'); });
+    await chayMotLuotIn({ prisma, client, taiPdf: taiPdfOk(), layTenKhach });
+    expect(client.inPdf).toHaveBeenCalledWith(expect.any(Buffer), 'AI-INV_2026_00042-Khong_ro', expect.objectContaining({ soHoaDon: 'INV/2026/00042' }));
+    expect(hang[0]).toMatchObject({ trangThai: 'da_gui', lanThu: 0 });
   });
 
   it('da_gui có ippJobId → xác minh máy in: completed → da_in', async () => {

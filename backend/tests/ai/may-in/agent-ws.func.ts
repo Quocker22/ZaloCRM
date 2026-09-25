@@ -26,7 +26,9 @@ describe('registerAgentWs', () => {
     httpServer = createServer();
     io = new IoServer(httpServer);
     registry = new AgentRegistry();
-    registerAgentWs(io, registry);
+    // Tiêm tra-máy + nhật ký giả: test không cần DB (trước đây rơi vào Prisma thật,
+    // lỗi rồi mới lùi về token env). Registry khoá theo TOKEN từ Task 4 (10/09).
+    registerAgentWs(io, registry, { layMayInTheoToken: async () => null, ghiNhatKy: () => {} });
     await new Promise<void>((resolve) => {
       httpServer.listen(0, () => resolve());
     });
@@ -54,7 +56,7 @@ describe('registerAgentWs', () => {
     return c;
   }
 
-  it('token đúng → registry.coAgent(org) = true', async () => {
+  it('token đúng → registry.coAgent(token) = true', async () => {
     const c = connect({ token: TOKEN_DUNG, orgId: 'org1' });
     await new Promise<void>((resolve, reject) => {
       c.on('connect', () => resolve());
@@ -63,7 +65,7 @@ describe('registerAgentWs', () => {
     // đợi 1 tick để server xử lý xong 'connection' handler (dangKy chạy sync
     // trong handler nên connect event đã đủ, nhưng chờ thêm cho chắc trong CI chậm).
     await new Promise((r) => setTimeout(r, 50));
-    expect(registry.coAgent('org1')).toBe(true);
+    expect(registry.coAgent(TOKEN_DUNG)).toBe(true);
   });
 
   it('token sai → bị disconnect, không đăng ký', async () => {
@@ -75,19 +77,19 @@ describe('registerAgentWs', () => {
     });
     expect(ketQua).not.toBe('connected');
     await new Promise((r) => setTimeout(r, 50));
-    expect(registry.coAgent('org1')).toBe(false);
+    expect(registry.coAgent('token-sai')).toBe(false);
   });
 
-  it('thiếu orgId → bị từ chối, không đăng ký', async () => {
+  it('thiếu orgId vẫn nhận — từ Task 4 (10/09) danh tính là TOKEN, orgId không còn cần', async () => {
     const c = connect({ token: TOKEN_DUNG });
     const ketQua = await new Promise<string>((resolve) => {
       c.on('connect', () => resolve('connected'));
       c.on('connect_error', () => resolve('connect_error'));
     });
-    expect(ketQua).toBe('connect_error');
+    expect(ketQua).toBe('connected');
   });
 
-  it("agent gửi 'ket-qua' → registry.nhanKetQua được gọi đúng (orgId, jobId, kq)", async () => {
+  it("agent gửi 'ket-qua' → registry.nhanKetQua được gọi đúng (token, jobId, kq)", async () => {
     const spy = vi.spyOn(registry, 'nhanKetQua');
     const c = connect({ token: TOKEN_DUNG, orgId: 'org1' });
     await new Promise<void>((resolve, reject) => {
@@ -96,7 +98,7 @@ describe('registerAgentWs', () => {
     });
     c.emit('ket-qua', { jobId: 'j1', trangThai: 'da_in' });
     await new Promise((r) => setTimeout(r, 50));
-    expect(spy).toHaveBeenCalledWith('org1', 'j1', { trangThai: 'da_in', loiCuoi: undefined });
+    expect(spy).toHaveBeenCalledWith(TOKEN_DUNG, 'j1', { trangThai: 'da_in', loiCuoi: undefined, loai: undefined });
   });
 
   it('registry.dangKy gui gửi đúng qua socket.emit(job, msg)', async () => {
@@ -115,7 +117,7 @@ describe('registerAgentWs', () => {
     // Promise này KHÔNG resolve trong test (agent giả không gọi ket-qua) —
     // gắn .catch ngay để tránh unhandled rejection khi afterEach đóng socket
     // và huy() reject nó (đây là hành vi ĐÚNG của registry, không phải lỗi).
-    const promiseJob = registry.guiJob('org1', { id: 'j2', pdfBase64: 'AAAA', paperSize: 'A5', tray: 'tray-2', copies: 1 });
+    const promiseJob = registry.guiJob(TOKEN_DUNG, { id: 'j2', pdfBase64: 'AAAA', paperSize: 'A5', tray: 'tray-2', copies: 1 });
     promiseJob.catch(() => {});
     const msg = await jobNhanDuoc;
     expect(msg).toMatchObject({ loai: 'in', job: { id: 'j2', paperSize: 'A5' } });
@@ -128,9 +130,9 @@ describe('registerAgentWs', () => {
       c.on('connect_error', (err) => reject(err));
     });
     await new Promise((r) => setTimeout(r, 50));
-    expect(registry.coAgent('org1')).toBe(true);
+    expect(registry.coAgent(TOKEN_DUNG)).toBe(true);
 
-    const promiseChoKetQua = registry.guiJob('org1', {
+    const promiseChoKetQua = registry.guiJob(TOKEN_DUNG, {
       id: 'j3',
       pdfBase64: 'AAAA',
       paperSize: 'A5',
@@ -149,7 +151,7 @@ describe('registerAgentWs', () => {
     c.disconnect();
 
     await new Promise((r) => setTimeout(r, 100));
-    expect(registry.coAgent('org1')).toBe(false);
+    expect(registry.coAgent(TOKEN_DUNG)).toBe(false);
     await kyVongReject;
   });
 

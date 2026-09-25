@@ -206,6 +206,45 @@ export class HoaDonAnhClient {
     return buf;
   }
 
+  /**
+   * Tên khách (`partner_id` hiển thị) của một chứng từ — dùng đặt tên file in
+   * (may-in/ten-file-in.ts). Đi cùng phiên web với `taiPdf` (JSON-RPC
+   * `/web/dataset/call_kw`), phiên hết hạn thì đăng nhập lại MỘT lần.
+   *
+   * Trả null khi chứng từ không có khách; ném HoaDonAnhError khi Odoo lỗi —
+   * người gọi (cron in) tự nuốt lỗi để việc in KHÔNG bao giờ bị chặn vì tên.
+   */
+  async docTenKhach(model: string, id: number): Promise<string | null> {
+    const goi = async (cookie: string) => {
+      const res = await fetch(`${this.cfg.url}/web/dataset/call_kw/${model}/read`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', cookie },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'call',
+          params: { model, method: 'read', args: [[id], ['partner_id']], kwargs: {} },
+        }),
+        signal: AbortSignal.timeout(this.cfg.timeoutMs ?? 30_000),
+      });
+      return (await res.json()) as {
+        result?: Array<{ partner_id?: [number, string] | false }>;
+        error?: { message?: string; data?: { name?: string } };
+      };
+    };
+
+    let body = await goi(await this.dangNhap());
+    // Phiên hết hạn → Odoo trả error "Session Expired" (không phải HTTP lỗi).
+    if (body.error?.data?.name === 'odoo.http.SessionExpiredException') {
+      this.resetPhien();
+      body = await goi(await this.dangNhap());
+    }
+    if (body.error) {
+      throw new HoaDonAnhError(`Odoo lỗi khi đọc khách của ${model} ${id}: ${body.error.message ?? 'không rõ'}`);
+    }
+    const partner = body.result?.[0]?.partner_id;
+    return Array.isArray(partner) ? partner[1] : null;
+  }
+
   /** Tải hóa đơn và đổi sang ảnh PNG. */
   async render(donId: number, maDon?: string, report = REPORT_MAC_DINH): Promise<AnhHoaDon> {
     const pdfBuf = await this.taiPdf(donId, report);

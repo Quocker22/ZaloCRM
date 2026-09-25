@@ -14,10 +14,21 @@ import { AgentClient } from './agent-client.js';
 import { agentRegistry } from './agent-registry.js';
 import { IppClient } from './ipp-client.js';
 import { agentConfigTuEnv, ippConfigTuEnv } from './tu-env.js';
-import { chayMotLuotIn, tachReport, type ClientMayIn, type PrismaHangDoiIn } from './hang-doi-in.js';
+import {
+  chayMotLuotIn,
+  donJobMoCoi,
+  tachReport,
+  type ClientMayIn,
+  type DepsChayLuot,
+  type PrismaHangDoiIn,
+} from './hang-doi-in.js';
+import { modelCuaReport } from './ten-file-in.js';
+import { ghiNhatKy, donNhatKyCu } from './nhat-ky.js';
 
 let task: ReturnType<typeof cron.schedule> | null = null;
 let dangChay = false;
+/** Lần dọn nhật ký máy in gần nhất (ms) — dọn tối đa 1 lần/ngày. */
+let lanDonNhatKy = 0;
 
 /**
  * Chọn client máy in cho cron — hàm THUẦN (không đọc process.env trực tiếp,
@@ -147,25 +158,81 @@ export function startMayInCron(): void {
   }
   const chonClient = taoChonClient();
   const lich = process.env.AI_MAY_IN_CRON ?? '* * * * *';
+  // Job cũ agentToken=null đi máy mặc định (env) — mọi chỗ quy về token máy.
+  const tokenMayCua = (agentToken: string | null): string | null =>
+    agentToken ?? process.env.AI_MAY_IN_AGENT_TOKEN?.trim() ?? null;
+  const deps: DepsChayLuot = {
+    prisma: prisma as unknown as PrismaHangDoiIn,
+    chonClient,
+    // Job KHÔNG GIÁ (26/08) mang đuôi #khong_gia trong cột report — tách
+    // ra rồi truyền cờ để Odoo render bản ẩn giá (incokit_hide_price).
+    taiPdf: (hoaDonId, report) => {
+      const r = tachReport(report);
+      return anhClient.taiPdf(hoaDonId, r.report, { khongGia: r.khongGia });
+    },
+    // Tên khách để đặt tên file in "AI-<số HĐ>-<Ten_Khach>-<jobId>.pdf".
+    // Mẫu in lạ (không suy ra model) → null → "Khong_ro", vẫn in.
+    layTenKhach: (hoaDonId, report) => {
+      const model = modelCuaReport(tachReport(report).report);
+      return model ? anhClient.docTenKhach(model, hoaDonId) : Promise.resolve(null);
+    },
+    // Nhật ký máy in (trang Cài đặt › Máy in) — fire-and-forget, không chặn in.
+    nhatKy: (e) => ghiNhatKy({
+      loai: e.loai,
+      noiDung: e.noiDung,
+      orgId: e.job.orgId,
+      agentToken: tokenMayCua(e.job.agentToken),
+      printJobId: e.job.id,
+      soHoaDon: e.job.soHoaDon,
+      tenKhach: e.tenKhach ?? null,
+      chiTiet: e.chiTiet ?? null,
+    }),
+    // Cầu dao theo máy (agent-registry.ts) — chỉ có nghĩa với kênh app PC.
+    cauDao: {
+      xet: (agentToken) => {
+        const t = tokenMayCua(agentToken);
+        return t ? agentRegistry.xetCauDao(t) : 'gui';
+      },
+      ngat: (agentToken, ma, lyDo) => {
+        const t = tokenMayCua(agentToken);
+        return t ? agentRegistry.ngatCauDao(t, ma, lyDo) : { moi: false };
+      },
+      daThu: (agentToken) => {
+        const t = tokenMayCua(agentToken);
+        if (t) agentRegistry.daGuiThu(t);
+      },
+      // Quy về giá trị cột agent_token: máy mặc định (env) còn là job agentToken NULL.
+      dangGiu: () => {
+        const macDinh = process.env.AI_MAY_IN_AGENT_TOKEN?.trim() ?? null;
+        return agentRegistry.dangGiu().flatMap((t) => (t === macDinh ? [t, null] : [t]));
+      },
+    },
+    // Chỉ kênh app PC biết "app có đang kết nối không"; kênh IPP luôn coi là có.
+    coMay: (agentToken) => {
+      const t = tokenMayCua(agentToken);
+      return t && chonClient(agentToken) instanceof AgentClient ? agentRegistry.coAgent(t) : true;
+    },
+    onLoi: (jobId, err) => logger.error({ err, jobId }, '[may-in] job lỗi'),
+  };
   task = cron.schedule(lich, async () => {
     if (dangChay) return; // lượt trước chưa xong — máy in chậm là chuyện thường
     dangChay = true;
     try {
-      await chayMotLuotIn({
-        prisma: prisma as unknown as PrismaHangDoiIn,
-        chonClient,
-        // Job KHÔNG GIÁ (26/08) mang đuôi #khong_gia trong cột report — tách
-        // ra rồi truyền cờ để Odoo render bản ẩn giá (incokit_hide_price).
-        taiPdf: (hoaDonId, report) => {
-          const r = tachReport(report);
-          return anhClient.taiPdf(hoaDonId, r.report, { khongGia: r.khongGia });
-        },
-        onLoi: (jobId, err) => logger.error({ err, jobId }, '[may-in] job lỗi'),
-      });
+      // Job dang_gui mồ côi (server khởi động lại giữa lúc chờ app) → khong_ro + nhật ký.
+      const moCoi = await donJobMoCoi(deps);
+      if (moCoi > 0) logger.warn({ n: moCoi }, '[may-in] job dang_gui mồ côi → khong_ro');
+      await chayMotLuotIn(deps);
     } catch (err) {
       logger.error({ err }, '[may-in] lượt in lỗi');
     } finally {
       dangChay = false;
+    }
+    // Giữ nhật ký 90 ngày — dọn SAU lượt in, tối đa 1 lần/ngày, lỗi thì nuốt.
+    if (Date.now() - lanDonNhatKy > 24 * 3600 * 1000) {
+      lanDonNhatKy = Date.now();
+      void donNhatKyCu(90).then((n) => {
+        if (n > 0) logger.info({ n }, '[may-in] đã dọn nhật ký máy in cũ hơn 90 ngày');
+      });
     }
   });
   // VÌ SAO không log uri/token: AgentClient không có uri máy in (agent PC tự

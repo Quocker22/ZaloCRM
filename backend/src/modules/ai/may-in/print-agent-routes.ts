@@ -19,9 +19,41 @@ import { authMiddleware } from '../../auth/auth-middleware.js';
 import {
   taoMayIn, danhSachMayIn, suaMayIn, xoaMayIn, danhSachKho, MayInKhongTimThay,
 } from './print-agent-service.js';
+import { phanTichThamSo, timNhatKy, ThamSoSai } from './nhat-ky.js';
 
 function laAdmin(role: string): boolean {
   return role === 'owner' || role === 'admin';
+}
+
+/**
+ * Nhật ký máy in — tìm không dấu, lọc máy/mức/loại/khoảng thời gian, tải thêm
+ * bằng con trỏ (hợp đồng §3.5). CHỈ owner/admin: nhật ký có tên khách và số
+ * hoá đơn. orgId LUÔN lấy từ phiên đăng nhập, không bao giờ từ query.
+ * Tách khỏi route để test được không cần dựng JWT/Fastify.
+ */
+export async function traNhatKy(
+  user: { orgId: string; role: string },
+  query: Record<string, unknown>,
+  deps: { tim?: typeof timNhatKy } = {},
+): Promise<{ code: number; body: unknown }> {
+  if (!laAdmin(user.role)) return { code: 403, body: { error: 'CHI_ADMIN' } };
+  let thamSo;
+  try {
+    thamSo = phanTichThamSo(query ?? {});
+  } catch (err) {
+    if (err instanceof ThamSoSai) return { code: 400, body: { error: 'THAM_SO_SAI', message: err.message } };
+    throw err;
+  }
+  try {
+    return { code: 200, body: await (deps.tim ?? timNhatKy)(user.orgId, thamSo) };
+  } catch (err) {
+    // Bảng chưa tạo (deploy code trước khi chạy migration print_logs — Prisma
+    // P2021): báo rõ thay vì 500 "Máy chủ lỗi" chung chung.
+    if ((err as { code?: string })?.code === 'P2021') {
+      return { code: 503, body: { error: 'CHUA_MIGRATE', message: 'Chưa tạo bảng nhật ký máy in (migration 20260925090000_print_logs)' } };
+    }
+    throw err;
+  }
 }
 
 /**
@@ -44,6 +76,15 @@ export async function registerPrintAgentRoutes(app: FastifyInstance): Promise<vo
     const user = req.user!;
     const mayIn = await danhSachMayIn(user.orgId);
     return reply.send({ mayIn });
+  });
+
+  // ── Nhật ký máy in (xem traNhatKy) ────────────────────────────────────────
+  app.get('/nhat-ky', async (
+    req: FastifyRequest<{ Querystring: Record<string, unknown> }>,
+    reply: FastifyReply,
+  ) => {
+    const kq = await traNhatKy(req.user!, req.query ?? {});
+    return reply.code(kq.code).send(kq.body);
   });
 
   // ── Danh sách kho chuẩn (dropdown Vue) ───────────────────────────────────

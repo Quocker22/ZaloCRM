@@ -15,10 +15,12 @@
 // substring của Error.message giòn — đổi câu chữ (dịch lại, refactor) là lỗi
 // rơi vào catch-all LoiIpp(guiDuoc=true), tức coi lỗi mơ hồ là "retry được".
 // Đó là hướng SAI AN TOÀN cho luật A3. `instanceof` không phụ thuộc câu chữ.
-import { AgentRegistry, AgentKhongOnline, AgentRotGiuaChung, type JobIn } from './agent-registry.js';
+import { AgentRegistry, AgentKhongOnline, AgentRotGiuaChung, AgentHetGioCho, type JobIn } from './agent-registry.js';
 import { LoiIpp, LoiKhongRo } from './ipp-client.js';
-import type { ClientMayIn } from './hang-doi-in.js';
+import type { ClientMayIn, NguCanhGui } from './hang-doi-in.js';
 import type { PhanHoiIpp } from './giao-thuc-ipp.js';
+import { tenFileDayDu } from './ten-file-in.js';
+import { laMaSuCo, nhanCua } from './nhat-ky.js';
 
 export interface AgentClientConfig {
   paperSize: string;
@@ -34,18 +36,56 @@ function phanHoiRong(): PhanHoiIpp {
   return { thanhCong: true, status: 0, requestId: 0, thuocTinh: {} };
 }
 
-export class AgentClient implements ClientMayIn {
-  private demJob = 0;
+/**
+ * Bộ đếm id job DÙNG CHUNG mọi AgentClient của tiến trình — id duy nhất trong
+ * tiến trình (ngữ cảnh job ở registry khoá theo id), `Date.now()` tách các lần
+ * khởi động lại.
+ */
+let demJob = 0;
 
+/**
+ * Id print_jobs: UUID (Hermes chèn `str(uuid.uuid4())`, in lại tay theo handoff
+ * §9.4 dùng `gen_random_uuid()` — ĐÂY là dạng trên prod) hoặc cuid (mặc định
+ * Prisma). Giám sát vòng 3: bản trước chỉ nhận cuid → mọi job thật rơi về id
+ * "<ms>-<n>", kết quả trễ sau khi deploy không bao giờ áp được.
+ */
+const LA_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const LA_CUID = /^[a-z0-9]{8,40}$/;
+
+export function laIdPrintJob(id: string): boolean {
+  return LA_UUID.test(id) || LA_CUID.test(id);
+}
+
+/** Tách id print_jobs ra khỏi id job gửi app "<printJobId>-<ms>"; không đúng dạng → null. */
+export function tachPrintJobId(jobId: string): string | null {
+  const m = /^(.+)-(\d{13})$/.exec(jobId);
+  return m && laIdPrintJob(m[1]) ? m[1] : null;
+}
+
+export class AgentClient implements ClientMayIn {
   constructor(
     private readonly registry: AgentRegistry,
     private readonly token: string,
     private readonly cfg: AgentClientConfig,
   ) {}
 
-  async inPdf(pdf: Buffer, tenJob: string): Promise<{ jobId: number | null; phanHoi: PhanHoiIpp; daInXong: boolean }> {
+  /**
+   * `tenJob` = phần gốc tên file "AI-INV_2026_030045-<Ten_Khach>" (hàng đợi
+   * dựng bằng ten-file-in.taoTenFileIn). jobId sinh TẠI ĐÂY nên tên đủ
+   * "<gốc>-<jobId>.pdf" cũng ghép tại đây — không nơi nào khác biết jobId.
+   */
+  async inPdf(
+    pdf: Buffer,
+    tenJob: string,
+    nguCanh?: NguCanhGui,
+  ): Promise<{ jobId: number | null; phanHoi: PhanHoiIpp; daInXong: boolean }> {
+    const id = this.taoJobId(nguCanh?.printJobId);
+    // Ghi ngữ cảnh TRƯỚC khi gửi: sự cố app báo về (chỉ mang jobId) có thể tới
+    // ngay trong lúc đang chờ kết quả.
+    if (nguCanh) this.registry.ghiNguCanh(id, { ...nguCanh, token: this.token });
     const job: JobIn = {
-      id: this.taoJobId(),
+      id,
+      name: tenFileDayDu(tenJob, id),
       pdfBase64: pdf.toString('base64'),
       paperSize: this.cfg.paperSize,
       tray: this.cfg.tray,
@@ -57,9 +97,22 @@ export class AgentClient implements ClientMayIn {
     } catch (err) {
       throw this.phanLoaiLoi(err);
     }
+    const ma = laMaSuCo(kq.loai) ? kq.loai : undefined;
     if (kq.trangThai === 'loi') {
       // Agent đã nhận job và máy in ĐÃ trả lời từ chối — rõ ràng, retry an toàn.
-      throw new LoiIpp(kq.loiCuoi ?? 'Agent báo lỗi in', true);
+      // App bản mới chỉ gửi 'loi' khi CHẮC job không còn trong hàng đợi Windows
+      // (đã xoá được) — hợp đồng §0.1; mã sự cố chỉ để nhãn + nhật ký.
+      throw new LoiIpp(thongDiep(ma, kq.loiCuoi, 'Agent báo lỗi in'), true, undefined, ma);
+    }
+    if (kq.trangThai === 'khong_ro') {
+      // App đã gửi máy in mà không xác nhận được (vd kẹt giấy giữa chừng) —
+      // CẤM retry: máy có thể đã in. App chỉ gửi mã này khi backend quảng bá
+      // hỗ trợ qua `cau-hinh` (agent-ws.ts).
+      throw new LoiKhongRo(
+        thongDiep(ma, kq.loiCuoi, 'App không xác nhận được đã in'),
+        ma ?? 'khong_xac_nhan',
+        typeof kq.conTrongHangDoi === 'boolean' ? kq.conTrongHangDoi : undefined,
+      );
     }
     // jobId luôn null: agent không nói giao thức IPP nên không có job-id máy
     // in thật nào để trả. Fix round 1 (review) — trước đây cứng =1, ghi vào
@@ -82,9 +135,19 @@ export class AgentClient implements ClientMayIn {
     return { jobState: null, phanHoi: phanHoiRong() };
   }
 
-  private taoJobId(): string {
-    this.demJob += 1;
-    return `${this.token}-${Date.now()}-${this.demJob}`;
+  /**
+   * "<printJobId>-<ms>" (25/09), rơi về "<ms>-<n>" khi không có id print_jobs.
+   * KHÔNG chứa token: id nằm trong tên file in (ten-file-in) nên bản cũ
+   * "<token>-<ms>-<n>" để token máy in hiện ở hàng đợi in Windows, trên web máy
+   * in, và lọt về ZaloCRM qua `loiCuoi` (đường dẫn file tạm).
+   * Mang printJobId để kết quả TRỄ vẫn tìm được đúng dòng print_jobs sau khi
+   * backend khởi động lại (ngữ cảnh trong bộ nhớ mất — agent-ws tra DB theo id
+   * này, kèm kiểm đúng máy). Registry khoá chờ theo token nên không cần tiền tố token.
+   */
+  private taoJobId(printJobId?: string): string {
+    if (printJobId && laIdPrintJob(printJobId)) return `${printJobId}-${Date.now()}`;
+    demJob += 1;
+    return `${Date.now()}-${demJob}`;
   }
 
   private phanLoaiLoi(err: unknown): Error {
@@ -94,9 +157,20 @@ export class AgentClient implements ClientMayIn {
     if (err instanceof AgentRotGiuaChung) {
       return new LoiKhongRo(err.message);
     }
+    if (err instanceof AgentHetGioCho) {
+      // Lỗi 13.1: không trả lời trong hạn → không rõ, KHÔNG retry, cron chạy tiếp.
+      return new LoiKhongRo(err.message, 'het_gio_cho');
+    }
     // Lỗi khác không rõ nguồn gốc (không phải 2 lỗi có chủ ý của registry) —
     // coi như agent đã trả lời rõ ràng là lỗi, retry an toàn.
     const msg = err instanceof Error ? err.message : String(err);
     return new LoiIpp(msg, true);
   }
+}
+
+/** "Hết giấy — <chi tiết app>" ; không mã → chi tiết hoặc câu mặc định. */
+function thongDiep(ma: string | undefined, loiCuoi: string | undefined, macDinh: string): string {
+  const chiTiet = loiCuoi?.trim();
+  if (ma) return chiTiet ? `${nhanCua(ma)} — ${chiTiet}` : nhanCua(ma);
+  return chiTiet || macDinh;
 }

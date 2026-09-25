@@ -7,6 +7,10 @@
   Token CHỈ hiện đầy đủ 1 LẦN ngay sau khi tạo — bảng danh sách chỉ hiện 4 ký
   tự cuối (tokenDuoi) vì ai cầm token đầy đủ mạo danh được máy in, nhận/gửi
   job in thật của org.
+
+  Nhật ký máy in (hợp đồng v2, 24/09/2026 §5): cột Trạng thái thêm chip sự cố theo
+  `tinhTrang` (đỏ = lỗi, vàng = cảnh báo); mục "Nhật ký máy in" (PrintAgentLogPanel) dưới
+  bảng CHỈ hiện cho owner/admin. Mã → nhãn ở may-in-nhan.ts (nguồn duy nhất).
 -->
 <template>
   <div class="pa-page">
@@ -46,9 +50,20 @@
               <span v-else class="pa-muted">—</span>
             </td>
             <td>
-              <span class="pa-status" :class="m.online ? 'on' : 'off'">
-                <span class="pa-dot"></span>{{ m.online ? 'Online' : 'Offline' }}
-              </span>
+              <div class="pa-status-cell">
+                <span class="pa-status" :class="m.online ? 'on' : 'off'">
+                  <span class="pa-dot"></span>{{ m.online ? 'Online' : 'Offline' }}
+                </span>
+                <v-chip
+                  v-if="chipCua(m)"
+                  size="small"
+                  variant="tonal"
+                  :color="chipCua(m)!.mau"
+                  :prepend-icon="chipCua(m)!.bieuTuong"
+                  :title="chipCua(m)!.tieuDe"
+                  class="pa-tinh-trang"
+                >{{ chipCua(m)!.chu }}</v-chip>
+              </div>
             </td>
             <td class="ta-right">
               <v-btn size="small" variant="text" prepend-icon="mdi-pencil-outline" @click="openEdit(m)">Sửa</v-btn>
@@ -64,6 +79,9 @@
         </tbody>
       </v-table>
     </section>
+
+    <!-- Nhật ký máy in — CHỈ owner/admin (API 403 với người khác; mục tự ẩn nếu vẫn 403) -->
+    <PrintAgentLogPanel v-if="laAdmin" :may-ins="danhSach" @lam-moi="taiLaiNgam" />
 
     <!-- Dialog Thêm / Sửa -->
     <v-dialog v-model="formDialog" max-width="480" persistent>
@@ -186,12 +204,17 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { useToast } from '@/composables/use-toast';
+import { useAuthStore } from '@/stores/auth';
 import {
   layDanhSach, layKhos, tao, sua, xoa,
   type MayIn, type Kho, type TaoMayInKetQua,
 } from '@/api/print-agents';
+import PrintAgentLogPanel from './PrintAgentLogPanel.vue';
+import { chipTinhTrang, type ChipTinhTrang } from './may-in-nhat-ky';
 
 const toast = useToast();
+const auth = useAuthStore();
+const laAdmin = computed(() => auth.isAdmin);
 
 const loading = ref(true);
 const loadError = ref('');
@@ -206,18 +229,52 @@ function tenKhoCua(ids: number[]): string {
   return mas.length ? mas.join(', ') : '—';
 }
 
+// ── Chip tình trạng (§3.4) — "Hết giấy · 3 phút trước" tính theo lúc tải danh sách ──
+const mocTaiDs = ref(Date.now());
+const chipTheoMay = computed(() => {
+  const m = new Map<string, ChipTinhTrang | null>();
+  for (const may of danhSach.value) m.set(may.id, chipTinhTrang(may.tinhTrang, mocTaiDs.value));
+  return m;
+});
+function chipCua(m: MayIn): ChipTinhTrang | null {
+  return chipTheoMay.value.get(m.id) ?? null;
+}
+
+// Số lượt tải danh sách: tải ngầm (tự làm mới) chạy chồng với load() sau khi lưu/xoá thì
+// chỉ kết quả của lượt MỚI NHẤT được ghi vào bảng.
+let lanTaiDs = 0;
+
 async function load() {
+  const lan = ++lanTaiDs;
   loading.value = true;
   loadError.value = '';
   try {
     const [ds, kh] = await Promise.all([layDanhSach(), layKhos()]);
-    danhSach.value = ds;
     khos.value = kh;
+    if (lan === lanTaiDs) {
+      danhSach.value = ds;
+      mocTaiDs.value = Date.now();
+    }
   } catch (e: unknown) {
     loadError.value = (e as { response?: { data?: { error?: string } } })?.response?.data?.error
       || 'Không tải được danh sách máy in';
   } finally {
     loading.value = false;
+  }
+}
+
+/** Nhịp "Tự làm mới" của nhật ký: tải lại danh sách máy (Online/chip) không nháy bảng. */
+async function taiLaiNgam() {
+  if (loading.value) return;
+  const lan = ++lanTaiDs;
+  try {
+    const ds = await layDanhSach({ ngam: true });
+    if (lan !== lanTaiDs) return;
+    danhSach.value = ds;
+    mocTaiDs.value = Date.now();
+  } catch {
+    // Giữ bảng đang hiện; nhịp sau thử lại. Chạy ngầm nên không toast — mục
+    // nhật ký cùng nhịp đã báo lỗi ngay tại chỗ.
   }
 }
 
@@ -330,7 +387,7 @@ onMounted(load);
 </script>
 
 <style scoped>
-.pa-page { max-width: 960px; }
+.pa-page { max-width: 1200px; }
 .pa-head { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 18px; }
 .pa-head .ico { width: 44px; height: 44px; border-radius: 12px; background: #eff6ff; display: grid; place-items: center; font-size: 22px; flex: none; }
 .pa-head h1 { font-size: 19px; font-weight: 700; margin: 0 0 4px; }
@@ -345,5 +402,7 @@ onMounted(load);
 .pa-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .pa-status.on .pa-dot { background: #22c55e; }
 .pa-status.off .pa-dot { background: #9ca3af; }
+.pa-status-cell { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.pa-tinh-trang { max-width: 100%; }
 .pa-copy-label { font-size: 12px; font-weight: 600; color: #6b7785; margin-bottom: 4px; }
 </style>

@@ -4483,3 +4483,35 @@ model PrintAgent {
   @@index([orgId])
   @@map("print_agents")
 }
+
+/// Nhật ký máy in (24/09) — mọi sự kiện in + sự cố máy in (hết giấy, kẹt
+/// giấy…) để trang Cài đặt › Máy in tìm được. Ghi fire-and-forget, không bao
+/// giờ chặn việc in (may-in/nhat-ky.ts). KHÔNG lưu token máy in.
+/// tuKhoa = chữ thường + bỏ dấu của loai/noiDung/soHoaDon/tenKhach/mayInTen —
+/// tìm "loc beco het giay" ra dòng có dấu. Giữ 90 ngày (cron dọn).
+model PrintLog {
+  id          String   @id @default(cuid())
+  orgId       String   @map("org_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  /// thong_tin | canh_bao | loi
+  mucDo       String   @map("muc_do")
+  /// mã sự kiện (nhat-ky.ts MA_SU_KIEN): nhan_job, da_in, het_giay, …
+  loai        String
+  noiDung     String   @map("noi_dung")
+  printJobId  String?  @map("print_job_id")
+  soHoaDon    String?  @map("so_hoa_don")
+  tenKhach    String?  @map("ten_khach")
+  mayInId     String?  @map("may_in_id")
+  mayInTen    String?  @map("may_in_ten")
+  /// id job gửi app, ĐÃ cắt tiền tố token ("…-<ms>-<n>")
+  agentJobId  String?  @map("agent_job_id")
+  chiTiet     Json?    @map("chi_tiet")
+  tuKhoa      String   @map("tu_khoa")
+
+  @@index([orgId, createdAt(sort: Desc)])
+  @@index([orgId, mayInId, createdAt(sort: Desc)])
+  @@index([orgId, mucDo, createdAt(sort: Desc)])
+  @@index([printJobId])
+  @@index([soHoaDon])
+  @@map("print_logs")
+}

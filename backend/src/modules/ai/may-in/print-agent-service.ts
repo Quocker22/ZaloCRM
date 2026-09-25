@@ -18,6 +18,7 @@
 import { randomBytes } from 'node:crypto';
 import { prisma } from '../../../shared/database/prisma-client.js';
 import { agentRegistry } from './agent-registry.js';
+import { nhanCua } from './nhat-ky.js';
 import { KHO } from '../agent/noi-zalo/gom-don/kieu.js';
 import type { PrintAgent } from '@prisma/client';
 
@@ -43,12 +44,22 @@ export interface MayInAnToan {
   warehouseIds: number[];
   laMacDinh: boolean;
   online: boolean;
+  /**
+   * Tình trạng máy in app vừa báo (hết giấy, kẹt giấy…); null = chưa biết
+   * hoặc app offline. Hợp đồng §3.4.
+   */
+  tinhTrang: { ma: string; nhan: string; luc: Date } | null;
   createdAt: Date;
   updatedAt: Date;
 }
 
 function tokenDuoiCua(token: string): string {
   return token.slice(-4);
+}
+
+function tinhTrangCua(token: string): MayInAnToan['tinhTrang'] {
+  const tt = agentRegistry.layTinhTrang(token);
+  return tt ? { ma: tt.ma, nhan: nhanCua(tt.ma), luc: tt.luc } : null;
 }
 
 function toAnToan(row: PrintAgent): MayInAnToan {
@@ -60,6 +71,7 @@ function toAnToan(row: PrintAgent): MayInAnToan {
     warehouseIds: row.warehouseIds,
     laMacDinh: row.laMacDinh,
     online: agentRegistry.coAgent(row.token),
+    tinhTrang: tinhTrangCua(row.token),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
