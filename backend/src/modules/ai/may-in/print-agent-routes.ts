@@ -74,7 +74,7 @@ export async function traNhatKy(
 
 const CHUA_MIGRATE_APP = {
   error: 'CHUA_MIGRATE',
-  message: 'Chưa tạo bảng nhật ký app máy in (migration 20260925180000_print_app_logs)',
+  message: 'Chưa tạo bảng/cột nhật ký app máy in (migration 20260925180000_print_app_logs + 20260925200000_print_app_logs_muc_do)',
 } as const;
 
 /** Đọc tham số nhật ký app — trả lỗi 400 thay vì ném. */

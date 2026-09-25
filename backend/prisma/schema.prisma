@@ -4539,9 +4539,13 @@ model PrintAppLog {
   phienBan String?  @map("phien_ban")
   khoa     String   @unique
   tuKhoa   String   @map("tu_khoa")
+  /// loi | canh_bao | thong_tin — backend phân loại lúc lưu (nhat-ky-app.ts phanLoaiMucDoApp);
+  /// migration 20260925200000_print_app_logs_muc_do backfill bằng CÙNG luật (CASE sinh từ bảng luật).
+  mucDo    String   @default("thong_tin") @map("muc_do")
 
   @@index([orgId, luc(sort: Desc), id(sort: Desc)])
   @@index([orgId, mayInId, luc(sort: Desc)])
   @@index([orgId, suKien, luc(sort: Desc)])
+  @@index([orgId, mucDo, luc(sort: Desc)])
   @@map("print_app_logs")
 }

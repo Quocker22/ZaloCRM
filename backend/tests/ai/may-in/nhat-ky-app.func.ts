@@ -189,6 +189,8 @@ describe('timNhatKyApp — hai chiều con trỏ', () => {
     expect(kq.items.map((i) => i.id)).toEqual(['c3', 'c2']);
     expect(kq.items[0]).toEqual({
       id: 'c3', luc: '2026-09-25T10:00:03.000Z', mayInId: 'm1', mayInTen: 'Máy HN', suKien: 'vet_in', noiDung: 'c', phienBan: '0.2.4',
+      // v5 §5: item mang mức độ; dòng giả không có cột → tính lại theo luật (vet_in = thông tin).
+      mucDo: 'thong_tin',
     });
     expect(kq.tiepTheo).toBe('2026-09-25T10:00:02.000Z|c2');
     const goi = (p.printAppLog.findMany as ReturnType<typeof vi.fn>).mock.calls[0][0];

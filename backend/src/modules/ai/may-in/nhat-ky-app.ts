@@ -65,6 +65,129 @@ export const GIOI_HAN_DONG_MOI_PHUT = 5000;
 export type MaLoiNhatKyApp = 'SAI_DU_LIEU' | 'QUA_TAI' | 'CHUA_MIGRATE' | 'KHONG_RO_ORG' | 'LOI_LUU';
 export type AckNhatKyApp = { ok: true; soDong: number } | { ok: false; loi: MaLoiNhatKyApp };
 
+// ── Mức độ một dòng log app (hợp đồng hàng đợi/huỷ v5 §5 + §8.9) ─────────────
+//
+// Cột `muc_do` phân loại LÚC LƯU; migration 20260925200000_print_app_logs_muc_do backfill
+// bằng CÙNG luật: câu SQL CASE trong migration được SINH từ đúng bảng luật dưới đây
+// (sqlPhanLoaiMucDoApp) và test khoá "migration chứa đúng chuỗi sinh ra" + đối chiếu TS↔SQL
+// trên Postgres thật khi có (CO_DB_TEST=1). Sửa luật = sửa bảng này + migration MỚI.
+//
+// So chữ trên dạng CHUẨN HOÁ NFC ở cả hai phía (JS `normalize('NFC')`, SQL `normalize(…, NFC)`)
+// — "hết giấy" gõ NFD vẫn khớp. So PHÂN BIỆT hoa thường, đúng như hợp đồng viết.
+// "Từ đầu tiên" = đoạn trước khoảng trắng đầu tiên (dấu cách/tab/xuống dòng) sau khi bỏ
+// khoảng trắng đầu dòng.
+
+export type MucDoApp = 'loi' | 'canh_bao' | 'thong_tin';
+export type LocMucDoApp = MucDoApp | 'loi_canh_bao';
+
+/** Điều kiện trên `noi_dung` của một luật (vắng = mọi nội dung). */
+export type DieuKienNoiDungApp =
+  /** chứa ít nhất một chuỗi */
+  | { chua: readonly string[] }
+  /** từ đầu tiên thuộc danh sách */
+  | { tuDauLa: readonly string[] }
+  /** từ đầu tiên KHÔNG thuộc danh sách */
+  | { tuDauKhong: readonly string[] }
+  /** từ đầu tiên bắt đầu bằng */
+  | { tuDauBatDau: string };
+
+export interface LuatMucDoApp {
+  mucDo: Exclude<MucDoApp, 'thong_tin'>;
+  /** Khớp NGUYÊN mã su_kien (một trong danh sách)… */
+  suKien?: readonly string[];
+  /** …hoặc mã bắt đầu bằng tiền tố này. */
+  tienTo?: string;
+  noiDung?: DieuKienNoiDungApp;
+}
+
+/**
+ * Bảng luật — luật ĐẦU TIÊN khớp thắng; không luật nào khớp → `thong_tin`. Luật `loi` đứng
+ * trước luật `canh_bao` (usb_doc vừa "hết giấy" vừa "KHONG DOC DUOC" là lỗi).
+ * §8.9: `huy_that_bai` KHÔNG phải mã app (bỏ khỏi §5); app ghi `huy_yeu_cau` (thông tin) và
+ * `huy_ket_qua` với nội dung bắt đầu `ok=true`/`ok=false` — `ok=false` là cảnh báo.
+ */
+export const LUAT_MUC_DO_APP: readonly LuatMucDoApp[] = [
+  { mucDo: 'loi', suKien: ['su_co'] },
+  // khong_in_het_giay, khong_in_hang_doi_ket, khong_in_khong_tim_thay_may_in, …
+  { mucDo: 'loi', tienTo: 'khong_in_' },
+  { mucDo: 'loi', suKien: ['ket_qua'], noiDung: { chua: ['trang_thai=loi', 'trang_thai=khong_ro'] } },
+  { mucDo: 'loi', suKien: ['trang_thai_may_in'], noiDung: { tuDauKhong: ['binh_thuong', 'het_muc'] } },
+  { mucDo: 'loi', suKien: ['usb_doc'], noiDung: { chua: ['TRỐNG', 'báo lỗi', 'hết giấy'] } },
+  {
+    mucDo: 'loi',
+    suKien: ['theo_doi_tiep_mat', 'theo_doi_tiep_het_han', 'tu_choi_ket_noi', 'sumatra_qua_han', 'sumatra_loi_cho'],
+  },
+  { mucDo: 'canh_bao', suKien: ['trang_thai_may_in'], noiDung: { tuDauLa: ['het_muc'] } },
+  { mucDo: 'canh_bao', suKien: ['usb_doc'], noiDung: { chua: ['KHONG DOC DUOC'] } },
+  {
+    mucDo: 'canh_bao',
+    suKien: [
+      'noi_that_bai', 'mat_ket_noi', 'gui_nhat_ky_loi', 'app_bo_dong', 'mat_job', 'ngat_client_cham',
+      'hop_thu_tran', 'theo_doi_tiep_bo', 'bo_theo_doi',
+    ],
+  },
+  { mucDo: 'canh_bao', suKien: ['huy_ket_qua'], noiDung: { tuDauBatDau: 'ok=false' } },
+];
+
+const nfc = (x: string): string => x.normalize('NFC');
+
+/** Từ đầu tiên (xem đầu mục). Cùng biểu thức với phía SQL. */
+export function tuDauTien(noiDung: string): string {
+  return /^[ \t\r\n]*([^ \t\r\n]*)/.exec(noiDung)?.[1] ?? '';
+}
+
+function khopLuat(l: LuatMucDoApp, suKien: string, noiDung: string): boolean {
+  const theoMa = (l.suKien?.some((m) => nfc(m) === suKien) ?? false)
+    || (l.tienTo !== undefined && suKien.startsWith(nfc(l.tienTo)));
+  if (!theoMa) return false;
+  const d = l.noiDung;
+  if (!d) return true;
+  if ('chua' in d) return d.chua.some((c) => noiDung.includes(nfc(c)));
+  const tu = tuDauTien(noiDung);
+  if ('tuDauLa' in d) return d.tuDauLa.some((c) => tu === nfc(c));
+  if ('tuDauKhong' in d) return !d.tuDauKhong.some((c) => tu === nfc(c));
+  return tu.startsWith(nfc(d.tuDauBatDau));
+}
+
+/** Mức của một dòng log app — trên chữ ĐÃ LƯU (đã che token, cắt trần), như backfill thấy. */
+export function phanLoaiMucDoApp(suKien: string, noiDung: string): MucDoApp {
+  const sk = nfc(suKien ?? '');
+  const nd = nfc(noiDung ?? '');
+  for (const l of LUAT_MUC_DO_APP) if (khopLuat(l, sk, nd)) return l.mucDo;
+  return 'thong_tin';
+}
+
+/** Chuỗi SQL an toàn (chữ trong bảng luật do ta viết — vẫn nhân đôi dấu nháy cho chắc). */
+const sqlChu = (x: string): string => `normalize('${nfc(x).replace(/'/g, "''")}', NFC)`;
+const SQL_SU_KIEN = 'normalize("su_kien", NFC)';
+const SQL_NOI_DUNG = 'normalize("noi_dung", NFC)';
+// E'' để \t \r \n thành ký tự thật trước khi tới bộ regex — không phụ thuộc standard_conforming_strings.
+const SQL_TU_DAU = `coalesce(substring(${SQL_NOI_DUNG} from E'^[ \\t\\r\\n]*([^ \\t\\r\\n]*)'), '')`;
+
+function sqlLuat(l: LuatMucDoApp): string {
+  const ma: string[] = [];
+  if (l.suKien?.length) ma.push(`${SQL_SU_KIEN} IN (${l.suKien.map(sqlChu).join(', ')})`);
+  if (l.tienTo !== undefined) ma.push(`left(${SQL_SU_KIEN}, ${[...nfc(l.tienTo)].length}) = ${sqlChu(l.tienTo)}`);
+  const dkMa = ma.length > 1 ? `(${ma.join(' OR ')})` : ma[0];
+  const d = l.noiDung;
+  if (!d) return dkMa;
+  let dkNd: string;
+  if ('chua' in d) dkNd = `(${d.chua.map((c) => `strpos(${SQL_NOI_DUNG}, ${sqlChu(c)}) > 0`).join(' OR ')})`;
+  else if ('tuDauLa' in d) dkNd = `${SQL_TU_DAU} IN (${d.tuDauLa.map(sqlChu).join(', ')})`;
+  else if ('tuDauKhong' in d) dkNd = `${SQL_TU_DAU} NOT IN (${d.tuDauKhong.map(sqlChu).join(', ')})`;
+  else dkNd = `left(${SQL_TU_DAU}, ${[...nfc(d.tuDauBatDau)].length}) = ${sqlChu(d.tuDauBatDau)}`;
+  return `${dkMa} AND ${dkNd}`;
+}
+
+/**
+ * Biểu thức SQL CASE tương đương `phanLoaiMucDoApp` trên cột "su_kien"/"noi_dung" — SINH từ
+ * LUAT_MUC_DO_APP, dán nguyên văn vào migration backfill (test khoá hai bên khớp nhau).
+ */
+export function sqlPhanLoaiMucDoApp(): string {
+  const nhanh = LUAT_MUC_DO_APP.map((l) => `    WHEN ${sqlLuat(l)} THEN '${l.mucDo}'`);
+  return ['CASE', ...nhanh, "    ELSE 'thong_tin'", '  END'].join('\n');
+}
+
 // ── Đọc lô từ app ────────────────────────────────────────────────────────────
 
 /** Một dòng đã kiểm + che token + cắt trần, kèm khoá chống trùng. */
@@ -213,9 +336,13 @@ async function prismaThat(): Promise<PrismaNhatKyApp> {
   return prisma as unknown as PrismaNhatKyApp;
 }
 
-/** Bảng chưa tạo (deploy code trước khi chạy migration) — Prisma P2021. */
+/**
+ * Bảng chưa tạo (P2021) hoặc CỘT chưa có (P2022 — deploy code trước migration muc_do): ack
+ * CHUA_MIGRATE, app giữ lô gửi lại sau; trang xem trả 503 nói rõ cần chạy migration.
+ */
 export function laLoiChuaMigrate(err: unknown): boolean {
-  return (err as { code?: string } | null)?.code === 'P2021';
+  const ma = (err as { code?: string } | null)?.code;
+  return ma === 'P2021' || ma === 'P2022';
 }
 
 export interface DepsNhatKyApp {
@@ -274,6 +401,8 @@ export function taoNhanNhatKyApp(deps: DepsNhatKyApp = {}): NhanNhatKyApp {
         luc: d.luc,
         suKien: d.suKien,
         noiDung: d.noiDung,
+        // Phân loại trên chữ ĐÃ LƯU — đúng thứ backfill SQL nhìn thấy.
+        mucDo: phanLoaiMucDoApp(d.suKien, d.noiDung),
         khoa: d.khoa,
         tuKhoa: taoTuKhoa([d.suKien, d.noiDung]),
       });
@@ -293,7 +422,7 @@ export function taoNhanNhatKyApp(deps: DepsNhatKyApp = {}): NhanNhatKyApp {
       if (laLoiChuaMigrate(err)) {
         if (!daBaoChuaMigrate) {
           daBaoChuaMigrate = true;
-          logger.warn('[may-in] chưa tạo bảng print_app_logs (migration 20260925180000_print_app_logs) — app sẽ gửi lại nhật ký sau');
+          logger.warn('[may-in] chưa tạo bảng/cột print_app_logs (migration 20260925180000_print_app_logs / 20260925200000_print_app_logs_muc_do) — app sẽ gửi lại nhật ký sau');
         }
         return { ok: false, loi: 'CHUA_MIGRATE' };
       }
@@ -317,6 +446,8 @@ export interface ThamSoNhatKyApp {
   mayInId: string | null;
   /** Rỗng = mọi sự kiện; khớp NGUYÊN mã. */
   suKien: string[];
+  /** Lọc mức (cột muc_do); null = mọi mức. */
+  mucDo: LocMucDoApp | null;
   tu: Date;
   den: Date;
   /** Trang CŨ hơn (luc DESC, id DESC). */
@@ -327,6 +458,7 @@ export interface ThamSoNhatKyApp {
 }
 
 const GIO_MS = 3600 * 1000;
+const MUC_DO_APP_HOP_LE: LocMucDoApp[] = ['loi', 'canh_bao', 'thong_tin', 'loi_canh_bao'];
 
 /**
  * Đọc query string → tham số đã kiểm. Ném ThamSoSai khi sai (route trả 400).
@@ -337,6 +469,11 @@ export function phanTichThamSoApp(query: Record<string, unknown>, bayGio: Date =
   const qTho = typeof query.q === 'string' ? query.q : '';
   // Mỗi từ phải có mặt (AND) — "job 1234 loi" tìm dòng có đủ ba từ.
   const q = taoTuKhoa([qTho.slice(0, 200)]).split(' ').filter((t) => t.length > 0).slice(0, 8);
+
+  const mucDoTho = typeof query.mucDo === 'string' && query.mucDo ? query.mucDo : null;
+  if (mucDoTho && !MUC_DO_APP_HOP_LE.includes(mucDoTho as LocMucDoApp)) {
+    throw new ThamSoSai(`mucDo phải là một trong: ${MUC_DO_APP_HOP_LE.join(', ')}`);
+  }
 
   const suKienTho = typeof query.suKien === 'string' ? query.suKien : '';
   const suKien = [...new Set(suKienTho.split(',').map((s) => s.trim().slice(0, TRAN_SU_KIEN)).filter(Boolean))].slice(0, 20);
@@ -358,6 +495,7 @@ export function phanTichThamSoApp(query: Record<string, unknown>, bayGio: Date =
     q,
     mayInId: typeof query.mayInId === 'string' && query.mayInId ? query.mayInId.slice(0, 100) : null,
     suKien,
+    mucDo: mucDoTho as LocMucDoApp | null,
     tu,
     den,
     truoc,
@@ -376,6 +514,8 @@ export function taoWhereNhatKyApp(orgId: string, t: ThamSoNhatKyApp): Record<str
   if (t.mayInId) va.push({ mayInId: t.mayInId });
   if (t.suKien.length === 1) va.push({ suKien: t.suKien[0] });
   else if (t.suKien.length > 1) va.push({ suKien: { in: t.suKien } });
+  if (t.mucDo === 'loi_canh_bao') va.push({ mucDo: { in: ['loi', 'canh_bao'] } });
+  else if (t.mucDo) va.push({ mucDo: t.mucDo });
   // Con trỏ ổn định theo (luc, id) — hai dòng cùng mili-giây không bị mất/lặp.
   if (t.truoc) {
     va.push({
@@ -405,9 +545,14 @@ export interface NhatKyApp {
   suKien: string;
   noiDung: string;
   phienBan: string | null;
+  mucDo: MucDoApp;
 }
 
-const CHON_COT = { id: true, luc: true, mayInId: true, mayInTen: true, suKien: true, noiDung: true, phienBan: true } as const;
+const CHON_COT = {
+  id: true, luc: true, mayInId: true, mayInTen: true, suKien: true, noiDung: true, phienBan: true, mucDo: true,
+} as const;
+
+const laMucDoApp = (x: unknown): x is MucDoApp => x === 'loi' || x === 'canh_bao' || x === 'thong_tin';
 
 function thanhNhatKyApp(r: Record<string, unknown>): NhatKyApp {
   return {
@@ -418,6 +563,8 @@ function thanhNhatKyApp(r: Record<string, unknown>): NhatKyApp {
     suKien: String(r.suKien),
     noiDung: String(r.noiDung ?? ''),
     phienBan: (r.phienBan as string | null) ?? null,
+    // Cột có sẵn (NOT NULL); giá trị lạ → tính lại theo luật thay vì trả rác.
+    mucDo: laMucDoApp(r.mucDo) ? r.mucDo : phanLoaiMucDoApp(String(r.suKien), String(r.noiDung ?? '')),
   };
 }
 
