@@ -335,15 +335,23 @@ export async function layHangDoi(
  * Lỗi mạng/5xx: người gọi coi là "chưa rõ" và tải lại hàng đợi (không bao giờ tự cho là đã huỷ).
  */
 export async function huyLenhIn(ids: string[]): Promise<KetQuaHuy[]> {
-  const { data } = await api.post('/may-in-agents/hang-doi/huy', { ids }, { boQuaToast5xx: true });
+  // Người gọi tự báo lỗi tại dòng + tự gửi lại → không toast chung; hết giờ 15 s để kịp gửi lại.
+  const { data } = await api.post('/may-in-agents/hang-doi/huy', { ids }, {
+    timeout: MS_HET_GIO_THAO_TAC, boQuaToast5xx: true, boQuaToast403: true,
+  });
   return Array.isArray(data?.ketQua) ? data.ketQua : [];
 }
 
 /** Bỏ khỏi hàng đợi lệnh CHƯA XÁC NHẬN — KHÔNG chặn việc in, không biết đã in hay chưa. */
 export async function boTheoDoiLenhIn(ids: string[]): Promise<KetQuaBoTheoDoi[]> {
-  const { data } = await api.post('/may-in-agents/hang-doi/bo-theo-doi', { ids }, { boQuaToast5xx: true });
+  const { data } = await api.post('/may-in-agents/hang-doi/bo-theo-doi', { ids }, {
+    timeout: MS_HET_GIO_THAO_TAC, boQuaToast5xx: true, boQuaToast403: true,
+  });
   return Array.isArray(data?.ketQua) ? data.ketQua : [];
 }
+
+/** Hết giờ một lần gửi huỷ / bỏ theo dõi (mặc định axios 30 s quá lâu cho người đang đứng chờ). */
+const MS_HET_GIO_THAO_TAC = 15_000;
 
 /** Mã HTTP của lỗi axios (không có phản hồi — mất mạng, bị huỷ — thì undefined). */
 export function maHttpCuaLoi(e: unknown): number | undefined {

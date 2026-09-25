@@ -23,6 +23,9 @@
   thẻ "Hàng đợi in" lọc máy đó. Cùng dữ liệu truyền xuống mục Hàng đợi & nhật ký.
 -->
 <template>
+  <!-- Trang Atlas này là giao diện SÁNG (token --at-* chữ tối): ép theme hsLight cho cả trang và
+       các hộp thoại của nó — MobileLayout mặc định theme tối, không ép thì chữ tối trên nền tối. -->
+  <v-theme-provider theme="hsLight" with-background class="pa-nen">
   <div class="pa-page airtable-scope">
     <header class="pa-topbar">
       <div class="pa-topbar-title">
@@ -214,11 +217,12 @@
       :mo-hang-doi="moHangDoi"
       @lam-moi="nhipTrang"
       @tai-lai-hang-doi="taiHangDoi"
+      @tam-dung-hang-doi="(d: boolean) => { hangDoiTamDung = d; }"
     />
 
     <!-- Dialog Thêm / Sửa -->
     <v-dialog v-model="formDialog" max-width="500" persistent>
-      <v-card class="pa-dlg airtable-scope" rounded="lg">
+      <v-card class="pa-dlg airtable-scope" theme="hsLight" rounded="lg">
         <div class="pa-dlg-dau">
           <div class="pa-ico pa-ico--nho" aria-hidden="true">
             <v-icon size="18">{{ editing ? 'mdi-pencil-outline' : 'mdi-printer-outline' }}</v-icon>
@@ -286,7 +290,7 @@
 
     <!-- Dialog hiện token sau khi tạo — CHỈ 1 LẦN -->
     <v-dialog v-model="tokenDialog" max-width="580" persistent>
-      <v-card class="pa-dlg airtable-scope" rounded="lg">
+      <v-card class="pa-dlg airtable-scope" theme="hsLight" rounded="lg">
         <div class="pa-dlg-dau">
           <div class="pa-ico pa-ico--nho pa-ico--xanh" aria-hidden="true"><v-icon size="18">mdi-check</v-icon></div>
           <div>
@@ -345,7 +349,7 @@
 
     <!-- Dialog confirm xoá — KHÔNG dùng window.confirm (treo) -->
     <v-dialog v-model="xoaDialog" max-width="440">
-      <v-card class="pa-dlg airtable-scope" rounded="lg">
+      <v-card class="pa-dlg airtable-scope" theme="hsLight" rounded="lg">
         <div class="pa-dlg-dau">
           <div class="pa-ico pa-ico--nho pa-ico--do" aria-hidden="true"><v-icon size="18">mdi-trash-can-outline</v-icon></div>
           <div>
@@ -364,6 +368,7 @@
       </v-card>
     </v-dialog>
   </div>
+  </v-theme-provider>
 </template>
 
 <script setup lang="ts">
@@ -478,6 +483,11 @@ const hangDoi = ref<HangDoiIn | null>(null);
 const dangTaiHangDoi = ref(false);
 const loiHangDoi = ref('');
 const moHangDoi = ref<{ mayInId: string | null; lan: number } | null>(null);
+/**
+ * Thẻ Hàng đợi đang mở hộp xác nhận / đang huỷ (§6.1 "tạm dừng") → MỌI nhịp nạp ngầm hàng đợi
+ * (15 s của mục nhật ký) nghỉ: danh sách không đổi dưới tay người đang quyết.
+ */
+const hangDoiTamDung = ref(false);
 let theHeHangDoi = 0;
 let boHuyHangDoi: AbortController | null = null;
 /** Lúc nạp hàng đợi xong gần nhất (ms) — gộp các nhịp ngầm dồn nhau. */
@@ -495,7 +505,7 @@ async function taiHangDoi(tuy: { ngam?: boolean } = {}): Promise<void> {
   if (!laAdmin.value) return;
   // Nhịp ngầm (15 s của mục nhật ký, 5 s của thẻ Hàng đợi) không chồng lên lượt đang bay hay
   // vừa xong; lượt CÓ CHỦ Ý (mở trang, sau khi huỷ) luôn chạy và thay lượt cũ.
-  if (tuy.ngam && (dangTaiHangDoi.value || Date.now() - lucNapHangDoi < MS_GOP_NHIP_HANG_DOI)) return;
+  if (tuy.ngam && (hangDoiTamDung.value || dangTaiHangDoi.value || Date.now() - lucNapHangDoi < MS_GOP_NHIP_HANG_DOI)) return;
   boHuyHangDoi?.abort();
   boHuyHangDoi = new AbortController();
   const the = ++theHeHangDoi;
@@ -650,6 +660,7 @@ onBeforeUnmount(() => {
 <style scoped>
 @import '@/assets/airtable.css';
 
+.pa-nen { min-height: 100%; }
 .pa-page { max-width: 1180px; }
 
 /* ── Topbar — khuôn Atlas v2 (SystemNotificationsPage) ── */

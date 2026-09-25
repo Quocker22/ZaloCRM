@@ -44,6 +44,13 @@ const VUETIFY_VO = {
   VBtn: vo('button'), VIcon: vo('i'), VAlert: vo('div'), VDialog: VoDialog, VCard: vo('div'), VCardText: vo('div'),
   VCardActions: vo('div'), VSpacer: vo('span'), VTextField: vo('div'), VSelect: vo('div'), VSwitch: vo('div'),
   VTable: vo('table'), VProgressLinear: vo('div'), VProgressCircular: vo('span'), VChip: vo('span'),
+  VThemeProvider: defineComponent({
+    name: 'VoThemeProvider',
+    props: { theme: String },
+    setup(p, { slots }) {
+      return () => h('div', { 'data-theme': p.theme }, slots.default?.());
+    },
+  }),
 };
 
 const MAY: MayIn[] = [
@@ -124,6 +131,34 @@ describe('PrintAgentsPage — chip "N đang chờ"', () => {
     expect(vi.mocked(layHangDoi).mock.calls.at(-1)![1]).toMatchObject({ ngam: true });
     expect(the(w, 'Máy HN').find('.pa-cho-chip').text()).toBe('1 đang chờ');
     expect(the(w, 'Máy HCM').find('.pa-cho-chip').exists()).toBe(false);
+    w.unmount();
+  });
+});
+
+describe('PrintAgentsPage — giám sát (LOW 6 + MEDIUM 5)', () => {
+  it('đang mở hộp xác nhận huỷ → nhịp 15 giây KHÔNG nạp lại hàng đợi (danh sách không đổi dưới tay); đóng hộp thì chạy lại', async () => {
+    const w = gan();
+    await flushPromises();
+    await the(w, 'Máy HN').find('.pa-cho-chip').trigger('click');
+    await flushPromises();
+    await w.find('#nk-vung-hang-doi').findAll('button').find((b) => b.text() === 'Huỷ')!.trigger('click');
+    await flushPromises();
+    const truoc = vi.mocked(layHangDoi).mock.calls.length;
+    vi.advanceTimersByTime(30_000);
+    await flushPromises();
+    expect(vi.mocked(layHangDoi).mock.calls.length).toBe(truoc);
+    await w.findAll('button').find((b) => b.text() === 'Giữ lại')!.trigger('click');
+    vi.advanceTimersByTime(15_000);
+    await flushPromises();
+    expect(vi.mocked(layHangDoi).mock.calls.length).toBeGreaterThan(truoc);
+    w.unmount();
+  });
+
+  it('cả trang ép theme sáng hsLight (MobileLayout mặc định theme tối — chữ Atlas tối trên nền tối)', async () => {
+    const w = gan();
+    await flushPromises();
+    expect(w.find('[data-theme="hsLight"]').exists()).toBe(true);
+    expect(w.find('[data-theme="hsLight"] .pa-page').exists()).toBe(true);
     w.unmount();
   });
 });

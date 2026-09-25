@@ -127,12 +127,17 @@ export type TabNhatKy = 'hang_doi' | 'in' | 'app';
 export const laTabNhatKy = (x: unknown): x is TabNhatKy => x === 'hang_doi' || x === 'in' || x === 'app';
 
 /**
- * URL `?nhatKy=hang_doi|in|app` thắng thẻ người dùng đã chọn (nhớ trong localStorage); không có
- * gì → "Hàng đợi in" nếu đang có lệnh chờ in (`soChoIn` > 0), ngược lại "Nhật ký in"
- * (hợp đồng hàng đợi/huỷ §6.1).
+ * Thẻ mở sẵn (hợp đồng hàng đợi/huỷ §6.1):
+ *   1. URL `?nhatKy=hang_doi|in|app` — người mở link chọn rõ ràng, luôn thắng;
+ *   2. có hoá đơn TẠM GIỮ (máy in đang lỗi) → "Hàng đợi in", BẤT KỂ thẻ đã nhớ: đang sự cố hết
+ *      giấy thì việc đầu tiên là thấy các hoá đơn đang chờ (bản 5438b68 đã nhớ in/app cho mọi
+ *      người — không được để nó che hàng đợi lúc sự cố);
+ *   3. thẻ người dùng đã chọn (localStorage) — chỉ khi không có gì tạm giữ;
+ *   4. còn lại: "Hàng đợi in" nếu có lệnh đang chờ in, ngược lại "Nhật ký in".
  */
-export function chonTabNhatKy(tuUrl: unknown, daLuu: unknown, soChoIn = 0): TabNhatKy {
+export function chonTabNhatKy(tuUrl: unknown, daLuu: unknown, soChoIn = 0, coTamGiu = false): TabNhatKy {
   if (laTabNhatKy(tuUrl)) return tuUrl;
+  if (coTamGiu) return 'hang_doi';
   if (laTabNhatKy(daLuu)) return daLuu;
   return soChoIn > 0 ? 'hang_doi' : 'in';
 }

@@ -22,9 +22,11 @@
 
   Thẻ thứ ba ĐẦU TIÊN (25/09, hợp đồng hàng đợi/huỷ v5.1 §6.1 + §8.6): "Hàng đợi in (N)" —
   PrintAgentQueuePanel, N = số lệnh đang/sẽ in. Dữ liệu do trang cha nạp (cùng nguồn chip "N đang
-  chờ" trên thẻ máy) và truyền vào `hangDoi`. Thẻ mặc định: Hàng đợi nếu N > 0, ngược lại Nhật ký
-  in — trừ khi URL `?nhatKy=hang_doi|in|app` hoặc người dùng đã chọn (localStorage). Bấm chip trên
-  thẻ máy (`moHangDoi`) mở thẳng thẻ Hàng đợi, lọc máy đó.
+  chờ" trên thẻ máy) và truyền vào `hangDoi`. Thẻ mở sẵn (chonTabNhatKy): URL `?nhatKy=` thắng;
+  có hoá đơn TẠM GIỮ (máy in lỗi) → Hàng đợi BẤT KỂ thẻ đã nhớ; không thì thẻ đã nhớ; không thì
+  Hàng đợi nếu N > 0, ngược lại Nhật ký in. Bấm chip trên thẻ máy (`moHangDoi`) mở thẳng thẻ Hàng
+  đợi, lọc máy đó. Thẻ Hàng đợi báo `tamDung` (hộp xác nhận / đang huỷ) → chuyển lên trang cha để
+  dừng nhịp nạp 15 giây.
 -->
 <template>
   <section v-if="!biCam" ref="goc" class="nk" aria-labelledby="nk-tieu-de">
@@ -282,6 +284,7 @@
       :loi="loiHangDoi"
       :loc-may="locMayHangDoi"
       @tai-lai="(t) => emit('taiLaiHangDoi', t)"
+      @tam-dung="(d) => emit('tamDungHangDoi', d)"
     />
 
     <PrintAgentAppLogPanel
@@ -329,6 +332,8 @@ const emit = defineEmits<{
   lamMoi: [];
   /** Thẻ Hàng đợi xin nạp lại hàng đợi (nhịp 5 giây / sau khi huỷ). */
   taiLaiHangDoi: [tuy: { ngam: boolean }];
+  /** Thẻ Hàng đợi đang mở hộp xác nhận / đang huỷ → trang cha dừng nạp ngầm hàng đợi. */
+  tamDungHangDoi: [dung: boolean];
 }>();
 
 const GIOI_HAN = 50;
@@ -364,13 +369,13 @@ const soChoIn = computed(() => props.hangDoi?.choIn.length ?? 0);
 const coTamGiu = computed(() => (props.hangDoi?.choIn ?? []).some((m) => m.tamGiu));
 
 const theDaLuu = docTheDaLuu();
-const theChon = ref<TabNhatKy>(chonTabNhatKy(props.tabDau, theDaLuu, soChoIn.value));
+const theChon = ref<TabNhatKy>(chonTabNhatKy(props.tabDau, theDaLuu, soChoIn.value, coTamGiu.value));
 /**
- * URL hoặc lựa chọn đã nhớ quyết thẻ — không tự đổi. Không có cả hai thì thẻ mặc định theo N:
- * hàng đợi tới SAU lần gắn đầu (trang cha nạp bất đồng bộ) mà N > 0 → tự sang thẻ Hàng đợi
- * (chỉ một lần, và không khi người dùng đã tự bấm thẻ).
+ * URL quyết thẻ — không tự đổi. Còn lại: hàng đợi tới SAU lần gắn đầu (trang cha nạp bất đồng
+ * bộ) thì quyết LẠI một lần theo dữ liệu thật (tạm giữ thắng thẻ đã nhớ) — trừ khi người dùng
+ * đã tự bấm thẻ / bấm chip trong lúc chờ.
  */
-let daQuyetThe = laTabNhatKy(props.tabDau) || laTabNhatKy(theDaLuu);
+let daQuyetThe = laTabNhatKy(props.tabDau);
 /** Thẻ Log app / Hàng đợi chỉ gắn (và gọi API) từ lần đầu được chọn. */
 const daMoApp = ref(theChon.value === 'app');
 const daMoHangDoi = ref(theChon.value === 'hang_doi');
@@ -383,7 +388,8 @@ watch(
   (hd) => {
     if (daQuyetThe || !hd) return;
     daQuyetThe = true;
-    if (hd.choIn.length > 0 && theChon.value === 'in') datThe('hang_doi');
+    const t = chonTabNhatKy(props.tabDau, theDaLuu, hd.choIn.length, hd.choIn.some((m) => m.tamGiu));
+    if (t !== theChon.value) datThe(t);
   },
   { immediate: true },
 );

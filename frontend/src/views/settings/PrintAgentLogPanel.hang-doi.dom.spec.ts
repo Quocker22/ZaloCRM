@@ -41,6 +41,7 @@ const VUETIFY_VO = {
   VSwitch: vo('div'), VBtn: vo('button'), VSpacer: vo('span'), VTextField: vo('div'), VSelect: vo('div'),
   VAlert: vo('div'), VProgressLinear: vo('div'), VTable: vo('table'), VChip: vo('span'), VIcon: vo('i'),
   VProgressCircular: vo('span'), VDialog: VoDialog, VCard: vo('div'), VCardText: vo('div'), VCardActions: vo('div'),
+  VThemeProvider: vo('div'),
 };
 
 const MAY = [
@@ -136,6 +137,49 @@ describe('PrintAgentLogPanel — thẻ "Hàng đợi in (N)"', () => {
     expect(ghi).toHaveBeenCalledWith('may-in:nhat-ky-the', 'hang_doi');
     // mở thẻ → thẻ xin nạp lại hàng đợi (trang cha nạp)
     expect(w.emitted('taiLaiHangDoi')).toContainEqual([{ ngam: true }]);
+    w.unmount();
+  });
+
+  it('(MEDIUM 3) có hoá đơn TẠM GIỮ → mở Hàng đợi DÙ thẻ đã nhớ là "in"/"app" (bản prod cũ đã nhớ sẵn)', async () => {
+    for (const daNho of ['in', 'app']) {
+      kho['may-in:nhat-ky-the'] = daNho;
+      const a = gan({ hangDoi: hd(2, { tamGiu: true }) }); // có dữ liệu lúc gắn
+      await flushPromises();
+      expect(dangChon(a)).toEqual(['nk-the-hang-doi']);
+      a.unmount();
+      const b = gan(); // dữ liệu tới sau
+      await flushPromises();
+      expect(dangChon(b)).toEqual([daNho === 'in' ? 'nk-the-in' : 'nk-the-app']);
+      await b.setProps({ hangDoi: hd(2, { tamGiu: true }) });
+      await flushPromises();
+      expect(dangChon(b)).toEqual(['nk-the-hang-doi']);
+      b.unmount();
+    }
+    // …nhưng URL rõ ràng vẫn thắng
+    const c = gan({ tabDau: 'in', hangDoi: hd(2, { tamGiu: true }) });
+    await flushPromises();
+    expect(dangChon(c)).toEqual(['nk-the-in']);
+    c.unmount();
+  });
+
+  it('(MEDIUM 3) người dùng đã tự bấm thẻ trước khi dữ liệu tới → giữ lựa chọn đó', async () => {
+    kho['may-in:nhat-ky-the'] = 'in';
+    const w = gan();
+    await flushPromises();
+    await nutThe(w, 'nk-the-app').trigger('click');
+    await w.setProps({ hangDoi: hd(2, { tamGiu: true }) });
+    await flushPromises();
+    expect(dangChon(w)).toEqual(['nk-the-app']);
+    w.unmount();
+  });
+
+  it('(LOW 6) thẻ Hàng đợi báo tạm dừng (hộp xác nhận mở) → sự kiện tamDungHangDoi cho trang cha', async () => {
+    const w = gan({ hangDoi: hd(1) });
+    await flushPromises();
+    await w.find('#nk-vung-hang-doi').findAll('button').find((b) => b.text() === 'Huỷ')!.trigger('click');
+    expect(w.emitted('tamDungHangDoi')?.at(-1)).toEqual([true]);
+    await w.findAll('button').find((b) => b.text() === 'Giữ lại')!.trigger('click');
+    expect(w.emitted('tamDungHangDoi')?.at(-1)).toEqual([false]);
     w.unmount();
   });
 

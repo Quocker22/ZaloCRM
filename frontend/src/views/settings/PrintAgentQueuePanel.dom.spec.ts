@@ -4,7 +4,9 @@
 // hộp xác nhận ("Huỷ lệnh in" / "Giữ lại", "sẽ KHÔNG được in"), đang huỷ (spinner + khoá nút),
 // ok ("Đã huỷ ✓" 3 giây rồi rời), không ok (chip đỏ + câu đầy đủ, dòng ở lại), huỷ nhiều + toast
 // tổng, "Chọn tất cả của máy X", "Vì sao không huỷ được?", bỏ theo dõi (KHÔNG BAO GIỜ "đã huỷ"),
-// rỗng, tự làm mới 5 giây + tạm dừng, lỗi kết nối → "chưa rõ".
+// rỗng, tự làm mới 5 giây + tạm dừng, mất liên lạc → TỰ GỬI LẠI rồi mới "chưa rõ" (dòng GIỮ lại,
+// biến mất không bao giờ = "đã huỷ"), 4xx = chắc chắn chưa huỷ, lô ≤ 50, tự mở nhóm "Chưa xác
+// nhận", đổi máy lọc thì bỏ chọn, hộp xác nhận liệt kê đúng, thông báo cũ bỏ khi trạng thái đổi.
 // Vuetify thay bằng vỏ tối giản như các spec máy in khác; v-dialog vỏ CHỈ vẽ khi đang mở.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { defineComponent, h } from 'vue';
@@ -37,6 +39,7 @@ const VoDialog = defineComponent({
 const VUETIFY_VO = {
   VSelect: vo('div'), VBtn: vo('button'), VAlert: vo('div'), VProgressCircular: vo('span'), VIcon: vo('i'),
   VTable: vo('table'), VDialog: VoDialog, VCard: vo('div'), VCardText: vo('div'), VCardActions: vo('div'), VSpacer: vo('span'),
+  VThemeProvider: vo('div'),
 };
 
 const MAY = [
@@ -208,18 +211,191 @@ describe('PrintAgentQueuePanel — huỷ một lệnh', () => {
     w.unmount();
   });
 
-  it('lỗi kết nối → "Chưa rõ kết quả" (không nói đã huỷ, không nói không huỷ được), toast lỗi, xin tải lại', async () => {
+});
+
+describe('PrintAgentQueuePanel — mất liên lạc máy chủ (HIGH 1)', () => {
+  const MAT_MANG = { code: 'ECONNABORTED', message: 'timeout of 15000ms exceeded' };
+
+  it('lần đầu mất mạng → TỰ gửi lại ĐÚNG id đó sau 1 s; lần sau trả "đã huỷ trước đó" → CHẮC CHẮN đã huỷ', async () => {
+    vi.mocked(huyLenhIn)
+      .mockRejectedValueOnce(MAT_MANG)
+      .mockResolvedValueOnce([{ id: '1', soHoaDon: 'INV/1', ok: true, trangThaiMoi: 'da_huy', cach: 'da_huy_truoc', noiDung: 'x' }]);
+    const w = gan(hd([muc('1'), muc('2', { tao: '2026-09-25T02:49:00.000Z' })]));
+    await nut(w, 'Huỷ').trigger('click');
+    await nut(w, 'Huỷ lệnh in').trigger('click');
+    await flushPromises();
+    expect(dong(w, '1').text()).toContain('Đang huỷ…');
+    expect(dong(w, '1').text()).toContain('Mất liên lạc máy chủ — đang gửi lại yêu cầu huỷ (lần 2/4)…');
+    // Trang cha nạp lại giữa chừng (snapshot không còn dòng 1): dòng vẫn GIỮ, vẫn "Đang huỷ…"
+    await w.setProps({ hangDoi: hd([muc('2', { tao: '2026-09-25T02:49:00.000Z' })]) });
+    expect(dong(w, '1').text()).toContain('Đang huỷ…');
+    expect(dong(w, '1').text()).not.toContain('Đã huỷ');
+    await vi.advanceTimersByTimeAsync(1_000);
+    await flushPromises();
+    expect(huyLenhIn).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(huyLenhIn).mock.calls[1][0]).toEqual(['1']);
+    expect(dong(w, '1').text()).toContain('Đã huỷ ✓');
+    expect(dong(w, '1').text()).toContain('Đã được huỷ trước đó — hoá đơn chắc chắn không in');
+    expect(toast.success).toHaveBeenCalledWith('Đã huỷ lệnh in INV/1 — hoá đơn chắc chắn không in');
+    w.unmount();
+  });
+
+  it('hết mọi lần gửi lại (1 s, 2 s, 4 s) → "Chưa rõ — … Xem Nhật ký in…"; dòng GIỮ LẠI (không bao giờ ngụ ý đã huỷ) tới khi ẩn', async () => {
     vi.mocked(huyLenhIn).mockRejectedValue({ response: { status: 502 } });
     const w = gan(hd([muc('1')]));
     await nut(w, 'Huỷ').trigger('click');
     await nut(w, 'Huỷ lệnh in').trigger('click');
     await flushPromises();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(dong(w, '1').text()).toContain('(lần 3/4)');
+    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(4_000);
+    await flushPromises();
+    expect(huyLenhIn).toHaveBeenCalledTimes(4);
     const d = dong(w, '1');
     expect(d.text()).toContain('Chưa rõ kết quả');
-    expect(d.text()).not.toContain('Đã huỷ');
+    expect(d.text()).toContain('Chưa rõ — không liên lạc được máy chủ. Xem Nhật ký in để biết hoá đơn đã huỷ hay đã in.');
+    expect(d.text()).not.toMatch(/Đã huỷ|Không huỷ được/);
+    // Câu thông báo không còn nhắc "Chờ in" (dòng tạm giữ mang nhãn "Tạm giữ" — LOW 11)
+    expect(d.find('.hd-ket-qua-loi').text()).not.toMatch(/Chờ in|biến mất/);
+    expect(toast.error).toHaveBeenCalledWith('Chưa rõ kết quả huỷ — không liên lạc được máy chủ (xem dòng)');
+    // Dòng rời snapshot (có thể đã in, đã thất bại…) → vẫn hiện, ghi "Đã rời hàng đợi", KHÔNG "đã huỷ"
+    await w.setProps({ hangDoi: hd([]) });
+    await vi.advanceTimersByTimeAsync(30_000);
+    const giu = dong(w, '1');
+    expect(giu.exists()).toBe(true);
+    expect(giu.text()).toContain('Đã rời hàng đợi');
+    expect(giu.text()).toContain('Xem Nhật ký in');
+    expect(w.text()).not.toMatch(/Đã huỷ/);
+    await nut(w, 'Ẩn thông báo').trigger('click');
+    expect(dong(w, '1').exists()).toBe(false);
+    w.unmount();
+  });
+
+  it('máy chủ TRẢ LỜI 4xx → chắc chắn CHƯA huỷ (câu riêng), không gửi lại, không "chưa rõ"', async () => {
+    vi.mocked(huyLenhIn).mockRejectedValue({ response: { status: 400, data: { error: 'THAM_SO_SAI' } } });
+    const w = gan(hd([muc('1')]));
+    await nut(w, 'Huỷ').trigger('click');
+    await nut(w, 'Huỷ lệnh in').trigger('click');
+    await flushPromises();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(huyLenhIn).toHaveBeenCalledTimes(1);
+    const d = dong(w, '1');
+    expect(d.text()).toContain('Chưa huỷ — máy chủ từ chối');
+    expect(d.text()).toContain('Máy chủ từ chối yêu cầu (mã 400) — CHƯA huỷ gì — hoá đơn vẫn ở hàng đợi.');
+    expect(d.text()).not.toMatch(/Chưa rõ|Đã huỷ/);
+    expect(toast.error).toHaveBeenCalledWith('Chưa huỷ — máy chủ từ chối yêu cầu (xem dòng)');
+    w.unmount();
+  });
+});
+
+describe('PrintAgentQueuePanel — hơn 50 lệnh (MEDIUM 2)', () => {
+  it('chọn 60 → gửi NỐI TIẾP hai lô 50 + 10; lô sau bị 4xx → CHỈ 10 lệnh đó "chưa huỷ", 50 lệnh đầu đã huỷ', async () => {
+    const ds = Array.from({ length: 60 }, (_, i) => muc(`n${String(i).padStart(2, '0')}`, { tao: new Date(Date.UTC(2026, 8, 25, 1, 0, i)).toISOString() }));
+    let lan = 0;
+    vi.mocked(huyLenhIn).mockImplementation(async (ids: string[]) => {
+      lan += 1;
+      if (lan === 2) throw { response: { status: 400 } };
+      return ids.map((id) => ({ id, soHoaDon: `INV/${id}`, ok: true, trangThaiMoi: 'da_huy', cach: 'chua_gui', noiDung: 'ok' }));
+    });
+    const w = gan(hd(ds));
+    await w.find('thead input[type="checkbox"]').trigger('change');
+    expect(w.text()).toContain('60 lệnh đã chọn');
+    await nut(w, 'Huỷ 60 lệnh đã chọn').trigger('click');
+    await nut(w, 'Huỷ lệnh in').trigger('click');
+    await flushPromises();
+    expect(vi.mocked(huyLenhIn).mock.calls.map(([ids]) => ids.length)).toEqual([50, 10]);
+    expect(dong(w, 'n00').text()).toContain('Đã huỷ ✓');
+    expect(dong(w, 'n55').text()).toContain('Chưa huỷ — máy chủ từ chối');
+    expect(dong(w, 'n55').text()).not.toContain('Chưa rõ');
+    expect(toast.warning).toHaveBeenCalledWith('Đã huỷ 50/60 lệnh — 10 lệnh chưa huỷ (máy chủ từ chối) (xem từng dòng)');
+    w.unmount();
+  });
+});
+
+describe('PrintAgentQueuePanel — các sửa khác sau giám sát', () => {
+  it('(MEDIUM 4) huỷ không được vì lệnh đã xuống máy in → dòng sang nhóm "Chưa xác nhận" → nhóm TỰ MỞ', async () => {
+    vi.mocked(huyLenhIn).mockResolvedValue([{ id: '1', soHoaDon: 'INV/1', ok: false, trangThaiMoi: 'khong_ro', loi: 'CHUA_XAC_NHAN', noiDung: LY_DO_KHONG_HUY.chuaXacNhan }]);
+    const w = gan(hd([muc('1'), muc('2')], [khongRo('9')]));
+    expect(w.find('#hd-nhom-chua-xn').attributes('aria-expanded')).toBe('false');
+    await nutCo(w, 'Huỷ')[0].trigger('click');
+    await nut(w, 'Huỷ lệnh in').trigger('click');
+    await flushPromises();
+    await w.setProps({ hangDoi: hd([muc('2')], [khongRo('9'), khongRo('1')]) });
+    expect(w.find('#hd-nhom-chua-xn').attributes('aria-expanded')).toBe('true');
+    const d = dong(w, '1');
+    expect(d.exists()).toBe(true);
+    expect(d.text()).toContain('Không huỷ được');
+    expect(d.text()).toContain("Rồi bấm 'Bỏ khỏi hàng đợi'.");
+    w.unmount();
+  });
+
+  it('(LOW 7) đổi máy lọc → BỎ lựa chọn; hộp xác nhận chỉ liệt kê đúng lệnh sẽ huỷ, >6 thì mở được đủ danh sách', async () => {
+    const ds = [
+      ...Array.from({ length: 8 }, (_, i) => muc(`h${i}`, { tao: new Date(Date.UTC(2026, 8, 25, 1, 0, i)).toISOString() })),
+      muc('c1', { mayInId: 'mHCM', mayInTen: 'Máy HCM' }),
+    ];
+    const w = gan(hd(ds));
+    await nut(w, 'Chọn tất cả của Máy HCM (1)').trigger('click');
+    expect(w.text()).toContain('1 lệnh đã chọn');
+    (w.vm as unknown as Record<string, unknown>).mayInId = 'mHN';
+    await flushPromises();
+    expect(w.text()).not.toContain('lệnh đã chọn');
+    await nut(w, 'Chọn tất cả của Máy HN (8)').trigger('click');
+    await nut(w, 'Huỷ 8 lệnh đã chọn').trigger('click');
+    expect(hop(w).text()).toContain('8 hoá đơn dưới đây sẽ KHÔNG được in:');
+    expect(hop(w).findAll('li').map((l) => l.text())).toEqual(['INV/h0', 'INV/h1', 'INV/h2', 'INV/h3', 'INV/h4', 'INV/h5']);
+    expect(hop(w).text()).not.toContain('INV/c1');
+    await nut(w, 'Xem đủ danh sách (8 hoá đơn)').trigger('click');
+    expect(hop(w).findAll('li')).toHaveLength(8);
+    w.unmount();
+  });
+
+  it('(LOW 8) thông báo "đang in, không huỷ được nữa" BỎ khi lệnh quay về chờ (app trả về vì hết giấy) — không còn nút Huỷ + chữ đỏ mâu thuẫn', async () => {
+    vi.mocked(huyLenhIn).mockResolvedValue([{ id: '1', soHoaDon: 'INV/1', ok: false, trangThaiMoi: 'dang_gui', loi: 'DANG_IN', noiDung: LY_DO_KHONG_HUY.dangIn }]);
+    const w = gan(hd([muc('1')]));
+    await nut(w, 'Huỷ').trigger('click');
+    await nut(w, 'Huỷ lệnh in').trigger('click');
+    await flushPromises();
+    await w.setProps({ hangDoi: hd([muc('1', { trangThai: 'dang_gui', huy: 'khong' })]) });
+    expect(dong(w, '1').text()).toContain('Không huỷ được');
+    await w.setProps({ hangDoi: hd([muc('1', { tamGiu: true, lyDo: 'Tạm giữ — máy in Hết giấy (từ 09:59)' })]) });
+    const d = dong(w, '1');
+    expect(d.text()).toContain('Tạm giữ');
     expect(d.text()).not.toContain('Không huỷ được');
-    expect(toast.error).toHaveBeenCalled();
-    expect(w.emitted('taiLai')).toContainEqual([{ ngam: false }]);
+    expect(d.text()).not.toContain('không huỷ được nữa');
+    expect(d.findAll('button').some((b) => b.text() === 'Huỷ')).toBe(true);
+    w.unmount();
+  });
+
+  it('(LOW 6) báo `tamDung` cho trang cha khi mở hộp xác nhận / đang huỷ; hết thì báo false', async () => {
+    const t = treo<KetQuaHuy[]>();
+    vi.mocked(huyLenhIn).mockReturnValue(t.p);
+    const w = gan(hd([muc('1')]));
+    await nut(w, 'Huỷ').trigger('click');
+    expect(w.emitted('tamDung')?.at(-1)).toEqual([true]);
+    await nut(w, 'Huỷ lệnh in').trigger('click');
+    await flushPromises();
+    expect(w.emitted('tamDung')?.at(-1)).toEqual([true]);
+    t.xong([{ id: '1', soHoaDon: 'INV/1', ok: true, trangThaiMoi: 'da_huy', cach: 'chua_gui', noiDung: 'ok' }]);
+    await flushPromises();
+    expect(w.emitted('tamDung')?.at(-1)).toEqual([false]);
+    w.unmount();
+  });
+
+  it('(LOW 6) bản sao "Đã huỷ ✓" lấy LÚC BẤM: trang cha nạp lại (không còn dòng) TRƯỚC khi có kết quả → vẫn thấy "Đã huỷ ✓" đủ 3 giây', async () => {
+    const t = treo<KetQuaHuy[]>();
+    vi.mocked(huyLenhIn).mockReturnValue(t.p);
+    const w = gan(hd([muc('1')]));
+    await nut(w, 'Huỷ').trigger('click');
+    await nut(w, 'Huỷ lệnh in').trigger('click');
+    await w.setProps({ hangDoi: hd([]) }); // nạp lại chen trước kết quả
+    t.xong([{ id: '1', soHoaDon: 'INV/1', ok: true, trangThaiMoi: 'da_huy', cach: 'chua_gui', noiDung: 'ok' }]);
+    await flushPromises();
+    expect(dong(w, '1').text()).toContain('Đã huỷ ✓');
+    vi.advanceTimersByTime(3_000);
+    await flushPromises();
+    expect(dong(w, '1').exists()).toBe(false);
     w.unmount();
   });
 });

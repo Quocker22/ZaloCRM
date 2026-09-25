@@ -1,9 +1,12 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
-  <div class="settings-layout">
+  <div class="settings-layout" :class="{ 'settings-layout--mo-menu': moMenuHep }">
+    <!-- Màn hẹp (< 768px, điện thoại): sidebar thành ngăn trượt, mở bằng nút "Mục cài đặt" ở thanh
+         đường dẫn — trước đó sidebar 260px cố định chừa cho nội dung ~130px ở màn 390px. -->
+    <div v-if="moMenuHep" class="sl-man-che" aria-hidden="true" @click="moMenuHep = false" />
     <!-- Sidebar -->
-    <aside class="sl-sidebar" aria-label="Cài đặt sidebar">
+    <aside id="sl-sidebar" class="sl-sidebar" aria-label="Cài đặt sidebar">
       <header class="sl-header">
         <h1 class="sl-title">
           <v-icon class="sl-icon" icon="mdi-cog-outline" size="20" />
@@ -75,6 +78,16 @@
     <!-- Content panel -->
     <main class="sl-content" role="main">
       <header class="sl-breadcrumb" v-if="activeItem">
+        <button
+          type="button"
+          class="sl-nut-menu"
+          :aria-expanded="moMenuHep"
+          aria-controls="sl-sidebar"
+          @click="moMenuHep = !moMenuHep"
+        >
+          <v-icon icon="mdi-menu" size="18" aria-hidden="true" />
+          <span>Mục cài đặt</span>
+        </button>
         <RouterLink to="/settings" class="bc-root">Cài đặt</RouterLink>
         <span class="bc-sep">/</span>
         <span class="bc-group">{{ activeItem.group.label }}</span>
@@ -112,6 +125,12 @@ function isItemActive(itemRoute: string): boolean {
 }
 
 const searchQuery = ref('');
+
+/** Màn hẹp: ngăn mục cài đặt đang mở. Chuyển trang (bấm một mục) thì tự đóng. */
+const moMenuHep = ref(false);
+watch(() => route.fullPath, () => {
+  moMenuHep.value = false;
+});
 
 // Group collapsed state — persist in localStorage
 const SECTION_KEY_PREFIX = 'settings-nav.group.';
@@ -386,4 +405,27 @@ onMounted(() => {
 }
 .sl-content-body::-webkit-scrollbar { width: 8px; }
 .sl-content-body::-webkit-scrollbar-thumb { background: #D4D6DB; border-radius: 4px; }
+
+/* ── Màn hẹp (< 768px — cùng mốc useMobile): nội dung chiếm đủ bề ngang, sidebar thành ngăn trượt ── */
+.sl-nut-menu, .sl-man-che { display: none; }
+@media (max-width: 767px) {
+  .settings-layout { grid-template-columns: minmax(0, 1fr); position: relative; }
+  .sl-sidebar {
+    position: absolute; top: 0; bottom: 0; left: 0; z-index: 6; width: min(300px, 86vw);
+    transform: translateX(-105%); transition: transform 0.18s ease; box-shadow: 0 8px 24px rgba(20, 26, 36, 0.18);
+  }
+  .settings-layout--mo-menu .sl-sidebar { transform: none; }
+  .sl-man-che { display: block; position: absolute; inset: 0; z-index: 5; background: rgba(20, 26, 36, 0.28); }
+  .sl-nut-menu {
+    display: inline-flex; align-items: center; gap: 4px; flex: none; height: 30px; padding: 0 10px 0 6px;
+    border: 1px solid #E4E5E9; border-radius: 8px; background: white; cursor: pointer;
+    font: inherit; font-size: 12.5px; font-weight: 600; color: #1F2D3D;
+  }
+  .sl-breadcrumb { padding: 8px 12px; gap: 6px; flex-wrap: wrap; }
+  .bc-group, .bc-group + .bc-sep { display: none; }
+  .sl-content-body { padding: 16px 12px; }
+}
+@media (max-width: 767px) and (prefers-reduced-motion: reduce) {
+  .sl-sidebar { transition: none; }
+}
 </style>
