@@ -39,6 +39,7 @@ import {
   catChu,
   cheToken,
   catTienToToken,
+  orgMacDinhTuEnv,
   type MucNhatKy,
 } from './nhat-ky.js';
 import {
@@ -147,6 +148,11 @@ export interface AgentWsDeps {
   dichVuHangDoi?: DichVuHangDoi;
   /** Cho test rút ngắn giới hạn 1 snapshot/giây/socket. */
   msGuiHangDoi?: number;
+  /**
+   * Org của máy mặc định (env AI_MAY_IN_ORG_ID — cùng org cron + nhật ký dùng): job agent_token
+   * NULL chỉ thuộc phạm vi socket máy mặc định khi ở org này. Mặc định đọc env.
+   */
+  orgMacDinh?: () => string | null;
   /** Cho test — mặc định lúc nạp module. */
   mocKhoiDong?: Date;
   /** Cho test rút ngắn MS_CHO_THONG_TIN / MS_OFFLINE_LAU / MS_THU_LAI_TRE. */
@@ -270,6 +276,7 @@ export function registerAgentWs(io: Server, registry: AgentRegistry, deps: Agent
   const msThuLaiTre = deps.msThuLaiTre ?? MS_THU_LAI_TRE;
   const dichVuHangDoi = deps.dichVuHangDoi ?? taoDichVuHangDoi({ registry, tokenMacDinh: envToken, ghiNhatKy });
   const msGuiHangDoi = deps.msGuiHangDoi ?? MS_GUI_HANG_DOI_TOI_THIEU;
+  const orgMacDinh = deps.orgMacDinh ?? orgMacDinhTuEnv;
   /** Máy đang mất kết nối: từ lúc nào, hẹn giờ cảnh báo, đã cảnh báo chưa. */
   const matKetNoi = new Map<string, { tu: number; hen: ReturnType<typeof setTimeout>; daBao: boolean }>();
 
@@ -332,8 +339,8 @@ export function registerAgentWs(io: Server, registry: AgentRegistry, deps: Agent
     socket.emit('cau-hinh', { hoTro: [...HO_TRO_APP] });
 
     // ── Hàng đợi của CHÍNH máy này (v5.1 §8.7) ──────────────────────────────
-    // Phạm vi máy: agent_token = token socket, hoặc NULL khi socket là máy mặc định env.
-    const phamViMay: PhamViHangDoi = { loai: 'may', token, tokenMacDinh: envToken };
+    // Phạm vi máy: agent_token = token socket, hoặc NULL (trong org mặc định env) khi socket là máy mặc định.
+    const phamViMay: PhamViHangDoi = { loai: 'may', token, tokenMacDinh: envToken, orgMacDinh: orgMacDinh() };
     const boGuiHangDoi = taoBoGuiHangDoi({
       lay: () => dichVuHangDoi.layHangDoi(phamViMay),
       gui: (hd) => socket.emit('hang-doi', hd),

@@ -56,6 +56,7 @@ describe('socket /print-agent — hàng đợi + huỷ từ app (v5.1 §8.7)', (
       layJobTheoId: async () => null,
       coLenhInMoiHon: async () => false,
       dichVuHangDoi: dichVu,
+      orgMacDinh: () => 'org1',
       msGuiHangDoi: 60,
       msChoThongTin: 20,
       ...them,
@@ -77,7 +78,7 @@ describe('socket /print-agent — hàng đợi + huỷ từ app (v5.1 §8.7)', (
     capNhatJobTre = vi.fn(async () => 1);
     const prisma = {
       printJob: pj,
-      printLog: { findMany: vi.fn(async () => []) },
+      printLog: { findMany: vi.fn(async () => []), findFirst: vi.fn(async () => null) },
       printAgent: {
         findMany: vi.fn(async (a: Dong) => [{ id: 'mayHN', ten: 'Máy HN', token: HN }, { id: 'mayHCM', ten: 'Máy HCM', token: HCM }]
           .filter((m) => khopWhere(m, a.where))),
@@ -167,6 +168,16 @@ describe('socket /print-agent — hàng đợi + huỷ từ app (v5.1 §8.7)', (
       expect(kq).toMatchObject({ id, ok: false, loi: 'KHONG_TIM_THAY', trangThaiMoi: null });
     }
     expect(hang.filter((j) => ['j1', 'j2'].includes(j.id)).map((j) => j.trangThai)).toEqual(['cho_in', 'cho_in']);
+  });
+
+  it('job agent_token NULL của org KHÁC org mặc định env → máy mặc định không thấy, không huỷ được', async () => {
+    hang.push(job('j7', { agentToken: null, orgId: 'org2' }));
+    await dung();
+    const hn = await noi(HN, 'PC-SHOP-HN');
+    expect(hn.hangDoi[0].choIn.map((m) => m.id)).toEqual(['j1', 'j2']);
+    const kq = await guiCoAck<KetQuaHuy>(hn.c, 'yeu-cau-huy', { printJobId: 'j7' });
+    expect(kq).toMatchObject({ ok: false, loi: 'KHONG_TIM_THAY' });
+    expect(hang.find((j) => j.id === 'j7')!.trangThai).toBe('cho_in');
   });
 
   it('máy mặc định (token env) huỷ được job agent_token NULL; payload dạng mảng [obj] (rust_socketio) cũng nhận', async () => {

@@ -51,6 +51,10 @@ function dung(jobs: Dong[], tuy: { logs?: Dong[]; agents?: Dong[]; cauDao?: Reco
         .filter((l) => khopWhere(l, a.where))
         .sort((x, y) => y.createdAt.getTime() - x.createdAt.getTime())
         .map((l) => chon(l, a.select))),
+      findFirst: vi.fn(async (a: Dong) => {
+        const l = logs.find((x) => khopWhere(x, a.where));
+        return l ? chon(l, a.select) : null;
+      }),
     },
     printAgent: {
       findMany: vi.fn(async (a: Dong) => agents.filter((m) => khopWhere(m, a.where)).map((m) => chon(m, a.select))),
@@ -61,6 +65,16 @@ function dung(jobs: Dong[], tuy: { logs?: Dong[]; agents?: Dong[]; cauDao?: Reco
     },
   };
   const nhatKy: MucNhatKy[] = [];
+  // Như singleton thật: `ghi` + `ghi.cho` (chờ ghi xong). Dòng ghi vào cả `logs` để lần tra sau thấy.
+  const ghiNhatKy = Object.assign((m: MucNhatKy) => {
+    nhatKy.push(m);
+    logs.push({ printJobId: m.printJobId ?? null, loai: m.loai, tenKhach: m.tenKhach ?? null, createdAt: new Date() });
+  }, {
+    cho: vi.fn(async (m: MucNhatKy) => {
+      ghiNhatKy(m);
+      return true;
+    }),
+  });
   const baoDoiHangDoi = vi.fn();
   const registry = {
     layCauDao: (t: string) => tuy.cauDao?.[t] ?? null,
@@ -68,10 +82,10 @@ function dung(jobs: Dong[], tuy: { logs?: Dong[]; agents?: Dong[]; cauDao?: Reco
     baoDoiHangDoi,
   };
   const deps: DepsHangDoi = {
-    prisma: prisma as never, ghiNhatKy: (m) => nhatKy.push(m), registry,
+    prisma: prisma as never, ghiNhatKy, registry,
     tokenMacDinh: tuy.tokenMacDinh === undefined ? HN : tuy.tokenMacDinh, bayGio: () => BAY_GIO,
   };
-  return { hang, pj, prisma, nhatKy, baoDoiHangDoi, deps };
+  return { hang, pj, prisma, nhatKy, logs, baoDoiHangDoi, deps };
 }
 
 describe('huyLenhIn — cho_in → da_huy CÓ ĐIỀU KIỆN', () => {
@@ -180,8 +194,8 @@ describe('huyLenhIn — cho_in → da_huy CÓ ĐIỀU KIỆN', () => {
 });
 
 describe('huyLenhIn — phạm vi SOCKET: chỉ job của chính máy đó', () => {
-  const mayHN: PhamViHangDoi = { loai: 'may', token: HN, tokenMacDinh: HN };
-  const mayHCM: PhamViHangDoi = { loai: 'may', token: HCM, tokenMacDinh: HN };
+  const mayHN: PhamViHangDoi = { loai: 'may', token: HN, tokenMacDinh: HN, orgMacDinh: 'org1' };
+  const mayHCM: PhamViHangDoi = { loai: 'may', token: HCM, tokenMacDinh: HN, orgMacDinh: 'org1' };
   const APP = { loai: 'app', may: 'PC-SHOP-HCM' } as const;
 
   it('job của máy KHÁC → KHONG_TIM_THAY, job đó giữ cho_in', async () => {
@@ -216,7 +230,24 @@ describe('huyLenhIn — phạm vi SOCKET: chỉ job của chính máy đó', () 
   it('không có token env (hệ thuần IPP) → job NULL không thuộc máy nào', async () => {
     const j = job({ agentToken: null });
     const g = dung([j], { tokenMacDinh: null });
-    const [kq] = await huyLenhIn({ loai: 'may', token: HN, tokenMacDinh: null }, [j.id], APP, g.deps);
+    const [kq] = await huyLenhIn({ loai: 'may', token: HN, tokenMacDinh: null, orgMacDinh: 'org1' }, [j.id], APP, g.deps);
+    expect(kq.loi).toBe('KHONG_TIM_THAY');
+  });
+
+  it('agent_token NULL của ORG KHÁC org mặc định env → ngoài phạm vi máy mặc định (không xem, không huỷ)', async () => {
+    const cua2 = job({ agentToken: null, orgId: 'org2' });
+    const cua1 = job({ agentToken: null, orgId: 'org1' });
+    const g = dung([cua2, cua1]);
+    expect((await huyLenhIn(mayHN, [cua2.id], APP, g.deps))[0].loi).toBe('KHONG_TIM_THAY');
+    expect(g.hang[0].trangThai).toBe('cho_in');
+    expect((await layHangDoi(mayHN, {}, g.deps)).choIn.map((m) => m.id)).toEqual([cua1.id]);
+    expect((await boTheoDoi(mayHN, [cua2.id], APP, g.deps))[0].ok).toBe(false);
+  });
+
+  it('thiếu org mặc định env → không job NULL nào thuộc phạm vi máy (không đoán org)', async () => {
+    const j = job({ agentToken: null });
+    const g = dung([j]);
+    const [kq] = await huyLenhIn({ loai: 'may', token: HN, tokenMacDinh: HN, orgMacDinh: null }, [j.id], APP, g.deps);
     expect(kq.loi).toBe('KHONG_TIM_THAY');
   });
 });
@@ -250,10 +281,11 @@ describe('boTheoDoi — CHỈ khong_ro → bo_qua, KHÔNG chặn việc in', () 
 
   it('đã bỏ trước đó → ok (daBoTruoc), không ghi thêm; không tìm thấy / máy khác → ok:false', async () => {
     const a = job({ trangThai: 'bo_qua' }); const b = job({ trangThai: 'khong_ro', agentToken: HN });
-    const g = dung([a, b]);
+    // Lần bỏ thật đã có dòng nhật ký của nó → lần lặp không ghi thêm.
+    const g = dung([a, b], { logs: [{ printJobId: a.id, loai: 'bo_theo_doi', tenKhach: null, createdAt: new Date(BAY_GIO - 9000) }] });
     expect((await boTheoDoi(ORG1, [a.id], CRM, g.deps))[0]).toEqual({ id: a.id, ok: true, noiDung: NOI_DUNG_BO_THEO_DOI.daBoTruoc });
     expect((await boTheoDoi(ORG1, ['lạ'], CRM, g.deps))[0]).toEqual({ id: 'lạ', ok: false, noiDung: NOI_DUNG_BO_THEO_DOI.khongTimThay });
-    expect((await boTheoDoi({ loai: 'may', token: HCM, tokenMacDinh: HN }, [b.id], { loai: 'app', may: 'X' }, g.deps))[0].ok).toBe(false);
+    expect((await boTheoDoi({ loai: 'may', token: HCM, tokenMacDinh: HN, orgMacDinh: 'org1' }, [b.id], { loai: 'app', may: 'X' }, g.deps))[0].ok).toBe(false);
     expect(g.hang[1].trangThai).toBe('khong_ro');
     expect(g.nhatKy).toEqual([]);
   });
@@ -342,9 +374,9 @@ describe('layHangDoi — hai nhóm, tên khách, tên máy (không token), tạm
   it('phạm vi máy (socket): chỉ job của chính máy; org khác cùng token cũng không lẫn job máy khác', async () => {
     const a = job({ agentToken: HN }); const b = job({ agentToken: null }); const c = job({ agentToken: HCM });
     const g = dung([a, b, c]);
-    const hcm = await layHangDoi({ loai: 'may', token: HCM, tokenMacDinh: HN }, {}, g.deps);
+    const hcm = await layHangDoi({ loai: 'may', token: HCM, tokenMacDinh: HN, orgMacDinh: 'org1' }, {}, g.deps);
     expect(hcm.choIn.map((m) => m.id)).toEqual([c.id]);
-    const hn = await layHangDoi({ loai: 'may', token: HN, tokenMacDinh: HN }, {}, g.deps);
+    const hn = await layHangDoi({ loai: 'may', token: HN, tokenMacDinh: HN, orgMacDinh: 'org1' }, {}, g.deps);
     expect(hn.choIn.map((m) => m.id)).toEqual([a.id, b.id]);
   });
 
@@ -354,5 +386,77 @@ describe('layHangDoi — hai nhóm, tên khách, tên máy (không token), tạm
     const hd = await layHangDoi(ORG1, {}, g.deps);
     expect(hd.choIn).toHaveLength(1);
     expect(hd.choIn[0].tenKhach).toBeNull();
+  });
+});
+
+describe('tên máy (REST) — chỉ máy của CHÍNH org', () => {
+  it('token trùng máy của org khác → không lộ tên/id máy đó', async () => {
+    const j = job({ agentToken: 'tokOrg2_xxxxxxxx' });
+    const g = dung([j], { agents: [{ id: 'mayOrg2', orgId: 'org2', ten: 'Máy org2', token: 'tokOrg2_xxxxxxxx' }] });
+    const hd = await layHangDoi(ORG1, {}, g.deps);
+    expect(hd.choIn[0]).toMatchObject({ mayInId: null, mayInTen: null });
+    expect(g.prisma.printAgent.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { token: { in: ['tokOrg2_xxxxxxxx'] }, orgId: 'org1' },
+    }));
+  });
+});
+
+describe('B5 — mỗi lần huỷ THẬT đúng một dòng `da_huy`, kể cả khi lần đầu mất nhật ký', () => {
+  it('lỗi DB NGAY SAU khi huỷ đã commit (REST 500) → gửi lại được da_huy_truoc + GHI BÙ một dòng, nguồn = người huỷ thật', async () => {
+    const j = job();
+    const g = dung([j]);
+    g.pj.findFirst.mockRejectedValueOnce(new Error('connection reset')); // sau updateMany đã đổi da_huy
+    await expect(huyLenhIn(ORG1, [j.id], CRM, g.deps)).rejects.toThrow('connection reset');
+    expect(g.hang[0].trangThai).toBe('da_huy');
+    expect(g.nhatKy).toEqual([]);
+    const [kq] = await huyLenhIn(ORG1, [j.id], { loai: 'crm', ten: 'Anh Quốc' }, g.deps);
+    expect(kq).toMatchObject({ ok: true, cach: 'da_huy_truoc' });
+    expect(g.nhatKy).toHaveLength(1);
+    expect(g.nhatKy[0]).toMatchObject({
+      loai: 'da_huy', printJobId: j.id,
+      noiDung: `Đã huỷ lệnh in hoá đơn ${j.soHoaDon} — chắc chắn không in (nguồn: ZaloCRM (Chị Hoa))`,
+      chiTiet: { nguon: 'crm', cach: 'chua_gui', ghiBu: true },
+    });
+    // gửi lại lần nữa → đã có dòng → không ghi thêm
+    await huyLenhIn(ORG1, [j.id], CRM, g.deps);
+    expect(g.nhatKy).toHaveLength(1);
+  });
+
+  it('nguồn ghi bù lấy từ lần huỷ thật (app máy in), không phải người gửi lại', async () => {
+    const j = job({ trangThai: 'da_huy', loiCuoi: 'Đã huỷ bởi app máy in (PC-SHOP-HN)' });
+    const g = dung([j]);
+    await huyLenhIn(ORG1, [j.id], CRM, g.deps);
+    expect(g.nhatKy[0].noiDung).toContain('(nguồn: app máy in (PC-SHOP-HN))');
+    expect(g.nhatKy[0].chiTiet).toMatchObject({ nguon: 'app', ghiBu: true });
+  });
+
+  it('hai yêu cầu CÙNG id đồng thời (bấm đôi / CRM + app) → chạy nối tiếp: một ok chua_gui, một da_huy_truoc, ĐÚNG một dòng', async () => {
+    const j = job();
+    const g = dung([j]);
+    const [a, b] = await Promise.all([
+      huyLenhIn(ORG1, [j.id], CRM, g.deps),
+      huyLenhIn({ loai: 'may', token: HN, tokenMacDinh: HN, orgMacDinh: 'org1' }, [j.id], { loai: 'app', may: 'PC' }, g.deps),
+    ]);
+    expect([a[0].cach, b[0].cach].sort()).toEqual(['chua_gui', 'da_huy_truoc']);
+    expect(g.nhatKy.filter((m) => m.loai === 'da_huy')).toHaveLength(1);
+  });
+
+  it('không tra được nhật ký → KHÔNG ghi bù (thà thiếu còn hơn ghi đôi), vẫn trả ok da_huy_truoc', async () => {
+    const j = job({ trangThai: 'da_huy', loiCuoi: 'Đã huỷ bởi ZaloCRM (Chị Hoa)' });
+    const g = dung([j]);
+    g.prisma.printLog.findFirst.mockRejectedValueOnce(new Error('db'));
+    const [kq] = await huyLenhIn(ORG1, [j.id], CRM, g.deps);
+    expect(kq.cach).toBe('da_huy_truoc');
+    expect(g.nhatKy).toEqual([]);
+  });
+
+  it('bỏ theo dõi: cùng lỗ — bo_qua mà chưa có dòng bo_theo_doi → ghi bù đúng một dòng', async () => {
+    const j = job({ trangThai: 'bo_qua', loiCuoi: 'Bỏ khỏi hàng đợi bởi ZaloCRM (Chị Hoa) — không biết đã in hay chưa' });
+    const g = dung([j]);
+    expect((await boTheoDoi(ORG1, [j.id], { loai: 'crm', ten: 'Người khác' }, g.deps))[0].ok).toBe(true);
+    await boTheoDoi(ORG1, [j.id], CRM, g.deps);
+    expect(g.nhatKy).toHaveLength(1);
+    expect(g.nhatKy[0]).toMatchObject({ loai: 'bo_theo_doi', chiTiet: { nguon: 'crm', ghiBu: true } });
+    expect(g.nhatKy[0].noiDung).toContain('(nguồn: ZaloCRM (Chị Hoa))');
   });
 });

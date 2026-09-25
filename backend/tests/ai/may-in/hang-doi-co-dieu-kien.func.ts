@@ -217,7 +217,7 @@ describe('B2 — huỷ THẬT (huyLenhIn) trong lúc cron đang tải PDF', () =
     const nhatKyHuy: MucNhatKy[] = [];
     const prismaHuy = {
       printJob: pj,
-      printLog: { findMany: vi.fn(async () => []) },
+      printLog: { findMany: vi.fn(async () => []), findFirst: vi.fn(async () => null) },
       printAgent: { findMany: vi.fn(async () => []), findFirst: vi.fn(async () => null) },
     };
     let ketQuaHuy: unknown;

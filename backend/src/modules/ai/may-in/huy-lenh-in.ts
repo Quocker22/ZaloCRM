@@ -83,7 +83,12 @@ export interface KetQuaBoTheoDoi {
 /** Phạm vi được đụng tới (luật 3). */
 export type PhamViHangDoi =
   | { loai: 'org'; orgId: string }
-  | { loai: 'may'; token: string; tokenMacDinh: string | null };
+  /**
+   * Socket app: CHỈ job của máy `token`. Job agent_token NULL thuộc máy mặc định (token env) —
+   * và CHỈ của org mặc định env (`orgMacDinh`, cùng org cron/nhật ký dùng cho máy env); thiếu
+   * org mặc định thì không job NULL nào thuộc phạm vi máy (không lộ job NULL của org khác).
+   */
+  | { loai: 'may'; token: string; tokenMacDinh: string | null; orgMacDinh: string | null };
 
 /** Ai yêu cầu — ghi vào nhật ký (B5). */
 export type NguonYeuCau = { loai: 'crm'; ten: string | null } | { loai: 'app'; may: string | null };
@@ -169,6 +174,8 @@ export interface PrismaHangDoiHuy {
   };
   printLog: {
     findMany: (a: Record<string, unknown>) => Promise<Array<Record<string, unknown>>>;
+    /** Đã có dòng nhật ký loại X cho job này chưa (ghi bù B5 — không ghi đôi). */
+    findFirst: (a: Record<string, unknown>) => Promise<Record<string, unknown> | null>;
   };
   printAgent: {
     findMany: (a: Record<string, unknown>) => Promise<Array<{ id: string; ten: string; token: string }>>;
@@ -188,14 +195,68 @@ export interface DepsHangDoi {
   prisma?: PrismaHangDoiHuy;
   /** Mặc định singleton agentRegistry. */
   registry?: RegistryHangDoi;
-  /** Nhật ký print_logs — mặc định singleton thật (fire-and-forget, không ném). */
-  ghiNhatKy?: (m: MucNhatKy) => void;
+  /**
+   * Nhật ký print_logs — mặc định singleton thật. Có `.cho` (singleton thật có) thì CHỜ dòng
+   * được ghi xong rồi mới trả kết quả: yêu cầu lặp cùng id (nối tiếp nhau, xem noiTiepTheoId)
+   * thấy được dòng đó, không ghi bù đôi. Không bao giờ ném.
+   */
+  ghiNhatKy?: GhiNhatKyHangDoi;
   /**
    * Token máy MẶC ĐỊNH (env AI_MAY_IN_AGENT_TOKEN) — job agent_token NULL thuộc máy này.
    * `undefined` = đọc env lúc gọi; `null` = hệ không có kênh app (thuần IPP).
    */
   tokenMacDinh?: string | null;
   bayGio?: () => number;
+}
+
+export type GhiNhatKyHangDoi = ((m: MucNhatKy) => void) & { cho?: (m: MucNhatKy) => Promise<boolean> };
+
+async function ghiVaCho(ghi: GhiNhatKyHangDoi, m: MucNhatKy): Promise<void> {
+  try {
+    if (typeof ghi.cho === 'function') await ghi.cho(m);
+    else ghi(m);
+  } catch {
+    /* nhật ký không được làm hỏng việc huỷ */
+  }
+}
+
+/**
+ * Việc đang làm theo từng print_job_id trong tiến trình này: hai yêu cầu cùng id (bấm đôi, CRM +
+ * app cùng lúc, lần gửi lại sau mất kết nối) chạy NỐI TIẾP — lần sau thấy đủ trạng thái + dòng
+ * nhật ký của lần trước, nên "đã huỷ trước đó" biết chắc có cần ghi bù hay không.
+ */
+const dangXuLyTheoId = new Map<string, Promise<unknown>>();
+
+async function noiTiepTheoId<T>(id: string, viec: () => Promise<T>): Promise<T> {
+  const truoc = dangXuLyTheoId.get(id) ?? Promise.resolve();
+  const nay = truoc.then(viec, viec);
+  const moc = nay.catch(() => undefined);
+  dangXuLyTheoId.set(id, moc);
+  try {
+    return await nay;
+  } finally {
+    if (dangXuLyTheoId.get(id) === moc) dangXuLyTheoId.delete(id);
+  }
+}
+
+/** Job đã có dòng nhật ký `loai` chưa. null = không tra được → coi như CÓ (không ghi bù, tránh ghi đôi). */
+async function daCoDongNhatKy(p: PrismaHangDoiHuy, printJobId: string, loai: string): Promise<boolean> {
+  try {
+    return (await p.printLog.findFirst({ where: { printJobId, loai }, select: { id: true } })) !== null;
+  } catch (err) {
+    logger.warn({ err: err instanceof Error ? err.message : String(err), loai }, '[may-in] không tra được nhật ký để ghi bù — bỏ ghi bù');
+    return true;
+  }
+}
+
+/** Nguồn đã ghi trong loiCuoi lúc đổi trạng thái ("Đã huỷ bởi <nguồn>") — để dòng ghi bù nêu ĐÚNG người làm. */
+function nguonTrongLoiCuoi(loiCuoi: string | null, tienTo: string, hauTo = ''): { chu: string; loai: NguonYeuCau['loai'] } | null {
+  if (!loiCuoi?.startsWith(tienTo)) return null;
+  let chu = loiCuoi.slice(tienTo.length);
+  if (hauTo && chu.endsWith(hauTo)) chu = chu.slice(0, -hauTo.length);
+  chu = chu.trim();
+  if (!chu) return null;
+  return { chu, loai: chu.startsWith('app máy in') ? 'app' : 'crm' };
 }
 
 async function prismaThat(): Promise<PrismaHangDoiHuy> {
@@ -213,9 +274,10 @@ function tokenMacDinhCua(deps: DepsHangDoi): string | null {
 /** Điều kiện Prisma của phạm vi (luật 3). Socket: CHỈ job của chính máy đó. */
 export function dieuKienPhamVi(p: PhamViHangDoi): Record<string, unknown> {
   if (p.loai === 'org') return { orgId: p.orgId };
-  // agent_token NULL = job cũ / tra kho lỗi → máy mặc định (cron quy về token env).
-  if (p.tokenMacDinh && p.token === p.tokenMacDinh) {
-    return { OR: [{ agentToken: p.token }, { agentToken: null }] };
+  // agent_token NULL = job cũ / tra kho lỗi → máy mặc định (cron quy về token env) — chỉ trong
+  // org mặc định env: token env không được là cửa xem/huỷ job NULL của MỌI org.
+  if (p.tokenMacDinh && p.token === p.tokenMacDinh && p.orgMacDinh) {
+    return { OR: [{ agentToken: p.token }, { agentToken: null, orgId: p.orgMacDinh }] };
   }
   return { agentToken: p.token };
 }
@@ -345,7 +407,11 @@ export async function layHangDoi(
   const tokens = [...new Set(tatCa.map(tokenCua).filter((t): t is string => !!t))];
   const mayTheoToken = new Map<string, { id: string; ten: string }>();
   if (tokens.length > 0) {
-    const cacMay = await p.printAgent.findMany({ where: { token: { in: tokens } }, select: { id: true, ten: true, token: true } });
+    // REST: chỉ máy của CHÍNH org (token trùng máy org khác thì không lộ tên máy đó).
+    const cacMay = await p.printAgent.findMany({
+      where: { token: { in: tokens }, ...(phamVi.loai === 'org' ? { orgId: phamVi.orgId } : {}) },
+      select: { id: true, ten: true, token: true },
+    });
     for (const m of cacMay) mayTheoToken.set(m.token, { id: m.id, ten: m.ten });
   }
   const tenKhach = await tenKhachTheoJob(p, tatCa.map((j) => j.id));
@@ -426,9 +492,10 @@ export function laIdHopLe(x: unknown): x is string {
 
 /**
  * Huỷ từng id TUẦN TỰ (mỗi cái 1–2 câu lệnh, không chờ app), trả đủ kết quả theo đúng thứ tự
- * `ids`. Mỗi yêu cầu MỘT dòng nhật ký (`da_huy` / `huy_that_bai`); `da_huy_truoc` không ghi
- * lại (dòng `da_huy` của lần huỷ thật đã có — không ghi đôi). Lỗi DB thì NÉM (người gọi báo
- * "chưa rõ" — không bao giờ tự bịa kết quả).
+ * `ids`. Mỗi yêu cầu MỘT dòng nhật ký (`da_huy` / `huy_that_bai`); `da_huy_truoc` chỉ ghi bù
+ * `da_huy` khi job CHƯA có dòng nào (lần huỷ thật đã commit mà mất nhật ký) — mỗi lần huỷ thật
+ * đúng một dòng. Hai yêu cầu cùng id chạy nối tiếp (noiTiepTheoId). Lỗi DB thì NÉM (người gọi
+ * báo "chưa rõ" — không bao giờ tự bịa kết quả).
  */
 export async function huyLenhIn(
   phamVi: PhamViHangDoi,
@@ -445,6 +512,12 @@ export async function huyLenhIn(
   const mayDoi = new Set<string | null>();
 
   for (const id of ids) {
+    ketQua.push(await noiTiepTheoId(id, () => huyMotId(id)));
+  }
+  baoDoiCacMay(deps, mayDoi);
+  return ketQua;
+
+  async function huyMotId(id: string): Promise<KetQuaHuy> {
     let kq: KetQuaHuy | null = null;
     let job: JobHangDoi | null = null;
     for (let lan = 0; lan < SO_LAN_THU_HUY && !kq; lan++) {
@@ -460,9 +533,26 @@ export async function huyLenhIn(
       }
     }
     const k = kq!;
-    ketQua.push(k);
     if (job) mayDoi.add(job.agentToken ?? tokenMacDinh);
-    if (k.cach === 'da_huy_truoc') continue; // đã có dòng `da_huy` của lần huỷ thật
+    if (k.cach === 'da_huy_truoc') {
+      // B5: lần huỷ THẬT có thể đã commit mà chưa kịp ghi nhật ký (DB lỗi ngay sau updateMany →
+      // REST 500 / socket không ack → người dùng gửi lại). Ghi bù ĐÚNG MỘT dòng `da_huy` nếu job
+      // chưa có dòng nào, với nguồn đã ghi lúc huỷ thật. Bấm đôi bình thường: đã có dòng → thôi.
+      if (job && !(await daCoDongNhatKy(p, id, 'da_huy'))) {
+        const goc = nguonTrongLoiCuoi(job.loiCuoi, 'Đã huỷ bởi ');
+        await ghiVaCho(ghi, {
+          loai: 'da_huy',
+          noiDung: `Đã huỷ lệnh in hoá đơn ${job.soHoaDon} — chắc chắn không in (nguồn: ${goc?.chu ?? nguonChu})`,
+          orgId: job.orgId,
+          agentToken: job.agentToken ?? tokenMacDinh,
+          printJobId: job.id,
+          soHoaDon: job.soHoaDon,
+          tenKhach: (await tenKhachTheoJob(p, [id])).get(id) ?? null,
+          chiTiet: { nguon: goc?.loai ?? nguon.loai, cach: 'chua_gui', ghiBu: true },
+        });
+      }
+      return k;
+    }
 
     const tenKhach = job ? (await tenKhachTheoJob(p, [id])).get(id) ?? null : null;
     const hd = k.soHoaDon ? `hoá đơn ${k.soHoaDon}` : `mã ${catChu(id, 64)}`;
@@ -482,14 +572,9 @@ export async function huyLenhIn(
         ...(job ? {} : { id: catChu(id, 64) }),
       },
     };
-    try {
-      ghi(nk);
-    } catch {
-      /* nhật ký không được làm hỏng việc huỷ */
-    }
+    await ghiVaCho(ghi, nk);
+    return k;
   }
-  baoDoiCacMay(deps, mayDoi);
-  return ketQua;
 }
 
 // ── Bỏ theo dõi (§3.3 + §8.5) ────────────────────────────────────────────────
@@ -513,40 +598,46 @@ export async function boTheoDoi(
   const mayDoi = new Set<string | null>();
 
   for (const id of ids) {
+    ketQua.push(await noiTiepTheoId(id, () => boMotId(id)));
+  }
+  baoDoiCacMay(deps, mayDoi);
+  return ketQua;
+
+  async function boMotId(id: string): Promise<KetQuaBoTheoDoi> {
     const r = await p.printJob.updateMany({
       where: { AND: [{ id, trangThai: 'khong_ro' }, pv] },
       data: { trangThai: 'bo_qua', loiCuoi: `Bỏ khỏi hàng đợi bởi ${nguonChu} — không biết đã in hay chưa` },
     });
     const job = await p.printJob.findFirst({ where: { AND: [{ id }, pv] }, select: CHON_JOB });
     if (job) mayDoi.add(job.agentToken ?? tokenMacDinh);
+    const ghiBoTheoDoi = async (j: JobHangDoi, nguonGhi: string, loaiNguon: NguonYeuCau['loai'], ghiBu: boolean): Promise<void> => {
+      await ghiVaCho(ghi, {
+        loai: 'bo_theo_doi',
+        noiDung: `Bỏ theo dõi hoá đơn ${j.soHoaDon} — hệ thống KHÔNG biết đã in hay chưa, kiểm giấy trước khi in lại (nguồn: ${nguonGhi})`,
+        orgId: j.orgId,
+        agentToken: j.agentToken ?? tokenMacDinh,
+        printJobId: j.id,
+        soHoaDon: j.soHoaDon,
+        tenKhach: (await tenKhachTheoJob(p, [id])).get(id) ?? null,
+        chiTiet: { nguon: loaiNguon, ...(ghiBu ? { ghiBu: true } : {}) },
+      });
+    };
     if (r.count > 0 && job) {
-      ketQua.push({ id, ok: true, noiDung: NOI_DUNG_BO_THEO_DOI.ok });
-      const tenKhach = (await tenKhachTheoJob(p, [id])).get(id) ?? null;
-      try {
-        ghi({
-          loai: 'bo_theo_doi',
-          noiDung: `Bỏ theo dõi hoá đơn ${job.soHoaDon} — hệ thống KHÔNG biết đã in hay chưa, kiểm giấy trước khi in lại (nguồn: ${nguonChu})`,
-          orgId: job.orgId,
-          agentToken: job.agentToken ?? tokenMacDinh,
-          printJobId: job.id,
-          soHoaDon: job.soHoaDon,
-          tenKhach,
-          chiTiet: { nguon: nguon.loai },
-        });
-      } catch {
-        /* như trên */
+      await ghiBoTheoDoi(job, nguonChu, nguon.loai, false);
+      return { id, ok: true, noiDung: NOI_DUNG_BO_THEO_DOI.ok };
+    }
+    if (!job) return { id, ok: false, noiDung: NOI_DUNG_BO_THEO_DOI.khongTimThay };
+    if (job.trangThai === 'bo_qua') {
+      // Cùng lỗ B5 như huỷ: lần bỏ thật đã commit mà chưa kịp ghi nhật ký → ghi bù đúng một dòng.
+      if (!(await daCoDongNhatKy(p, id, 'bo_theo_doi'))) {
+        const goc = nguonTrongLoiCuoi(job.loiCuoi, 'Bỏ khỏi hàng đợi bởi ', ' — không biết đã in hay chưa');
+        await ghiBoTheoDoi(job, goc?.chu ?? nguonChu, goc?.loai ?? nguon.loai, true);
       }
-      continue;
+      return { id, ok: true, noiDung: NOI_DUNG_BO_THEO_DOI.daBoTruoc };
     }
-    if (!job) ketQua.push({ id, ok: false, noiDung: NOI_DUNG_BO_THEO_DOI.khongTimThay });
-    else if (job.trangThai === 'bo_qua') ketQua.push({ id, ok: true, noiDung: NOI_DUNG_BO_THEO_DOI.daBoTruoc });
-    else {
-      const moTa = MO_TA_TRANG_THAI[job.trangThai] ?? job.trangThai;
-      ketQua.push({ id, ok: false, noiDung: `${NOI_DUNG_BO_THEO_DOI.chiKhongRo} — lệnh này ${moTa}.` });
-    }
+    const moTa = MO_TA_TRANG_THAI[job.trangThai] ?? job.trangThai;
+    return { id, ok: false, noiDung: `${NOI_DUNG_BO_THEO_DOI.chiKhongRo} — lệnh này ${moTa}.` };
   }
-  baoDoiCacMay(deps, mayDoi);
-  return ketQua;
 }
 
 function baoDoiCacMay(deps: DepsHangDoi, cac: Set<string | null>): void {
