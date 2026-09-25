@@ -120,13 +120,19 @@ export function conTroDuoi(ds: readonly DongCoMoc[], msChong = 2 * PHUT_MS, toiD
   return conTroCua(ds[i]);
 }
 
-// ── Chọn thẻ Nhật ký in / Log app ───────────────────────────────────────────
+// ── Chọn thẻ Hàng đợi in / Nhật ký in / Log app ─────────────────────────────
 
-export type TabNhatKy = 'in' | 'app';
+export type TabNhatKy = 'hang_doi' | 'in' | 'app';
 
-/** URL `?nhatKy=app|in` thắng thẻ đã nhớ; không có gì → "Nhật ký in". */
-export function chonTabNhatKy(tuUrl: unknown, daLuu: unknown): TabNhatKy {
-  if (tuUrl === 'app' || tuUrl === 'in') return tuUrl;
-  if (daLuu === 'app' || daLuu === 'in') return daLuu;
-  return 'in';
+export const laTabNhatKy = (x: unknown): x is TabNhatKy => x === 'hang_doi' || x === 'in' || x === 'app';
+
+/**
+ * URL `?nhatKy=hang_doi|in|app` thắng thẻ người dùng đã chọn (nhớ trong localStorage); không có
+ * gì → "Hàng đợi in" nếu đang có lệnh chờ in (`soChoIn` > 0), ngược lại "Nhật ký in"
+ * (hợp đồng hàng đợi/huỷ §6.1).
+ */
+export function chonTabNhatKy(tuUrl: unknown, daLuu: unknown, soChoIn = 0): TabNhatKy {
+  if (laTabNhatKy(tuUrl)) return tuUrl;
+  if (laTabNhatKy(daLuu)) return daLuu;
+  return soChoIn > 0 ? 'hang_doi' : 'in';
 }

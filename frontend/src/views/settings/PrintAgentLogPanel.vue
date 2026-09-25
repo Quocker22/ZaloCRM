@@ -19,14 +19,34 @@
   app chỉ gắn lần đầu được chọn (không gọi API thừa), sau đó giữ nguyên bộ lọc khi đổi qua
   lại; thẻ nào không được chọn thì nghỉ tự làm mới (nhịp báo trang cha vẫn chạy để chip
   tình trạng máy in không cũ).
+
+  Thẻ thứ ba ĐẦU TIÊN (25/09, hợp đồng hàng đợi/huỷ v5.1 §6.1 + §8.6): "Hàng đợi in (N)" —
+  PrintAgentQueuePanel, N = số lệnh đang/sẽ in. Dữ liệu do trang cha nạp (cùng nguồn chip "N đang
+  chờ" trên thẻ máy) và truyền vào `hangDoi`. Thẻ mặc định: Hàng đợi nếu N > 0, ngược lại Nhật ký
+  in — trừ khi URL `?nhatKy=hang_doi|in|app` hoặc người dùng đã chọn (localStorage). Bấm chip trên
+  thẻ máy (`moHangDoi`) mở thẳng thẻ Hàng đợi, lọc máy đó.
 -->
 <template>
   <section v-if="!biCam" ref="goc" class="nk" aria-labelledby="nk-tieu-de">
     <div class="nk-head">
       <div class="nk-head-trai">
         <div class="nk-tieu-de-hang">
-          <h2 id="nk-tieu-de" class="nk-h2">Nhật ký máy in</h2>
-          <div class="nk-the" role="tablist" aria-label="Loại nhật ký">
+          <h2 id="nk-tieu-de" class="nk-h2">Hàng đợi &amp; nhật ký máy in</h2>
+          <div class="nk-the" role="tablist" aria-label="Hàng đợi và nhật ký máy in">
+            <button
+              id="nk-the-hang-doi"
+              type="button"
+              role="tab"
+              class="nk-the-nut"
+              :class="{ 'nk-the-nut--chon': theChon === 'hang_doi', 'nk-the-nut--co-cho': soChoIn > 0 }"
+              :aria-selected="theChon === 'hang_doi'"
+              aria-controls="nk-vung-hang-doi"
+              title="Hoá đơn đang chờ in và lệnh chưa xác nhận đã in — huỷ được lệnh còn đang chờ"
+              @click="chonThe('hang_doi')"
+            >
+              <v-icon size="15" icon="mdi-tray-full" aria-hidden="true" />
+              Hàng đợi in<span v-if="hangDoi" class="nk-the-dem" :class="{ 'nk-the-dem--cam': coTamGiu }"> ({{ soChoIn }})</span>
+            </button>
             <button
               id="nk-the-in"
               type="button"
@@ -56,7 +76,8 @@
             </button>
           </div>
         </div>
-        <p v-if="theChon === 'in'" class="nk-phu">Nhận lệnh, gửi máy in, đã in, lỗi, hết giấy, kẹt giấy… · lưu 90 ngày</p>
+        <p v-if="theChon === 'hang_doi'" class="nk-phu">Hoá đơn đang chờ in và lệnh chưa xác nhận đã in · tự làm mới 5 giây</p>
+        <p v-else-if="theChon === 'in'" class="nk-phu">Nhận lệnh, gửi máy in, đã in, lỗi, hết giấy, kẹt giấy… · lưu 90 ngày</p>
         <p v-else class="nk-phu">Từng dòng app Máy in ở chi nhánh ghi ra (vết in, đọc USB, kết quả…) · lưu 30 ngày</p>
       </div>
       <div v-show="theChon === 'in'" class="nk-head-phai">
@@ -248,6 +269,21 @@
       </div>
     </div>
 
+    <PrintAgentQueuePanel
+      v-if="daMoHangDoi"
+      v-show="theChon === 'hang_doi'"
+      id="nk-vung-hang-doi"
+      role="tabpanel"
+      aria-labelledby="nk-the-hang-doi"
+      :hang-doi="hangDoi ?? null"
+      :may-ins="mayIns"
+      :hoat-dong="theChon === 'hang_doi'"
+      :dang-tai="dangTaiHangDoi"
+      :loi="loiHangDoi"
+      :loc-may="locMayHangDoi"
+      @tai-lai="(t) => emit('taiLaiHangDoi', t)"
+    />
+
     <PrintAgentAppLogPanel
       v-if="daMoApp"
       v-show="theChon === 'app'"
@@ -272,17 +308,27 @@ import {
   LUA_CHON_KHOANG, khoangThoiGian, chuanHoaTuKhoa, gopTrangMoi, noiTrangSau,
   dinhDangGioVN, chiTietDep, type KhoangNhatKy,
 } from './may-in-nhat-ky';
-import { chonTabNhatKy, type TabNhatKy } from './may-in-nhat-ky-app';
+import { chonTabNhatKy, laTabNhatKy, type TabNhatKy } from './may-in-nhat-ky-app';
+import type { HangDoiIn } from '@/api/print-agents';
 import PrintAgentAppLogPanel from './PrintAgentAppLogPanel.vue';
+import PrintAgentQueuePanel from './PrintAgentQueuePanel.vue';
 
 const props = defineProps<{
   mayIns: MayIn[];
-  /** Thẻ mở sẵn theo URL (`?nhatKy=app|in`) — thắng thẻ đã nhớ. */
+  /** Thẻ mở sẵn theo URL (`?nhatKy=hang_doi|in|app`) — thắng thẻ đã nhớ. */
   tabDau?: string | null;
+  /** Hàng đợi in trang cha nạp (null/vắng = chưa có — backend cũ hoặc chưa tải xong). */
+  hangDoi?: HangDoiIn | null;
+  dangTaiHangDoi?: boolean;
+  loiHangDoi?: string;
+  /** Bấm chip "N đang chờ" trên thẻ máy: mở thẻ Hàng đợi lọc máy đó (`lan` đổi = bấm lại). */
+  moHangDoi?: { mayInId: string | null; lan: number } | null;
 }>();
 const emit = defineEmits<{
   /** Mỗi nhịp tự làm mới — trang cha tải lại danh sách máy in (chip tình trạng) cho khớp. */
   lamMoi: [];
+  /** Thẻ Hàng đợi xin nạp lại hàng đợi (nhịp 5 giây / sau khi huỷ). */
+  taiLaiHangDoi: [tuy: { ngam: boolean }];
 }>();
 
 const GIOI_HAN = 50;
@@ -312,20 +358,53 @@ function docTheDaLuu(): unknown {
   }
 }
 
-const theChon = ref<TabNhatKy>(chonTabNhatKy(props.tabDau, docTheDaLuu()));
-/** Thẻ Log app chỉ gắn (và gọi API) từ lần đầu được chọn. */
+// ── Hàng đợi (thẻ đầu) ────────────────────────────────────────────────────
+/** N của "Hàng đợi in (N)" — CHỈ nhóm đang/sẽ in (§8.6), không tính "chưa xác nhận". */
+const soChoIn = computed(() => props.hangDoi?.choIn.length ?? 0);
+const coTamGiu = computed(() => (props.hangDoi?.choIn ?? []).some((m) => m.tamGiu));
+
+const theDaLuu = docTheDaLuu();
+const theChon = ref<TabNhatKy>(chonTabNhatKy(props.tabDau, theDaLuu, soChoIn.value));
+/**
+ * URL hoặc lựa chọn đã nhớ quyết thẻ — không tự đổi. Không có cả hai thì thẻ mặc định theo N:
+ * hàng đợi tới SAU lần gắn đầu (trang cha nạp bất đồng bộ) mà N > 0 → tự sang thẻ Hàng đợi
+ * (chỉ một lần, và không khi người dùng đã tự bấm thẻ).
+ */
+let daQuyetThe = laTabNhatKy(props.tabDau) || laTabNhatKy(theDaLuu);
+/** Thẻ Log app / Hàng đợi chỉ gắn (và gọi API) từ lần đầu được chọn. */
 const daMoApp = ref(theChon.value === 'app');
+const daMoHangDoi = ref(theChon.value === 'hang_doi');
+const locMayHangDoi = ref<{ mayInId: string | null; lan: number } | null>(null);
 const goc = ref<HTMLElement | null>(null);
 
+// Quyết MỘT lần, lúc hàng đợi tới lần đầu — về sau N đổi thì không nhảy thẻ dưới tay người xem.
+watch(
+  () => props.hangDoi,
+  (hd) => {
+    if (daQuyetThe || !hd) return;
+    daQuyetThe = true;
+    if (hd.choIn.length > 0 && theChon.value === 'in') datThe('hang_doi');
+  },
+  { immediate: true },
+);
+
 function chonThe(t: TabNhatKy): void {
+  daQuyetThe = true;
   if (theChon.value === t) return;
-  theChon.value = t;
-  if (t === 'app') daMoApp.value = true;
   try {
     window.localStorage?.setItem(KHOA_LUU_THE, t);
   } catch {
     // như trên
   }
+  datThe(t);
+}
+
+/** Đổi thẻ (không nhớ) — dùng chung cho bấm thẻ, thẻ mặc định theo N, và chip trên thẻ máy. */
+function datThe(t: TabNhatKy): void {
+  if (theChon.value === t) return;
+  theChon.value = t;
+  if (t === 'app') daMoApp.value = true;
+  if (t === 'hang_doi') daMoHangDoi.value = true;
   if (t === 'in' && !biCam.value) {
     // Mở trang ở thẻ Log app thì bảng này chưa tải lần nào; còn không: lấy ngay phần đã lỡ.
     if (!daTai.value && !dangTai.value) void taiLai();
@@ -542,6 +621,18 @@ watch([tuKhoa, mayInId, mucDo, khoang], () => {
   void taiLai();
 });
 
+// Chip "N đang chờ" trên thẻ máy → thẻ Hàng đợi lọc đúng máy, cuộn tới mục này.
+watch(
+  () => props.moHangDoi?.lan,
+  () => {
+    if (!props.moHangDoi) return;
+    daQuyetThe = true;
+    locMayHangDoi.value = { mayInId: props.moHangDoi.mayInId, lan: props.moHangDoi.lan };
+    datThe('hang_doi');
+    void nextTick(() => goc.value?.scrollIntoView?.({ block: 'start', behavior: 'smooth' }));
+  },
+);
+
 // Máy đang lọc bị xoá khỏi danh sách → về "Tất cả máy in" (select không hiện id trần).
 watch(
   () => props.mayIns,
@@ -580,7 +671,9 @@ onMounted(() => {
   if (theChon.value === 'in') void taiLai(); // mở ở thẻ Log app: bảng này tải khi được chọn
   batHenGioLamMoi(); // bật sẵn — lần tải đầu là taiLai() ở trên, nhịp đầu sau 15 giây
   // Mở từ link `?nhatKy=app`: cuộn tới mục này (dưới danh sách máy in).
-  if (props.tabDau === 'app') void nextTick(() => goc.value?.scrollIntoView?.({ block: 'start', behavior: 'smooth' }));
+  if (props.tabDau === 'app' || props.tabDau === 'hang_doi') {
+    void nextTick(() => goc.value?.scrollIntoView?.({ block: 'start', behavior: 'smooth' }));
+  }
 });
 
 onBeforeUnmount(() => {
@@ -621,6 +714,9 @@ onBeforeUnmount(() => {
   background: var(--at-canvas, #fff); color: var(--at-action, #1786be);
   box-shadow: 0 1px 2px rgba(20, 26, 36, 0.08), 0 0 0 1px var(--at-hairline, #e7eaf0);
 }
+.nk-the-dem { font-variant-numeric: tabular-nums; }
+.nk-the-nut--co-cho .nk-the-dem { font-weight: 700; }
+.nk-the-dem--cam { color: #b45309; }
 .nk-phu { font-size: 12px; color: var(--at-muted, #6b7488); margin: 2px 0 0; }
 .nk-head-phai { display: flex; align-items: center; gap: 4px 12px; flex-wrap: wrap; }
 .nk-dem { font-size: 12px; color: var(--at-muted, #6b7488); font-variant-numeric: tabular-nums; }

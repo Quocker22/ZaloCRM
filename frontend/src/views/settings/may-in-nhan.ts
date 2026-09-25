@@ -56,6 +56,11 @@ export const MA_SU_KIEN: Readonly<Record<string, MoTaMa>> = {
   tam_giu: { nhan: 'Tạm giữ hoá đơn — máy in đang lỗi', mucDo: 'canh_bao' },
   cho_may_in: { nhan: 'Hoá đơn chờ máy in hết lỗi', mucDo: 'thong_tin' },
   tiep_tuc_in: { nhan: 'Máy in hoạt động lại — tiếp tục in', mucDo: 'thong_tin' },
+  // Hàng đợi + huỷ lệnh in (hợp đồng hàng đợi/huỷ v5.1 §8.8) — cùng chữ backend nhat-ky.ts.
+  da_huy: { nhan: 'Đã huỷ lệnh in', mucDo: 'thong_tin' },
+  huy_that_bai: { nhan: 'Không huỷ được lệnh in', mucDo: 'canh_bao' },
+  // Bỏ theo dõi KHÔNG phải huỷ: không chặn việc in, hệ thống không biết đã in hay chưa.
+  bo_theo_doi: { nhan: 'Bỏ theo dõi lệnh in', mucDo: 'canh_bao' },
 };
 
 /**

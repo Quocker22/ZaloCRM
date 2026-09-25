@@ -16,6 +16,12 @@ describe('nhanCua — mã → nhãn tiếng Việt', () => {
     }
     expect(nhanCua('da_in')).toBe('Đã in');
   });
+  it('mã hàng đợi/huỷ (v5.1 §8.8) — "bỏ theo dõi" KHÔNG bao giờ là "đã huỷ"', () => {
+    expect(nhanCua('da_huy')).toBe('Đã huỷ lệnh in');
+    expect(nhanCua('huy_that_bai')).toBe('Không huỷ được lệnh in');
+    expect(nhanCua('bo_theo_doi')).toBe('Bỏ theo dõi lệnh in');
+    expect(nhanCua('bo_theo_doi')).not.toMatch(/huỷ/i);
+  });
   it('mã lạ → hiện NGUYÊN mã (không nuốt)', () => {
     expect(nhanCua('ma_moi_chua_biet')).toBe('ma_moi_chua_biet');
   });
@@ -32,9 +38,9 @@ describe('nhanCua — mã → nhãn tiếng Việt', () => {
 });
 
 describe('mucDoCua — mức theo hợp đồng', () => {
-  it('đủ 12 mã §1 và 17 mã §3.3 (13 cũ + 4 của cầu dao/mất kết nối lâu), không trùng khoá giữa hai bảng', () => {
+  it('đủ 12 mã §1 và 20 mã §3.3 (13 cũ + 4 của cầu dao/mất kết nối lâu + 3 của hàng đợi/huỷ), không trùng khoá giữa hai bảng', () => {
     expect(Object.keys(MA_SU_CO)).toHaveLength(12);
-    expect(Object.keys(MA_SU_KIEN)).toHaveLength(17);
+    expect(Object.keys(MA_SU_KIEN)).toHaveLength(20);
     const trung = Object.keys(MA_SU_CO).filter((k) => k in MA_SU_KIEN);
     expect(trung).toEqual([]);
   });
@@ -51,6 +57,7 @@ describe('mucDoCua — mức theo hợp đồng', () => {
       khong_co_may_in: 'loi', that_bai: 'loi', khong_ro: 'loi', het_gio_cho: 'loi',
       ket_qua_tre: 'thong_tin', app_ket_noi: 'thong_tin', app_mat_ket_noi: 'thong_tin',
       app_offline_lau: 'canh_bao', tam_giu: 'canh_bao', cho_may_in: 'thong_tin', tiep_tuc_in: 'thong_tin',
+      da_huy: 'thong_tin', huy_that_bai: 'canh_bao', bo_theo_doi: 'canh_bao',
     };
     for (const [ma, muc] of Object.entries(mong)) expect(mucDoCua(ma), ma).toBe(muc);
   });

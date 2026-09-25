@@ -10,6 +10,11 @@
 //   GET    /may-in-agents/nhat-ky   -> { items: NhatKy[], tiepTheo } (CHỈ owner/admin, 403 CHI_ADMIN)
 //   GET    /may-in-agents/nhat-ky-app         -> { items: NhatKyApp[], tiepTheo } (CHỈ owner/admin)
 //   GET    /may-in-agents/nhat-ky-app/tai-ve  -> text/plain đính kèm (CHỈ owner/admin)
+//   GET    /may-in-agents/hang-doi?mayInId=    -> { choIn, chuaXacNhan, capNhat } (CHỈ owner/admin)
+//   POST   /may-in-agents/hang-doi/huy         -> { ketQua: KetQuaHuy[] } (CHỈ owner/admin)
+//   POST   /may-in-agents/hang-doi/bo-theo-doi -> { ketQua: KetQuaBoTheoDoi[] } (CHỈ owner/admin)
+//
+// Hàng đợi in + huỷ lệnh in: hợp đồng docs/may-in/HOP-DONG-HANG-DOI-HUY-v5.md mục 8 (v5.1).
 //
 // Nhật ký + tình trạng máy in: hợp đồng "báo sự cố máy in + nhật ký máy in" v2 (24/09/2026)
 // §3.4 (`tinhTrang` trong danh sách) và §3.5 (API nhật ký). Mã → nhãn: views/settings/may-in-nhan.ts.
@@ -92,6 +97,8 @@ export interface NhatKyApp {
   suKien: string;
   noiDung: string;
   phienBan: string | null;
+  /** Mức do máy chủ phân loại (hợp đồng hàng đợi/huỷ v5 §5). Tuỳ chọn: backend cũ không trả. */
+  mucDo?: MucDoNhatKy | string;
 }
 
 /** Tham số lọc nhật ký app. Trường rỗng/undefined không gửi đi. */
@@ -101,6 +108,8 @@ export interface ThamSoNhatKyApp {
   mayInId?: string;
   /** Mã sự kiện, nhiều mã cách nhau dấu phẩy — khớp nguyên mã. */
   suKien?: string;
+  /** Lọc mức (`loi_canh_bao` = lỗi HOẶC cảnh báo). */
+  mucDo?: LocMucDo;
   /** ISO. Thiếu cả hai thì backend lấy 24 giờ gần nhất. */
   tu?: string;
   den?: string;
@@ -115,6 +124,56 @@ export interface ThamSoNhatKyApp {
 export interface TrangNhatKyApp {
   items: NhatKyApp[];
   tiepTheo: string | null;
+}
+
+// ── Hàng đợi in + huỷ lệnh in (v5.1 §8.2, §8.5, §8.6) ─────────────────────────
+
+/** Một lệnh in đang chờ / chưa xác nhận. Không có token máy in — chỉ id + tên máy. */
+export interface MucHangDoi {
+  id: string;
+  soHoaDon: string;
+  tenKhach: string | null;
+  mayInId: string | null;
+  mayInTen: string | null;
+  trangThai: 'cho_in' | 'dang_gui' | 'da_gui' | 'khong_ro' | string;
+  nhom: 'cho_in' | 'chua_xac_nhan';
+  /** Câu cho người đọc, vd "Tạm giữ — máy in Hết giấy (từ 18:45)". */
+  lyDo: string;
+  /** cho_in + máy in đó đang lỗi (hệ thống giữ, tự in khi máy hết lỗi). */
+  tamGiu: boolean;
+  lanThu: number;
+  /** ISO */
+  tao: string;
+  capNhat: string;
+  /** `chac_chan` = huỷ được chắc chắn (chưa gửi); `khong` = không huỷ được từ xa. */
+  huy: 'chac_chan' | 'khong' | string;
+}
+
+export interface HangDoiIn {
+  /** Đang/sẽ in (cho_in ∪ dang_gui ∪ da_gui), cũ trước. */
+  choIn: MucHangDoi[];
+  /** Đã gửi xuống máy in nhưng chưa xác nhận đã in (3 ngày gần nhất). */
+  chuaXacNhan: MucHangDoi[];
+  capNhat: string;
+}
+
+export type MaLoiHuy = 'DANG_IN' | 'CHUA_XAC_NHAN' | 'DA_IN' | 'DA_KET_THUC' | 'KHONG_TIM_THAY';
+
+export interface KetQuaHuy {
+  id: string;
+  soHoaDon: string | null;
+  ok: boolean;
+  trangThaiMoi: string | null;
+  cach?: 'chua_gui' | 'da_huy_truoc' | string;
+  loi?: MaLoiHuy | string;
+  /** Câu đầy đủ cho người đọc: vì sao + việc cần làm. */
+  noiDung: string;
+}
+
+export interface KetQuaBoTheoDoi {
+  id: string;
+  ok: boolean;
+  noiDung: string;
 }
 
 export interface Kho {
@@ -248,6 +307,42 @@ export async function taiVeNhatKyApp(
   });
   const duLieu = res.data instanceof Blob ? res.data : new Blob([res.data ?? ''], { type: 'text/plain;charset=utf-8' });
   return { duLieu, tenFile: tenFileTuHeader(res.headers?.['content-disposition']) ?? 'nhat-ky-may-in.txt' };
+}
+
+/**
+ * Hàng đợi in của org (mọi máy, hoặc một máy `mayInId`). 403 không toast toàn cục (mục tự ẩn);
+ * `ngam` = nhịp tự làm mới — 5xx không toast.
+ */
+export async function layHangDoi(
+  thamSo: { mayInId?: string } = {},
+  tuyChon: { signal?: AbortSignal; ngam?: boolean } = {},
+): Promise<HangDoiIn> {
+  const { data } = await api.get('/may-in-agents/hang-doi', {
+    params: thanhParams(thamSo),
+    signal: tuyChon.signal,
+    boQuaToast403: true,
+    boQuaToast5xx: tuyChon.ngam === true,
+  });
+  return {
+    choIn: Array.isArray(data?.choIn) ? data.choIn : [],
+    chuaXacNhan: Array.isArray(data?.chuaXacNhan) ? data.chuaXacNhan : [],
+    capNhat: typeof data?.capNhat === 'string' ? data.capNhat : new Date().toISOString(),
+  };
+}
+
+/**
+ * Huỷ lệnh in (1..50 id) — CHỈ huỷ chắc chắn lệnh chưa gửi; kết quả từng id đúng thứ tự.
+ * Lỗi mạng/5xx: người gọi coi là "chưa rõ" và tải lại hàng đợi (không bao giờ tự cho là đã huỷ).
+ */
+export async function huyLenhIn(ids: string[]): Promise<KetQuaHuy[]> {
+  const { data } = await api.post('/may-in-agents/hang-doi/huy', { ids }, { boQuaToast5xx: true });
+  return Array.isArray(data?.ketQua) ? data.ketQua : [];
+}
+
+/** Bỏ khỏi hàng đợi lệnh CHƯA XÁC NHẬN — KHÔNG chặn việc in, không biết đã in hay chưa. */
+export async function boTheoDoiLenhIn(ids: string[]): Promise<KetQuaBoTheoDoi[]> {
+  const { data } = await api.post('/may-in-agents/hang-doi/bo-theo-doi', { ids }, { boQuaToast5xx: true });
+  return Array.isArray(data?.ketQua) ? data.ketQua : [];
 }
 
 /** Mã HTTP của lỗi axios (không có phản hồi — mất mạng, bị huỷ — thì undefined). */

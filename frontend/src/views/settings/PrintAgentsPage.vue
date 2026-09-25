@@ -16,6 +16,11 @@
   tượng + tiêu đề + nút, token màu ở airtable.css. Mỗi máy một THẺ (shop chỉ có vài máy,
   bảng 5 cột cho 2 dòng thì trống trơn và giấu mất tình trạng) — viền trái theo tình trạng:
   xanh = đang kết nối, đỏ/vàng = có sự cố, xám = mất kết nối.
+
+  Hàng đợi in (25/09, hợp đồng docs/may-in/HOP-DONG-HANG-DOI-HUY-v5.md §6.1 + §8.6): trang nạp
+  GET /may-in-agents/hang-doi (CHỈ admin) — thẻ mỗi máy có chip "N đang chờ" (N = lệnh đang/sẽ in
+  của máy đó; cam nếu có hoá đơn tạm giữ vì máy in lỗi, xanh nếu chỉ đang gửi/chờ) — bấm chip mở
+  thẻ "Hàng đợi in" lọc máy đó. Cùng dữ liệu truyền xuống mục Hàng đợi & nhật ký.
 -->
 <template>
   <div class="pa-page airtable-scope">
@@ -117,6 +122,21 @@
                   class="at-chip at-chip--info pa-chip-nho"
                   title="Hoá đơn thuộc kho chưa gán máy nào sẽ in ở máy này"
                 ><v-icon size="12">mdi-star</v-icon>Mặc định</span>
+                <button
+                  v-if="choCua(m)"
+                  type="button"
+                  class="pa-cho-chip"
+                  :class="choCua(m)!.tamGiu ? 'pa-cho-chip--cam' : 'pa-cho-chip--xanh'"
+                  :data-may-in-id="m.id"
+                  :title="choCua(m)!.tamGiu
+                    ? 'Có hoá đơn đang TẠM GIỮ vì máy in lỗi — hệ thống tự in khi máy hết lỗi. Bấm để xem / huỷ.'
+                    : 'Hoá đơn đang chờ in / đang gửi ở máy này — bấm để xem hàng đợi.'"
+                  :aria-label="`${choCua(m)!.soLuong} hoá đơn đang chờ in ở máy ${m.ten} — mở hàng đợi`"
+                  @click="moHangDoiCuaMay(m)"
+                >
+                  <v-icon size="12" :icon="choCua(m)!.tamGiu ? 'mdi-pause-circle-outline' : 'mdi-tray-full'" aria-hidden="true" />
+                  {{ choCua(m)!.soLuong }} đang chờ
+                </button>
               </div>
             </div>
             <div class="pa-may-nut">
@@ -184,7 +204,17 @@
 
     <!-- Nhật ký máy in — CHỈ owner/admin (API 403 với người khác; mục tự ẩn nếu vẫn 403).
          Hai thẻ "Nhật ký in" | "Log app"; `?nhatKy=app` mở thẳng Log app. -->
-    <PrintAgentLogPanel v-if="laAdmin" :may-ins="danhSach" :tab-dau="theNhatKyTuUrl" @lam-moi="taiLaiNgam" />
+    <PrintAgentLogPanel
+      v-if="laAdmin"
+      :may-ins="danhSach"
+      :tab-dau="theNhatKyTuUrl"
+      :hang-doi="hangDoi"
+      :dang-tai-hang-doi="dangTaiHangDoi"
+      :loi-hang-doi="loiHangDoi"
+      :mo-hang-doi="moHangDoi"
+      @lam-moi="nhipTrang"
+      @tai-lai-hang-doi="taiHangDoi"
+    />
 
     <!-- Dialog Thêm / Sửa -->
     <v-dialog v-model="formDialog" max-width="500" persistent>
@@ -337,22 +367,23 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { useRoute } from 'vue-router';
 import { useToast } from '@/composables/use-toast';
 import { useAuthStore } from '@/stores/auth';
 import {
-  layDanhSach, layKhos, tao, sua, xoa,
-  type MayIn, type Kho, type TaoMayInKetQua,
+  layDanhSach, layKhos, tao, sua, xoa, layHangDoi, maHttpCuaLoi, laYeuCauDaHuy,
+  type MayIn, type Kho, type TaoMayInKetQua, type HangDoiIn,
 } from '@/api/print-agents';
 import PrintAgentLogPanel from './PrintAgentLogPanel.vue';
 import { chipTinhTrang, type ChipTinhTrang } from './may-in-nhat-ky';
+import { demChoInTheoMay } from './may-in-hang-doi';
 
 const toast = useToast();
 const auth = useAuthStore();
 const route = useRoute();
 const laAdmin = computed(() => auth.isAdmin);
-/** `?nhatKy=app` (hoặc `in`) — thẻ mở sẵn của mục Nhật ký máy in. */
+/** `?nhatKy=hang_doi|in|app` — thẻ mở sẵn của mục Hàng đợi & nhật ký máy in. */
 const theNhatKyTuUrl = computed(() => (typeof route.query.nhatKy === 'string' ? route.query.nhatKy : null));
 
 const loading = ref(true);
@@ -439,6 +470,65 @@ async function taiLaiNgam() {
     // Giữ bảng đang hiện; nhịp sau thử lại. Chạy ngầm nên không toast — mục
     // nhật ký cùng nhịp đã báo lỗi ngay tại chỗ.
   }
+}
+
+// ── Hàng đợi in (§8.6) — CHỈ admin; nạp lúc mở trang, mỗi nhịp 15 giây của mục nhật ký,
+//    và mỗi 5 giây khi thẻ Hàng đợi đang mở (thẻ đó xin) ────────────────────────────────
+const hangDoi = ref<HangDoiIn | null>(null);
+const dangTaiHangDoi = ref(false);
+const loiHangDoi = ref('');
+const moHangDoi = ref<{ mayInId: string | null; lan: number } | null>(null);
+let theHeHangDoi = 0;
+let boHuyHangDoi: AbortController | null = null;
+/** Lúc nạp hàng đợi xong gần nhất (ms) — gộp các nhịp ngầm dồn nhau. */
+let lucNapHangDoi = 0;
+/** Nhịp ngầm tới trong chừng này sau một lần nạp xong thì bỏ (mở thẻ ngay sau khi trang nạp…). */
+const MS_GOP_NHIP_HANG_DOI = 2_000;
+
+/** Chip "N đang chờ" theo máy — CHỈ nhóm đang/sẽ in. */
+const choTheoMay = computed(() => demChoInTheoMay(hangDoi.value));
+function choCua(m: MayIn): { soLuong: number; tamGiu: boolean } | null {
+  return choTheoMay.value.get(m.id) ?? null;
+}
+
+async function taiHangDoi(tuy: { ngam?: boolean } = {}): Promise<void> {
+  if (!laAdmin.value) return;
+  // Nhịp ngầm (15 s của mục nhật ký, 5 s của thẻ Hàng đợi) không chồng lên lượt đang bay hay
+  // vừa xong; lượt CÓ CHỦ Ý (mở trang, sau khi huỷ) luôn chạy và thay lượt cũ.
+  if (tuy.ngam && (dangTaiHangDoi.value || Date.now() - lucNapHangDoi < MS_GOP_NHIP_HANG_DOI)) return;
+  boHuyHangDoi?.abort();
+  boHuyHangDoi = new AbortController();
+  const the = ++theHeHangDoi;
+  dangTaiHangDoi.value = true;
+  try {
+    const hd = await layHangDoi({}, { signal: boHuyHangDoi.signal, ngam: tuy.ngam === true });
+    if (the !== theHeHangDoi) return;
+    hangDoi.value = hd;
+    loiHangDoi.value = '';
+    lucNapHangDoi = Date.now();
+  } catch (e) {
+    if (the !== theHeHangDoi || laYeuCauDaHuy(e)) return;
+    // Giữ danh sách đang hiện (nếu có) — nhịp sau thử lại; chỉ báo tại chỗ.
+    const ma = maHttpCuaLoi(e);
+    loiHangDoi.value = ma === 403
+      ? 'Chỉ chủ sở hữu hoặc quản trị viên xem được hàng đợi in.'
+      : ma === 404
+        ? 'Máy chủ chưa có hàng đợi in (backend cần cập nhật).'
+        : ma ? `Không tải được hàng đợi in (mã ${ma}) — sẽ thử lại.` : 'Không tải được hàng đợi in — không kết nối được máy chủ, sẽ thử lại.';
+  } finally {
+    if (the === theHeHangDoi) dangTaiHangDoi.value = false;
+  }
+}
+
+/** Nhịp 15 giây của mục nhật ký: danh sách máy (chip tình trạng) + hàng đợi (chip đang chờ). */
+function nhipTrang(): void {
+  void taiLaiNgam();
+  void taiHangDoi({ ngam: true });
+}
+
+/** Bấm chip "N đang chờ" → thẻ Hàng đợi, lọc máy này. */
+function moHangDoiCuaMay(m: MayIn): void {
+  moHangDoi.value = { mayInId: m.id, lan: (moHangDoi.value?.lan ?? 0) + 1 };
 }
 
 // ── Dialog Thêm/Sửa ──────────────────────────────────────────────────────
@@ -546,7 +636,15 @@ async function xacNhanXoa() {
   }
 }
 
-onMounted(load);
+onMounted(() => {
+  void load();
+  void taiHangDoi();
+});
+
+onBeforeUnmount(() => {
+  theHeHangDoi++;
+  boHuyHangDoi?.abort();
+});
 </script>
 
 <style scoped>
@@ -632,6 +730,18 @@ onMounted(load);
 .pa-may-nut :deep(.v-btn) { color: var(--at-muted); }
 .pa-may-nut :deep(.v-btn:hover) { color: var(--at-ink); }
 .pa-may-nut :deep(.v-btn.text-error:hover) { color: var(--at-atlas-danger); }
+
+/* Chip "N đang chờ" (hàng đợi in) — bấm được: cam = có hoá đơn tạm giữ, xanh = chỉ đang chờ/gửi */
+.pa-cho-chip {
+  display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px;
+  border-radius: 9999px; border: 1px solid transparent; cursor: pointer;
+  font: inherit; font-size: 11.5px; font-weight: 600; white-space: nowrap;
+  transition: filter 0.12s, box-shadow 0.12s;
+}
+.pa-cho-chip:hover { filter: brightness(0.97); box-shadow: 0 1px 2px rgba(20, 26, 36, 0.08); }
+.pa-cho-chip:focus-visible { outline: 2px solid var(--at-action); outline-offset: 2px; }
+.pa-cho-chip--cam { background: var(--at-atlas-warning-soft); color: #92400e; border-color: #fcd34d; }
+.pa-cho-chip--xanh { background: var(--at-action-soft); color: var(--at-action); border-color: #bfdbfe; }
 
 .pa-su-co {
   display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 8px;
