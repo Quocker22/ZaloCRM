@@ -132,7 +132,7 @@ export interface MucNhatKy {
   chiTiet?: Record<string, unknown> | null;
 }
 
-interface MayInTom {
+export interface MayInTom {
   id: string;
   orgId: string;
   ten: string;
@@ -207,23 +207,18 @@ export interface DepsGhiNhatKy {
   bayGio?: () => number;
 }
 
-async function prismaThat(): Promise<PrismaNhatKy> {
-  const { prisma } = await import('../../../shared/database/prisma-client.js');
-  return prisma as unknown as PrismaNhatKy;
+/** org của máy khai bằng env (máy HN cũ, không có dòng trong print_agents). */
+export function orgMacDinhTuEnv(): string | null {
+  return process.env.AI_MAY_IN_ORG_ID?.trim() || null;
 }
 
 /**
- * Tạo hàm ghi nhật ký. Trả về hàm có HAI dạng dùng:
- *   - `ghi(m)` — fire-and-forget (luồng in dùng dạng này);
- *   - `ghi.cho(m)` — Promise resolve true/false (test dùng để chờ).
+ * Tra máy in theo token, nhớ 60s — mỗi sự kiện không đáng một lượt query.
+ * Dùng chung cho nhật ký nghiệp vụ (print_logs) và nhật ký app (nhat-ky-app.ts).
  */
-export function taoGhiNhatKy(deps: DepsGhiNhatKy = {}) {
-  const bayGio = deps.bayGio ?? Date.now;
-  const orgMacDinh = deps.orgMacDinh ?? (() => process.env.AI_MAY_IN_ORG_ID?.trim() || null);
-  // Cache token → máy in 60s: mỗi sự kiện không đáng một lượt query.
+export function taoTraMayIn(bayGio: () => number = Date.now) {
   const cache = new Map<string, { may: MayInTom | null; het: number }>();
-
-  async function layMayIn(p: PrismaNhatKy, token: string): Promise<MayInTom | null> {
+  return async function traMayIn(p: Pick<PrismaNhatKy, 'printAgent'>, token: string): Promise<MayInTom | null> {
     const c = cache.get(token);
     if (c && c.het > bayGio()) return c.may;
     let may: MayInTom | null;
@@ -237,7 +232,24 @@ export function taoGhiNhatKy(deps: DepsGhiNhatKy = {}) {
     if (cache.size > 200) cache.clear();
     cache.set(token, { may: may ? { id: may.id, orgId: may.orgId, ten: may.ten } : null, het: bayGio() + 60_000 });
     return may;
-  }
+  };
+}
+
+async function prismaThat(): Promise<PrismaNhatKy> {
+  const { prisma } = await import('../../../shared/database/prisma-client.js');
+  return prisma as unknown as PrismaNhatKy;
+}
+
+/**
+ * Tạo hàm ghi nhật ký. Trả về hàm có HAI dạng dùng:
+ *   - `ghi(m)` — fire-and-forget (luồng in dùng dạng này);
+ *   - `ghi.cho(m)` — Promise resolve true/false (test dùng để chờ).
+ */
+export function taoGhiNhatKy(deps: DepsGhiNhatKy = {}) {
+  const bayGio = deps.bayGio ?? Date.now;
+  const orgMacDinh = deps.orgMacDinh ?? orgMacDinhTuEnv;
+  // Cache token → máy in 60s: mỗi sự kiện không đáng một lượt query.
+  const layMayIn = taoTraMayIn(bayGio);
 
   async function cho(m: MucNhatKy): Promise<boolean> {
     try {
@@ -310,11 +322,20 @@ export class ThamSoSai extends Error {
 
 const MUC_DO_HOP_LE: LocMucDo[] = ['thong_tin', 'canh_bao', 'loi', 'loi_canh_bao'];
 
-function docNgay(s: unknown, tenThamSo: string): Date | null {
+export function docNgay(s: unknown, tenThamSo: string): Date | null {
   if (s === undefined || s === null || s === '') return null;
   const d = new Date(String(s));
   if (Number.isNaN(d.getTime())) throw new ThamSoSai(`${tenThamSo} không phải ngày giờ hợp lệ`);
   return d;
+}
+
+/** Con trỏ phân trang "<ISO>|<id>" (vắng → null). Sai dạng → ThamSoSai. */
+export function docConTro(s: unknown, tenThamSo: string): { luc: Date; id: string } | null {
+  if (typeof s !== 'string' || !s) return null;
+  const [lucTho, id] = s.split('|');
+  const luc = docNgay(lucTho, tenThamSo);
+  if (!luc || !id) throw new ThamSoSai(`${tenThamSo} phải có dạng "<ISO>|<id>"`);
+  return { luc, id };
 }
 
 /** Đọc query string → tham số đã kiểm. Ném ThamSoSai khi sai (route trả 400). */
@@ -332,13 +353,7 @@ export function phanTichThamSo(query: Record<string, unknown>, bayGio: Date = ne
   const tu = docNgay(query.tu, 'tu') ?? new Date(den.getTime() - 7 * 24 * 3600 * 1000);
   if (tu > den) throw new ThamSoSai('tu phải trước den');
 
-  let truoc: ThamSoNhatKy['truoc'] = null;
-  if (typeof query.truoc === 'string' && query.truoc) {
-    const [lucTho, id] = query.truoc.split('|');
-    const luc = docNgay(lucTho, 'truoc');
-    if (!luc || !id) throw new ThamSoSai('truoc phải có dạng "<ISO>|<id>"');
-    truoc = { luc, id };
-  }
+  const truoc = docConTro(query.truoc, 'truoc');
 
   const gioiHanTho = Number(query.gioiHan ?? 50);
   const gioiHan = Number.isFinite(gioiHanTho) ? Math.min(200, Math.max(1, Math.floor(gioiHanTho))) : 50;

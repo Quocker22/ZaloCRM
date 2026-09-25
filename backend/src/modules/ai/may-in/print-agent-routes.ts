@@ -8,18 +8,29 @@
 //   POST   /            tạo máy in mới -> trả {mayIn, token, serverUrl} (token đầy đủ 1 LẦN)
 //   PUT    /:id         sửa tên/kho phục vụ/mặc định
 //   DELETE /:id         xoá máy in
+//   GET    /nhat-ky              nhật ký máy in (nghiệp vụ, print_logs) — CHỈ admin
+//   GET    /nhat-ky-app          nhật ký APP máy in (log thô từ app, print_app_logs) — CHỈ admin
+//   GET    /nhat-ky-app/tai-ve   tải về .txt cùng bộ lọc — CHỈ admin
 //
 // Guard: CHỈ admin/owner được ghi (POST/PUT/DELETE) — theo đúng khuôn
 // agent-operator-routes.ts (mở RANH GIỚI BẢO MẬT: ai vào bảng này là cầm được
 // token định tuyến job in thật của org). GET (list + khos) cho mọi user đã
 // đăng nhập xem — không lộ gì nhạy cảm (token đã cắt đuôi).
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { Readable } from 'node:stream';
 import { config } from '../../../config/index.js';
 import { authMiddleware } from '../../auth/auth-middleware.js';
 import {
   taoMayIn, danhSachMayIn, suaMayIn, xoaMayIn, danhSachKho, MayInKhongTimThay,
 } from './print-agent-service.js';
 import { phanTichThamSo, timNhatKy, ThamSoSai } from './nhat-ky.js';
+import {
+  phanTichThamSoApp,
+  timNhatKyApp,
+  sinhNoiDungTaiVe,
+  tenFileTaiVe,
+  laLoiChuaMigrate,
+} from './nhat-ky-app.js';
 
 function laAdmin(role: string): boolean {
   return role === 'owner' || role === 'admin';
@@ -56,6 +67,94 @@ export async function traNhatKy(
   }
 }
 
+const CHUA_MIGRATE_APP = {
+  error: 'CHUA_MIGRATE',
+  message: 'Chưa tạo bảng nhật ký app máy in (migration 20260925180000_print_app_logs)',
+} as const;
+
+/** Đọc tham số nhật ký app — trả lỗi 400 thay vì ném. */
+function docThamSoApp(query: Record<string, unknown>):
+  | { thamSo: ReturnType<typeof phanTichThamSoApp> }
+  | { code: number; body: unknown } {
+  try {
+    return { thamSo: phanTichThamSoApp(query ?? {}) };
+  } catch (err) {
+    if (err instanceof ThamSoSai) return { code: 400, body: { error: 'THAM_SO_SAI', message: err.message } };
+    throw err;
+  }
+}
+
+/**
+ * Nhật ký APP máy in (nhat-ky-app.ts) — mọi dòng app Windows ghi vào file .txt ở shop.
+ * Lọc máy/sự kiện/khoảng/từ khoá; `truoc` = trang cũ hơn, `sau` = dòng mới hơn (tự làm
+ * mới). CHỈ owner/admin (cùng luật /nhat-ky). orgId LUÔN từ phiên đăng nhập.
+ */
+export async function traNhatKyApp(
+  user: { orgId: string; role: string },
+  query: Record<string, unknown>,
+  deps: { tim?: typeof timNhatKyApp } = {},
+): Promise<{ code: number; body: unknown }> {
+  if (!laAdmin(user.role)) return { code: 403, body: { error: 'CHI_ADMIN' } };
+  const doc = docThamSoApp(query);
+  if ('code' in doc) return doc;
+  try {
+    return { code: 200, body: await (deps.tim ?? timNhatKyApp)(user.orgId, doc.thamSo) };
+  } catch (err) {
+    if (laLoiChuaMigrate(err)) return { code: 503, body: CHUA_MIGRATE_APP };
+    throw err;
+  }
+}
+
+async function layTenMayThat(orgId: string, mayInId: string): Promise<string | null> {
+  const { prisma } = await import('../../../shared/database/prisma-client.js');
+  const may = await prisma.printAgent.findFirst({ where: { id: mayInId, orgId }, select: { ten: true } });
+  return may?.ten ?? null;
+}
+
+export type KetQuaTaiVe =
+  | { code: number; body: unknown }
+  | { code: 200; tenFile: string; noiDung: AsyncIterable<string> };
+
+/**
+ * Tải về .txt (cùng bộ lọc, không con trỏ) — CŨ nhất trước, trần 200k dòng, đọc từng khúc.
+ * Khúc ĐẦU được đọc trước khi trả để lỗi "chưa migrate"/DB còn thành mã HTTP đàng hoàng
+ * (header chưa gửi); lỗi giữa chừng sau đó thì chỉ còn cách cắt kết nối.
+ */
+export async function traTaiVeNhatKyApp(
+  user: { orgId: string; role: string },
+  query: Record<string, unknown>,
+  deps: {
+    sinh?: typeof sinhNoiDungTaiVe;
+    layTenMay?: (orgId: string, mayInId: string) => Promise<string | null>;
+    bayGio?: () => Date;
+  } = {},
+): Promise<KetQuaTaiVe> {
+  if (!laAdmin(user.role)) return { code: 403, body: { error: 'CHI_ADMIN' } };
+  const doc = docThamSoApp(query);
+  if ('code' in doc) return doc;
+  const thamSo = { ...doc.thamSo, truoc: null, sau: null };
+  const it = (deps.sinh ?? sinhNoiDungTaiVe)(user.orgId, thamSo)[Symbol.asyncIterator]();
+  let dau: IteratorResult<string>;
+  let tenMay: string | null = null;
+  try {
+    dau = await it.next();
+    if (thamSo.mayInId) tenMay = (await (deps.layTenMay ?? layTenMayThat)(user.orgId, thamSo.mayInId)) ?? thamSo.mayInId;
+  } catch (err) {
+    if (laLoiChuaMigrate(err)) return { code: 503, body: CHUA_MIGRATE_APP };
+    throw err;
+  }
+  async function* noiDung(): AsyncGenerator<string> {
+    if (dau.done) return;
+    yield dau.value;
+    for (;;) {
+      const r = await it.next();
+      if (r.done) return;
+      yield r.value;
+    }
+  }
+  return { code: 200, tenFile: tenFileTaiVe(tenMay, (deps.bayGio ?? (() => new Date()))()), noiDung: noiDung() };
+}
+
 /**
  * URL server để dán vào app print-agent-rs (cùng HTTP server Fastify, agent
  * nối WS namespace `/print-agent` — xem agent-ws.ts). Base lấy từ config.appUrl
@@ -85,6 +184,28 @@ export async function registerPrintAgentRoutes(app: FastifyInstance): Promise<vo
   ) => {
     const kq = await traNhatKy(req.user!, req.query ?? {});
     return reply.code(kq.code).send(kq.body);
+  });
+
+  // ── Nhật ký APP máy in (xem traNhatKyApp / traTaiVeNhatKyApp) ────────────
+  app.get('/nhat-ky-app', async (
+    req: FastifyRequest<{ Querystring: Record<string, unknown> }>,
+    reply: FastifyReply,
+  ) => {
+    const kq = await traNhatKyApp(req.user!, req.query ?? {});
+    return reply.code(kq.code).send(kq.body);
+  });
+
+  app.get('/nhat-ky-app/tai-ve', async (
+    req: FastifyRequest<{ Querystring: Record<string, unknown> }>,
+    reply: FastifyReply,
+  ) => {
+    const kq = await traTaiVeNhatKyApp(req.user!, req.query ?? {});
+    if (!('noiDung' in kq)) return reply.code(kq.code).send(kq.body);
+    return reply
+      .header('Content-Type', 'text/plain; charset=utf-8')
+      .header('Content-Disposition', `attachment; filename="${kq.tenFile}"`)
+      .header('Cache-Control', 'no-store')
+      .send(Readable.from(kq.noiDung));
   });
 
   // ── Danh sách kho chuẩn (dropdown Vue) ───────────────────────────────────

@@ -4515,3 +4515,31 @@ model PrintLog {
   @@index([soHoaDon])
   @@map("print_logs")
 }
+
+/// Nhật ký APP máy in (25/09) — TOÀN BỘ dòng app Windows ghi vào file .txt cục
+/// bộ, app gửi lên qua event `nhat-ky-app` (may-in/nhat-ky-app.ts). Khác
+/// PrintLog (nhật ký nghiệp vụ backend viết): đây là log thô, nhiều dòng, giữ
+/// 30 ngày. KHÔNG lưu token máy in. `khoa` = sha1(token, luc, suKien, noiDung)
+/// — app gửi lại một lô (mất ack) thì createMany skipDuplicates bỏ dòng trùng.
+/// tuKhoa = chữ thường + bỏ dấu của suKien/noiDung.
+model PrintAppLog {
+  id       String   @id @default(cuid())
+  orgId    String   @map("org_id")
+  mayInId  String?  @map("may_in_id")
+  mayInTen String?  @map("may_in_ten")
+  /// giờ của APP (máy tính ở shop) lúc ghi dòng
+  luc      DateTime
+  /// giờ máy chủ nhận — dọn 30 ngày theo cột này
+  nhanLuc  DateTime @default(now()) @map("nhan_luc")
+  /// mã sự kiện app: vet_in, usb_doc, ket_qua, su_co, … (app_bo_dong: backend ghi)
+  suKien   String   @map("su_kien")
+  noiDung  String   @map("noi_dung")
+  phienBan String?  @map("phien_ban")
+  khoa     String   @unique
+  tuKhoa   String   @map("tu_khoa")
+
+  @@index([orgId, luc(sort: Desc), id(sort: Desc)])
+  @@index([orgId, mayInId, luc(sort: Desc)])
+  @@index([orgId, suKien, luc(sort: Desc)])
+  @@map("print_app_logs")
+}

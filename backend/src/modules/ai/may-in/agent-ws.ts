@@ -41,6 +41,12 @@ import {
   catTienToToken,
   type MucNhatKy,
 } from './nhat-ky.js';
+import {
+  nhanNhatKyApp as nhanNhatKyAppThat,
+  taoGioiHanNhatKyApp,
+  type AckNhatKyApp,
+  type NhanNhatKyApp,
+} from './nhat-ky-app.js';
 
 interface KetQuaTuAgent {
   jobId: string;
@@ -63,8 +69,11 @@ export interface JobTraLai {
 /** Mốc tiến trình này khởi động — job `dang_gui` đổi TRƯỚC mốc này là mồ côi. */
 const MOC_KHOI_DONG = new Date();
 
-/** Khả năng backend quảng bá cho app qua event `cau-hinh` (hợp đồng §2). */
-export const HO_TRO_APP = ['khong_ro', 'su_co', 'trang_thai_may_in'] as const;
+/**
+ * Khả năng backend quảng bá cho app qua event `cau-hinh` (hợp đồng §2).
+ * `nhat_ky_app` (25/09): app gửi TOÀN BỘ nhật ký .txt cục bộ qua event `nhat-ky-app` (nhat-ky-app.ts).
+ */
+export const HO_TRO_APP = ['khong_ro', 'su_co', 'trang_thai_may_in', 'nhat_ky_app'] as const;
 
 /** Thời gian chờ `thong-tin-app` trước khi ghi nhật ký `app_ket_noi` — gộp 2 sự kiện làm 1 dòng. */
 const MS_CHO_THONG_TIN = 1500;
@@ -115,6 +124,11 @@ export interface AgentWsDeps {
    * `loi` khi đó KHÔNG được kéo job cũ về cho_in (thành 2 tờ). Mặc định Prisma thật.
    */
   coLenhInMoiHon?: (printJobId: string) => Promise<boolean>;
+  /**
+   * Nhận một lô `nhat-ky-app` → ack (nhat-ky-app.ts). Mặc định singleton thật (Prisma).
+   * Không bao giờ ném — lỗi thành `{ ok: false, loi }`, app tự gửi lại.
+   */
+  nhanNhatKyApp?: NhanNhatKyApp;
   /** Cho test — mặc định lúc nạp module. */
   mocKhoiDong?: Date;
   /** Cho test rút ngắn MS_CHO_THONG_TIN / MS_OFFLINE_LAU / MS_THU_LAI_TRE. */
@@ -205,6 +219,7 @@ export function registerAgentWs(io: Server, registry: AgentRegistry, deps: Agent
   const capNhatJobTre = deps.capNhatJobTre ?? capNhatJobTreThat;
   const layJobTheoId = deps.layJobTheoId ?? layJobTheoIdThat;
   const coLenhInMoiHon = deps.coLenhInMoiHon ?? coLenhInMoiHonThat;
+  const nhanNhatKyApp = deps.nhanNhatKyApp ?? nhanNhatKyAppThat;
   const mocKhoiDong = deps.mocKhoiDong ?? MOC_KHOI_DONG;
   const msChoThongTin = deps.msChoThongTin ?? MS_CHO_THONG_TIN;
   const msOfflineLau = deps.msOfflineLau ?? MS_OFFLINE_LAU;
@@ -515,6 +530,20 @@ export function registerAgentWs(io: Server, registry: AgentRegistry, deps: Agent
           chiTiet: { mayIn, chiTiet, lucApp: chuTuApp(o.luc, 40) },
         });
       })();
+    });
+
+    // Nhật ký .txt cục bộ của app (nhat-ky-app.ts) — lô 1..500 dòng, CÓ ack. App gửi
+    // lại nguyên lô khi không có ack hoặc ok:false ⇒ ack CHỈ sau khi đã lưu; lưu thì
+    // lặp-được (khoá sha1 + skipDuplicates). Giới hạn tần suất tính riêng từng socket.
+    const gioiHanNhatKyApp = taoGioiHanNhatKyApp();
+    socket.on('nhat-ky-app', (payload: unknown, ack?: unknown) => {
+      const traLoi = (kq: AckNhatKyApp): void => {
+        if (typeof ack === 'function') (ack as (kq: AckNhatKyApp) => void)(kq);
+      };
+      // nhanNhatKyApp không ném; `catch` chỉ là lưới cuối — không bao giờ để lỗi thoát ra socket.
+      nhanNhatKyApp(token, payload, gioiHanNhatKyApp)
+        .then(traLoi, () => traLoi({ ok: false, loi: 'LOI_LUU' }))
+        .catch((err: unknown) => logger.warn({ err }, '[may-in] nhat-ky-app: không ack được'));
     });
 
     // Trạng thái máy in lúc rảnh / khi đổi — chỉ ghi nhật ký khi ĐỔI.
