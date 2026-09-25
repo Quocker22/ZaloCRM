@@ -23,7 +23,7 @@ import {
   type PrismaHangDoiIn,
 } from './hang-doi-in.js';
 import { modelCuaReport } from './ten-file-in.js';
-import { ghiNhatKy, donNhatKyCu } from './nhat-ky.js';
+import { ghiNhatKy, donNhatKyCu, SO_NGAY_GIU_NHAT_KY } from './nhat-ky.js';
 import { donNhatKyAppCu } from './nhat-ky-app.js';
 
 let task: ReturnType<typeof cron.schedule> | null = null;
@@ -234,14 +234,15 @@ export function startMayInCron(): void {
     // Mỗi nhịp: mọi app đang nối kiểm lại hàng đợi của mình (job mới tạo, hết 3 ngày của
     // "chưa xác nhận"…) — chỉ gửi khi nội dung đổi (hang-doi-app.ts).
     agentRegistry.baoDoiHangDoiTatCa();
-    // Giữ nhật ký 90 ngày, nhật ký app 30 ngày — dọn SAU lượt in, tối đa 1 lần/ngày,
+    // Giữ nhật ký máy in VÀ nhật ký app 30 ngày (chủ 26/09: "toàn bộ log chỉ lưu 30 ngày")
+    // — dọn SAU lượt in, tối đa 1 lần/ngày,
     // lỗi thì nuốt (hai hàm dọn tự bắt lỗi, trả 0).
     if (Date.now() - lanDonNhatKy > 24 * 3600 * 1000) {
       lanDonNhatKy = Date.now();
-      void donNhatKyCu(90).then((n) => {
-        if (n > 0) logger.info({ n }, '[may-in] đã dọn nhật ký máy in cũ hơn 90 ngày');
+      void donNhatKyCu(SO_NGAY_GIU_NHAT_KY).then((n) => {
+        if (n > 0) logger.info({ n }, '[may-in] đã dọn nhật ký máy in cũ hơn 30 ngày');
       });
-      void donNhatKyAppCu(30).then((n) => {
+      void donNhatKyAppCu(SO_NGAY_GIU_NHAT_KY).then((n) => {
         if (n > 0) logger.info({ n }, '[may-in] đã dọn nhật ký app máy in cũ hơn 30 ngày');
       });
     }

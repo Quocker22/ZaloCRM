@@ -79,7 +79,7 @@
           </div>
         </div>
         <p v-if="theChon === 'hang_doi'" class="nk-phu">Hoá đơn đang chờ in và lệnh chưa xác nhận đã in · tự làm mới 5 giây</p>
-        <p v-else-if="theChon === 'in'" class="nk-phu">Nhận lệnh, gửi máy in, đã in, lỗi, hết giấy, kẹt giấy… · lưu 90 ngày</p>
+        <p v-else-if="theChon === 'in'" class="nk-phu">Nhận lệnh, gửi máy in, đã in, lỗi, hết giấy, kẹt giấy… · lưu 30 ngày</p>
         <p v-else class="nk-phu">Từng dòng app Máy in ở chi nhánh ghi ra (vết in, đọc USB, kết quả…) · lưu 30 ngày</p>
       </div>
       <div v-show="theChon === 'in'" class="nk-head-phai">

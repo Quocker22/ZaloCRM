@@ -443,9 +443,16 @@ export async function timNhatKy(
   return { items, tiepTheo: coThem && cuoi ? `${cuoi.luc}|${cuoi.id}` : null };
 }
 
-/** Giữ nhật ký 90 ngày (hợp đồng §3.2). Lỗi thì nuốt — dọn rác không được làm hỏng cron in. */
+/**
+ * Số ngày giữ nhật ký máy in (`print_logs`) VÀ nhật ký app (`print_app_logs`) — chủ
+ * chốt 26/09: "toàn bộ log chỉ lưu 30 ngày, sau đó dọn dẹp nhằm tránh tăng bộ nhớ"
+ * (trước: nhật ký máy in 90 ngày, hợp đồng §3.2). App Windows cũng giữ file 30 ngày.
+ */
+export const SO_NGAY_GIU_NHAT_KY = 30;
+
+/** Giữ nhật ký `SO_NGAY_GIU_NHAT_KY` ngày. Lỗi thì nuốt — dọn rác không được làm hỏng cron in. */
 export async function donNhatKyCu(
-  soNgay = 90,
+  soNgay = SO_NGAY_GIU_NHAT_KY,
   deps: { prisma?: PrismaNhatKy; bayGio?: Date } = {},
 ): Promise<number> {
   try {

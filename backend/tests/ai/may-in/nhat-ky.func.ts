@@ -7,6 +7,7 @@ import {
   taoGhiNhatKy,
   timNhatKy,
   donNhatKyCu,
+  SO_NGAY_GIU_NHAT_KY,
   phanTichThamSo,
   type PrismaNhatKy,
 } from '../../../src/modules/ai/may-in/nhat-ky.js';
@@ -119,6 +120,14 @@ describe('timNhatKy / donNhatKyCu', () => {
     expect(p.printLog.deleteMany).toHaveBeenCalledWith({ where: { createdAt: { lt: new Date('2026-10-02T00:00:00.000Z') } } });
     (p.printLog.deleteMany as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('db'));
     expect(await donNhatKyCu(90, { prisma: p, bayGio })).toBe(0);
+  });
+
+  it('mặc định giữ 30 ngày (chủ 26/09: toàn bộ log chỉ lưu 30 ngày)', async () => {
+    const { p } = prismaGia();
+    const bayGio = new Date('2026-12-31T00:00:00.000Z');
+    expect(SO_NGAY_GIU_NHAT_KY).toBe(30);
+    await donNhatKyCu(undefined, { prisma: p, bayGio });
+    expect(p.printLog.deleteMany).toHaveBeenCalledWith({ where: { createdAt: { lt: new Date('2026-12-01T00:00:00.000Z') } } });
   });
 });
 

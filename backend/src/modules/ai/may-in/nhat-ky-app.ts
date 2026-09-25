@@ -8,7 +8,7 @@
 // tìm, tải về được theo từng máy.
 //
 // KHÁC `print_logs` (nhat-ky.ts): print_logs là nhật ký NGHIỆP VỤ do backend viết
-// (mỗi hoá đơn vài dòng, lưu 90 ngày); bảng này là log THÔ của app (nhiều dòng,
+// (mỗi hoá đơn vài dòng, lưu 30 ngày); bảng này là log THÔ của app (nhiều dòng,
 // lưu 30 ngày). Hai bảng không trộn.
 //
 // HỢP ĐỒNG với app (app viết song song theo đúng chữ này — đừng đổi):
