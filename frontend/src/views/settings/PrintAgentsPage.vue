@@ -182,8 +182,9 @@
       </p>
     </section>
 
-    <!-- Nhật ký máy in — CHỈ owner/admin (API 403 với người khác; mục tự ẩn nếu vẫn 403) -->
-    <PrintAgentLogPanel v-if="laAdmin" :may-ins="danhSach" @lam-moi="taiLaiNgam" />
+    <!-- Nhật ký máy in — CHỈ owner/admin (API 403 với người khác; mục tự ẩn nếu vẫn 403).
+         Hai thẻ "Nhật ký in" | "Log app"; `?nhatKy=app` mở thẳng Log app. -->
+    <PrintAgentLogPanel v-if="laAdmin" :may-ins="danhSach" :tab-dau="theNhatKyTuUrl" @lam-moi="taiLaiNgam" />
 
     <!-- Dialog Thêm / Sửa -->
     <v-dialog v-model="formDialog" max-width="500" persistent>
@@ -337,6 +338,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
+import { useRoute } from 'vue-router';
 import { useToast } from '@/composables/use-toast';
 import { useAuthStore } from '@/stores/auth';
 import {
@@ -348,7 +350,10 @@ import { chipTinhTrang, type ChipTinhTrang } from './may-in-nhat-ky';
 
 const toast = useToast();
 const auth = useAuthStore();
+const route = useRoute();
 const laAdmin = computed(() => auth.isAdmin);
+/** `?nhatKy=app` (hoặc `in`) — thẻ mở sẵn của mục Nhật ký máy in. */
+const theNhatKyTuUrl = computed(() => (typeof route.query.nhatKy === 'string' ? route.query.nhatKy : null));
 
 const loading = ref(true);
 const loadError = ref('');

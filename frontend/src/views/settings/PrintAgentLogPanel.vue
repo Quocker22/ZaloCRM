@@ -12,15 +12,54 @@
   Giao diện (25/09, khuôn Atlas như trang cha): tiêu đề mục + công tắc tự làm mới ở ngoài,
   MỘT khung trắng gồm thanh lọc (tìm · máy · khoảng) + hàng "viên" mức độ (một chạm, không
   menu) + bảng 5 cột; mức độ hiện bằng biểu tượng màu + vạch mép trái dòng.
+
+  Hai thẻ cạnh tiêu đề (25/09, chủ giao "thêm một nút kiểu logging, có search có filter"):
+  "Nhật ký in" (bảng trên, mặc định) | "Log app" (PrintAgentAppLogPanel — log thô từ app
+  Windows). Thẻ nhớ trong localStorage; `?nhatKy=app` trên URL mở thẳng "Log app". Thẻ Log
+  app chỉ gắn lần đầu được chọn (không gọi API thừa), sau đó giữ nguyên bộ lọc khi đổi qua
+  lại; thẻ nào không được chọn thì nghỉ tự làm mới (nhịp báo trang cha vẫn chạy để chip
+  tình trạng máy in không cũ).
 -->
 <template>
-  <section v-if="!biCam" class="nk" aria-labelledby="nk-tieu-de">
+  <section v-if="!biCam" ref="goc" class="nk" aria-labelledby="nk-tieu-de">
     <div class="nk-head">
       <div class="nk-head-trai">
-        <h2 id="nk-tieu-de" class="nk-h2">Nhật ký máy in</h2>
-        <p class="nk-phu">Nhận lệnh, gửi máy in, đã in, lỗi, hết giấy, kẹt giấy… · lưu 90 ngày</p>
+        <div class="nk-tieu-de-hang">
+          <h2 id="nk-tieu-de" class="nk-h2">Nhật ký máy in</h2>
+          <div class="nk-the" role="tablist" aria-label="Loại nhật ký">
+            <button
+              id="nk-the-in"
+              type="button"
+              role="tab"
+              class="nk-the-nut"
+              :class="{ 'nk-the-nut--chon': theChon === 'in' }"
+              :aria-selected="theChon === 'in'"
+              aria-controls="nk-vung-in"
+              @click="chonThe('in')"
+            >
+              <v-icon size="15" icon="mdi-printer-outline" aria-hidden="true" />
+              Nhật ký in
+            </button>
+            <button
+              id="nk-the-app"
+              type="button"
+              role="tab"
+              class="nk-the-nut"
+              :class="{ 'nk-the-nut--chon': theChon === 'app' }"
+              :aria-selected="theChon === 'app'"
+              aria-controls="nk-vung-app"
+              title="Toàn bộ dòng app Máy in trên máy tính ở chi nhánh ghi ra — có tìm, có lọc, tải về .txt"
+              @click="chonThe('app')"
+            >
+              <v-icon size="15" icon="mdi-console" aria-hidden="true" />
+              Log app
+            </button>
+          </div>
+        </div>
+        <p v-if="theChon === 'in'" class="nk-phu">Nhận lệnh, gửi máy in, đã in, lỗi, hết giấy, kẹt giấy… · lưu 90 ngày</p>
+        <p v-else class="nk-phu">Từng dòng app Máy in ở chi nhánh ghi ra (vết in, đọc USB, kết quả…) · lưu 30 ngày</p>
       </div>
-      <div class="nk-head-phai">
+      <div v-show="theChon === 'in'" class="nk-head-phai">
         <span class="nk-dem" aria-live="polite">{{ dongTrangThai }}</span>
         <div class="nk-tu-lam-moi" title="Tự tải sự kiện mới mỗi 15 giây">
           <v-switch
@@ -45,7 +84,7 @@
       </div>
     </div>
 
-    <div class="nk-card">
+    <div v-show="theChon === 'in'" id="nk-vung-in" class="nk-card" role="tabpanel" aria-labelledby="nk-the-in">
       <div class="nk-toolbar">
         <v-text-field
           v-model="oTim"
@@ -208,11 +247,22 @@
         <v-btn variant="tonal" size="small" :loading="dangTaiThem" :disabled="dangTai" @click="taiThem">Tải thêm</v-btn>
       </div>
     </div>
+
+    <PrintAgentAppLogPanel
+      v-if="daMoApp"
+      v-show="theChon === 'app'"
+      id="nk-vung-app"
+      role="tabpanel"
+      aria-labelledby="nk-the-app"
+      :may-ins="mayIns"
+      :hoat-dong="theChon === 'app'"
+      :may-in-id-dau="mayInId === TAT_CA ? null : mayInId"
+    />
   </section>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import {
   layNhatKy, maHttpCuaLoi, laYeuCauDaHuy,
   type MayIn, type NhatKy, type LocMucDo, type ThamSoNhatKy,
@@ -222,8 +272,14 @@ import {
   LUA_CHON_KHOANG, khoangThoiGian, chuanHoaTuKhoa, gopTrangMoi, noiTrangSau,
   dinhDangGioVN, chiTietDep, type KhoangNhatKy,
 } from './may-in-nhat-ky';
+import { chonTabNhatKy, type TabNhatKy } from './may-in-nhat-ky-app';
+import PrintAgentAppLogPanel from './PrintAgentAppLogPanel.vue';
 
-const props = defineProps<{ mayIns: MayIn[] }>();
+const props = defineProps<{
+  mayIns: MayIn[];
+  /** Thẻ mở sẵn theo URL (`?nhatKy=app|in`) — thắng thẻ đã nhớ. */
+  tabDau?: string | null;
+}>();
 const emit = defineEmits<{
   /** Mỗi nhịp tự làm mới — trang cha tải lại danh sách máy in (chip tình trạng) cho khớp. */
   lamMoi: [];
@@ -244,6 +300,38 @@ const LUA_CHON_MUC_DO: ReadonlyArray<{ value: LuaChonMucDo; title: string }> = [
 ];
 // v-select nhận mảng thường, không nhận ReadonlyArray.
 const KHOANG_DS = [...LUA_CHON_KHOANG];
+
+// ── Thẻ Nhật ký in / Log app ──────────────────────────────────────────────
+const KHOA_LUU_THE = 'may-in:nhat-ky-the';
+
+function docTheDaLuu(): unknown {
+  try {
+    return window.localStorage?.getItem(KHOA_LUU_THE);
+  } catch {
+    return null; // chế độ riêng tư / chặn lưu trữ — không nhớ được thì thôi
+  }
+}
+
+const theChon = ref<TabNhatKy>(chonTabNhatKy(props.tabDau, docTheDaLuu()));
+/** Thẻ Log app chỉ gắn (và gọi API) từ lần đầu được chọn. */
+const daMoApp = ref(theChon.value === 'app');
+const goc = ref<HTMLElement | null>(null);
+
+function chonThe(t: TabNhatKy): void {
+  if (theChon.value === t) return;
+  theChon.value = t;
+  if (t === 'app') daMoApp.value = true;
+  try {
+    window.localStorage?.setItem(KHOA_LUU_THE, t);
+  } catch {
+    // như trên
+  }
+  if (t === 'in' && !biCam.value) {
+    // Mở trang ở thẻ Log app thì bảng này chưa tải lần nào; còn không: lấy ngay phần đã lỡ.
+    if (!daTai.value && !dangTai.value) void taiLai();
+    else if (tuLamMoi.value && !document.hidden) void lamMoiNgam();
+  }
+}
 
 // ── Bộ lọc ────────────────────────────────────────────────────────────────
 const oTim = ref<string | null>('');       // chữ đang gõ (clearable đặt về null)
@@ -475,7 +563,7 @@ function dungTuLamMoi(): void {
 function nhipLamMoi(): void {
   if (biCam.value || document.hidden) return; // tab ẩn: không gọi API vô ích
   emit('lamMoi');
-  void lamMoiNgam();
+  if (theChon.value === 'in') void lamMoiNgam(); // đang xem Log app thì bảng này nghỉ
 }
 
 function batHenGioLamMoi(): void {
@@ -489,8 +577,10 @@ watch(tuLamMoi, (bat) => {
 });
 
 onMounted(() => {
-  void taiLai();
+  if (theChon.value === 'in') void taiLai(); // mở ở thẻ Log app: bảng này tải khi được chọn
   batHenGioLamMoi(); // bật sẵn — lần tải đầu là taiLai() ở trên, nhịp đầu sau 15 giây
+  // Mở từ link `?nhatKy=app`: cuộn tới mục này (dưới danh sách máy in).
+  if (props.tabDau === 'app') void nextTick(() => goc.value?.scrollIntoView?.({ block: 'start', behavior: 'smooth' }));
 });
 
 onBeforeUnmount(() => {
@@ -511,7 +601,26 @@ onBeforeUnmount(() => {
   flex-wrap: wrap; margin-bottom: 12px;
 }
 .nk-head-trai { min-width: 0; }
+.nk-tieu-de-hang { display: flex; align-items: center; gap: 6px 14px; flex-wrap: wrap; }
 .nk-h2 { font-size: 14px; font-weight: 700; color: var(--at-ink, #141a24); margin: 0; }
+
+/* Hai thẻ Nhật ký in | Log app — khối phân đoạn, một chạm */
+.nk-the {
+  display: inline-flex; padding: 2px; gap: 2px; border-radius: 8px;
+  background: var(--at-surface-soft, #f1f4f9); border: 1px solid var(--at-hairline, #e7eaf0);
+}
+.nk-the-nut {
+  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border: 0;
+  border-radius: 6px; background: transparent; cursor: pointer;
+  font: inherit; font-size: 12.5px; font-weight: 600; color: var(--at-muted, #6b7488); white-space: nowrap;
+  transition: background 0.12s, color 0.12s, box-shadow 0.12s;
+}
+.nk-the-nut:hover { color: var(--at-ink, #141a24); }
+.nk-the-nut:focus-visible { outline: 2px solid var(--at-action, #1786be); outline-offset: 1px; }
+.nk-the-nut--chon, .nk-the-nut--chon:hover {
+  background: var(--at-canvas, #fff); color: var(--at-action, #1786be);
+  box-shadow: 0 1px 2px rgba(20, 26, 36, 0.08), 0 0 0 1px var(--at-hairline, #e7eaf0);
+}
 .nk-phu { font-size: 12px; color: var(--at-muted, #6b7488); margin: 2px 0 0; }
 .nk-head-phai { display: flex; align-items: center; gap: 4px 12px; flex-wrap: wrap; }
 .nk-dem { font-size: 12px; color: var(--at-muted, #6b7488); font-variant-numeric: tabular-nums; }

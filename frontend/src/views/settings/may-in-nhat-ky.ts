@@ -22,18 +22,19 @@ function thanhMs(luc: string | number | Date | null | undefined): number | null 
 const hai = (n: number) => String(n).padStart(2, '0');
 
 /**
- * Giờ VN của một mốc: "dd/MM HH:mm:ss" (bảng nhật ký), hoặc "dd/MM/yyyy HH:mm:ss" khi `coNam`.
- * Mốc hỏng → "—".
+ * Giờ VN của một mốc: "dd/MM HH:mm:ss" (bảng nhật ký), hoặc "dd/MM/yyyy HH:mm:ss" khi `coNam`;
+ * `coMs` thêm ".SSS" (nhật ký app — nhiều dòng trong cùng một giây). Mốc hỏng → "—".
  */
 export function dinhDangGioVN(
   luc: string | number | Date | null | undefined,
-  tuyChon: { coNam?: boolean } = {},
+  tuyChon: { coNam?: boolean; coMs?: boolean } = {},
 ): string {
   const ms = thanhMs(luc);
   if (ms === null) return '—';
   const d = new Date(ms + LECH_GIO_VN_MS); // đọc bằng getUTC* = đồng hồ treo tường ở VN
   const ngay = `${hai(d.getUTCDate())}/${hai(d.getUTCMonth() + 1)}`;
-  const gio = `${hai(d.getUTCHours())}:${hai(d.getUTCMinutes())}:${hai(d.getUTCSeconds())}`;
+  const phanMs = tuyChon.coMs ? `.${String(d.getUTCMilliseconds()).padStart(3, '0')}` : '';
+  const gio = `${hai(d.getUTCHours())}:${hai(d.getUTCMinutes())}:${hai(d.getUTCSeconds())}${phanMs}`;
   return tuyChon.coNam ? `${ngay}/${d.getUTCFullYear()} ${gio}` : `${ngay} ${gio}`;
 }
 

@@ -58,6 +58,33 @@ export const MA_SU_KIEN: Readonly<Record<string, MoTaMa>> = {
   tiep_tuc_in: { nhan: 'Máy in hoạt động lại — tiếp tục in', mucDo: 'thong_tin' },
 };
 
+/**
+ * Mã sự kiện của NHẬT KÝ APP (bảng print_app_logs — từng dòng app Windows ghi ra file .txt,
+ * xem backend may-in/nhat-ky-app.ts). Khác hai bảng trên: đây là log THÔ, không có mức —
+ * chỉ có nhãn + tông màu chip. `app_bo_dong` do backend ghi khi app báo đã bỏ dòng.
+ * Mã lạ (app mới hơn giao diện) → chip xám, hiện nguyên mã.
+ */
+export type TongSuKienApp = 'do' | 'vang' | 'xanh_la' | 'xanh' | 'tim' | 'xam';
+
+export const MA_SU_KIEN_APP: Readonly<Record<string, { nhan: string; tong: TongSuKienApp }>> = {
+  vet_in: { nhan: 'Vết in', tong: 'xam' },
+  usb_doc: { nhan: 'Đọc trạng thái máy in qua USB', tong: 'tim' },
+  usb_khay: { nhan: 'Khay giấy (đọc qua USB)', tong: 'tim' },
+  ket_qua: { nhan: 'Kết quả in', tong: 'xanh_la' },
+  su_co: { nhan: 'Sự cố máy in', tong: 'do' },
+  trang_thai_may_in: { nhan: 'Trạng thái máy in', tong: 'xanh' },
+  nhan_job: { nhan: 'Nhận lệnh in', tong: 'xanh' },
+  ket_noi: { nhan: 'Kết nối máy chủ', tong: 'xanh_la' },
+  mat_ket_noi: { nhan: 'Mất kết nối máy chủ', tong: 'vang' },
+  app_bo_dong: { nhan: 'App bỏ dòng nhật ký (bộ đệm đầy)', tong: 'vang' },
+};
+
+/** Nhãn + tông chip của một mã sự kiện nhật ký app. Mã lạ → nhãn = chính mã, xám. */
+export function kieuSuKienApp(ma: string | null | undefined): { nhan: string; tong: TongSuKienApp } {
+  if (ma && Object.prototype.hasOwnProperty.call(MA_SU_KIEN_APP, ma)) return MA_SU_KIEN_APP[ma];
+  return { nhan: ma || '—', tong: 'xam' };
+}
+
 function moTa(ma: string | null | undefined): MoTaMa | null {
   if (!ma) return null;
   // hasOwn: mã do máy khác gửi lên — "constructor"/"__proto__" không được lọt thành nhãn.
