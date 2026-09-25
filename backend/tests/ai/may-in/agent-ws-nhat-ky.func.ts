@@ -10,6 +10,7 @@ import { io as ioClient, type Socket as ClientSocket } from 'socket.io-client';
 import { registerAgentWs, HO_TRO_APP } from '../../../src/modules/ai/may-in/agent-ws.js';
 import { AgentRegistry, AgentHetGioCho } from '../../../src/modules/ai/may-in/agent-registry.js';
 import type { MucNhatKy } from '../../../src/modules/ai/may-in/nhat-ky.js';
+import { dichVuHangDoiRong } from './prisma-gia-hang-doi.js';
 
 const TOKEN = 'tokHN_bi_mat_khong_duoc_lo_9x7';
 
@@ -36,6 +37,7 @@ describe('agent-ws — sự cố máy in + nhật ký', () => {
       // Không bao giờ để test chạm Prisma thật (DB giả của vitest.func.config).
       layJobTheoId: async () => null,
       coLenhInMoiHon: async () => false,
+      dichVuHangDoi: dichVuHangDoiRong(),
       msChoThongTin: 100,
     });
     await new Promise<void>((resolve) => httpServer.listen(0, () => resolve()));

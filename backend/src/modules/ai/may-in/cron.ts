@@ -208,6 +208,9 @@ export function startMayInCron(): void {
         return agentRegistry.dangGiu().flatMap((t) => (t === macDinh ? [t, null] : [t]));
       },
     },
+    // Mỗi lần ghi print_jobs thành công → app của máy đó nhận snapshot `hang-doi` mới
+    // (hợp đồng hàng đợi/huỷ v5.1 §8.7; bộ gửi mỗi socket tự gộp + so trùng, ≤ 1 lần/giây).
+    baoDoiHangDoi: (agentToken) => agentRegistry.baoDoiHangDoi(tokenMayCua(agentToken)),
     // Chỉ kênh app PC biết "app có đang kết nối không"; kênh IPP luôn coi là có.
     coMay: (agentToken) => {
       const t = tokenMayCua(agentToken);
@@ -228,6 +231,9 @@ export function startMayInCron(): void {
     } finally {
       dangChay = false;
     }
+    // Mỗi nhịp: mọi app đang nối kiểm lại hàng đợi của mình (job mới tạo, hết 3 ngày của
+    // "chưa xác nhận"…) — chỉ gửi khi nội dung đổi (hang-doi-app.ts).
+    agentRegistry.baoDoiHangDoiTatCa();
     // Giữ nhật ký 90 ngày, nhật ký app 30 ngày — dọn SAU lượt in, tối đa 1 lần/ngày,
     // lỗi thì nuốt (hai hàm dọn tự bắt lỗi, trả 0).
     if (Date.now() - lanDonNhatKy > 24 * 3600 * 1000) {

@@ -9,6 +9,7 @@ import {
   type JobIn,
   type SuKienHangDoi,
 } from '../../../src/modules/ai/may-in/hang-doi-in.js';
+import { updateManyGia } from './prisma-gia-hang-doi.js';
 import { LoiIpp, LoiKhongRo } from '../../../src/modules/ai/may-in/ipp-client.js';
 
 /** Áp DIEU_KIEN_NHAT_JOB như Prisma — đủ cho 2 dạng điều kiện dùng ở đây. */
@@ -32,7 +33,7 @@ function prismaGia(hangSan: Array<Partial<JobIn>>) {
     printJob: {
       create: vi.fn(async () => ({})),
       findMany: vi.fn(async ({ where, take }) => hang.filter((j) => khop(j, where ?? {})).slice(0, take).map((j) => ({ ...j }))),
-      update: vi.fn(async ({ where, data }) => Object.assign(hang.find((x) => x.id === where.id)!, data)),
+      updateMany: updateManyGia(hang),
     },
   };
   return { prisma, hang };

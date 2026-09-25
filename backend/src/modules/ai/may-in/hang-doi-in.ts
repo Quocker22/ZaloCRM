@@ -19,7 +19,13 @@ import type { XetCauDao } from './agent-registry.js';
 /** Quá số lần này mà máy in vẫn từ chối/không tới được → loi, chờ người xem. */
 export const MAX_LAN_THU = 5;
 
-export type TrangThaiJob = 'cho_in' | 'dang_gui' | 'da_gui' | 'da_in' | 'khong_ro' | 'loi';
+/**
+ * `da_huy` (v5.1, 25/09): đã huỷ CHẮC CHẮN — chỉ từ `cho_in` bằng cập nhật có điều kiện
+ * (huy-lenh-in.ts), không một byte nào tới máy in. `bo_qua`: người quản lý bỏ khỏi hàng đợi
+ * một job `khong_ro` — KHÔNG khẳng định gì về giấy. Cả hai là trạng thái KẾT THÚC: cron không
+ * bao giờ nhặt (DIEU_KIEN_NHAT_JOB) và không bao giờ ghi đè (mọi lần ghi có điều kiện, §8.3).
+ */
+export type TrangThaiJob = 'cho_in' | 'dang_gui' | 'da_gui' | 'da_in' | 'khong_ro' | 'loi' | 'da_huy' | 'bo_qua';
 
 export interface JobIn {
   id: string;
@@ -47,12 +53,12 @@ export interface PrismaHangDoiIn {
   printJob: {
     create: (a: { data: Record<string, unknown> }) => Promise<unknown>;
     findMany: (a: { where?: Record<string, unknown>; orderBy?: unknown; take?: number }) => Promise<JobIn[]>;
-    update: (a: { where: { id: string }; data: Record<string, unknown> }) => Promise<unknown>;
     /**
-     * Cập nhật CÓ ĐIỀU KIỆN (Prisma thật luôn có). Tuỳ chọn để bản giả cũ trong
-     * test vẫn dùng được; thiếu thì rơi về `update` (không điều kiện).
+     * Cập nhật CÓ ĐIỀU KIỆN — cách ghi DUY NHẤT của hàng đợi (hợp đồng v5.1 §8.3). Không còn
+     * `update` trơn: giữa lúc đọc và lúc ghi, job có thể vừa bị huỷ (`da_huy`), bị bỏ theo dõi
+     * (`bo_qua`) hay được kết quả trễ chốt — ghi không điều kiện là đè mất sự thật đó.
      */
-    updateMany?: (a: { where: Record<string, unknown>; data: Record<string, unknown> }) => Promise<{ count: number }>;
+    updateMany: (a: { where: Record<string, unknown>; data: Record<string, unknown> }) => Promise<{ count: number }>;
   };
 }
 
@@ -200,6 +206,12 @@ export interface DepsChayLuot {
    * cho mỗi job dù biết chắc chưa gửi được — giám sát vòng 2, V4).
    */
   coMay?: (agentToken: string | null) => boolean;
+  /**
+   * Báo "hàng đợi của máy này vừa đổi" sau MỖI lần ghi print_jobs thành công (claim, kết quả,
+   * thử lại, thất bại…) — cron nối vào agentRegistry để đẩy snapshot `hang-doi` cho app
+   * (hợp đồng v5.1 §8.7). `agentToken` = giá trị cột (null = máy mặc định). Không bao giờ ném.
+   */
+  baoDoiHangDoi?: (agentToken: string | null) => void;
   /** Trần job mỗi lượt — vòng nền không được biến thành trận in ồ ạt. */
   gioiHan?: number;
   onLoi?: (jobId: string, err: unknown) => void;
@@ -322,10 +334,8 @@ async function xuLyMotJob(deps: DepsChayLuot, job: JobIn): Promise<void> {
 
   if (job.lanThu >= MAX_LAN_THU) {
     const loiCuoi = `Quá ${MAX_LAN_THU} lần thử: ${job.loiCuoi ?? 'không rõ'}`;
-    await deps.prisma.printJob.update({
-      where: { id: job.id },
-      data: { trangThai: 'loi', loiCuoi },
-    });
+    // [G1] cho_in → loi. Vừa bị huỷ (da_huy) thì dừng: không ghi "In thất bại".
+    if (!(await ghiCoDieuKien(deps, job, 'cho_in', { trangThai: 'loi', loiCuoi }))) return;
     baoNhatKy(deps, {
       loai: 'that_bai',
       noiDung: `In thất bại hoá đơn ${job.soHoaDon}. ${loiCuoi}`,
@@ -384,10 +394,11 @@ async function xuLyMotJob(deps: DepsChayLuot, job: JobIn): Promise<void> {
   // App máy này chưa kết nối → khỏi tải PDF / khỏi ghi "gửi xuống máy in".
   // Chính sách cũ giữ nguyên: mỗi phút một lượt, quá MAX_LAN_THU thì thất bại.
   if (deps.coMay && !deps.coMay(job.agentToken ?? null)) {
-    await deps.prisma.printJob.update({
-      where: { id: job.id },
-      data: { trangThai: 'cho_in', lanThu: job.lanThu + 1, loiCuoi: 'App máy in chưa kết nối' },
+    // [G2] cho_in → cho_in (lanThu+1). Vừa bị huỷ thì dừng: không hứa "chờ thử lại".
+    const daGhi = await ghiCoDieuKien(deps, job, 'cho_in', {
+      trangThai: 'cho_in', lanThu: job.lanThu + 1, loiCuoi: 'App máy in chưa kết nối',
     });
+    if (!daGhi) return;
     baoNhatKy(deps, {
       loai: 'app_offline_thu_lai',
       noiDung: `App máy in chưa kết nối — hoá đơn ${job.soHoaDon} chờ thử lại (lần ${job.lanThu + 1}/${MAX_LAN_THU})`,
@@ -402,10 +413,11 @@ async function xuLyMotJob(deps: DepsChayLuot, job: JobIn): Promise<void> {
   try {
     pdf = await deps.taiPdf(job.hoaDonId, job.report);
   } catch (err) {
-    await deps.prisma.printJob.update({
-      where: { id: job.id },
-      data: { trangThai: 'cho_in', lanThu: job.lanThu + 1, loiCuoi: `Odoo không trả PDF: ${loi(err)}` },
+    // [G3] cho_in → cho_in (lanThu+1). Vừa bị huỷ (tải PDF có thể mất vài giây) thì dừng.
+    const daGhi = await ghiCoDieuKien(deps, job, 'cho_in', {
+      trangThai: 'cho_in', lanThu: job.lanThu + 1, loiCuoi: `Odoo không trả PDF: ${loi(err)}`,
     });
+    if (!daGhi) return;
     baoNhatKy(deps, {
       loai: 'loi_odoo',
       noiDung: `Odoo không trả PDF hoá đơn ${job.soHoaDon} (lần ${job.lanThu + 1}/${MAX_LAN_THU}): ${loi(err)}`,
@@ -424,7 +436,10 @@ async function xuLyMotJob(deps: DepsChayLuot, job: JobIn): Promise<void> {
 
   // Đánh dấu dang_gui TRƯỚC khi gọi máy in — crash giữa chừng thì lượt sau
   // thấy dang_gui và chỉ xác minh, không gửi lại mù.
-  await deps.prisma.printJob.update({ where: { id: job.id }, data: { trangThai: 'dang_gui' } });
+  // [G4] CLAIM cho_in → dang_gui CÓ ĐIỀU KIỆN (B2): count 0 = vừa bị huỷ (tải PDF/tên khách
+  // mất vài giây — đúng khe người quản lý bấm "Huỷ") → KHÔNG gửi app, không ghi "gửi xuống
+  // máy in", không tính lượt thử của cầu dao.
+  if (!(await ghiCoDieuKien(deps, job, 'cho_in', { trangThai: 'dang_gui' }))) return;
   if (xet === 'thu') {
     try {
       deps.cauDao?.daThu?.(job.agentToken ?? null);
@@ -454,23 +469,18 @@ async function xuLyMotJob(deps: DepsChayLuot, job: JobIn): Promise<void> {
     // AgentClient bị kẹt vĩnh viễn vì ippJobId luôn null khiến xacMinh() đứng
     // yên mãi).
     if (kq.daInXong) {
-      await deps.prisma.printJob.update({
-        where: { id: job.id },
-        data: { trangThai: 'da_in', ippJobId: kq.jobId, loiCuoi: null },
-      });
+      // [G5] dang_gui → da_in. Job đã rời dang_gui (sửa tay, dọn) → không ghi "Đã in" đè.
+      const daGhi = await ghiCoDieuKien(deps, job, 'dang_gui', { trangThai: 'da_in', ippJobId: kq.jobId, loiCuoi: null });
+      if (!daGhi) return;
       baoNhatKy(deps, { loai: 'da_in', noiDung: `Đã in hoá đơn ${job.soHoaDon}`, job, tenKhach });
     } else {
-      await deps.prisma.printJob.update({
-        where: { id: job.id },
-        data: { trangThai: 'da_gui', ippJobId: kq.jobId, loiCuoi: null },
-      });
+      // [G6] dang_gui → da_gui (IPP, còn chờ xác minh).
+      await ghiCoDieuKien(deps, job, 'dang_gui', { trangThai: 'da_gui', ippJobId: kq.jobId, loiCuoi: null });
     }
   } catch (err) {
     if (err instanceof LoiKhongRo) {
-      await deps.prisma.printJob.update({
-        where: { id: job.id },
-        data: { trangThai: 'khong_ro', loiCuoi: loi(err) },
-      });
+      // [G7] dang_gui → khong_ro. count 0 → DỪNG: không nhật ký "không rõ", không ngắt cầu dao.
+      if (!(await ghiCoDieuKien(deps, job, 'dang_gui', { trangThai: 'khong_ro', loiCuoi: loi(err) }))) return;
       // Máy in đang chặn in: hoá đơn nằm trong hàng đợi/bộ nhớ máy in, TỰ RA
       // khi khắc phục (app theo dõi tiếp và báo trễ "đã in"). Không thì hướng
       // dẫn kiểm tay. Không bao giờ bảo "in lại" khi chưa kiểm — in đôi.
@@ -495,10 +505,8 @@ async function xuLyMotJob(deps: DepsChayLuot, job: JobIn): Promise<void> {
       const doMayIn = err.guiDuoc && laMaChanIn(err.ma);
       const khongTieuLuot = err.guiDuoc && laMaChoMayKhongTieuLuot(err.ma);
       const lanThu = khongTieuLuot ? job.lanThu : job.lanThu + 1;
-      await deps.prisma.printJob.update({
-        where: { id: job.id },
-        data: { trangThai: 'cho_in', lanThu, loiCuoi: loi(err) },
-      });
+      // [G8] dang_gui → cho_in (thử lại). count 0 → DỪNG: không ngắt cầu dao, không hứa "sẽ thử lại".
+      if (!(await ghiCoDieuKien(deps, job, 'dang_gui', { trangThai: 'cho_in', lanThu, loiCuoi: loi(err) }))) return;
       const lan = khongTieuLuot ? '(máy in lỗi — không tính lượt thử)' : `(lần ${lanThu}/${MAX_LAN_THU})`;
       if (doMayIn) ngatCauDao(deps, job, err.ma ?? null, loi(err), tenKhach);
       baoNhatKy(deps, err.guiDuoc
@@ -534,13 +542,12 @@ async function xacMinh(deps: DepsChayLuot, job: JobIn): Promise<void> {
   } catch {
     return; // máy in không trả lời được — giữ nguyên, lượt sau hỏi tiếp
   }
+  // [G9]/[G10] CHỈ khi job còn ở một trạng thái "đã gửi" — bỏ theo dõi (bo_qua) hay sửa tay
+  // giữa lúc hỏi máy in và lúc ghi thì giữ nguyên.
   if (jobState === JOB_STATE.completed) {
-    await deps.prisma.printJob.update({ where: { id: job.id }, data: { trangThai: 'da_in', loiCuoi: null } });
+    await ghiCoDieuKien(deps, job, TRANG_THAI_DA_GUI, { trangThai: 'da_in', loiCuoi: null });
   } else if (jobState === JOB_STATE.canceled || jobState === JOB_STATE.aborted) {
-    await deps.prisma.printJob.update({
-      where: { id: job.id },
-      data: { trangThai: 'loi', loiCuoi: `Máy in huỷ job (job-state=${jobState})` },
-    });
+    await ghiCoDieuKien(deps, job, TRANG_THAI_DA_GUI, { trangThai: 'loi', loiCuoi: `Máy in huỷ job (job-state=${jobState})` });
   }
   // pending/processing → giữ nguyên, lượt sau hỏi tiếp.
 }
@@ -553,6 +560,9 @@ async function xacMinh(deps: DepsChayLuot, job: JobIn): Promise<void> {
  * INV/2026/030067 nằm chờ không một dòng log). Giờ chỉ nhặt job CÒN VIỆC ĐỂ
  * LÀM: cho_in, hoặc job đã gửi mà CÓ ippJobId để hỏi lại (đường IPP).
  */
+/** Trạng thái "đã chạm máy in" — xacMinh chỉ được ghi khi job còn ở một trong số này. */
+const TRANG_THAI_DA_GUI: TrangThaiJob[] = ['dang_gui', 'da_gui', 'khong_ro'];
+
 export const DIEU_KIEN_NHAT_JOB = {
   OR: [
     { trangThai: 'cho_in' },
@@ -573,7 +583,7 @@ export const MS_JOB_MO_COI = 15 * 60_000;
  * Cron gọi trước mỗi lượt; lỗi thì nuốt — dọn dẹp không được chặn việc in.
  */
 export async function donJobMoCoi(
-  deps: Pick<DepsChayLuot, 'prisma' | 'nhatKy' | 'layTenKhach'>,
+  deps: Pick<DepsChayLuot, 'prisma' | 'nhatKy' | 'layTenKhach' | 'baoDoiHangDoi'>,
   bayGio: number = Date.now(),
 ): Promise<number> {
   let cac: JobIn[];
@@ -590,18 +600,15 @@ export async function donJobMoCoi(
   const data = { trangThai: 'khong_ro', loiCuoi: 'Mồ côi: server khởi động lại khi đang chờ app máy in trả lời' };
   for (const job of cac) {
     try {
-      // CÓ ĐIỀU KIỆN vẫn `dang_gui`: giữa lúc đọc danh sách và lúc ghi, kết quả
+      // [G11] CÓ ĐIỀU KIỆN vẫn `dang_gui`: giữa lúc đọc danh sách và lúc ghi, kết quả
       // TRỄ của app (agent-ws, job mồ côi) có thể đã chốt da_in / đưa về cho_in —
       // ghi đè là mất kết quả thật (giám sát vòng 3, đo trên Postgres thật).
-      if (deps.prisma.printJob.updateMany) {
-        const r = await deps.prisma.printJob.updateMany({
-          where: { id: job.id, trangThai: 'dang_gui', ippJobId: null },
-          data,
-        });
-        if (r.count === 0) continue;
-      } else {
-        await deps.prisma.printJob.update({ where: { id: job.id }, data });
-      }
+      const r = await deps.prisma.printJob.updateMany({
+        where: { id: job.id, trangThai: 'dang_gui', ippJobId: null },
+        data,
+      });
+      if (r.count === 0) continue;
+      baoDoi(deps as DepsChayLuot, job);
       n += 1;
       baoNhatKy(deps as DepsChayLuot, {
         loai: 'khong_ro',
@@ -634,6 +641,35 @@ function huongDanKhongRo(ma: string | undefined, conTrongHangDoi: boolean | unde
     return 'hoá đơn có thể vẫn nằm trong hàng đợi máy in ở cửa hàng và tự in ra khi máy/app hoạt động lại — kiểm hàng đợi và khay giấy trước, chỉ in lại khi chắc chắn chưa ra (hệ thống KHÔNG tự in lại)';
   }
   return 'kiểm máy in rồi mới in lại (hệ thống KHÔNG tự in lại để tránh in đôi)';
+}
+
+/**
+ * Ghi print_jobs CÓ ĐIỀU KIỆN trạng thái mong đợi (hợp đồng v5.1 §8.3 — MỌI lần ghi của hàng
+ * đợi đi qua đây, trừ donJobMoCoi giữ điều kiện riêng có sẵn). true = đã đổi đúng một dòng.
+ * false = job đã rời trạng thái đó giữa lúc đọc và lúc ghi (vừa bị huỷ → `da_huy`, bị bỏ theo
+ * dõi → `bo_qua`, kết quả trễ đã chốt…): người gọi DỪNG xử lý job — không ghi nhật ký kết quả,
+ * không ngắt cầu dao, không gửi app. `da_huy`/`bo_qua` vì thế không bao giờ bị ghi đè.
+ */
+async function ghiCoDieuKien(
+  deps: DepsChayLuot,
+  job: JobIn,
+  dangLa: TrangThaiJob | TrangThaiJob[],
+  data: Record<string, unknown>,
+): Promise<boolean> {
+  const trangThai = Array.isArray(dangLa) ? { in: dangLa } : dangLa;
+  const r = await deps.prisma.printJob.updateMany({ where: { id: job.id, trangThai }, data });
+  if (r.count === 0) return false;
+  baoDoi(deps, job);
+  return true;
+}
+
+/** Báo hàng đợi của máy đổi (snapshot `hang-doi` cho app) — nuốt mọi lỗi, không chặn việc in. */
+function baoDoi(deps: DepsChayLuot, job: JobIn): void {
+  try {
+    deps.baoDoiHangDoi?.(job.agentToken ?? null);
+  } catch {
+    /* snapshot hỏng không được chặn việc in */
+  }
 }
 
 function ngatCauDao(deps: DepsChayLuot, job: JobIn, ma: string | null, lyDo: string, tenKhach: string | null): void {

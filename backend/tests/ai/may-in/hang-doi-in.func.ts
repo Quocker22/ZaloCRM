@@ -11,6 +11,7 @@ import {
   type PrismaHangDoiIn,
   type JobIn,
 } from '../../../src/modules/ai/may-in/hang-doi-in.js';
+import { updateManyGia } from './prisma-gia-hang-doi.js';
 import { LoiIpp, LoiKhongRo } from '../../../src/modules/ai/may-in/ipp-client.js';
 
 /** Prisma giả giữ hàng trong RAM — đúng bề mặt hàng đợi cần. */
@@ -40,11 +41,8 @@ function prismaGia(hangSan: Array<Partial<JobIn>> = []) {
         const muon = (where?.trangThai as { in?: string[] })?.in;
         return hang.filter((j) => !muon || muon.includes(j.trangThai)).map((j) => ({ ...j }));
       }),
-      update: vi.fn(async ({ where, data }) => {
-        const j = hang.find((x) => x.id === where.id)!;
-        Object.assign(j, data);
-        return { ...j };
-      }),
+      // Ghi CÓ ĐIỀU KIỆN (v5.1 §8.3) — hàng đợi không còn `update` trơn.
+      updateMany: updateManyGia(hang),
     },
   };
   return { prisma, hang };

@@ -11,6 +11,7 @@ import {
   type SuKienHangDoi,
   type DepsChayLuot,
 } from '../../../src/modules/ai/may-in/hang-doi-in.js';
+import { updateManyGia } from './prisma-gia-hang-doi.js';
 import { LoiIpp, LoiKhongRo } from '../../../src/modules/ai/may-in/ipp-client.js';
 import { AgentRegistry } from '../../../src/modules/ai/may-in/agent-registry.js';
 
@@ -54,7 +55,7 @@ function prismaThat(dong: Array<Partial<JobIn>>) {
           .sort((a: any, b: any) => a.createdAt - b.createdAt)
           .slice(0, take ?? Infinity)
           .map((j) => ({ ...j }))),
-      update: vi.fn(async ({ where, data }) => Object.assign(hang.find((x) => x.id === where.id)!, data)),
+      updateMany: updateManyGia(hang),
     },
   };
   return { prisma, hang };

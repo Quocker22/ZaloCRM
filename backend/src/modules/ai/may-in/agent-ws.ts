@@ -47,6 +47,15 @@ import {
   type AckNhatKyApp,
   type NhanNhatKyApp,
 } from './nhat-ky-app.js';
+import {
+  taoDichVuHangDoi,
+  type DichVuHangDoi,
+  type KetQuaBoTheoDoi,
+  type KetQuaHuy,
+  type NguonYeuCau,
+  type PhamViHangDoi,
+} from './huy-lenh-in.js';
+import { taoBoGuiHangDoi, MS_GUI_HANG_DOI_TOI_THIEU } from './hang-doi-app.js';
 
 interface KetQuaTuAgent {
   jobId: string;
@@ -72,8 +81,10 @@ const MOC_KHOI_DONG = new Date();
 /**
  * Khả năng backend quảng bá cho app qua event `cau-hinh` (hợp đồng §2).
  * `nhat_ky_app` (25/09): app gửi TOÀN BỘ nhật ký .txt cục bộ qua event `nhat-ky-app` (nhat-ky-app.ts).
+ * `hang_doi` (25/09, hợp đồng hàng đợi/huỷ v5.1 §8.7): server đẩy `hang-doi`; app hỏi lại bằng
+ * `lay-hang-doi`, huỷ bằng `yeu-cau-huy` (ack KetQuaHuy), bỏ theo dõi bằng `yeu-cau-bo-theo-doi`.
  */
-export const HO_TRO_APP = ['khong_ro', 'su_co', 'trang_thai_may_in', 'nhat_ky_app'] as const;
+export const HO_TRO_APP = ['khong_ro', 'su_co', 'trang_thai_may_in', 'nhat_ky_app', 'hang_doi'] as const;
 
 /** Thời gian chờ `thong-tin-app` trước khi ghi nhật ký `app_ket_noi` — gộp 2 sự kiện làm 1 dòng. */
 const MS_CHO_THONG_TIN = 1500;
@@ -129,6 +140,13 @@ export interface AgentWsDeps {
    * Không bao giờ ném — lỗi thành `{ ok: false, loi }`, app tự gửi lại.
    */
   nhanNhatKyApp?: NhanNhatKyApp;
+  /**
+   * Hàng đợi + huỷ lệnh in (huy-lenh-in.ts). Mặc định: Prisma thật + registry của namespace này
+   * + ghiNhatKy ở trên. Test tiêm bản dựng trên Prisma giả.
+   */
+  dichVuHangDoi?: DichVuHangDoi;
+  /** Cho test rút ngắn giới hạn 1 snapshot/giây/socket. */
+  msGuiHangDoi?: number;
   /** Cho test — mặc định lúc nạp module. */
   mocKhoiDong?: Date;
   /** Cho test rút ngắn MS_CHO_THONG_TIN / MS_OFFLINE_LAU / MS_THU_LAI_TRE. */
@@ -166,20 +184,46 @@ async function layJobTheoIdThat(printJobId: string): Promise<JobTraLai | null> {
   });
 }
 
+/** Lệnh cùng hoá đơn ở các trạng thái này không tính là "đã có lệnh in mới hơn". */
+export const TRANG_THAI_KHONG_PHAI_LENH_MOI = ['loi', 'da_huy', 'bo_qua'];
+
+/** Cảnh báo dựng snapshot hàng đợi hỏng — tối đa 1 lần/phút cho khỏi ngập log. */
+let lanCanhBaoHangDoi = 0;
+function canhBaoHangDoi(err: unknown): void {
+  if (Date.now() - lanCanhBaoHangDoi < 60_000) return;
+  lanCanhBaoHangDoi = Date.now();
+  logger.warn({ err: err instanceof Error ? err.message : String(err) }, '[may-in] không dựng được snapshot hàng đợi cho app');
+}
+
+/** Payload từ app: object, hoặc mảng một phần tử (rust_socketio) — còn lại coi như rỗng. */
+function bocPayload(x: unknown): Record<string, unknown> {
+  const o = Array.isArray(x) ? x[0] : x;
+  return o && typeof o === 'object' && !Array.isArray(o) ? (o as Record<string, unknown>) : {};
+}
+
 async function coLenhInMoiHonThat(printJobId: string): Promise<boolean> {
   const j = await prisma.printJob.findUnique({
     where: { id: printJobId },
     select: { orgId: true, hoaDonId: true, report: true, createdAt: true },
   });
   if (!j) return false;
-  const moi = await prisma.printJob.findFirst({
-    where: {
-      orgId: j.orgId, hoaDonId: j.hoaDonId, report: j.report,
-      createdAt: { gt: j.createdAt }, id: { not: printJobId }, trangThai: { not: 'loi' },
-    },
-    select: { id: true },
-  });
+  const moi = await prisma.printJob.findFirst({ where: dieuKienLenhInMoiHon(printJobId, j), select: { id: true } });
   return moi !== null;
+}
+
+/**
+ * Điều kiện "lệnh in MỚI HƠN cùng hoá đơn + mẫu in, còn hiệu lực". `loi` (thất bại), `da_huy`
+ * (chắc chắn không in) và `bo_qua` (người quản lý bỏ) KHÔNG tính — hợp đồng hàng đợi/huỷ v5.1
+ * §8.4: huỷ lệnh in lại thì kết quả trễ `loi` của lệnh cũ vẫn được đưa về cho_in như thường.
+ */
+export function dieuKienLenhInMoiHon(
+  printJobId: string,
+  j: { orgId: string; hoaDonId: number; report: string; createdAt: Date },
+): Record<string, unknown> {
+  return {
+    orgId: j.orgId, hoaDonId: j.hoaDonId, report: j.report,
+    createdAt: { gt: j.createdAt }, id: { not: printJobId }, trangThai: { notIn: TRANG_THAI_KHONG_PHAI_LENH_MOI },
+  };
 }
 
 /** So 2 chuỗi timing-safe — độ dài khác nhau thì false ngay, KHÔNG ném lỗi
@@ -224,6 +268,8 @@ export function registerAgentWs(io: Server, registry: AgentRegistry, deps: Agent
   const msChoThongTin = deps.msChoThongTin ?? MS_CHO_THONG_TIN;
   const msOfflineLau = deps.msOfflineLau ?? MS_OFFLINE_LAU;
   const msThuLaiTre = deps.msThuLaiTre ?? MS_THU_LAI_TRE;
+  const dichVuHangDoi = deps.dichVuHangDoi ?? taoDichVuHangDoi({ registry, tokenMacDinh: envToken, ghiNhatKy });
+  const msGuiHangDoi = deps.msGuiHangDoi ?? MS_GUI_HANG_DOI_TOI_THIEU;
   /** Máy đang mất kết nối: từ lúc nào, hẹn giờ cảnh báo, đã cảnh báo chưa. */
   const matKetNoi = new Map<string, { tu: number; hen: ReturnType<typeof setTimeout>; daBao: boolean }>();
 
@@ -285,6 +331,54 @@ export function registerAgentWs(io: Server, registry: AgentRegistry, deps: Agent
     // máy in khi thấy event này (backend cũ không gửi → app giữ hành vi cũ).
     socket.emit('cau-hinh', { hoTro: [...HO_TRO_APP] });
 
+    // ── Hàng đợi của CHÍNH máy này (v5.1 §8.7) ──────────────────────────────
+    // Phạm vi máy: agent_token = token socket, hoặc NULL khi socket là máy mặc định env.
+    const phamViMay: PhamViHangDoi = { loai: 'may', token, tokenMacDinh: envToken };
+    const boGuiHangDoi = taoBoGuiHangDoi({
+      lay: () => dichVuHangDoi.layHangDoi(phamViMay),
+      gui: (hd) => socket.emit('hang-doi', hd),
+      msToiThieu: msGuiHangDoi,
+      onLoi: canhBaoHangDoi,
+    });
+    const boNgheHangDoi = registry.ngheDoiHangDoi(token, () => boGuiHangDoi.yeuCau());
+    boGuiHangDoi.yeuCau({ boQuaSoTrung: true }); // ngay sau cau-hinh
+    socket.on('lay-hang-doi', () => boGuiHangDoi.yeuCau({ boQuaSoTrung: true }));
+    /** Nguồn ghi nhật ký — tên máy tính từ `thong-tin-app.may` (đã qua chuTuApp). */
+    const nguonApp = (): NguonYeuCau => ({ loai: 'app', may: thongTinApp?.may ?? null });
+
+    // Huỷ từ app — CÓ ack KetQuaHuy (§8.2, phạm vi máy). Lỗi DB thì KHÔNG ack: app hết giờ
+    // 20 s → "Chưa rõ — xem lại hàng đợi" + `lay-hang-doi`. Không bao giờ bịa kết quả.
+    socket.on('yeu-cau-huy', (payload: unknown, ack?: unknown) => {
+      const traLoi = (kq: KetQuaHuy): void => {
+        if (typeof ack === 'function') (ack as (kq: KetQuaHuy) => void)(kq);
+      };
+      const id = chuTuApp(bocPayload(payload).printJobId, 64);
+      if (!id) {
+        traLoi({ id: '', soHoaDon: null, ok: false, trangThaiMoi: null, loi: 'KHONG_TIM_THAY', noiDung: 'Thiếu mã lệnh in (printJobId).' });
+        return;
+      }
+      dichVuHangDoi.huyLenhIn(phamViMay, [id], nguonApp()).then(
+        (kq) => traLoi(kq[0]),
+        (err: unknown) => logger.warn({ err: err instanceof Error ? err.message : String(err) }, '[may-in] yeu-cau-huy lỗi — không ack (app sẽ hỏi lại hàng đợi)'),
+      ).catch((err: unknown) => logger.warn({ err }, '[may-in] yeu-cau-huy: không ack được'));
+    });
+
+    // Bỏ theo dõi từ app — CÓ ack {id, ok, noiDung} (§8.5, phạm vi máy).
+    socket.on('yeu-cau-bo-theo-doi', (payload: unknown, ack?: unknown) => {
+      const traLoi = (kq: KetQuaBoTheoDoi): void => {
+        if (typeof ack === 'function') (ack as (kq: KetQuaBoTheoDoi) => void)(kq);
+      };
+      const id = chuTuApp(bocPayload(payload).printJobId, 64);
+      if (!id) {
+        traLoi({ id: '', ok: false, noiDung: 'Thiếu mã lệnh in (printJobId).' });
+        return;
+      }
+      dichVuHangDoi.boTheoDoi(phamViMay, [id], nguonApp()).then(
+        (kq) => traLoi(kq[0]),
+        (err: unknown) => logger.warn({ err: err instanceof Error ? err.message : String(err) }, '[may-in] yeu-cau-bo-theo-doi lỗi — không ack'),
+      ).catch((err: unknown) => logger.warn({ err }, '[may-in] yeu-cau-bo-theo-doi: không ack được'));
+    });
+
     // ── Nhật ký kết nối: chờ thong-tin-app một chút để gộp thành 1 dòng ──
     let thongTinApp: Record<string, string | null> | null = null;
     let daGhiKetNoi = false;
@@ -333,8 +427,13 @@ export function registerAgentWs(io: Server, registry: AgentRegistry, deps: Agent
         loai: laMaSuCo(kq.loai) ? kq.loai : undefined,
         ...(trangThai === 'khong_ro' && typeof kq.conTrongHangDoi === 'boolean' ? { conTrongHangDoi: kq.conTrongHangDoi } : {}),
       };
-      if (trangThai === 'da_in') mayInDaInDuoc(kq.jobId);
-      if (registry.nhanKetQua(token, kq.jobId, ketQua)) return;
+      if (registry.nhanKetQua(token, kq.jobId, ketQua)) {
+        // Có người chờ = job hàng đợi CHÍNH tiến trình này vừa claim (`dang_gui`, có điều kiện —
+        // hang-doi-in [G4]); huỷ chỉ đụng `cho_in`, bỏ theo dõi chỉ đụng `khong_ro` → job này
+        // không thể đã bị huỷ/bỏ: `da_in` là bằng chứng máy in chạy.
+        if (trangThai === 'da_in') mayInDaInDuoc(kq.jobId);
+        return;
+      }
       // Không ai chờ → kết quả ĐẾN TRỄ (đã hết hạn chờ, job thành khong_ro) —
       // gồm cả kết quả app "theo dõi tiếp" gửi khi job kẹt in ra sau khắc phục.
       void xuLyKetQuaTre(kq.jobId, ketQua);
@@ -440,6 +539,11 @@ export function registerAgentWs(io: Server, registry: AgentRegistry, deps: Agent
           daCapNhat = await capNhat();
         }
       }
+      // v5.1 §8.3: kết quả trễ KHÔNG đổi được job (job đã `da_huy`/`bo_qua`/đã chốt, hoặc không
+      // phải job của máy này) → không coi là bằng chứng máy in chạy: không đóng cầu dao, không
+      // xoá chip sự cố. Đổi được → hàng đợi của máy đổi, đẩy snapshot cho app.
+      if (kq.trangThai === 'da_in' && daCapNhat > 0) mayInDaInDuoc(jobId);
+      if (daCapNhat > 0) registry.baoDoiHangDoi(token);
       // Máy in lỗi (app đã xoá job) → giữ các hoá đơn sau như đường thường —
       // CHỈ khi kết quả này thật sự đổi được job (vòng 3: kết quả cũ/lạ của job
       // đã in hoặc đã dọn tay từng ngắt cầu dao oan + nêu hoá đơn đã in).
@@ -607,6 +711,8 @@ export function registerAgentWs(io: Server, registry: AgentRegistry, deps: Agent
         chiTiet: { lyDo: String(reason) },
       });
       huy();
+      boNgheHangDoi();
+      boGuiHangDoi.dung();
       // Còn kết nối khác của cùng máy (app đã nối lại trước khi kết nối cũ
       // rớt hẳn) → không phải mất kết nối thật, không hẹn cảnh báo.
       if (registry.coAgent(token) || matKetNoi.has(token)) return;

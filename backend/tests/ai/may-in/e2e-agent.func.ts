@@ -21,6 +21,7 @@ import { registerAgentWs } from '../../../src/modules/ai/may-in/agent-ws.js';
 import { AgentRegistry } from '../../../src/modules/ai/may-in/agent-registry.js';
 import { AgentClient } from '../../../src/modules/ai/may-in/agent-client.js';
 import { chayMotLuotIn, type PrismaHangDoiIn, type JobIn } from '../../../src/modules/ai/may-in/hang-doi-in.js';
+import { updateManyGia, dichVuHangDoiRong } from './prisma-gia-hang-doi.js';
 
 const TOKEN_DUNG = 'token-e2e-agent-test';
 const ORG_ID = 'org-e2e';
@@ -52,11 +53,7 @@ function prismaGia(hangSan: Array<Partial<JobIn>>) {
         const muon = (where?.trangThai as { in?: string[] })?.in;
         return hang.filter((j) => !muon || muon.includes(j.trangThai)).map((j) => ({ ...j }));
       },
-      update: async ({ where, data }) => {
-        const j = hang.find((x) => x.id === where.id)!;
-        Object.assign(j, data);
-        return { ...j };
-      },
+      updateMany: updateManyGia(hang),
     },
   };
   return { prisma, hang };
@@ -74,7 +71,7 @@ describe('e2e: server↔agent giả trọn vòng qua WebSocket (Task 5, phần 1
     httpServer = createServer();
     io = new IoServer(httpServer);
     registry = new AgentRegistry();
-    registerAgentWs(io, registry, { layMayInTheoToken: async () => null, ghiNhatKy: () => {} });
+    registerAgentWs(io, registry, { layMayInTheoToken: async () => null, ghiNhatKy: () => {}, dichVuHangDoi: dichVuHangDoiRong() });
     await new Promise<void>((resolve) => httpServer.listen(0, () => resolve()));
     const addr = httpServer.address();
     if (addr && typeof addr === 'object') port = addr.port;

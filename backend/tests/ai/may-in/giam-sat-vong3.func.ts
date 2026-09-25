@@ -14,6 +14,7 @@ import { registerAgentWs, type AgentWsDeps } from '../../../src/modules/ai/may-i
 import { AgentRegistry } from '../../../src/modules/ai/may-in/agent-registry.js';
 import { donJobMoCoi, MS_JOB_MO_COI, type PrismaHangDoiIn, type JobIn, type SuKienHangDoi } from '../../../src/modules/ai/may-in/hang-doi-in.js';
 import type { MucNhatKy } from '../../../src/modules/ai/may-in/nhat-ky.js';
+import { dichVuHangDoiRong } from './prisma-gia-hang-doi.js';
 
 const TOKEN = 'tokHN_bi_mat_khong_duoc_lo_9x7';
 // Dạng id THẬT trên prod (Hermes chèn uuid4) — vòng 3 bắt được bản trước chỉ nhận cuid.
@@ -67,6 +68,7 @@ describe('agent-ws — kết quả trễ (V-b, V-c, N-a, N-b)', () => {
       capNhatJobTre,
       layJobTheoId: async () => null,
       coLenhInMoiHon: async () => false,
+      dichVuHangDoi: dichVuHangDoiRong(),
       msChoThongTin: 20,
       msThuLaiTre: 10,
       ...them,

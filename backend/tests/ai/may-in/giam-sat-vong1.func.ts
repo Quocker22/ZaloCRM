@@ -20,6 +20,7 @@ import {
   type JobIn,
   type SuKienHangDoi,
 } from '../../../src/modules/ai/may-in/hang-doi-in.js';
+import { updateManyGia, dichVuHangDoiRong } from './prisma-gia-hang-doi.js';
 import { LoiIpp, LoiKhongRo } from '../../../src/modules/ai/may-in/ipp-client.js';
 import { taoGhiNhatKy, type MucNhatKy, type PrismaNhatKy } from '../../../src/modules/ai/may-in/nhat-ky.js';
 import { traNhatKy } from '../../../src/modules/ai/may-in/print-agent-routes.js';
@@ -137,6 +138,7 @@ describe('agent-ws — V2, V3, chip tình trạng, cầu dao, mất kết nối 
       capNhatJobTre,
       layJobTheoId: async () => null,
       coLenhInMoiHon: async () => false,
+      dichVuHangDoi: dichVuHangDoiRong(),
       msChoThongTin: 50,
       msOfflineLau: 150,
       msThuLaiTre: 60,
@@ -280,6 +282,7 @@ describe('agent-ws — V2, V3, chip tình trạng, cầu dao, mất kết nối 
     registerAgentWs(io2, new AgentRegistry(), {
       layMayInTheoToken: async (t) => (t === TOKEN ? { token: TOKEN } : null),
       ghiNhatKy: (m) => nk2.push(m), capNhatJobTre: cap2, layJobTheoId: layJob, coLenhInMoiHon: async () => false,
+      dichVuHangDoi: dichVuHangDoiRong(),
       msChoThongTin: 20, msThuLaiTre: 10,
     });
     const c2 = ioClient(`http://localhost:${port}/print-agent`, { path: '/sock2', auth: { token: TOKEN }, reconnection: false, transports: ['websocket'] });
@@ -366,7 +369,7 @@ function prismaGia(hangSan: Array<Partial<JobIn>>) {
           return true;
         }).map((j) => ({ ...j }));
       }),
-      update: vi.fn(async ({ where, data }) => Object.assign(hang.find((x) => x.id === where.id)!, data)),
+      updateMany: updateManyGia(hang),
     },
   };
   return { prisma, hang };

@@ -4448,6 +4448,8 @@ model PrintJob {
   soHoaDon       String    @map("so_hoa_don")
   /// Report Odoo dùng để render PDF lúc in — in luôn bản mới nhất, không lưu PDF.
   report         String
+  /// cho_in | dang_gui | da_gui | da_in | khong_ro | loi | da_huy | bo_qua (hang-doi-in.ts
+  /// TrangThaiJob). da_huy/bo_qua (25/09, huy-lenh-in.ts) là trạng thái kết thúc.
   trangThai      String    @default("cho_in") @map("trang_thai")
   lanThu         Int       @default(0) @map("lan_thu")
   /// job-id máy in cấp qua IPP — chìa khoá xác minh trước khi nghĩ tới in lại.

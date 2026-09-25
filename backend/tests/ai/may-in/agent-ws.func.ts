@@ -11,6 +11,7 @@ import { Server as IoServer } from 'socket.io';
 import { io as ioClient, type Socket as ClientSocket } from 'socket.io-client';
 import { registerAgentWs } from '../../../src/modules/ai/may-in/agent-ws.js';
 import { AgentRegistry } from '../../../src/modules/ai/may-in/agent-registry.js';
+import { dichVuHangDoiRong } from './prisma-gia-hang-doi.js';
 
 const TOKEN_DUNG = 'token-agent-test-dung';
 
@@ -28,7 +29,7 @@ describe('registerAgentWs', () => {
     registry = new AgentRegistry();
     // Tiêm tra-máy + nhật ký giả: test không cần DB (trước đây rơi vào Prisma thật,
     // lỗi rồi mới lùi về token env). Registry khoá theo TOKEN từ Task 4 (10/09).
-    registerAgentWs(io, registry, { layMayInTheoToken: async () => null, ghiNhatKy: () => {} });
+    registerAgentWs(io, registry, { layMayInTheoToken: async () => null, ghiNhatKy: () => {}, dichVuHangDoi: dichVuHangDoiRong() });
     await new Promise<void>((resolve) => {
       httpServer.listen(0, () => resolve());
     });

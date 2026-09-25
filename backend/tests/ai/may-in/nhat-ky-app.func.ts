@@ -20,6 +20,7 @@ import { registerAgentWs, HO_TRO_APP } from '../../../src/modules/ai/may-in/agen
 import { AgentRegistry } from '../../../src/modules/ai/may-in/agent-registry.js';
 import { traNhatKyApp, traTaiVeNhatKyApp } from '../../../src/modules/ai/may-in/print-agent-routes.js';
 import { logger } from '../../../src/shared/utils/logger.js';
+import { dichVuHangDoiRong } from './prisma-gia-hang-doi.js';
 
 const TOKEN = 'tokBiMatRatDaiKhongDuocLo_8f3k';
 const BAY_GIO = Date.parse('2026-09-25T10:20:00.000Z');
@@ -330,6 +331,7 @@ describe('agent-ws — event `nhat-ky-app` qua socket.io thật (ack)', () => {
       layJobTheoId: async () => null,
       coLenhInMoiHon: async () => false,
       nhanNhatKyApp: taoNhanNhatKyApp({ prisma: gia.p }),
+      dichVuHangDoi: dichVuHangDoiRong(),
       msChoThongTin: 50,
     });
     await new Promise<void>((resolve) => httpServer.listen(0, () => resolve()));

@@ -197,6 +197,11 @@ export class AgentRegistry {
   private readonly nguCanh = new Map<string, NguCanhJob>();
   private readonly tinhTrang = new Map<string, TinhTrangMayIn>();
   private readonly cauDao = new Map<string, CauDao>();
+  /**
+   * Người nghe "hàng đợi của máy này vừa đổi" (hợp đồng hàng đợi/huỷ v5.1 §8.7) — mỗi socket
+   * app đăng ký một hàm; hàm đó tự gộp + so trùng + giới hạn 1 lần/giây (hang-doi-app.ts).
+   */
+  private readonly ngheHangDoi = new Map<string, Set<() => void>>();
   private readonly msChoKetQua: number;
   private readonly msThuLai: number;
   private readonly bayGio: () => number;
@@ -343,6 +348,8 @@ export class AgentRegistry {
       thuSau: bayGio + this.msThuLai,
       lucNgat: bayGio,
     });
+    // Hoá đơn cho_in của máy này giờ hiện "Tạm giữ — …" — đẩy snapshot cho app.
+    this.baoDoiHangDoi(token);
     return { moi: !cu };
   }
 
@@ -350,6 +357,7 @@ export class AgentRegistry {
   dongCauDao(token: string): CauDao | null {
     const cu = this.cauDao.get(token) ?? null;
     this.cauDao.delete(token);
+    if (cu) this.baoDoiHangDoi(token); // hết "Tạm giữ"
     return cu;
   }
 
@@ -396,6 +404,47 @@ export class AgentRegistry {
 
   layCauDao(token: string): CauDao | null {
     return this.cauDao.get(token) ?? null;
+  }
+
+  // ── Báo "hàng đợi đổi" cho app (v5.1 §8.7) ──────────────────────────────────
+
+  /** Socket app của máy `token` nghe thay đổi hàng đợi. Trả hàm huỷ (gọi lúc disconnect). */
+  ngheDoiHangDoi(token: string, cb: () => void): () => void {
+    let tap = this.ngheHangDoi.get(token);
+    if (!tap) {
+      tap = new Set();
+      this.ngheHangDoi.set(token, tap);
+    }
+    tap.add(cb);
+    return () => {
+      const t = this.ngheHangDoi.get(token);
+      if (!t) return;
+      t.delete(cb);
+      if (t.size === 0) this.ngheHangDoi.delete(token);
+    };
+  }
+
+  /**
+   * Hàng đợi của máy `token` vừa đổi (claim, kết quả, huỷ, bỏ theo dõi, tạm giữ/tiếp tục).
+   * `null` = không biết máy nào (job agent_token NULL mà không quy được token) → báo mọi máy;
+   * bộ gửi mỗi socket tự so trùng nên báo thừa chỉ tốn một truy vấn. Không bao giờ ném.
+   */
+  baoDoiHangDoi(token: string | null): void {
+    const cac = token === null
+      ? [...this.ngheHangDoi.values()].flatMap((t) => [...t])
+      : [...(this.ngheHangDoi.get(token) ?? [])];
+    for (const cb of cac) {
+      try {
+        cb();
+      } catch {
+        /* một người nghe hỏng không được chặn việc in */
+      }
+    }
+  }
+
+  /** Nhịp cron (mỗi phút): mọi app đang nối kiểm lại hàng đợi của mình. */
+  baoDoiHangDoiTatCa(): void {
+    this.baoDoiHangDoi(null);
   }
 }
 

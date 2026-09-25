@@ -11,6 +11,10 @@
 //   GET    /nhat-ky              nhật ký máy in (nghiệp vụ, print_logs) — CHỈ admin
 //   GET    /nhat-ky-app          nhật ký APP máy in (log thô từ app, print_app_logs) — CHỈ admin
 //   GET    /nhat-ky-app/tai-ve   tải về .txt cùng bộ lọc — CHỈ admin
+//   GET    /hang-doi?mayInId=         hàng đợi in {choIn, chuaXacNhan, capNhat} — CHỈ admin
+//   POST   /hang-doi/huy              huỷ lệnh in {ids: 1..50} → {ketQua: KetQuaHuy[]} — CHỈ admin
+//   POST   /hang-doi/bo-theo-doi      bỏ theo dõi lệnh chưa xác nhận {ids} → {ketQua} — CHỈ admin
+//   (hàng đợi/huỷ: hợp đồng docs/may-in/HOP-DONG-HANG-DOI-HUY-v5.md mục 8, huy-lenh-in.ts)
 //
 // Guard: CHỈ admin/owner được ghi (POST/PUT/DELETE) — theo đúng khuôn
 // agent-operator-routes.ts (mở RANH GIỚI BẢO MẬT: ai vào bảng này là cầm được
@@ -31,6 +35,7 @@ import {
   tenFileTaiVe,
   laLoiChuaMigrate,
 } from './nhat-ky-app.js';
+import { taoDichVuHangDoi, laIdHopLe, type DichVuHangDoi } from './huy-lenh-in.js';
 
 function laAdmin(role: string): boolean {
   return role === 'owner' || role === 'admin';
@@ -103,6 +108,88 @@ export async function traNhatKyApp(
     if (laLoiChuaMigrate(err)) return { code: 503, body: CHUA_MIGRATE_APP };
     throw err;
   }
+}
+
+// ── Hàng đợi in + huỷ lệnh in (huy-lenh-in.ts) ───────────────────────────────
+
+/** Một dịch vụ dùng chung (registry singleton + env máy mặc định) — tạo lười. */
+let dichVuMacDinh: DichVuHangDoi | null = null;
+function dichVuHangDoi(): DichVuHangDoi {
+  dichVuMacDinh ??= taoDichVuHangDoi();
+  return dichVuMacDinh;
+}
+
+/** Trần id mỗi yêu cầu huỷ / bỏ theo dõi (hợp đồng §3.2). */
+export const TRAN_ID_MOT_YEU_CAU = 50;
+
+/** `{ ids: string[] }` 1..50 id hợp lệ → mảng id; sai → null (route trả 400). */
+export function docIds(body: unknown): string[] | null {
+  const ids = (body as { ids?: unknown } | null)?.ids;
+  if (!Array.isArray(ids) || ids.length < 1 || ids.length > TRAN_ID_MOT_YEU_CAU) return null;
+  return ids.every(laIdHopLe) ? (ids as string[]) : null;
+}
+
+const IDS_SAI = { error: 'THAM_SO_SAI', message: `ids phải là mảng 1..${TRAN_ID_MOT_YEU_CAU} mã lệnh in` } as const;
+
+async function layTenNguoiDungThat(userId: string): Promise<string | null> {
+  const { prisma } = await import('../../../shared/database/prisma-client.js');
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { fullName: true } });
+  return u?.fullName?.trim() || null;
+}
+
+/** Tên người dùng cho dòng nhật ký "nguồn: ZaloCRM (<tên>)" — lỗi thì rơi về email. */
+async function tenNguoiDung(
+  user: { id?: string; email?: string },
+  lay: (id: string) => Promise<string | null>,
+): Promise<string | null> {
+  try {
+    if (user.id) return (await lay(user.id)) ?? user.email ?? null;
+  } catch {
+    /* tra tên lỗi không được chặn việc huỷ */
+  }
+  return user.email ?? null;
+}
+
+type NguoiDung = { id?: string; email?: string; orgId: string; role: string };
+
+/** GET /hang-doi — hàng đợi của org (lọc một máy bằng `mayInId`). orgId LUÔN từ phiên. */
+export async function traHangDoi(
+  user: NguoiDung,
+  query: Record<string, unknown>,
+  deps: { dichVu?: DichVuHangDoi } = {},
+): Promise<{ code: number; body: unknown }> {
+  if (!laAdmin(user.role)) return { code: 403, body: { error: 'CHI_ADMIN' } };
+  const mayInId = typeof query?.mayInId === 'string' && query.mayInId ? query.mayInId.slice(0, 100) : null;
+  const body = await (deps.dichVu ?? dichVuHangDoi()).layHangDoi({ loai: 'org', orgId: user.orgId }, { mayInId });
+  return { code: 200, body };
+}
+
+/** POST /hang-doi/huy — huỷ CHẮC CHẮN (chỉ cho_in), kết quả từng id đúng thứ tự. */
+export async function traHuyLenhIn(
+  user: NguoiDung,
+  body: unknown,
+  deps: { dichVu?: DichVuHangDoi; layTenNguoiDung?: (id: string) => Promise<string | null> } = {},
+): Promise<{ code: number; body: unknown }> {
+  if (!laAdmin(user.role)) return { code: 403, body: { error: 'CHI_ADMIN' } };
+  const ids = docIds(body);
+  if (!ids) return { code: 400, body: IDS_SAI };
+  const ten = await tenNguoiDung(user, deps.layTenNguoiDung ?? layTenNguoiDungThat);
+  const ketQua = await (deps.dichVu ?? dichVuHangDoi()).huyLenhIn({ loai: 'org', orgId: user.orgId }, ids, { loai: 'crm', ten });
+  return { code: 200, body: { ketQua } };
+}
+
+/** POST /hang-doi/bo-theo-doi — CHỈ lệnh chưa xác nhận (khong_ro → bo_qua); KHÔNG chặn việc in. */
+export async function traBoTheoDoi(
+  user: NguoiDung,
+  body: unknown,
+  deps: { dichVu?: DichVuHangDoi; layTenNguoiDung?: (id: string) => Promise<string | null> } = {},
+): Promise<{ code: number; body: unknown }> {
+  if (!laAdmin(user.role)) return { code: 403, body: { error: 'CHI_ADMIN' } };
+  const ids = docIds(body);
+  if (!ids) return { code: 400, body: IDS_SAI };
+  const ten = await tenNguoiDung(user, deps.layTenNguoiDung ?? layTenNguoiDungThat);
+  const ketQua = await (deps.dichVu ?? dichVuHangDoi()).boTheoDoi({ loai: 'org', orgId: user.orgId }, ids, { loai: 'crm', ten });
+  return { code: 200, body: { ketQua } };
 }
 
 async function layTenMayThat(orgId: string, mayInId: string): Promise<string | null> {
@@ -206,6 +293,25 @@ export async function registerPrintAgentRoutes(app: FastifyInstance): Promise<vo
       .header('Content-Disposition', `attachment; filename="${kq.tenFile}"`)
       .header('Cache-Control', 'no-store')
       .send(Readable.from(kq.noiDung));
+  });
+
+  // ── Hàng đợi in + huỷ lệnh in (xem traHangDoi / traHuyLenhIn / traBoTheoDoi) ──
+  app.get('/hang-doi', async (
+    req: FastifyRequest<{ Querystring: Record<string, unknown> }>,
+    reply: FastifyReply,
+  ) => {
+    const kq = await traHangDoi(req.user!, req.query ?? {});
+    return reply.code(kq.code).send(kq.body);
+  });
+
+  app.post('/hang-doi/huy', async (req: FastifyRequest<{ Body: unknown }>, reply: FastifyReply) => {
+    const kq = await traHuyLenhIn(req.user!, req.body ?? {});
+    return reply.code(kq.code).send(kq.body);
+  });
+
+  app.post('/hang-doi/bo-theo-doi', async (req: FastifyRequest<{ Body: unknown }>, reply: FastifyReply) => {
+    const kq = await traBoTheoDoi(req.user!, req.body ?? {});
+    return reply.code(kq.code).send(kq.body);
   });
 
   // ── Danh sách kho chuẩn (dropdown Vue) ───────────────────────────────────
