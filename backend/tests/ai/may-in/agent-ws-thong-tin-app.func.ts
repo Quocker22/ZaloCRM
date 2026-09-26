@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // agent-ws.ts — `thong-tin-app` của app ≥ 0.2.8 (ketNoi / heDieuHanh / banBuild) qua socket.io THẬT:
 //   - dòng app_ket_noi thêm "<moTa kết nối>" + hệ điều hành; app cũ (5 trường) ghi y như trước;
-//   - thong-tin-app tới SAU dòng đó: KHÔNG ghi app_ket_noi thứ hai; chỉ khi loai / ip / mayTraLoi
-//     đổi thì MỘT dòng app_ket_noi_doi, tối đa 1 dòng / msGiuaDoiKetNoi / socket (đổi dồn → tới hạn
-//     ghi trạng thái MỚI NHẤT; đổi rồi quay về như cũ → không ghi);
+//   - thong-tin-app tới SAU dòng đó: KHÔNG ghi app_ket_noi thứ hai; chỉ khi loai / ip / NHÓM trả lời
+//     đổi (máy lật sẵn sàng ↔ đang in KHÔNG tính — giám sát vòng 2) thì MỘT dòng app_ket_noi_doi,
+//     tối đa 1 dòng / msGiuaDoiKetNoi / socket (đổi dồn → tới hạn ghi trạng thái MỚI NHẤT; đổi rồi
+//     quay về như cũ → không ghi); app nối trước khi nhận ra máy in → MỘT dòng "Đã nhận diện";
 //   - registry giữ bản mới nhất cho trang Cài đặt › Máy in; hết kết nối → bỏ.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createServer, type Server as HttpServer } from 'node:http';
@@ -130,24 +131,53 @@ describe('agent-ws — thong-tin-app: kết nối máy in (USB / LAN)', () => {
     expect(registry.layThongTinApp(TOKEN)!.ketNoi!.cong).toBe('WSD-khac');
   });
 
-  it('kết nối đổi → MỘT dòng app_ket_noi_doi ngay; đổi dồn trong 1 phút → không thêm, tới hạn ghi MỘT dòng trạng thái mới nhất', async () => {
+  it('(giám sát vòng 2) máy in lật sẵn sàng → đang in → sẵn sàng mỗi tờ → 0 dòng; registry vẫn cập nhật từng lần', async () => {
     const c = await noi();
-    c.emit('thong-tin-app', ttMoi({ ketNoi: ketNoi({ mayTraLoi: 'không trả lời', moTa: 'LAN · không trả lời' }) }));
+    c.emit('thong-tin-app', ttMoi());
     await cho(60);
-    c.emit('thong-tin-app', ttMoi({ ketNoi: ketNoi({ moTa: 'LAN · sẵn sàng' }) }));
+    for (let to = 0; to < 3; to++) {
+      c.emit('thong-tin-app', ttMoi({ ketNoi: ketNoi({ mayTraLoi: 'đang in (IPP)', moTa: 'LAN · đang in' }) }));
+      await cho(20);
+      expect(registry.layThongTinApp(TOKEN)!.ketNoi!.mayTraLoi).toBe('đang in (IPP)');
+      c.emit('thong-tin-app', ttMoi());
+      await cho(20);
+      expect(registry.layThongTinApp(TOKEN)!.ketNoi!.mayTraLoi).toBe('sẵn sàng (IPP)');
+    }
+    await cho(MS_GIUA_DOI + 50);
+    expect(nhatKy.map((m) => m.loai)).toEqual(['app_ket_noi']);
+  });
+
+  it('IP đổi → MỘT dòng app_ket_noi_doi ngay (kể cả lúc máy đang in)', async () => {
+    const c = await noi();
+    c.emit('thong-tin-app', ttMoi());
     await cho(60);
-    expect(dong('app_ket_noi_doi').map((m) => m.noiDung)).toEqual(['Kết nối máy in "HP 4003" đổi: LAN · sẵn sàng (trước: LAN · không trả lời)']);
-    expect(dong('app_ket_noi_doi')[0].chiTiet).toMatchObject({ truoc: { mayTraLoi: 'không trả lời' }, sau: { mayTraLoi: 'sẵn sàng (IPP)' } });
+    c.emit('thong-tin-app', ttMoi({ ketNoi: ketNoi({ ip: '192.168.1.99', mayTraLoi: 'đang in (IPP)', moTa: 'Mạng LAN (WSD) · 192.168.1.99' }) }));
+    await cho(60);
+    expect(dong('app_ket_noi_doi').map((m) => m.noiDung)).toEqual([
+      'Kết nối máy in "HP 4003" đổi: Mạng LAN (WSD) · 192.168.1.99 (trước: Mạng LAN (WSD) · 192.168.1.23)',
+    ]);
+    expect(dong('app_ket_noi_doi')[0].chiTiet).toMatchObject({ truoc: { ip: '192.168.1.23' }, sau: { ip: '192.168.1.99' } });
+  });
+
+  it('nhóm câu trả lời đổi (có trả lời → "chưa trả lời") → một dòng; đổi dồn trong 1 phút → tới hạn ghi MỘT dòng trạng thái mới nhất', async () => {
+    const c = await noi();
+    c.emit('thong-tin-app', ttMoi());
+    await cho(60);
+    c.emit('thong-tin-app', ttMoi({ ketNoi: ketNoi({ mayTraLoi: 'chưa trả lời', moTa: 'LAN · chưa trả lời' }) }));
+    await cho(60);
+    expect(dong('app_ket_noi_doi').map((m) => m.noiDung)).toEqual([
+      'Kết nối máy in "HP 4003" đổi: LAN · chưa trả lời (trước: Mạng LAN (WSD) · 192.168.1.23)',
+    ]);
     // Ba lần đổi liền nhau trong hạn chờ
-    c.emit('thong-tin-app', ttMoi({ ketNoi: ketNoi({ mayTraLoi: 'không trả lời', moTa: 'LAN · không trả lời' }) }));
-    c.emit('thong-tin-app', ttMoi({ ketNoi: ketNoi({ ip: '192.168.1.99', mayTraLoi: 'không trả lời', moTa: 'LAN · .99 · không trả lời' }) }));
+    c.emit('thong-tin-app', ttMoi());
+    c.emit('thong-tin-app', ttMoi({ ketNoi: ketNoi({ ip: '192.168.1.99', moTa: 'LAN · .99' }) }));
     c.emit('thong-tin-app', ttMoi({ ketNoi: ketNoi({ loai: 'usb', laMang: false, ip: null, mayTraLoi: null, cong: 'USB001', moTa: 'USB (USB001)' }) }));
     await cho(80);
     expect(dong('app_ket_noi_doi')).toHaveLength(1);
     await cho(MS_GIUA_DOI + 50);
     expect(dong('app_ket_noi_doi').map((m) => m.noiDung)).toEqual([
-      'Kết nối máy in "HP 4003" đổi: LAN · sẵn sàng (trước: LAN · không trả lời)',
-      'Kết nối máy in "HP 4003" đổi: USB (USB001) (trước: LAN · sẵn sàng)',
+      'Kết nối máy in "HP 4003" đổi: LAN · chưa trả lời (trước: Mạng LAN (WSD) · 192.168.1.23)',
+      'Kết nối máy in "HP 4003" đổi: USB (USB001) (trước: LAN · chưa trả lời)',
     ]);
     expect(dong('app_ket_noi')).toHaveLength(1);
     expect(registry.layThongTinApp(TOKEN)!.ketNoi!.loai).toBe('usb');
@@ -157,28 +187,56 @@ describe('agent-ws — thong-tin-app: kết nối máy in (USB / LAN)', () => {
     const c = await noi();
     c.emit('thong-tin-app', ttMoi());
     await cho(60);
-    c.emit('thong-tin-app', ttMoi({ ketNoi: ketNoi({ mayTraLoi: 'không trả lời' }) })); // đổi #1 → ghi ngay
+    c.emit('thong-tin-app', ttMoi({ ketNoi: ketNoi({ ip: '192.168.1.99' }) })); // đổi #1 → ghi ngay
     await cho(40);
-    c.emit('thong-tin-app', ttMoi()); // đổi #2 (quay lại) → hẹn
-    c.emit('thong-tin-app', ttMoi({ ketNoi: ketNoi({ mayTraLoi: 'không trả lời' }) })); // như dòng gần nhất → huỷ hẹn
+    c.emit('thong-tin-app', ttMoi()); // đổi #2 (quay lại .23) → hẹn
+    c.emit('thong-tin-app', ttMoi({ ketNoi: ketNoi({ ip: '192.168.1.99' }) })); // như dòng gần nhất → huỷ hẹn
     await cho(MS_GIUA_DOI + 80);
     expect(dong('app_ket_noi_doi')).toHaveLength(1);
   });
 
-  it('thong-tin-app tới SAU khi dòng app_ket_noi đã ghi vì hết giờ chờ → không app_ket_noi thứ hai; kết nối lần đầu biết → một dòng đổi', async () => {
+  it('(giám sát vòng 2) app nối TRƯỚC khi nhận ra máy in → MỘT dòng "Đã nhận diện kết nối máy in …", không phải dòng "đổi … (trước: chưa rõ)"', async () => {
+    const c = await noi();
+    // 0.2.8 gửi ngay lúc nối, chưa nhận ra máy in (không ketNoi / loai)
+    c.emit('thong-tin-app', ttMoi({ ketNoi: null }));
+    await cho(60);
+    expect(dong('app_ket_noi').map((m) => m.noiDung)).toEqual(['App máy in kết nối (máy in "HP 4003", máy tính KHO-HN, app v0.2.8, Windows 7 SP1)']);
+    c.emit('thong-tin-app', ttMoi()); // nhận ra máy in
+    await cho(40);
+    c.emit('thong-tin-app', ttMoi({ ketNoi: ketNoi({ mayTraLoi: 'đang in (IPP)' }) })); // lật khi in → không gì
+    await cho(40);
+    expect(dong('app_nhan_dien_ket_noi').map((m) => m.noiDung)).toEqual([
+      'Đã nhận diện kết nối máy in "HP 4003": Mạng LAN (WSD) · 192.168.1.23',
+    ]);
+    expect(dong('app_ket_noi_doi')).toHaveLength(0);
+    // Mất dấu rồi nhận ra lại (cùng kết nối) → không dòng nhận diện thứ hai, không dòng đổi
+    c.emit('thong-tin-app', ttMoi({ ketNoi: null }));
+    await cho(20);
+    expect(registry.layThongTinApp(TOKEN)!.ketNoi).toBeNull(); // thẻ vẫn theo sát
+    c.emit('thong-tin-app', ttMoi());
+    await cho(MS_GIUA_DOI + 50);
+    expect(nhatKy.map((m) => m.loai)).toEqual(['app_ket_noi', 'app_nhan_dien_ket_noi']);
+    // Đổi THẬT sau đó vẫn ghi dòng đổi
+    c.emit('thong-tin-app', ttMoi({ ketNoi: ketNoi({ ip: '192.168.1.99', moTa: 'LAN · .99' }) }));
+    await cho(60);
+    expect(dong('app_ket_noi_doi').map((m) => m.noiDung)).toEqual(['Kết nối máy in "HP 4003" đổi: LAN · .99 (trước: Mạng LAN (WSD) · 192.168.1.23)']);
+  });
+
+  it('thong-tin-app tới SAU khi dòng app_ket_noi đã ghi vì hết giờ chờ → không app_ket_noi thứ hai; dòng "Đã nhận diện" thay cho dòng đổi', async () => {
     const c = await noi();
     await cho(150); // quá msChoThongTin (100 ms) → dòng app_ket_noi trơn
     c.emit('thong-tin-app', ttMoi());
     await cho(60);
     expect(dong('app_ket_noi').map((m) => m.noiDung)).toEqual(['App máy in kết nối']);
-    expect(dong('app_ket_noi_doi').map((m) => m.noiDung)).toEqual(['Kết nối máy in "HP 4003" đổi: Mạng LAN (WSD) · 192.168.1.23 (trước: chưa rõ)']);
+    expect(dong('app_ket_noi_doi')).toHaveLength(0);
+    expect(dong('app_nhan_dien_ket_noi').map((m) => m.noiDung)).toEqual(['Đã nhận diện kết nối máy in "HP 4003": Mạng LAN (WSD) · 192.168.1.23']);
   });
 
   it('mất kết nối → registry bỏ thông tin app; đổi đang hẹn không ghi sau khi đã rớt', async () => {
     const c = await noi();
     c.emit('thong-tin-app', ttMoi());
     await cho(60);
-    c.emit('thong-tin-app', ttMoi({ ketNoi: ketNoi({ mayTraLoi: 'không trả lời' }) })); // ghi ngay
+    c.emit('thong-tin-app', ttMoi({ ketNoi: ketNoi({ ip: '192.168.1.99' }) })); // ghi ngay
     await cho(40);
     c.emit('thong-tin-app', ttMoi()); // hẹn
     await cho(40);

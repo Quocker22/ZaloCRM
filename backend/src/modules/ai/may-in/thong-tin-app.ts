@@ -105,11 +105,32 @@ export function docThongTinApp(tt: unknown, lamSach: LamSach): ThongTinApp {
 }
 
 /**
- * Khoá so "kết nối đã đổi chưa" — CHỈ loai / ip / mayTraLoi (moTa/cong đổi chữ không đáng một
- * dòng nhật ký). Không biết gì → chuỗi rỗng.
+ * NHÓM câu trả lời của máy in — so theo nhóm chứ không theo nguyên chữ (giám sát vòng 2): chữ
+ * `mayTraLoi` lật "sẵn sàng (IPP)" ↔ "đang in (IPP)" mỗi tờ hoá đơn, so nguyên chữ là ~2 dòng
+ * "Kết nối máy in thay đổi" giả mỗi hoá đơn.
+ *   'co'   — máy có trả lời (mọi chữ KHÔNG bắt đầu bằng "chưa" / "đang hỏi");
+ *   'chua' — bắt đầu bằng "chưa" (máy chưa trả lời);
+ *   ''     — null, hoặc bắt đầu bằng "đang hỏi" (chưa có kết quả).
+ * App (print-agent-rs) dùng cùng cách nhóm để quyết lúc gửi lại `thong-tin-app`.
+ */
+export function nhomTraLoi(mayTraLoi: string | null | undefined): '' | 'chua' | 'co' {
+  const chu = (mayTraLoi ?? '').normalize('NFC').trim().toLowerCase();
+  if (!chu || chu.startsWith('đang hỏi')) return '';
+  if (chu.startsWith('chưa')) return 'chua';
+  return 'co';
+}
+
+/**
+ * Khoá so "kết nối đã đổi chưa" — `loai|ip|nhóm trả lời` (moTa/cổng đổi chữ, hay máy lật sẵn
+ * sàng ↔ đang in, không đáng một dòng nhật ký). Không biết gì → chuỗi rỗng.
  */
 export function khoaKetNoi(k: KetNoiMayIn | null | undefined): string {
-  return k ? `${k.loai ?? ''}|${k.ip ?? ''}|${k.mayTraLoi ?? ''}` : '';
+  return k ? `${k.loai ?? ''}|${k.ip ?? ''}|${nhomTraLoi(k.mayTraLoi)}` : '';
+}
+
+/** Đã biết máy in nối kiểu gì chưa (có `loai`). Chưa biết thì không có gì để so "đổi". */
+export function daBietKetNoi(k: KetNoiMayIn | null | undefined): k is KetNoiMayIn & { loai: LoaiKetNoi } {
+  return !!k && !!k.loai;
 }
 
 const NHAN_MANG: Partial<Record<LoaiKetNoi, string>> = { wsd: 'WSD', tcpip: 'TCP/IP', ipp: 'IPP' };
@@ -141,6 +162,31 @@ export function moTaKetNoiApp(tt: ThongTinApp | null): string {
     moTaKetNoi(tt.ketNoi),
     tt.heDieuHanh,
   ].filter(Boolean).join(', ');
+}
+
+/**
+ * Câu dòng `app_nhan_dien_ket_noi` — app nối TRƯỚC khi nhận ra máy in (dòng app_ket_noi chưa có
+ * kết nối), sau đó mới biết: `Đã nhận diện kết nối máy in "HP 4003": <moTa>`. Không phải "đổi".
+ */
+export function cauNhanDienKetNoi(k: KetNoiMayIn, mayIn: string | null): string {
+  return `Đã nhận diện kết nối máy in${mayIn ? ` "${mayIn}"` : ''}: ${moTaKetNoi(k) ?? 'chưa rõ'}`;
+}
+
+/**
+ * Nhãn LOẠI kết nối, không IP/cổng/tên máy — `moTa` cho người dùng KHÔNG phải owner/admin (GET
+ * /may-in-agents mở cho mọi người đăng nhập; IP LAN, cổng, hệ điều hành chỉ cho quản trị).
+ */
+export function nhanLoaiKetNoi(loai: LoaiKetNoi | null): string | null {
+  if (loai === 'usb') return 'USB';
+  if (loai === 'chia_se') return 'Máy in chia sẻ';
+  if (loai && NHAN_MANG[loai]) return `Mạng LAN (${NHAN_MANG[loai]})`;
+  return null;
+}
+
+/** Bản `ketNoi` cho thành viên thường: chỉ loại + có phải mạng + nhãn loại; mọi chi tiết mạng bỏ. */
+export function ketNoiChoThanhVien(k: KetNoiMayIn | null): KetNoiMayIn | null {
+  if (!k) return null;
+  return { loai: k.loai, laMang: k.laMang, cong: null, ip: null, nguonIp: null, mayTraLoi: null, moTa: nhanLoaiKetNoi(k.loai) };
 }
 
 /** Câu dòng `app_ket_noi_doi`: `Kết nối máy in "HP 4003" đổi: <mới> (trước: <cũ>)`. */

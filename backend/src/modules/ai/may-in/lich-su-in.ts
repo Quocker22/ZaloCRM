@@ -139,18 +139,28 @@ export function mocDauLichSu(bayGio: number): Date {
 
 // ── Tham số ──────────────────────────────────────────────────────────────────
 
-/** Đọc query string → tham số đã kiểm. Ném ThamSoSai khi sai (route trả 400). */
-export function phanTichThamSoLichSu(query: Record<string, unknown>): ThamSoLichSu {
+/**
+ * Đọc query string → tham số đã kiểm. Ném ThamSoSai khi sai (route trả 400).
+ *
+ * Con trỏ `truoc` ở TƯƠNG LAI quá 1 ngày (vd năm 99999 — JS nhận, Prisma/Postgres thì không →
+ * 500, giám sát vòng 2) → 400. Con trỏ CŨ HƠN mốc đầu cửa sổ không lỗi: timLichSuIn trả trang
+ * rỗng mà không truy vấn (người đang "Tải thêm" lúc cửa sổ trượt qua dòng cuối không thấy lỗi).
+ */
+export function phanTichThamSoLichSu(query: Record<string, unknown>, bayGio: number = Date.now()): ThamSoLichSu {
   const trangThai = query.trangThai;
   if (typeof trangThai !== 'string' || !TRANG_THAI_LICH_SU.includes(trangThai as TrangThaiLichSu)) {
     throw new ThamSoSai(`trangThai phải là một trong: ${TRANG_THAI_LICH_SU.join(', ')}`);
   }
   const gioiHanTho = Number(query.gioiHan ?? 50);
   const gioiHan = Number.isFinite(gioiHanTho) ? Math.min(200, Math.max(1, Math.floor(gioiHanTho))) : 50;
+  const truoc = docConTro(query.truoc, 'truoc');
+  if (truoc && truoc.luc.getTime() > bayGio + NGAY_MS) {
+    throw new ThamSoSai('truoc nằm ngoài khoảng thời gian cho phép');
+  }
   return {
     trangThai: trangThai as TrangThaiLichSu,
     mayInId: typeof query.mayInId === 'string' && query.mayInId ? query.mayInId.slice(0, 100) : null,
-    truoc: docConTro(query.truoc, 'truoc'),
+    truoc,
     gioiHan,
   };
 }
@@ -160,7 +170,8 @@ export function phanTichThamSoLichSu(query: Record<string, unknown>): ThamSoLich
 /**
  * Điều kiện Prisma của một trang lịch sử — tách riêng để test được không cần DB. `may` = điều
  * kiện máy đã quy đổi (dieuKienMay). Con trỏ ổn định theo (updated_at DESC, id DESC): hai lệnh
- * kết thúc cùng mili-giây không bị mất/lặp giữa hai trang.
+ * kết thúc cùng mili-giây không bị mất/lặp giữa hai trang. `updated_at <= luc` đứng RIÊNG (ngoài
+ * OR) để Postgres dùng làm CẬN TRÊN của index — trang 2+ không quét lại từ đầu cửa sổ.
  */
 export function taoWhereLichSu(
   orgId: string,
@@ -172,6 +183,7 @@ export function taoWhereLichSu(
   const va: Array<Record<string, unknown>> = [{ orgId }, { trangThai }, { updatedAt: { gte: tu } }];
   if (may) va.push(may);
   if (truoc) {
+    va.push({ updatedAt: { lte: truoc.luc } });
     va.push({
       OR: [
         { updatedAt: { lt: truoc.luc } },
@@ -212,6 +224,8 @@ export async function timLichSuIn(
   const tu = mocDauLichSu(bayGio);
   const chung = { tu: tu.toISOString(), capNhat: new Date(bayGio).toISOString() };
 
+  // Con trỏ cũ hơn mốc đầu cửa sổ: trang sau chắc chắn rỗng — trả luôn, không truy vấn.
+  if (t.truoc && t.truoc.luc.getTime() < tu.getTime()) return { items: [], tiepTheo: null, tong: null, ...chung };
   const may = await dieuKienMay(p, orgId, t.mayInId, tokenMacDinh);
   if (may === 'khong_co') return { items: [], tiepTheo: null, tong: t.truoc ? null : 0, ...chung };
 
@@ -239,7 +253,8 @@ export async function timLichSuIn(
     });
     for (const m of cacMay) mayTheoToken.set(m.token, { id: m.id, ten: m.ten });
   }
-  const tenKhach = await tenKhachTheoJob(p, trang.map((j) => j.id));
+  // Mọi dòng thuộc org này (where orgId) — tên khách chỉ lấy từ nhật ký CÙNG org.
+  const tenKhach = await tenKhachTheoJob(p, trang.map((j) => ({ id: j.id, orgId })));
 
   const items: MucLichSu[] = trang.map((j) => {
     const token = tokenCua(j);

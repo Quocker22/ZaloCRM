@@ -23,7 +23,9 @@
 // Guard: CHỈ admin/owner được ghi (POST/PUT/DELETE) — theo đúng khuôn
 // agent-operator-routes.ts (mở RANH GIỚI BẢO MẬT: ai vào bảng này là cầm được
 // token định tuyến job in thật của org). GET (list + khos) cho mọi user đã
-// đăng nhập xem — không lộ gì nhạy cảm (token đã cắt đuôi).
+// đăng nhập xem — không lộ gì nhạy cảm (token đã cắt đuôi). Từ 26/09 (giám sát
+// vòng 2): danh sách cho người KHÔNG phải owner/admin bỏ chi tiết mạng/máy tính
+// (IP LAN, cổng Windows, hệ điều hành) — chỉ còn loại kết nối (traDanhSachMayIn).
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { Readable } from 'node:stream';
 import { config } from '../../../config/index.js';
@@ -41,9 +43,28 @@ import {
 } from './nhat-ky-app.js';
 import { taoDichVuHangDoi, laIdHopLe, type DichVuHangDoi } from './huy-lenh-in.js';
 import { phanTichThamSoLichSu, timLichSuIn, demLichSuIn } from './lich-su-in.js';
+import { ketNoiChoThanhVien } from './thong-tin-app.js';
+import type { MayInAnToan } from './print-agent-service.js';
 
 function laAdmin(role: string): boolean {
   return role === 'owner' || role === 'admin';
+}
+
+/**
+ * GET / — danh sách máy in của org (mọi người đã đăng nhập). owner/admin thấy đủ kết nối máy in
+ * (IP, cổng Windows, máy có trả lời) + hệ điều hành; người khác chỉ thấy LOẠI kết nối
+ * ("USB", "Mạng LAN (WSD)", "Máy in chia sẻ") — không IP LAN, không cổng, không hệ điều hành.
+ */
+export async function traDanhSachMayIn(
+  user: { orgId: string; role: string },
+  deps: { lay?: (orgId: string) => Promise<MayInAnToan[]> } = {},
+): Promise<{ code: number; body: { mayIn: MayInAnToan[] } }> {
+  const ds = await (deps.lay ?? danhSachMayIn)(user.orgId);
+  if (laAdmin(user.role)) return { code: 200, body: { mayIn: ds } };
+  return {
+    code: 200,
+    body: { mayIn: ds.map((m) => ({ ...m, ketNoi: ketNoiChoThanhVien(m.ketNoi), heDieuHanh: null })) },
+  };
 }
 
 /**
@@ -296,9 +317,8 @@ export async function registerPrintAgentRoutes(app: FastifyInstance): Promise<vo
 
   // ── Danh sách máy in (token chỉ hiện đuôi + trạng thái online) ──────────
   app.get('/', async (req: FastifyRequest, reply: FastifyReply) => {
-    const user = req.user!;
-    const mayIn = await danhSachMayIn(user.orgId);
-    return reply.send({ mayIn });
+    const kq = await traDanhSachMayIn(req.user!);
+    return reply.code(kq.code).send(kq.body);
   });
 
   // ── Nhật ký máy in (xem traNhatKy) ────────────────────────────────────────

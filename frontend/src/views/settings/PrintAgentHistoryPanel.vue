@@ -79,7 +79,7 @@
               <th class="ls-c-may">Máy in</th>
               <th>Kết quả</th>
               <th class="ls-c-gio" title="Giờ Việt Nam">Tạo lúc</th>
-              <th class="ls-c-gio" title="Giờ Việt Nam">{{ chu.cotKetThuc }}</th>
+              <th class="ls-c-gio ls-c-gio-ket-thuc" :title="chu.tieuDeCotKetThuc">{{ chu.cotKetThuc }}</th>
             </tr>
           </thead>
           <tbody :class="{ 'ls-mo': dangTai }">
@@ -259,7 +259,9 @@ async function taiThem(): Promise<void> {
 /** Nhịp tự làm mới: lấy trang đầu, gộp dòng mới lên trên, không nháy bảng. */
 async function lamMoiNgam(): Promise<void> {
   if (dangTai.value || dangTaiThem.value || dangLamMoi) return;
-  if (!daTai.value || items.value.length === 0) {
+  // Chỉ lần tải ĐẦU mới đi đường có "Đang tải…". Danh sách rỗng (vd "Đã huỷ" chưa có gì) cũng
+  // làm mới NGẦM — bản trước gọi taiLai() nên cứ 15 giây lại nháy "Đang tải…" (giám sát vòng 2).
+  if (!daTai.value) {
     await taiLai({ ngam: true });
     return;
   }

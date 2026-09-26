@@ -21,6 +21,8 @@ export interface ChuLichSu {
   moTa: string;
   /** Tiêu đề cột giờ kết thúc. */
   cotKetThuc: string;
+  /** Tooltip của cột giờ kết thúc — giờ đó là giờ GÌ. */
+  tieuDeCotKetThuc: string;
   /** Nhãn cột giờ kết thúc ở khung hẹp (không có đầu cột). */
   nhanKetThuc: string;
   rong: string;
@@ -35,6 +37,8 @@ export const CHU_LICH_SU: Readonly<Record<TrangThaiLichSu, ChuLichSu>> = {
     bieuTuongThe: 'mdi-printer-check',
     moTa: `Hoá đơn đã in xong · ${SO_NGAY_LICH_SU} ngày gần nhất · tự làm mới 15 giây`,
     cotKetThuc: 'In lúc',
+    // Không phải giờ giấy rơi ra khay: app báo sau khi máy in xong (hoặc kết quả đến trễ).
+    tieuDeCotKetThuc: 'Giờ hệ thống nhận xác nhận in xong (giờ Việt Nam)',
     nhanKetThuc: 'In lúc ',
     rong: `Chưa có hoá đơn nào in xong trong ${SO_NGAY_LICH_SU} ngày gần nhất.`,
     chip: { chu: 'Đã in', bieuTuong: 'mdi-check-circle-outline', mau: 'xanh-la' },
@@ -45,6 +49,7 @@ export const CHU_LICH_SU: Readonly<Record<TrangThaiLichSu, ChuLichSu>> = {
     bieuTuongThe: 'mdi-cancel',
     moTa: `Lệnh in đã huỷ trước khi gửi — hoá đơn chắc chắn không in · ${SO_NGAY_LICH_SU} ngày gần nhất · tự làm mới 15 giây`,
     cotKetThuc: 'Huỷ lúc',
+    tieuDeCotKetThuc: 'Giờ lệnh in bị huỷ (giờ Việt Nam)',
     nhanKetThuc: 'Huỷ lúc ',
     rong: `Không có lệnh in nào bị huỷ trong ${SO_NGAY_LICH_SU} ngày gần nhất.`,
     chip: { chu: 'Đã huỷ', bieuTuong: 'mdi-cancel', mau: 'xam' },

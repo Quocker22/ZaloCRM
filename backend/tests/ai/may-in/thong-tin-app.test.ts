@@ -5,6 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   docThongTinApp, docKetNoi, khoaKetNoi, moTaKetNoi, moTaKetNoiApp, cauDoiKetNoi, chiTietThongTinApp,
+  nhomTraLoi, daBietKetNoi, cauNhanDienKetNoi, ketNoiChoThanhVien, nhanLoaiKetNoi,
   LOAI_KET_NOI, NGUON_IP, BAN_BUILD, TRAN_CHU_THONG_TIN, type LamSach,
 } from '../../../src/modules/ai/may-in/thong-tin-app.js';
 import { catChu, cheToken } from '../../../src/modules/ai/may-in/nhat-ky.js';
@@ -116,11 +117,48 @@ describe('câu nhật ký + khoá so đổi', () => {
 
   it('khoá so đổi CHỈ theo loai / ip / mayTraLoi (moTa, cổng đổi chữ không tính)', () => {
     const a = docKetNoi(KET_NOI_WSD, lamSach);
-    expect(khoaKetNoi(a)).toBe(khoaKetNoi(docKetNoi({ ...KET_NOI_WSD, moTa: 'khác chữ', cong: 'WSD-khac' }, lamSach)));
-    expect(khoaKetNoi(a)).not.toBe(khoaKetNoi(docKetNoi({ ...KET_NOI_WSD, mayTraLoi: 'không trả lời' }, lamSach)));
-    expect(khoaKetNoi(a)).not.toBe(khoaKetNoi(docKetNoi({ ...KET_NOI_WSD, ip: '192.168.1.24' }, lamSach)));
-    expect(khoaKetNoi(a)).not.toBe(khoaKetNoi(docKetNoi({ ...KET_NOI_WSD, loai: 'tcpip' }, lamSach)));
+    const k = (them: Record<string, unknown>) => khoaKetNoi(docKetNoi({ ...KET_NOI_WSD, ...them }, lamSach));
+    expect(khoaKetNoi(a)).toBe('wsd|192.168.1.23|co');
+    expect(k({ moTa: 'khác chữ', cong: 'WSD-khac' })).toBe(khoaKetNoi(a));
+    // (giám sát vòng 2) máy lật sẵn sàng ↔ đang in mỗi tờ — cùng nhóm "co", KHÔNG phải đổi
+    expect(k({ mayTraLoi: 'đang in (IPP)' })).toBe(khoaKetNoi(a));
+    expect(k({ mayTraLoi: 'chưa trả lời' })).not.toBe(khoaKetNoi(a));
+    expect(k({ mayTraLoi: null })).not.toBe(khoaKetNoi(a));
+    expect(k({ ip: '192.168.1.24' })).not.toBe(khoaKetNoi(a));
+    expect(k({ loai: 'tcpip' })).not.toBe(khoaKetNoi(a));
     expect(khoaKetNoi(null)).toBe('');
+  });
+
+  it('(giám sát vòng 2) nhóm câu trả lời: "chưa…" → chua; null / "đang hỏi…" → rỗng; còn lại → co (không phân biệt hoa/thường, NFC/NFD)', () => {
+    expect(['sẵn sàng (IPP)', 'đang in (IPP)', 'Sẵn sàng', 'không trả lời', 'bận'].map(nhomTraLoi)).toEqual(['co', 'co', 'co', 'co', 'co']);
+    expect(['chưa trả lời', 'Chưa trả lời (WSD)', '  chưa kết nối'].map(nhomTraLoi)).toEqual(['chua', 'chua', 'chua']);
+    expect([null, undefined, '', '   ', 'đang hỏi…', 'Đang hỏi máy in'].map(nhomTraLoi)).toEqual(['', '', '', '', '', '']);
+    expect(nhomTraLoi('chưa trả lời'.normalize('NFD'))).toBe('chua');
+    expect(nhomTraLoi('đang hỏi'.normalize('NFD'))).toBe('');
+  });
+
+  it('daBietKetNoi: chỉ khi có loai hợp lệ', () => {
+    expect(daBietKetNoi(docKetNoi(KET_NOI_WSD, lamSach))).toBe(true);
+    expect(daBietKetNoi(docKetNoi({ loai: 'lạ', cong: 'USB001' }, lamSach))).toBe(false);
+    expect(daBietKetNoi(null)).toBe(false);
+  });
+
+  it('dòng "Đã nhận diện kết nối máy in …"', () => {
+    expect(cauNhanDienKetNoi(docKetNoi(KET_NOI_WSD, lamSach)!, 'HP 4003'))
+      .toBe('Đã nhận diện kết nối máy in "HP 4003": Mạng LAN (WSD) · 192.168.1.23 · máy báo sẵn sàng');
+    expect(cauNhanDienKetNoi(docKetNoi({ loai: 'usb', cong: 'USB001' }, lamSach)!, null)).toBe('Đã nhận diện kết nối máy in: USB (USB001)');
+  });
+
+  it('(giám sát vòng 2) bản cho thành viên thường: chỉ loại + laMang + nhãn loại — không IP, cổng, nguồn IP, câu trả lời', () => {
+    expect(ketNoiChoThanhVien(docKetNoi(KET_NOI_WSD, lamSach))).toEqual({
+      loai: 'wsd', laMang: true, cong: null, ip: null, nguonIp: null, mayTraLoi: null, moTa: 'Mạng LAN (WSD)',
+    });
+    expect(ketNoiChoThanhVien(docKetNoi({ loai: 'usb', laMang: false, cong: 'USB001', moTa: 'USB (USB001)' }, lamSach))!.moTa).toBe('USB');
+    expect(ketNoiChoThanhVien(docKetNoi({ loai: 'chia_se', cong: '\\\\KHO-HN\\HP' }, lamSach))!.moTa).toBe('Máy in chia sẻ');
+    expect(ketNoiChoThanhVien(docKetNoi({ loai: 'khac', cong: 'FILE:', moTa: 'Cổng FILE: trên KHO-HN' }, lamSach))!.moTa).toBeNull();
+    expect(ketNoiChoThanhVien(null)).toBeNull();
+    expect(nhanLoaiKetNoi('tcpip')).toBe('Mạng LAN (TCP/IP)');
+    expect(nhanLoaiKetNoi(null)).toBeNull();
   });
 
   it('app_ket_noi_doi: mới + trước; không biết → "chưa rõ"', () => {

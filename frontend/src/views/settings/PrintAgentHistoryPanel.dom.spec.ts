@@ -110,6 +110,8 @@ describe('PrintAgentHistoryPanel — "Đã in"', () => {
     expect(d2.find('.ls-khach').exists()).toBe(false);
     expect(d2.find('.ls-c-may').text()).toContain('Máy HCM');
     expect(w.findAll('th').map((t) => t.text())).toEqual(['Hoá đơn', 'Máy in', 'Kết quả', 'Tạo lúc', 'In lúc']);
+    // (giám sát vòng 2) "In lúc" là giờ HỆ THỐNG nhận xác nhận, không phải giờ giấy ra khay
+    expect(w.findAll('th').at(-1)!.attributes('title')).toBe('Giờ hệ thống nhận xác nhận in xong (giờ Việt Nam)');
     expect(w.find('.ls-dem').text()).toBe('2 hoá đơn · cập nhật 14:00:00');
     // Chỉ đọc: không có nút huỷ / bỏ trên dòng
     expect(w.findAll('tr.ls-dong button')).toHaveLength(0);
@@ -230,5 +232,26 @@ describe('PrintAgentHistoryPanel — "Đã huỷ"', () => {
     await flushPromises();
     expect(r.text()).toContain('Không có lệnh in nào bị huỷ trong 30 ngày gần nhất.');
     r.unmount();
+  });
+
+  it('(giám sát vòng 2) danh sách RỖNG: nhịp 15 giây làm mới NGẦM — không nháy "Đang tải…", câu rỗng đứng yên; có dòng mới thì hiện', async () => {
+    vi.mocked(layLichSuIn).mockResolvedValueOnce(trang([]));
+    const w = gan({ trangThai: 'da_huy' });
+    await flushPromises();
+    expect(w.text()).toContain('Không có lệnh in nào bị huỷ trong 30 ngày gần nhất.');
+    const cham = treo<TrangLichSu>();
+    vi.mocked(layLichSuIn).mockReturnValueOnce(cham.p);
+    vi.advanceTimersByTime(15_000);
+    await flushPromises();
+    expect(goi()).toHaveLength(2);
+    expect(goi()[1][1]).toMatchObject({ ngam: true });
+    // Trong lúc yêu cầu ngầm còn bay: KHÔNG "Đang tải…", câu rỗng vẫn đó, nút tải lại không quay
+    expect(w.text()).not.toContain('Đang tải');
+    expect(w.text()).toContain('Không có lệnh in nào bị huỷ trong 30 ngày gần nhất.');
+    cham.xong(trang([muc('h1', { trangThai: 'da_huy', lyDo: 'Đã huỷ bởi ZaloCRM (Chị Hoa)' })]));
+    await flushPromises();
+    expect(dong(w).map((d) => d.attributes('data-id'))).toEqual(['h1']);
+    expect(w.findAll('th').at(-1)!.attributes('title')).toBe('Giờ lệnh in bị huỷ (giờ Việt Nam)');
+    w.unmount();
   });
 });

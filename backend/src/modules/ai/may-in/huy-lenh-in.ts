@@ -344,23 +344,32 @@ export function lyDoCua(
  * Tên khách theo job: dòng print_logs MỚI NHẤT có tên khách của cùng print_job_id. Lỗi → rỗng.
  * Dùng chung với lịch sử in (lich-su-in.ts) — tên khách KHÔNG nằm trong print_jobs, và không
  * được hỏi Odoo cho từng dòng.
+ *
+ * Nhận cả org của từng job (giám sát vòng 2, phòng thủ nhiều lớp): chỉ đọc dòng nhật ký CÙNG org
+ * với job — lọc `org_id` ngay trong câu truy vấn, rồi đối chiếu lại từng dòng theo job.
  */
 export async function tenKhachTheoJob(
   p: { printLog: Pick<PrismaHangDoiHuy['printLog'], 'findMany'> },
-  ids: string[],
+  jobs: ReadonlyArray<{ id: string; orgId: string }>,
 ): Promise<Map<string, string>> {
   const kq = new Map<string, string>();
-  if (ids.length === 0) return kq;
+  if (jobs.length === 0) return kq;
+  const orgTheoJob = new Map(jobs.map((j) => [j.id, j.orgId]));
   try {
     const rows = await p.printLog.findMany({
-      where: { printJobId: { in: ids }, tenKhach: { not: null } },
+      where: {
+        printJobId: { in: [...orgTheoJob.keys()] },
+        orgId: { in: [...new Set(orgTheoJob.values())] },
+        tenKhach: { not: null },
+      },
       orderBy: { createdAt: 'desc' },
-      select: { printJobId: true, tenKhach: true },
+      select: { printJobId: true, orgId: true, tenKhach: true },
     });
     for (const r of rows) {
       const id = r.printJobId as string | null;
       const ten = r.tenKhach as string | null;
-      if (id && ten && !kq.has(id)) kq.set(id, ten);
+      if (!id || !ten || kq.has(id) || r.orgId !== orgTheoJob.get(id)) continue;
+      kq.set(id, ten);
     }
   } catch (err) {
     // Bảng nhật ký chưa migrate / DB chập chờn — hàng đợi vẫn hiện, chỉ thiếu tên khách.
@@ -421,7 +430,7 @@ export async function layHangDoi(
     });
     for (const m of cacMay) mayTheoToken.set(m.token, { id: m.id, ten: m.ten });
   }
-  const tenKhach = await tenKhachTheoJob(p, tatCa.map((j) => j.id));
+  const tenKhach = await tenKhachTheoJob(p, tatCa);
 
   const ttTheoToken = new Map<string, TinhTrangMayHangDoi>();
   const tinhTrang = (token: string | null): TinhTrangMayHangDoi => {
@@ -554,14 +563,14 @@ export async function huyLenhIn(
           agentToken: job.agentToken ?? tokenMacDinh,
           printJobId: job.id,
           soHoaDon: job.soHoaDon,
-          tenKhach: (await tenKhachTheoJob(p, [id])).get(id) ?? null,
+          tenKhach: (await tenKhachTheoJob(p, [job])).get(id) ?? null,
           chiTiet: { nguon: goc?.loai ?? nguon.loai, cach: 'chua_gui', ghiBu: true },
         });
       }
       return k;
     }
 
-    const tenKhach = job ? (await tenKhachTheoJob(p, [id])).get(id) ?? null : null;
+    const tenKhach = job ? (await tenKhachTheoJob(p, [job])).get(id) ?? null : null;
     const hd = k.soHoaDon ? `hoá đơn ${k.soHoaDon}` : `mã ${catChu(id, 64)}`;
     const nk: MucNhatKy = {
       loai: k.ok ? 'da_huy' : 'huy_that_bai',
@@ -625,7 +634,7 @@ export async function boTheoDoi(
         agentToken: j.agentToken ?? tokenMacDinh,
         printJobId: j.id,
         soHoaDon: j.soHoaDon,
-        tenKhach: (await tenKhachTheoJob(p, [id])).get(id) ?? null,
+        tenKhach: (await tenKhachTheoJob(p, [j])).get(j.id) ?? null,
         chiTiet: { nguon: loaiNguon, ...(ghiBu ? { ghiBu: true } : {}) },
       });
     };

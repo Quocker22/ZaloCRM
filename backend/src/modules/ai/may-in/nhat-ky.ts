@@ -61,6 +61,8 @@ export const MA_SU_KIEN: Record<string, MoTaMa> = {
   // App ≥ 0.2.8 gửi lại thong-tin-app khi CÁCH máy in nối đổi (USB/LAN, IP, máy có trả lời) —
   // agent-ws ghi tối đa 1 dòng/phút/kết nối (thong-tin-app.ts). Cùng chữ frontend may-in-nhan.ts.
   app_ket_noi_doi: { nhan: 'Kết nối máy in thay đổi', mucDo: 'thong_tin' },
+  // App nối trước khi nhận ra máy in, rồi mới biết — MỘT dòng mỗi kết nối, KHÔNG phải "đổi".
+  app_nhan_dien_ket_noi: { nhan: 'Đã nhận diện kết nối máy in', mucDo: 'thong_tin' },
   // thong_tin, không phải canh_bao: máy HN rớt-nối 3–5 lần/giờ (MAY-IN-HANDOFF
   // 13.6) — ~100 dòng/ngày sẽ che mất dòng hết giấy/kẹt giấy ở bộ lọc mặc định
   // "Lỗi & cảnh báo". Mất kết nối THẬT (quá 2 phút) ghi riêng app_offline_lau.

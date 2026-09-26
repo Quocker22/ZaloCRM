@@ -100,10 +100,17 @@ describe('phanTichThamSoLichSu', () => {
       .toEqual({ luc: new Date('2026-09-25T10:00:00.000Z'), id: 'j9' });
     expect(() => phanTichThamSoLichSu({ trangThai: 'da_in', truoc: 'rac' })).toThrow(ThamSoSai);
   });
+
+  it('(giám sát vòng 2) con trỏ ở TƯƠNG LAI quá 1 ngày (vd năm 99999 → trước đây 500) → 400; trong vòng 1 ngày thì nhận', () => {
+    for (const xa of ['+099999-01-01T00:00:00.000Z|j1', '2026-09-27T08:00:00.001Z|j1', '9999-12-31T00:00:00.000Z|j1']) {
+      expect(() => phanTichThamSoLichSu({ trangThai: 'da_in', truoc: xa }, BAY_GIO), xa).toThrow(ThamSoSai);
+    }
+    expect(phanTichThamSoLichSu({ trangThai: 'da_in', truoc: '2026-09-27T08:00:00.000Z|j1' }, BAY_GIO).truoc!.id).toBe('j1');
+  });
 });
 
 describe('taoWhereLichSu', () => {
-  it('org + trạng thái + updated_at ≥ mốc (+ máy) (+ con trỏ theo (updated_at, id))', () => {
+  it('org + trạng thái + updated_at ≥ mốc (+ máy) (+ con trỏ: cận trên updated_at ≤ luc RIÊNG + phân xử (updated_at, id))', () => {
     const tu = new Date('2026-08-27T08:00:00.000Z');
     expect(taoWhereLichSu('o1', 'da_in', tu, null, null)).toEqual({
       AND: [{ orgId: 'o1' }, { trangThai: 'da_in' }, { updatedAt: { gte: tu } }],
@@ -112,6 +119,8 @@ describe('taoWhereLichSu', () => {
     expect(taoWhereLichSu('o1', 'da_huy', tu, { agentToken: 'x' }, { luc, id: 'j5' })).toEqual({
       AND: [
         { orgId: 'o1' }, { trangThai: 'da_huy' }, { updatedAt: { gte: tu } }, { agentToken: 'x' },
+        // Đứng ngoài OR → Postgres dùng làm cận trên của index (trang 2+ không quét lại từ đầu cửa sổ)
+        { updatedAt: { lte: luc } },
         { OR: [{ updatedAt: { lt: luc } }, { updatedAt: luc, id: { lt: 'j5' } }] },
       ],
     });
@@ -173,14 +182,29 @@ describe('timLichSuIn — "Đã in"', () => {
     expect(p.printJob.count).toHaveBeenCalledTimes(1);
   });
 
-  it('tên khách = dòng print_logs MỚI NHẤT có tên của cùng job (không gọi Odoo); nhật ký lỗi → vẫn trả danh sách', async () => {
+  it('(giám sát vòng 2) con trỏ CŨ HƠN mốc đầu cửa sổ (năm 0001, hay cửa sổ vừa trượt qua) → trang rỗng, KHÔNG truy vấn DB', async () => {
+    const p = prismaGia([job('a')]);
+    for (const luc of [new Date('0001-01-01T00:00:00.000Z'), new Date(mocDauLichSu(BAY_GIO).getTime() - 1)]) {
+      const kq = await timLichSuIn('o1', thamSo({ truoc: { luc, id: 'x' } }), deps(p));
+      expect(kq).toMatchObject({ items: [], tiepTheo: null, tong: null });
+    }
+    expect(p.printJob.findMany).not.toHaveBeenCalled();
+    expect(p.printJob.count).not.toHaveBeenCalled();
+  });
+
+  it('tên khách = dòng print_logs MỚI NHẤT có tên của cùng job VÀ cùng org (không gọi Odoo); nhật ký lỗi → vẫn trả danh sách', async () => {
     const logs = [
-      { printJobId: 'j1', tenKhach: 'Anh Lộc (tên cũ)', createdAt: truoc(3 * 3600_000) },
-      { printJobId: 'j1', tenKhach: 'Anh Lộc Beco', createdAt: truoc(3600_000) },
-      { printJobId: 'j1', tenKhach: null, createdAt: truoc(60_000) },
+      { printJobId: 'j1', orgId: 'o1', tenKhach: 'Anh Lộc (tên cũ)', createdAt: truoc(3 * 3600_000) },
+      { printJobId: 'j1', orgId: 'o1', tenKhach: 'Anh Lộc Beco', createdAt: truoc(3600_000) },
+      { printJobId: 'j1', orgId: 'o1', tenKhach: null, createdAt: truoc(60_000) },
+      // (giám sát vòng 2) dòng MỚI HƠN cùng print_job_id nhưng của org khác → không bao giờ dùng
+      { printJobId: 'j1', orgId: 'o2', tenKhach: 'Khách của org khác', createdAt: truoc(1000) },
+      { printJobId: 'j2', orgId: 'o2', tenKhach: 'Khách của org khác', createdAt: truoc(1000) },
     ];
-    const kq = await timLichSuIn('o1', thamSo(), deps(prismaGia([job('j1'), job('j2')], { logs })));
+    const p = prismaGia([job('j1'), job('j2')], { logs });
+    const kq = await timLichSuIn('o1', thamSo(), deps(p));
     expect(Object.fromEntries(kq.items.map((m) => [m.id, m.tenKhach]))).toEqual({ j1: 'Anh Lộc Beco', j2: null });
+    expect(p.printLog.findMany.mock.calls[0][0].where).toMatchObject({ orgId: { in: ['o1'] } });
     const loi = await timLichSuIn('o1', thamSo(), deps(prismaGia([job('j1')], { logs, logLoi: true })));
     expect(loi.items.map((m) => [m.id, m.tenKhach])).toEqual([['j1', null]]);
   });

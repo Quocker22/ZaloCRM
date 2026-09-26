@@ -24,6 +24,11 @@ describe('dongKetNoi', () => {
       .toEqual({ kieu: 'mang', chu: '🌐 Mạng LAN (TCP/IP) · 192.168.1.23', tieuDe: 'Máy in nối qua mạng LAN' });
   });
 
+  it('(giám sát vòng 2) thành viên thường: backend chỉ gửi loại (không IP/cổng) → "🌐 Mạng LAN (WSD)", tooltip chung', () => {
+    const chiLoai = kn({ cong: null, ip: null, nguonIp: null, mayTraLoi: null, moTa: 'Mạng LAN (WSD)' });
+    expect(dongKetNoi({ online: true, ketNoi: chiLoai })).toEqual({ kieu: 'mang', chu: '🌐 Mạng LAN (WSD)', tieuDe: 'Máy in nối qua mạng LAN' });
+  });
+
   it('chia sẻ → "Máy in chia sẻ"', () => {
     expect(dongKetNoi({ online: true, ketNoi: kn({ loai: 'chia_se', laMang: false, cong: '\\\\KHO\\HP', ip: null }) })!.chu).toBe('Máy in chia sẻ');
   });

@@ -51,6 +51,8 @@ export const MA_SU_KIEN: Readonly<Record<string, MoTaMa>> = {
   app_ket_noi: { nhan: 'App máy in kết nối', mucDo: 'thong_tin' },
   // Cách máy in nối đổi (USB/LAN, IP, máy có trả lời) — cùng chữ backend nhat-ky.ts.
   app_ket_noi_doi: { nhan: 'Kết nối máy in thay đổi', mucDo: 'thong_tin' },
+  // App nối trước khi nhận ra máy in, rồi mới biết — một dòng mỗi kết nối, không phải "đổi".
+  app_nhan_dien_ket_noi: { nhan: 'Đã nhận diện kết nối máy in', mucDo: 'thong_tin' },
   // Thông tin (25/09): máy HN rớt-nối vài lần/giờ — mất kết nối THẬT là app_offline_lau.
   app_mat_ket_noi: { nhan: 'App máy in mất kết nối', mucDo: 'thong_tin' },
   app_offline_lau: { nhan: 'App máy in mất kết nối quá 2 phút', mucDo: 'canh_bao' },
