@@ -13,8 +13,12 @@
 //   GET    /may-in-agents/hang-doi?mayInId=    -> { choIn, chuaXacNhan, capNhat } (CHỈ owner/admin)
 //   POST   /may-in-agents/hang-doi/huy         -> { ketQua: KetQuaHuy[] } (CHỈ owner/admin)
 //   POST   /may-in-agents/hang-doi/bo-theo-doi -> { ketQua: KetQuaBoTheoDoi[] } (CHỈ owner/admin)
+//   GET    /may-in-agents/lich-su?trangThai=da_in|da_huy&mayInId=&truoc=
+//                                              -> { items: MucLichSu[], tiepTheo, tong, tu, capNhat } (CHỈ owner/admin)
+//   GET    /may-in-agents/lich-su/dem          -> { daIn, daHuy, tu, capNhat } (CHỈ owner/admin)
 //
 // Hàng đợi in + huỷ lệnh in: hợp đồng docs/may-in/HOP-DONG-HANG-DOI-HUY-v5.md mục 8 (v5.1).
+// Lịch sử "Đã in" / "Đã huỷ": 30 ngày gần nhất theo lúc in xong / lúc huỷ (backend lich-su-in.ts).
 //
 // Nhật ký + tình trạng máy in: hợp đồng "báo sự cố máy in + nhật ký máy in" v2 (24/09/2026)
 // §3.4 (`tinhTrang` trong danh sách) và §3.5 (API nhật ký). Mã → nhãn: views/settings/may-in-nhan.ts.
@@ -155,6 +159,44 @@ export interface HangDoiIn {
   /** Đã gửi xuống máy in nhưng chưa xác nhận đã in (3 ngày gần nhất). */
   chuaXacNhan: MucHangDoi[];
   capNhat: string;
+}
+
+// ── Lịch sử in "Đã in" / "Đã huỷ" (30 ngày gần nhất) ─────────────────────────
+
+/** `da_huy` = huỷ CHẮC CHẮN (không in). "Bỏ khỏi hàng đợi" (bo_qua) KHÔNG nằm ở đây. */
+export type TrangThaiLichSu = 'da_in' | 'da_huy';
+
+/** Một lệnh in đã in xong / đã huỷ. Không có token máy in — chỉ id + tên máy. */
+export interface MucLichSu {
+  id: string;
+  soHoaDon: string;
+  tenKhach: string | null;
+  mayInId: string | null;
+  mayInTen: string | null;
+  trangThai: TrangThaiLichSu | string;
+  /** ISO — lúc tạo lệnh in. */
+  tao: string;
+  /** ISO — lúc in xong (`da_in`) / lúc huỷ (`da_huy`). */
+  ketThuc: string;
+  /** `da_huy`: "Đã huỷ bởi ZaloCRM (Chị Hoa)"…; `da_in`: thường null. */
+  lyDo: string | null;
+}
+
+export interface TrangLichSu {
+  /** Mới kết thúc trước. */
+  items: MucLichSu[];
+  /** Con trỏ trang sau; null = hết. */
+  tiepTheo: string | null;
+  /** Tổng số lệnh khớp bộ lọc trong 30 ngày — chỉ trang đầu; trang sau null. */
+  tong: number | null;
+  /** ISO — mốc đầu cửa sổ 30 ngày. */
+  tu: string | null;
+}
+
+/** Số trên hai thẻ "Đã in (N)" / "Đã huỷ (N)" — cả org, 30 ngày. */
+export interface DemLichSu {
+  daIn: number;
+  daHuy: number;
 }
 
 export type MaLoiHuy = 'DANG_IN' | 'CHUA_XAC_NHAN' | 'DA_IN' | 'DA_KET_THUC' | 'KHONG_TIM_THAY';
@@ -328,6 +370,42 @@ export async function layHangDoi(
     chuaXacNhan: Array.isArray(data?.chuaXacNhan) ? data.chuaXacNhan : [],
     capNhat: typeof data?.capNhat === 'string' ? data.capNhat : new Date().toISOString(),
   };
+}
+
+/**
+ * Một trang lịch sử "Đã in" / "Đã huỷ" (30 ngày gần nhất, mới kết thúc trước). Tải thêm: gọi lại
+ * với `truoc = tiepTheo`. 403 không toast toàn cục (thẻ tự hiện câu báo quyền); `ngam` = nhịp tự
+ * làm mới — 5xx không toast.
+ */
+export async function layLichSuIn(
+  thamSo: { trangThai: TrangThaiLichSu; mayInId?: string; truoc?: string; gioiHan?: number },
+  tuyChon: { signal?: AbortSignal; ngam?: boolean } = {},
+): Promise<TrangLichSu> {
+  const { data } = await api.get('/may-in-agents/lich-su', {
+    params: thanhParams(thamSo),
+    signal: tuyChon.signal,
+    boQuaToast403: true,
+    boQuaToast5xx: tuyChon.ngam === true,
+  });
+  return {
+    items: Array.isArray(data?.items) ? data.items : [],
+    tiepTheo: typeof data?.tiepTheo === 'string' && data.tiepTheo ? data.tiepTheo : null,
+    tong: typeof data?.tong === 'number' ? data.tong : null,
+    tu: typeof data?.tu === 'string' ? data.tu : null,
+  };
+}
+
+/**
+ * Số trên hai thẻ "Đã in" / "Đã huỷ" (cả org, 30 ngày). Gọi NGẦM (nhịp trang): không bao giờ
+ * toast — lỗi thì thẻ chỉ không hiện số. Backend cũ (404) / dữ liệu lạ → null.
+ */
+export async function layDemLichSuIn(tuyChon: { signal?: AbortSignal } = {}): Promise<DemLichSu | null> {
+  const { data } = await api.get('/may-in-agents/lich-su/dem', {
+    signal: tuyChon.signal,
+    boQuaToast403: true,
+    boQuaToast5xx: true, // 404 (backend cũ) vốn không toast
+  });
+  return typeof data?.daIn === 'number' && typeof data?.daHuy === 'number' ? { daIn: data.daIn, daHuy: data.daHuy } : null;
 }
 
 /**

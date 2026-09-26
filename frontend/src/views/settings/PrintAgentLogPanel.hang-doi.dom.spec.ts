@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// PrintAgentLogPanel — ba thẻ "Hàng đợi in (N)" | "Nhật ký in" | "Log app" (hợp đồng hàng đợi/huỷ
+// PrintAgentLogPanel — thẻ "Hàng đợi in (N)" (cạnh "Đã in" | "Đã huỷ" | "Nhật ký in" | "Log app"; hai
+// thẻ lịch sử: PrintAgentLogPanel.lich-su.dom.spec.ts) (hợp đồng hàng đợi/huỷ
 // §6.1 + §8.6): N chỉ đếm lệnh đang/sẽ in; thẻ mặc định Hàng đợi nếu N > 0 ngược lại Nhật ký in
 // (quyết MỘT lần lúc hàng đợi tới); URL `?nhatKy=hang_doi|in|app` và lựa chọn đã nhớ thắng mặc
 // định; chip trên thẻ máy (`moHangDoi`) mở thẻ Hàng đợi lọc máy đó; thẻ Hàng đợi xin nạp lại qua
@@ -17,6 +18,7 @@ vi.mock('@/api/print-agents', () => ({
   taiVeNhatKyApp: vi.fn(),
   huyLenhIn: vi.fn(),
   boTheoDoiLenhIn: vi.fn(),
+  layDemLichSuIn: vi.fn(async () => null),
   maHttpCuaLoi: (e: { response?: { status?: number } } | null) => e?.response?.status,
   laYeuCauDaHuy: (e: { code?: string } | null) => e?.code === 'ERR_CANCELED',
 }));
@@ -83,10 +85,10 @@ afterEach(() => {
 });
 
 describe('PrintAgentLogPanel — thẻ "Hàng đợi in (N)"', () => {
-  it('ba thẻ theo đúng thứ tự; N CHỈ đếm lệnh đang/sẽ in (không tính "chưa xác nhận")', async () => {
+  it('năm thẻ theo đúng thứ tự (Đã in / Đã huỷ ngay sau Hàng đợi); N CHỈ đếm lệnh đang/sẽ in (không tính "chưa xác nhận")', async () => {
     const w = gan({ hangDoi: hd(3, {}, [muc('k', { trangThai: 'khong_ro', nhom: 'chua_xac_nhan', huy: 'khong' })]) });
     await flushPromises();
-    expect(w.findAll('[role="tab"]').map((b) => b.text())).toEqual(['Hàng đợi in (3)', 'Nhật ký in', 'Log app']);
+    expect(w.findAll('[role="tab"]').map((b) => b.text())).toEqual(['Hàng đợi in (3)', 'Đã in', 'Đã huỷ', 'Nhật ký in', 'Log app']);
     w.unmount();
   });
 

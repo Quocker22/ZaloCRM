@@ -15,6 +15,10 @@
 //   POST   /hang-doi/huy              huỷ lệnh in {ids: 1..50} → {ketQua: KetQuaHuy[]} — CHỈ admin
 //   POST   /hang-doi/bo-theo-doi      bỏ theo dõi lệnh chưa xác nhận {ids} → {ketQua} — CHỈ admin
 //   (hàng đợi/huỷ: hợp đồng docs/may-in/HOP-DONG-HANG-DOI-HUY-v5.md mục 8, huy-lenh-in.ts)
+//   GET    /lich-su?trangThai=da_in|da_huy&mayInId=&truoc=&gioiHan=
+//                                     "Đã in" / "Đã huỷ" 30 ngày {items, tiepTheo, tong, tu, capNhat} — CHỈ admin
+//   GET    /lich-su/dem               số trên hai thẻ {daIn, daHuy, tu, capNhat} (cả org) — CHỈ admin
+//   (lịch sử in: lich-su-in.ts — chỉ đọc DB, mốc 30 ngày theo updated_at)
 //
 // Guard: CHỈ admin/owner được ghi (POST/PUT/DELETE) — theo đúng khuôn
 // agent-operator-routes.ts (mở RANH GIỚI BẢO MẬT: ai vào bảng này là cầm được
@@ -36,6 +40,7 @@ import {
   laLoiChuaMigrate,
 } from './nhat-ky-app.js';
 import { taoDichVuHangDoi, laIdHopLe, type DichVuHangDoi } from './huy-lenh-in.js';
+import { phanTichThamSoLichSu, timLichSuIn, demLichSuIn } from './lich-su-in.js';
 
 function laAdmin(role: string): boolean {
   return role === 'owner' || role === 'admin';
@@ -192,6 +197,38 @@ export async function traBoTheoDoi(
   return { code: 200, body: { ketQua } };
 }
 
+// ── Lịch sử in "Đã in" / "Đã huỷ" (lich-su-in.ts) ────────────────────────────
+
+/**
+ * GET /lich-su — một trang "Đã in" hoặc "Đã huỷ" trong 30 ngày gần nhất (lọc máy bằng `mayInId`,
+ * trang sau bằng con trỏ `truoc`). CHỈ owner/admin (có tên khách + số hoá đơn, như hàng đợi).
+ * orgId LUÔN từ phiên đăng nhập, không bao giờ từ query.
+ */
+export async function traLichSu(
+  user: { orgId: string; role: string },
+  query: Record<string, unknown>,
+  deps: { tim?: typeof timLichSuIn } = {},
+): Promise<{ code: number; body: unknown }> {
+  if (!laAdmin(user.role)) return { code: 403, body: { error: 'CHI_ADMIN' } };
+  let thamSo;
+  try {
+    thamSo = phanTichThamSoLichSu(query ?? {});
+  } catch (err) {
+    if (err instanceof ThamSoSai) return { code: 400, body: { error: 'THAM_SO_SAI', message: err.message } };
+    throw err;
+  }
+  return { code: 200, body: await (deps.tim ?? timLichSuIn)(user.orgId, thamSo) };
+}
+
+/** GET /lich-su/dem — số lệnh "Đã in" / "Đã huỷ" của cả org trong 30 ngày (số trên hai thẻ). */
+export async function traDemLichSu(
+  user: { orgId: string; role: string },
+  deps: { dem?: typeof demLichSuIn } = {},
+): Promise<{ code: number; body: unknown }> {
+  if (!laAdmin(user.role)) return { code: 403, body: { error: 'CHI_ADMIN' } };
+  return { code: 200, body: await (deps.dem ?? demLichSuIn)(user.orgId) };
+}
+
 async function layTenMayThat(orgId: string, mayInId: string): Promise<string | null> {
   const { prisma } = await import('../../../shared/database/prisma-client.js');
   const may = await prisma.printAgent.findFirst({ where: { id: mayInId, orgId }, select: { ten: true } });
@@ -311,6 +348,20 @@ export async function registerPrintAgentRoutes(app: FastifyInstance): Promise<vo
 
   app.post('/hang-doi/bo-theo-doi', async (req: FastifyRequest<{ Body: unknown }>, reply: FastifyReply) => {
     const kq = await traBoTheoDoi(req.user!, req.body ?? {});
+    return reply.code(kq.code).send(kq.body);
+  });
+
+  // ── Lịch sử in "Đã in" / "Đã huỷ" 30 ngày (xem traLichSu / traDemLichSu) ────
+  app.get('/lich-su', async (
+    req: FastifyRequest<{ Querystring: Record<string, unknown> }>,
+    reply: FastifyReply,
+  ) => {
+    const kq = await traLichSu(req.user!, req.query ?? {});
+    return reply.code(kq.code).send(kq.body);
+  });
+
+  app.get('/lich-su/dem', async (req: FastifyRequest, reply: FastifyReply) => {
+    const kq = await traDemLichSu(req.user!);
     return reply.code(kq.code).send(kq.body);
   });
 

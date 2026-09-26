@@ -340,8 +340,15 @@ export function lyDoCua(
   };
 }
 
-/** Tên khách theo job: dòng print_logs MỚI NHẤT có tên khách của cùng print_job_id. Lỗi → rỗng. */
-async function tenKhachTheoJob(p: PrismaHangDoiHuy, ids: string[]): Promise<Map<string, string>> {
+/**
+ * Tên khách theo job: dòng print_logs MỚI NHẤT có tên khách của cùng print_job_id. Lỗi → rỗng.
+ * Dùng chung với lịch sử in (lich-su-in.ts) — tên khách KHÔNG nằm trong print_jobs, và không
+ * được hỏi Odoo cho từng dòng.
+ */
+export async function tenKhachTheoJob(
+  p: { printLog: Pick<PrismaHangDoiHuy['printLog'], 'findMany'> },
+  ids: string[],
+): Promise<Map<string, string>> {
   const kq = new Map<string, string>();
   if (ids.length === 0) return kq;
   try {

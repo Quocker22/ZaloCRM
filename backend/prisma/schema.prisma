@@ -4464,6 +4464,8 @@ model PrintJob {
 
   @@index([trangThai, createdAt])
   @@index([orgId, createdAt])
+  /// Lịch sử in "Đã in" / "Đã huỷ" 30 ngày (may-in/lich-su-in.ts) — mốc theo updated_at.
+  @@index([orgId, trangThai, updatedAt(sort: Desc)])
   @@map("print_jobs")
 }
 
