@@ -19,6 +19,7 @@ import { randomBytes } from 'node:crypto';
 import { prisma } from '../../../shared/database/prisma-client.js';
 import { agentRegistry } from './agent-registry.js';
 import { nhanCua } from './nhat-ky.js';
+import type { BanBuild, KetNoiMayIn } from './thong-tin-app.js';
 import { KHO } from '../agent/noi-zalo/gom-don/kieu.js';
 import type { PrintAgent } from '@prisma/client';
 
@@ -49,12 +50,33 @@ export interface MayInAnToan {
    * hoặc app offline. Hợp đồng §3.4.
    */
   tinhTrang: { ma: string; nhan: string; luc: Date } | null;
+  /**
+   * CÁCH máy in nối với máy tính (USB / mạng LAN / chia sẻ…) — app ≥ 0.2.8 gửi qua
+   * `thong-tin-app` (thong-tin-app.ts). null = app offline / app cũ / chưa gửi.
+   */
+  ketNoi: KetNoiMayIn | null;
+  /** "Windows 7 SP1 (6.1.7601)" — null khi chưa biết. */
+  heDieuHanh: string | null;
+  /** 'win7' | 'thuong' — null khi chưa biết. */
+  banBuild: BanBuild | null;
+  /** Phiên bản app máy in đang nối ("0.2.8") — null khi chưa biết. */
+  phienBan: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
 
 function tokenDuoiCua(token: string): string {
   return token.slice(-4);
+}
+
+function thongTinAppCua(token: string): Pick<MayInAnToan, 'ketNoi' | 'heDieuHanh' | 'banBuild' | 'phienBan'> {
+  const tt = agentRegistry.layThongTinApp(token);
+  return {
+    ketNoi: tt?.ketNoi ?? null,
+    heDieuHanh: tt?.heDieuHanh ?? null,
+    banBuild: tt?.banBuild ?? null,
+    phienBan: tt?.phienBan ?? null,
+  };
 }
 
 function tinhTrangCua(token: string): MayInAnToan['tinhTrang'] {
@@ -72,6 +94,7 @@ function toAnToan(row: PrintAgent): MayInAnToan {
     laMacDinh: row.laMacDinh,
     online: agentRegistry.coAgent(row.token),
     tinhTrang: tinhTrangCua(row.token),
+    ...thongTinAppCua(row.token),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

@@ -58,6 +58,9 @@ export const MA_SU_KIEN: Record<string, MoTaMa> = {
   het_gio_cho: { nhan: 'App máy in không trả lời', mucDo: 'loi' },
   ket_qua_tre: { nhan: 'Kết quả in đến trễ', mucDo: 'thong_tin' },
   app_ket_noi: { nhan: 'App máy in kết nối', mucDo: 'thong_tin' },
+  // App ≥ 0.2.8 gửi lại thong-tin-app khi CÁCH máy in nối đổi (USB/LAN, IP, máy có trả lời) —
+  // agent-ws ghi tối đa 1 dòng/phút/kết nối (thong-tin-app.ts). Cùng chữ frontend may-in-nhan.ts.
+  app_ket_noi_doi: { nhan: 'Kết nối máy in thay đổi', mucDo: 'thong_tin' },
   // thong_tin, không phải canh_bao: máy HN rớt-nối 3–5 lần/giờ (MAY-IN-HANDOFF
   // 13.6) — ~100 dòng/ngày sẽ che mất dòng hết giấy/kẹt giấy ở bộ lọc mặc định
   // "Lỗi & cảnh báo". Mất kết nối THẬT (quá 2 phút) ghi riêng app_offline_lau.

@@ -24,6 +24,8 @@
 // Dùng `instanceof` để trình biên dịch + runtime đều ép đúng, không phụ
 // thuộc câu chữ.
 
+import type { BanBuild, KetNoiMayIn } from './thong-tin-app.js';
+
 /** 4 ký tự cuối của token — đủ để người trực phân biệt máy, không đủ để mạo danh.
  * Thông điệp lỗi đi vào print_jobs.loi_cuoi và nhật ký — CẤM chứa token đầy đủ. */
 export function duoiToken(token: string): string {
@@ -119,6 +121,19 @@ export interface TinhTrangMayIn {
   nguon?: 'may' | 'job';
 }
 
+/**
+ * Thông tin app gửi qua `thong-tin-app` (thong-tin-app.ts) mà trang Cài đặt › Máy in cần: máy in
+ * nối kiểu gì, hệ điều hành, bản build, phiên bản app. CHỈ trong bộ nhớ — mất khi app hết kết nối
+ * hoặc backend khởi động lại (app gửi lại lúc nối).
+ */
+export interface ThongTinAppMay {
+  phienBan: string | null;
+  ketNoi: KetNoiMayIn | null;
+  heDieuHanh: string | null;
+  banBuild: BanBuild | null;
+  luc: Date;
+}
+
 interface ChoKetQua {
   resolve: (kq: KetQuaAgent) => void;
   reject: (err: Error) => void;
@@ -196,6 +211,7 @@ export class AgentRegistry {
   private readonly cho = new Map<string, Map<string, ChoKetQua>>();
   private readonly nguCanh = new Map<string, NguCanhJob>();
   private readonly tinhTrang = new Map<string, TinhTrangMayIn>();
+  private readonly thongTinApp = new Map<string, ThongTinAppMay>();
   private readonly cauDao = new Map<string, CauDao>();
   /**
    * Người nghe "hàng đợi của máy này vừa đổi" (hợp đồng hàng đợi/huỷ v5.1 §8.7) — mỗi socket
@@ -232,7 +248,12 @@ export class AgentRegistry {
       // GIỮ tinhTrang khi hết kết nối: app nối lại (13.6 — rớt vài lần/giờ) báo
       // lại cùng trạng thái thì không phải "đổi", không ghi nhật ký trùng. Khi
       // offline layTinhTrang() trả null nên giao diện không hiện trạng thái cũ.
-      else this.agents.delete(token);
+      else {
+        this.agents.delete(token);
+        // Thông tin app (kết nối máy in, hệ điều hành…) thì BỎ: lần nối sau app gửi lại, mà
+        // giữ thì có thể là của một bản app/máy tính khác cầm cùng token.
+        this.thongTinApp.delete(token);
+      }
       // Còn kết nối KHÁC của cùng máy (app đã nối lại) → kết quả vẫn có thể về
       // qua đó: để yên, hạn chờ vẫn canh. Không còn kết nối nào → không thể biết
       // máy in đã nhận chưa → reject rõ ràng, không để Promise treo.
@@ -333,6 +354,17 @@ export class AgentRegistry {
 
   layTinhTrang(token: string): TinhTrangMayIn | null {
     return this.agents.has(token) ? this.tinhTrang.get(token) ?? null : null;
+  }
+
+  /** Thông tin mới nhất app gửi (`thong-tin-app`) — ghi đè bản cũ. Máy chưa có kết nối nào → bỏ qua. */
+  capNhatThongTinApp(token: string, tt: ThongTinAppMay): void {
+    if (!this.agents.has(token)) return;
+    this.thongTinApp.set(token, tt);
+  }
+
+  /** null = app offline, hoặc chưa gửi `thong-tin-app` lần nào trong lần nối này. */
+  layThongTinApp(token: string): ThongTinAppMay | null {
+    return this.agents.has(token) ? this.thongTinApp.get(token) ?? null : null;
   }
 
   // ── Cầu dao (xem CauDao) ───────────────────────────────────────────────────

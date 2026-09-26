@@ -34,6 +34,37 @@ export interface MayIn {
   /** §3.4 — sự cố/trạng thái hiện tại do app báo; null khi chưa biết hoặc app offline.
    *  Tuỳ chọn: backend cũ không trả trường này. */
   tinhTrang?: TinhTrang | null;
+  /**
+   * CÁCH máy in nối với máy tính (app ≥ 0.2.8, event `thong-tin-app`). null = app offline / app
+   * cũ / chưa gửi. Tuỳ chọn: backend cũ không trả các trường này.
+   */
+  ketNoi?: KetNoiMayIn | null;
+  /** "Windows 7 SP1 (6.1.7601)". */
+  heDieuHanh?: string | null;
+  /** 'win7' | 'thuong' — kiểu rộng: backend mới hơn có thể thêm bản. */
+  banBuild?: string | null;
+  /** Phiên bản app máy in đang nối, vd "0.2.8". */
+  phienBan?: string | null;
+}
+
+/**
+ * Máy in nối kiểu gì (backend may-in/thong-tin-app.ts — chữ đã làm sạch, mã ngoài danh sách = null).
+ * Kiểu rộng `string` cho mã: app/backend mới hơn giao diện có thể thêm loại — hiện như "không rõ".
+ */
+export interface KetNoiMayIn {
+  /** 'usb' | 'wsd' | 'tcpip' | 'ipp' | 'chia_se' | 'khac' */
+  loai: string | null;
+  /** true với wsd / tcpip / ipp. */
+  laMang: boolean | null;
+  /** Tên cổng Windows: "USB001", "WSD-3f2a…", "IP_192.168.1.23". */
+  cong: string | null;
+  ip: string | null;
+  /** 'cau_hinh' | 'ten_cong' | 'registry' | 'location' | 'pnpx' */
+  nguonIp: string | null;
+  /** "sẵn sàng (IPP)", "không trả lời"; null = chưa hỏi. */
+  mayTraLoi: string | null;
+  /** Câu dựng sẵn, vd "Mạng LAN (WSD) · 192.168.1.23 · máy báo sẵn sàng". */
+  moTa: string | null;
 }
 
 /** §3.4 — `ma` là mã §1 (vd `het_giay`), `nhan` backend dịch sẵn, `luc` ISO-8601. */

@@ -38,9 +38,9 @@ describe('nhanCua — mã → nhãn tiếng Việt', () => {
 });
 
 describe('mucDoCua — mức theo hợp đồng', () => {
-  it('đủ 12 mã §1 và 20 mã §3.3 (13 cũ + 4 của cầu dao/mất kết nối lâu + 3 của hàng đợi/huỷ), không trùng khoá giữa hai bảng', () => {
+  it('đủ 12 mã §1 và 21 mã §3.3 (13 cũ + 4 của cầu dao/mất kết nối lâu + 3 của hàng đợi/huỷ + app_ket_noi_doi), không trùng khoá giữa hai bảng', () => {
     expect(Object.keys(MA_SU_CO)).toHaveLength(12);
-    expect(Object.keys(MA_SU_KIEN)).toHaveLength(20);
+    expect(Object.keys(MA_SU_KIEN)).toHaveLength(21);
     const trung = Object.keys(MA_SU_CO).filter((k) => k in MA_SU_KIEN);
     expect(trung).toEqual([]);
   });
@@ -55,7 +55,7 @@ describe('mucDoCua — mức theo hợp đồng', () => {
       nhan_job: 'thong_tin', gui_may_in: 'thong_tin', da_in: 'thong_tin',
       loi_thu_lai: 'canh_bao', app_offline_thu_lai: 'canh_bao', loi_odoo: 'canh_bao',
       khong_co_may_in: 'loi', that_bai: 'loi', khong_ro: 'loi', het_gio_cho: 'loi',
-      ket_qua_tre: 'thong_tin', app_ket_noi: 'thong_tin', app_mat_ket_noi: 'thong_tin',
+      ket_qua_tre: 'thong_tin', app_ket_noi: 'thong_tin', app_ket_noi_doi: 'thong_tin', app_mat_ket_noi: 'thong_tin',
       app_offline_lau: 'canh_bao', tam_giu: 'canh_bao', cho_may_in: 'thong_tin', tiep_tuc_in: 'thong_tin',
       da_huy: 'thong_tin', huy_that_bai: 'canh_bao', bo_theo_doi: 'canh_bao',
     };

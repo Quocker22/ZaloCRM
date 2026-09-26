@@ -49,6 +49,8 @@ export const MA_SU_KIEN: Readonly<Record<string, MoTaMa>> = {
   het_gio_cho: { nhan: 'App máy in không trả lời', mucDo: 'loi' },
   ket_qua_tre: { nhan: 'Kết quả in đến trễ', mucDo: 'thong_tin' },
   app_ket_noi: { nhan: 'App máy in kết nối', mucDo: 'thong_tin' },
+  // Cách máy in nối đổi (USB/LAN, IP, máy có trả lời) — cùng chữ backend nhat-ky.ts.
+  app_ket_noi_doi: { nhan: 'Kết nối máy in thay đổi', mucDo: 'thong_tin' },
   // Thông tin (25/09): máy HN rớt-nối vài lần/giờ — mất kết nối THẬT là app_offline_lau.
   app_mat_ket_noi: { nhan: 'App máy in mất kết nối', mucDo: 'thong_tin' },
   app_offline_lau: { nhan: 'App máy in mất kết nối quá 2 phút', mucDo: 'canh_bao' },
