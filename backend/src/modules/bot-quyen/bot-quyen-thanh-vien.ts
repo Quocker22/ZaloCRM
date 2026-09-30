@@ -21,6 +21,7 @@
 //                 người chưa từng nhắn; `loiZalo` nói vì sao phải rơi xuống đây.
 import { prisma } from '../../shared/database/prisma-client.js';
 import { nhanVienTheoUid } from './bot-quyen-nhan-vien-uid.js';
+import { docLienKet, gomNguoi } from './bot-quyen-cung-nguoi.js';
 
 export interface ThanhVienTho {
   zaloUid: string;
@@ -187,6 +188,17 @@ export async function layThanhVienNhom(
     prisma.zaloAccount.findMany({ where: { orgId, zaloUid: { in: uids } }, select: { zaloUid: true } }),
   ]);
   const uidNick = new Set(nick.map((n) => n.zaloUid));
+  // Nick CRM khác nhìn từ nick của nhóm mang uid KHÁC uid nick tự nhìn mình (docs/77 §8b) — nhận qua liên kết chắc chắn
+  // (cùng tin nhắn trong nhóm chung / globalId). Chỉ đổi nhãn `laNickCrm` (bot vẫn đếm là người ngoài như trước).
+  if (uids.length > 0) {
+    const tatCaNick = new Set((await prisma.zaloAccount.findMany({
+      where: { orgId, zaloUid: { not: null } }, select: { zaloUid: true },
+    })).map((n) => n.zaloUid!));
+    const nhomNguoi = gomNguoi(await docLienKet(orgId, uids));
+    for (const uid of uids) {
+      if ((nhomNguoi.get(uid) ?? []).some((x) => tatCaNick.has(x.zaloUid))) uidNick.add(uid);
+    }
+  }
   const uidNickNhom = conv.zaloAccount.zaloUid;
 
   const thanhVien: ThanhVienNhom[] = uids.map((uid) => {

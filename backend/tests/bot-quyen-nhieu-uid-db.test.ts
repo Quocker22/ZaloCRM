@@ -30,6 +30,8 @@ const QUOC_CL = '5809610033196845429';
 const QUOC_VT = '5369941570764297136';
 const BASE = '/api/v1/bot-quyen';
 
+// Nick để 'disconnected': vòng quét danh sách thành viên (toàn cục, chỉ nick connected) không nhặt nhóm của file này
+// khi các file DB khác chạy song song.
 async function donDep() {
   await prisma.botQuyenNhatKy.deleteMany({ where: { orgId: ORG } });
   await prisma.botNhomDanhSach.deleteMany({ where: { orgId: ORG } });
@@ -72,8 +74,8 @@ describeCanDb('bot-quyen — một nhân viên nhiều uid (mỗi nick một uid
     await donDep();
     await prisma.organization.create({ data: { id: ORG, name: 'BQU' } });
     await prisma.user.create({ data: { id: OWNER, orgId: ORG, email: `${OWNER}@x.com`, passwordHash: 'x', fullName: 'Chủ', role: 'owner', isActive: true } });
-    await prisma.zaloAccount.create({ data: { id: CL, orgId: ORG, ownerUserId: OWNER, zaloUid: CL_UID, displayName: 'Cẩm Loan', status: 'connected' } });
-    await prisma.zaloAccount.create({ data: { id: VT, orgId: ORG, ownerUserId: OWNER, zaloUid: VT_UID, displayName: 'Vận Tải Minh Thức', status: 'connected' } });
+    await prisma.zaloAccount.create({ data: { id: CL, orgId: ORG, ownerUserId: OWNER, zaloUid: CL_UID, displayName: 'Cẩm Loan', status: 'disconnected' } });
+    await prisma.zaloAccount.create({ data: { id: VT, orgId: ORG, ownerUserId: OWNER, zaloUid: VT_UID, displayName: 'Vận Tải Minh Thức', status: 'disconnected' } });
     await prisma.zaloAccount.create({ data: { id: N3, orgId: ORG, ownerUserId: OWNER, zaloUid: 'uid-nick-3', displayName: 'Nick 3' } });
     const conv = (id: string, nick: string, loai: string, ext: string, groupName?: string) => prisma.conversation.create({
       data: { id, orgId: ORG, zaloAccountId: nick, threadType: loai, externalThreadId: ext, groupName, lastMessageAt: new Date() },
@@ -126,6 +128,8 @@ describeCanDb('bot-quyen — một nhân viên nhiều uid (mỗi nick một uid
       expect.arrayContaining([[HUNG_CL, HUNG_VT].sort(), ['hung-n3']]),
     );
     expect(hung).toHaveLength(2);
+    // Nick VT nhìn từ nick CL là uid khác (1333…) — cùng tin với uid VT tự nhìn mình ⇒ là nick của org ⇒ không ở Chờ gán.
+    expect(ds.flatMap((u) => u.uids.map((x) => x.zaloUid))).not.toContain('1333113565670020202');
     const quoc = ds.find((u) => u.ten === 'Viết Quốc')!;
     expect(quoc.uids.map((x) => [x.nick.id, x.zaloUid])).toEqual([[CL, QUOC_CL], [VT, QUOC_VT]]);
   });
@@ -237,6 +241,14 @@ describeCanDb('bot-quyen — một nhân viên nhiều uid (mỗi nick một uid
     });
     const tv = (await goi('GET', '/nhom/test-bqu-g-vt/thanh-vien')).json();
     expect(tv.thanhVien.find((t: { zaloUid: string }) => t.zaloUid === HUNG_VT)).toMatchObject({ loai: 'nhan_vien', nhanVien: { tenGoi: 'Trần Hưng' } });
+    // Nhóm của nick CL: nick VT hiện bằng uid 1333… — nhãn "nick CRM" nhận qua tin chung (bot vẫn coi là người ngoài).
+    await prisma.groupMember.createMany({
+      data: ['1333113565670020202', HUNG_CL].map((u) => ({ orgId: ORG, zaloAccountId: CL, groupId: '1753469850074106815', memberUid: u, displayName: u })),
+    });
+    const tvCl = (await goi('GET', '/nhom/test-bqu-g-cl/thanh-vien')).json();
+    expect(tvCl.thanhVien.find((t: { zaloUid: string }) => t.zaloUid === '1333113565670020202'))
+      .toMatchObject({ loai: 'nguoi_ngoai', laNickCrm: true });
+    expect(tvCl.thanhVien.find((t: { zaloUid: string }) => t.zaloUid === HUNG_CL)).toMatchObject({ loai: 'nhan_vien', laNickCrm: false });
     await prisma.groupMember.deleteMany({ where: { orgId: ORG } });
   });
 });

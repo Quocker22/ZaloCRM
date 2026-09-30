@@ -9,7 +9,8 @@
 //   nhóm:      mỗi (sender_uid, hội thoại nhóm) có tin đến — gom trong SQL (một lượt quét tin của các nhóm).
 // Hội thoại ảo (is_virtual) bỏ. Zalo cấp uid KHÁC nhau cho cùng một người ở mỗi nick ⇒ gom theo uid rồi GỘP các uid của
 // CÙNG người (docs/77 §8b — bot-quyen-cung-nguoi.ts: cùng mã tin nhắn trong nhóm chung của hai nick / cùng globalId) thành
-// MỘT dòng mang mọi uid theo nick. Người đã là nhân viên dưới BẤT KỲ uid nào ⇒ cả dòng biến mất. Gán ⇒ gửi mọi uid.
+// MỘT dòng mang mọi uid theo nick. Người đã là nhân viên dưới BẤT KỲ uid nào (kể cả uid chỉ biết qua liên kết, chưa lưu)
+// ⇒ cả dòng biến mất; nick CRM khác nhìn từ một nick (uid khác uid nick tự nhìn mình) cũng vậy. Gán ⇒ gửi mọi uid.
 //
 // Tốc độ (đo 30/09 trên 2,1 triệu tin giả lập, 6.250 hội thoại): gom ≈ 0,5–0,8 s ⇒ giữ bản gom 60 s trong bộ nhớ theo org;
 // loại trừ (đã là NV, nick của org) + đánh dấu "đang sai bot" đọc TƯƠI mỗi lần (bảng nhỏ) ⇒ gán xong biến mất ngay.
@@ -51,6 +52,8 @@ export interface UngVienTho {
   zaloUid: string;
   /** Mọi uid của người này (mỗi nick một uid) — ít nhất `zaloUid`. */
   uids: UidUngVien[];
+  /** Mọi uid CHẮC là cùng người (kể cả uid chưa từng nhắn — vd uid nick tự nhìn mình) — chỉ để loại trừ. */
+  uidLienKet?: string[];
   luc: Date | null;
   noi: NoiTho[];
 }
@@ -156,13 +159,22 @@ export function gopTheoNguoi(ds: readonly UngVienTho[], nhom: ReadonlyMap<string
     if (cu) cu.push(u); else theoNguoi.set(k, [u]);
   }
   const ra: UngVienTho[] = [];
+  const lienKet = (ds2: readonly UngVienTho[]) => {
+    const tat = new Set<string>();
+    for (const u of ds2) for (const x of u.uids) for (const y of nhom.get(x.zaloUid) ?? []) tat.add(y.zaloUid);
+    return tat.size > 0 ? [...tat].sort() : undefined;
+  };
   for (const nhomUv of theoNguoi.values()) {
-    if (nhomUv.length === 1) { ra.push(nhomUv[0]); continue; }
+    if (nhomUv.length === 1) {
+      const lk = lienKet(nhomUv);
+      ra.push(lk ? { ...nhomUv[0], uidLienKet: lk } : nhomUv[0]);
+      continue;
+    }
     const noi = nhomUv.flatMap((u) => u.noi).sort((a, b) => (b.luc?.getTime() ?? 0) - (a.luc?.getTime() ?? 0));
     const luc = nhomUv.reduce<Date | null>((m, u) => ((u.luc?.getTime() ?? 0) > (m?.getTime() ?? 0) ? u.luc : m), null);
     const uids = nhomUv.flatMap((u) => u.uids)
       .sort((a, b) => a.nick.ten.localeCompare(b.nick.ten, 'vi') || (a.zaloUid < b.zaloUid ? -1 : 1));
-    ra.push({ zaloUid: noi[0]?.zaloUid ?? nhomUv[0].zaloUid, uids, luc, noi });
+    ra.push({ zaloUid: noi[0]?.zaloUid ?? nhomUv[0].zaloUid, uids, uidLienKet: lienKet(nhomUv), luc, noi });
   }
   return ra;
 }
@@ -213,7 +225,8 @@ export function locVaPhanTrang(
   const moiTrang = Math.min(Math.max(Math.trunc(o.moiTrang ?? MOI_TRANG_MAC_DINH) || MOI_TRANG_MAC_DINH, 1), MOI_TRANG_TOI_DA);
   const loc = ds
     // Đã là nhân viên dưới BẤT KỲ uid nào của người này ⇒ bỏ cả dòng.
-    .filter((u) => !o.loaiTru.has(u.zaloUid) && !u.uids.some((x) => o.loaiTru.has(x.zaloUid)))
+    .filter((u) => !o.loaiTru.has(u.zaloUid) && !u.uids.some((x) => o.loaiTru.has(x.zaloUid))
+      && !(u.uidLienKet ?? []).some((x) => o.loaiTru.has(x)))
     .map((u) => ({ u, t: tenHienThi(u, xem) }))
     // Tìm theo tên CHỈ trên tên người xem được thấy — tìm theo tên bị che là dò ra tên đó.
     .filter(({ u, t }) => !q || u.uids.some((x) => x.zaloUid.includes(q)) || u.zaloUid.includes(q)
