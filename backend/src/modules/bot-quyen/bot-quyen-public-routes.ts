@@ -2,7 +2,7 @@
 // QUYỀN BOT (docs/77 §3.2) — route CÔNG KHAI cho bridge của bot:
 //
 //   GET /api/public/bot-quyen   (header x-api-key — cùng khoá + cùng cơ chế /api/public/conversations)
-//     → 200 {phien_ban, nhom:[{conversation_id, external_thread_id, chuc_nang, ten_dang_ky}],
+//     → 200 {phien_ban, nhom:[{conversation_id, external_thread_id, nick_uid, chuc_nang, ten_dang_ky}],
 //            nhan_vien:[{zalo_uid, ten_goi, vai, trang_thai}]}
 //     → 401 thiếu/sai khoá
 //

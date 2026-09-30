@@ -3,7 +3,8 @@
 //
 // Bất biến giữ ở đây (routes chỉ là vỏ HTTP):
 //   • giá trị enum đúng docs/77 §2 (bot-quyen-luat.ts) — DB còn CHECK chặn lần hai;
-//   • `lyDo` bắt buộc khi HẠ (mất năng lực) hoặc KHOÁ (trạng thái đi xuống / bỏ xếp loại nhóm);
+//   • `lyDo` bắt buộc khi HẠ (mất năng lực) hoặc KHOÁ (trạng thái đi xuống / bỏ xếp loại nhóm / TẠO NV
+//     đã khoa|nghi hoặc vai cong_ty);
 //   • luôn còn ≥ 1 NV admin hoat_dong: đổi vai HAY đổi trạng thái của admin hoạt động cuối ⇒ từ chối;
 //   • mỗi thay đổi ghi MỘT dòng BotQuyenNhatKy (trước/sau/lý do) TRONG CÙNG giao dịch với thay đổi;
 //   • mọi truy vấn lọc theo orgId.
@@ -14,7 +15,7 @@ import { prisma, tenantTransaction } from '../../shared/database/prisma-client.j
 import {
   CHUC_NANG_NHOM, VAI_NV, TRANG_THAI_NV,
   laChucNang, laVai, laTrangThai,
-  laHaChucNang, laHaVai, laHaTrangThai, laAdminHoatDong,
+  laHaChucNang, laHaVai, laHaTrangThai, laAdminHoatDong, laKhoaKhiTao,
   type ChucNangNhom, type VaiNv, type TrangThaiNv,
 } from './bot-quyen-luat.js';
 
@@ -308,7 +309,10 @@ function kiemTrangThai(x: unknown): TrangThaiNv {
   return x;
 }
 
-/** POST /nhan-vien — thêm NV (không có "hạ" khi tạo mới ⇒ lý do tuỳ chọn, có thì ghi nhật ký). */
+/**
+ * POST /nhan-vien — thêm NV. Lý do bắt buộc khi tạo đã khoa/nghi hoặc vai cong_ty (laKhoaKhiTao);
+ * còn lại tuỳ chọn, có thì ghi nhật ký.
+ */
 export async function themNhanVien(orgId: string, aiId: string, input: unknown): Promise<NhanVienView> {
   const body = laBody(input);
   const zaloUid = chuoi(body.zaloUid, 'zaloUid', DAI_UID);
@@ -320,6 +324,9 @@ export async function themNhanVien(orgId: string, aiId: string, input: unknown):
   const userId = chuoiHoacNull(body.userId, 'userId', DAI_UID) ?? null;
   const ghiChu = chuoiHoacNull(body.ghiChu, 'ghiChu', DAI_GHI_CHU) ?? null;
   const lyDo = docLyDo(body.lyDo);
+  if (laKhoaKhiTao(vai, trangThai)) {
+    canLyDo(lyDo, 'thêm nhân viên đang khoá / đã nghỉ / là người công ty (bot sẽ khoá Zalo này)');
+  }
   await kiemUser(orgId, userId);
 
   const row = await tenantTransaction(async (tx) => {

@@ -6,7 +6,7 @@ import { describe, it, expect } from 'vitest';
 import {
   CHUC_NANG_NHOM, VAI_NV, TRANG_THAI_NV,
   laChucNang, laVai, laTrangThai,
-  laHaChucNang, laHaVai, laHaTrangThai, laAdminHoatDong,
+  laHaChucNang, laHaVai, laHaTrangThai, laAdminHoatDong, laKhoaKhiTao,
 } from '../src/modules/bot-quyen/bot-quyen-luat.js';
 import { jsonChuan, ghepCauHinhCongKhai } from '../src/modules/bot-quyen/bot-quyen-cong-khai.js';
 
@@ -76,6 +76,13 @@ describe('hạ vai / khoá trạng thái nhân viên', () => {
     expect(laHaTrangThai('khoa', 'hoat_dong')).toBe(false);
     expect(laHaTrangThai('hoat_dong', 'hoat_dong')).toBe(false);
   });
+  it('TẠO nhân viên ở trạng thái khoa/nghi hoặc vai cong_ty là khoá (đồng bộ sẽ khoá actor bot sẵn có)', () => {
+    expect(laKhoaKhiTao('sales', 'khoa')).toBe(true);
+    expect(laKhoaKhiTao('admin', 'nghi')).toBe(true);
+    expect(laKhoaKhiTao('cong_ty', 'hoat_dong')).toBe(true);
+    expect(laKhoaKhiTao('sales', 'hoat_dong')).toBe(false);
+    expect(laKhoaKhiTao('admin', 'hoat_dong')).toBe(false);
+  });
   it('admin hoạt động = vai admin VÀ trạng thái hoat_dong', () => {
     expect(laAdminHoatDong({ vai: 'admin', trangThai: 'hoat_dong' })).toBe(true);
     expect(laAdminHoatDong({ vai: 'admin', trangThai: 'khoa' })).toBe(false);
@@ -85,8 +92,8 @@ describe('hạ vai / khoá trạng thái nhân viên', () => {
 
 describe('phiên bản cấu hình công khai (phien_ban)', () => {
   const nhom = [
-    { conversationId: 'c-2', externalThreadId: 'g2', chucNang: 'sales', tenDangKy: 'Sales HN' },
-    { conversationId: 'c-1', externalThreadId: 'g1', chucNang: 'admin', tenDangKy: '' },
+    { conversationId: 'c-2', externalThreadId: 'g2', nickUid: 'nick-hn', chucNang: 'sales', tenDangKy: 'Sales HN' },
+    { conversationId: 'c-1', externalThreadId: 'g1', nickUid: null, chucNang: 'admin', tenDangKy: '' },
   ];
   const nv = [
     { zaloUid: '900', tenGoi: 'Hùng', vai: 'kho', trangThai: 'hoat_dong' },
@@ -101,9 +108,12 @@ describe('phiên bản cấu hình công khai (phien_ban)', () => {
     const ch = ghepCauHinhCongKhai(nhom, nv);
     expect(Object.keys(ch)).toEqual(['phien_ban', 'nhom', 'nhan_vien']);
     expect(ch.nhom).toEqual([
-      { conversation_id: 'c-1', external_thread_id: 'g1', chuc_nang: 'admin', ten_dang_ky: '' },
-      { conversation_id: 'c-2', external_thread_id: 'g2', chuc_nang: 'sales', ten_dang_ky: 'Sales HN' },
+      { conversation_id: 'c-1', external_thread_id: 'g1', nick_uid: null, chuc_nang: 'admin', ten_dang_ky: '' },
+      { conversation_id: 'c-2', external_thread_id: 'g2', nick_uid: 'nick-hn', chuc_nang: 'sales', ten_dang_ky: 'Sales HN' },
     ]);
+    // Thứ tự khoá trong một phần tử là một phần hợp đồng (docs/77 §3.2 + vòng sửa 1).
+    expect(Object.keys(ch.nhom[0])).toEqual(['conversation_id', 'external_thread_id', 'nick_uid', 'chuc_nang', 'ten_dang_ky']);
+    expect(Object.keys(ch.nhan_vien[0])).toEqual(['zalo_uid', 'ten_goi', 'vai', 'trang_thai']);
     expect(ch.nhan_vien).toEqual([
       { zalo_uid: '100', ten_goi: 'Quyết', vai: 'admin', trang_thai: 'hoat_dong' },
       { zalo_uid: '900', ten_goi: 'Hùng', vai: 'kho', trang_thai: 'hoat_dong' },
@@ -124,7 +134,9 @@ describe('phiên bản cấu hình công khai (phien_ban)', () => {
     const doiTen = ghepCauHinhCongKhai([{ ...nhom[0], tenDangKy: 'Sales HCM' }, nhom[1]], nv).phien_ban;
     const boNhom = ghepCauHinhCongKhai([nhom[0]], nv).phien_ban;
     const rong = ghepCauHinhCongKhai([], []).phien_ban;
-    const tatCa = new Set([goc, doiVai, doiTrangThai, doiTen, boNhom, rong]);
-    expect(tatCa.size).toBe(6);
+    const doiNick = ghepCauHinhCongKhai([{ ...nhom[0], nickUid: 'nick-hcm' }, nhom[1]], nv).phien_ban;
+    const nickNull = ghepCauHinhCongKhai([{ ...nhom[0], nickUid: null }, nhom[1]], nv).phien_ban;
+    const tatCa = new Set([goc, doiVai, doiTrangThai, doiTen, boNhom, rong, doiNick, nickNull]);
+    expect(tatCa.size).toBe(8);
   });
 });

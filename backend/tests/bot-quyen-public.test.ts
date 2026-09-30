@@ -46,6 +46,11 @@ describeCanDb('bot-quyen — API công khai (x-api-key)', () => {
         data: { id: `test-bqp-nick-${suffix}`, orgId: org, ownerUserId: `test-bqp-owner-${suffix}`, zaloUid: `test-bqp-uid-nick-${suffix}` },
       });
     }
+    // Nick thứ hai của org A (để chuyển nhóm sang) + nick chưa biết uid (zaloUid null).
+    await prisma.zaloAccount.create({
+      data: { id: 'test-bqp-nick-a2', orgId: ORG_A, ownerUserId: 'test-bqp-owner-a', zaloUid: 'test-bqp-uid-nick-a2' },
+    });
+    await prisma.zaloAccount.create({ data: { id: 'test-bqp-nick-a3', orgId: ORG_A, ownerUserId: 'test-bqp-owner-a' } });
     for (const [id, org, nick, ext] of [
       ['test-bqp-c2', ORG_A, 'test-bqp-nick-a', 'ext-c2'],
       ['test-bqp-c1', ORG_A, 'test-bqp-nick-a', 'ext-c1'],
@@ -104,9 +109,14 @@ describeCanDb('bot-quyen — API công khai (x-api-key)', () => {
     expect(Object.keys(body)).toEqual(['phien_ban', 'nhom', 'nhan_vien']);
     expect(body.phien_ban).toMatch(/^[0-9a-f]{64}$/);
     expect(body.nhom).toEqual([
-      { conversation_id: 'test-bqp-c1', external_thread_id: 'ext-c1', chuc_nang: 'admin', ten_dang_ky: '' },
-      { conversation_id: 'test-bqp-c2', external_thread_id: 'ext-c2', chuc_nang: 'sales', ten_dang_ky: 'Sales HN' },
+      { conversation_id: 'test-bqp-c1', external_thread_id: 'ext-c1', nick_uid: 'test-bqp-uid-nick-a', chuc_nang: 'admin', ten_dang_ky: '' },
+      { conversation_id: 'test-bqp-c2', external_thread_id: 'ext-c2', nick_uid: 'test-bqp-uid-nick-a', chuc_nang: 'sales', ten_dang_ky: 'Sales HN' },
     ]);
+    // Thứ tự khoá trong JSON trả về (hợp đồng): conversation_id, external_thread_id, nick_uid, chuc_nang, ten_dang_ky.
+    expect(res.body.indexOf('"conversation_id"')).toBeLessThan(res.body.indexOf('"external_thread_id"'));
+    expect(res.body.indexOf('"external_thread_id"')).toBeLessThan(res.body.indexOf('"nick_uid"'));
+    expect(res.body.indexOf('"nick_uid"')).toBeLessThan(res.body.indexOf('"chuc_nang"'));
+    expect(res.body.indexOf('"chuc_nang"')).toBeLessThan(res.body.indexOf('"ten_dang_ky"'));
     expect(body.nhan_vien).toEqual([
       { zalo_uid: '100', ten_goi: 'Quyết', vai: 'admin', trang_thai: 'hoat_dong' },
       { zalo_uid: '500', ten_goi: 'Lan', vai: 'cong_ty', trang_thai: 'nghi' },
@@ -117,7 +127,7 @@ describeCanDb('bot-quyen — API công khai (x-api-key)', () => {
   it('khoá org B chỉ thấy dữ liệu org B', async () => {
     const body = (await lay(KHOA_B)).json();
     expect(body.nhom).toEqual([
-      { conversation_id: 'test-bqp-cb', external_thread_id: 'ext-cb', chuc_nang: 'kho', ten_dang_ky: 'Kho B' },
+      { conversation_id: 'test-bqp-cb', external_thread_id: 'ext-cb', nick_uid: 'test-bqp-uid-nick-b', chuc_nang: 'kho', ten_dang_ky: 'Kho B' },
     ]);
     expect(body.nhan_vien).toEqual([
       { zalo_uid: '100', ten_goi: 'Người org B', vai: 'sales', trang_thai: 'hoat_dong' },
@@ -149,5 +159,29 @@ describeCanDb('bot-quyen — API công khai (x-api-key)', () => {
     const vb1 = (await lay(KHOA_B)).json().phien_ban;
     await prisma.botNhanVien.updateMany({ where: { orgId: ORG_A, zaloUid: '100' }, data: { tenGoi: 'Anh Quyết' } });
     expect((await lay(KHOA_B)).json().phien_ban).toBe(vb1);
+  });
+
+  it('nhóm chuyển sang nick khác ⇒ nick_uid đổi + phien_ban đổi; nick chưa có uid ⇒ nick_uid null', async () => {
+    const v1 = (await lay(KHOA_A)).json();
+    try {
+      await prisma.conversation.update({ where: { id: 'test-bqp-c2' }, data: { zaloAccountId: 'test-bqp-nick-a2' } });
+      const v2 = (await lay(KHOA_A)).json();
+      expect(v2.nhom.find((n: any) => n.conversation_id === 'test-bqp-c2').nick_uid).toBe('test-bqp-uid-nick-a2');
+      expect(v2.phien_ban).not.toBe(v1.phien_ban);
+
+      await prisma.conversation.update({ where: { id: 'test-bqp-c2' }, data: { zaloAccountId: 'test-bqp-nick-a3' } });
+      const v3 = (await lay(KHOA_A)).json();
+      expect(v3.nhom.find((n: any) => n.conversation_id === 'test-bqp-c2').nick_uid).toBeNull();
+      expect(new Set([v1.phien_ban, v2.phien_ban, v3.phien_ban]).size).toBe(3);
+
+      // Đổi uid của CHÍNH nick (vd nick đăng nhập lại ra uid khác) cũng đổi phiên bản.
+      await prisma.conversation.update({ where: { id: 'test-bqp-c2' }, data: { zaloAccountId: 'test-bqp-nick-a' } });
+      expect((await lay(KHOA_A)).json().phien_ban).toBe(v1.phien_ban);
+      await prisma.zaloAccount.update({ where: { id: 'test-bqp-nick-a' }, data: { zaloUid: 'test-bqp-uid-nick-a-moi' } });
+      expect((await lay(KHOA_A)).json().phien_ban).not.toBe(v1.phien_ban);
+    } finally {
+      await prisma.zaloAccount.update({ where: { id: 'test-bqp-nick-a' }, data: { zaloUid: 'test-bqp-uid-nick-a' } });
+      await prisma.conversation.update({ where: { id: 'test-bqp-c2' }, data: { zaloAccountId: 'test-bqp-nick-a' } });
+    }
   });
 });

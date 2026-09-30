@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// QUYỀN BOT (docs/77 §3.2) — thành viên của một hội thoại NHÓM + nhãn với bot:
+// QUYỀN BOT (docs/77 §3.2) — thành viên của một hội thoại NHÓM + nhãn với bot. Nhãn phải khớp cách BOT
+// đếm người ngoài (docs/76 tam_im): uid là người ngoài trừ khi có trong actor_identities (⇐ BotNhanVien) hoặc
+// trong bảng nick_bot của bot (⇐ `nick_uid` của payload công khai = nick CỦA CHÍNH hội thoại). Bot không biết
+// gì về các nick CRM khác, nên:
 //   nhan_vien   uid có trong BotNhanVien của org (kèm vai/trạng thái — kể cả cong_ty: người công ty)
-//   nick_crm    uid là một nick Zalo của CRM trong org (chính nick nhìn nhóm, nick bot…) — không phải
-//               người ngoài (bot cũng loại nick bot khỏi "người ngoài", docs/76 tam_im)
-//   nguoi_ngoai còn lại — bot sẽ im phía NV ở nhóm có người ngoài (trừ nhóm khach)
+//   nick_crm    uid là nick CRM CỦA CHÍNH hội thoại này (conversation.zaloAccount.zaloUid)
+//   nguoi_ngoai còn lại — KỂ CẢ nick CRM khác của org chưa có trong BotNhanVien (vd nick LED HCM gõ trong
+//               nhóm của nick HN làm bot im). Trang gợi ý đánh dấu nó "người công ty" (vai cong_ty).
+//   laNickCrm   true khi uid là MỘT nick Zalo bất kỳ của org (kể cả nick của chính nhóm), false với người thường.
+// Thứ tự xét: nhan_vien trước (nick CRM đã được xếp vai là nhân viên như mọi người), rồi nick_crm, rồi nguoi_ngoai.
 //
 // NGUỒN thành viên, theo thứ tự (trả kèm `nguon` để trang nói rõ đang xem gì):
 //   1. da_quet  — bảng group_members (tính năng "Quét group" đã LƯU sẵn trong DB): không tốn lượt gọi
@@ -30,6 +35,8 @@ export interface ThanhVienNhom {
   zaloUid: string;
   ten: string;
   loai: LoaiThanhVien;
+  /** uid là một nick Zalo của CRM trong org (bất kể nhãn). */
+  laNickCrm: boolean;
   nhanVien: { id: string; tenGoi: string; vai: string; trangThai: string } | null;
 }
 
@@ -45,19 +52,27 @@ export interface KetQuaThanhVien {
 }
 
 /** Hạn giờ gọi Zalo — quá hạn thì rơi về người đã nhắn, không treo trang. */
-const HET_GIO_ZALO_MS = 10_000;
+export const HET_GIO_ZALO_MS = 10_000;
 
 /** Một lần quét ghi cùng một mốc cho cả nhóm; nới 10 phút cho lần quét bị ngắt rồi chạy tiếp. */
 const CUA_SO_LAN_QUET_MS = 10 * 60_000;
 
+/**
+ * uid thành viên từ kết quả getGroupInfo: `gridInfoMap[groupId].memVerList` = ["<uid>_<phiên bản>", …]
+ * (không có khoá đúng id ⇒ nhóm đầu tiên, như group-routes `/members`). Gộp trùng, bỏ rỗng. Thuần.
+ */
+export function uidTuThongTinNhom(info: unknown, groupId: string): string[] {
+  const map = (info as { gridInfoMap?: Record<string, { memVerList?: unknown }> } | null)?.gridInfoMap;
+  if (!map || typeof map !== 'object') return [];
+  const grid = map[groupId] ?? Object.values(map)[0];
+  const raw = Array.isArray(grid?.memVerList) ? grid.memVerList : [];
+  return [...new Set(raw.map((k) => String(k).split('_')[0]).filter(Boolean))];
+}
+
 /** Đường Zalo thật — như group-routes.ts `/members`. Import động: không kéo zalo-pool khi nạp module. */
 export const docThanhVienZaloMacDinh: DocThanhVienZalo = async (accountId, groupId) => {
   const { zaloOps } = await import('../../shared/zalo-operations.js');
-  type Grid = { memVerList?: unknown[] };
-  const info = (await zaloOps.getGroupInfo(accountId, groupId)) as { gridInfoMap?: Record<string, Grid> } | null;
-  const grid = info?.gridInfoMap?.[groupId] ?? Object.values(info?.gridInfoMap ?? {})[0];
-  const rawIds = Array.isArray(grid?.memVerList) ? grid.memVerList : [];
-  const uids = [...new Set(rawIds.map((k) => String(k).split('_')[0]).filter(Boolean))];
+  const uids = uidTuThongTinNhom(await zaloOps.getGroupInfo(accountId, groupId), groupId);
   if (uids.length === 0) return [];
 
   type Prof = { id?: string; displayName?: string; zaloName?: string };
@@ -74,10 +89,12 @@ export const docThanhVienZaloMacDinh: DocThanhVienZalo = async (accountId, group
   });
 };
 
-function hetGio<T>(p: Promise<T>, ms: number): Promise<T> {
+/** Chờ `p` tối đa `ms`; quá hạn ⇒ từ chối (lời gọi gốc vẫn chạy tiếp nền — như `/members`). */
+export function hetGio<T>(p: Promise<T>, ms: number): Promise<T> {
   let hen: NodeJS.Timeout | undefined;
+  const khoang = ms >= 1000 ? `${Math.round(ms / 1000)} giây` : `${ms} ms`;
   const cho = new Promise<never>((_, reject) => {
-    hen = setTimeout(() => reject(new Error(`Zalo không trả lời sau ${Math.round(ms / 1000)} giây`)), ms);
+    hen = setTimeout(() => reject(new Error(`Zalo không trả lời sau ${khoang}`)), ms);
   });
   return Promise.race([p, cho]).finally(() => clearTimeout(hen));
 }
@@ -117,11 +134,11 @@ async function docNguoiDaNhan(conversationId: string): Promise<ThanhVienTho[]> {
 export async function layThanhVienNhom(
   orgId: string,
   conversationId: string,
-  opts: { lamMoi?: boolean; docZalo: DocThanhVienZalo },
+  opts: { lamMoi?: boolean; docZalo: DocThanhVienZalo; hetGioMs?: number },
 ): Promise<KetQuaThanhVien | null> {
   const conv = await prisma.conversation.findFirst({
     where: { id: conversationId, orgId, threadType: 'group' },
-    select: { id: true, zaloAccountId: true, externalThreadId: true },
+    select: { id: true, zaloAccountId: true, externalThreadId: true, zaloAccount: { select: { zaloUid: true } } },
   });
   if (!conv) return null;
 
@@ -142,7 +159,7 @@ export async function layThanhVienNhom(
   if (!nguon) {
     try {
       if (!conv.externalThreadId) throw new Error('Hội thoại nhóm thiếu mã nhóm Zalo');
-      tho = await hetGio(opts.docZalo(conv.zaloAccountId, conv.externalThreadId), HET_GIO_ZALO_MS);
+      tho = await hetGio(opts.docZalo(conv.zaloAccountId, conv.externalThreadId), opts.hetGioMs ?? HET_GIO_ZALO_MS);
       if (tho.length === 0) throw new Error('Zalo không trả danh sách thành viên');
       nguon = 'zalo';
       nguonLuc = new Date();
@@ -171,14 +188,16 @@ export async function layThanhVienNhom(
   ]);
   const nvTheoUid = new Map(nhanVien.map((n) => [n.zaloUid, n]));
   const uidNick = new Set(nick.map((n) => n.zaloUid));
+  const uidNickNhom = conv.zaloAccount.zaloUid;
 
   const thanhVien: ThanhVienNhom[] = uids.map((uid) => {
     const nv = nvTheoUid.get(uid);
-    const loai: LoaiThanhVien = nv ? 'nhan_vien' : uidNick.has(uid) ? 'nick_crm' : 'nguoi_ngoai';
+    const loai: LoaiThanhVien = nv ? 'nhan_vien' : uid === uidNickNhom ? 'nick_crm' : 'nguoi_ngoai';
     return {
       zaloUid: uid,
       ten: theoUid.get(uid)!.ten,
       loai,
+      laNickCrm: uidNick.has(uid),
       nhanVien: nv ? { id: nv.id, tenGoi: nv.tenGoi, vai: nv.vai, trangThai: nv.trangThai } : null,
     };
   }).sort((a, b) => a.ten.localeCompare(b.ten, 'vi'));

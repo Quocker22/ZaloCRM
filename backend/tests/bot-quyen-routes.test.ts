@@ -24,6 +24,7 @@ const NICK_A = 'test-bq-nick-a';
 const NICK_A2 = 'test-bq-nick-a2';
 const NICK_B = 'test-bq-nick-b';
 const NICK_A_UID = 'test-bq-uid-nick-a';
+const NICK_A2_UID = 'test-bq-uid-nick-a2';
 const G1 = 'test-bq-conv-g1';
 const G2 = 'test-bq-conv-g2';
 const G3 = 'test-bq-conv-g3'; // nhóm của nick thứ hai
@@ -54,7 +55,7 @@ async function gieo() {
   await u(MEMBER, ORG_A, 'member', 'Sale A');
   await u(OWNER_B, ORG_B, 'owner', 'Chủ B');
   await prisma.zaloAccount.create({ data: { id: NICK_A, orgId: ORG_A, ownerUserId: OWNER, zaloUid: NICK_A_UID, displayName: 'Nick LED HN' } });
-  await prisma.zaloAccount.create({ data: { id: NICK_A2, orgId: ORG_A, ownerUserId: OWNER, zaloUid: 'test-bq-uid-nick-a2', displayName: 'Nick LED HCM' } });
+  await prisma.zaloAccount.create({ data: { id: NICK_A2, orgId: ORG_A, ownerUserId: OWNER, zaloUid: NICK_A2_UID, displayName: 'Nick LED HCM' } });
   await prisma.zaloAccount.create({ data: { id: NICK_B, orgId: ORG_B, ownerUserId: OWNER_B, zaloUid: 'test-bq-uid-nick-b', displayName: 'Nick B' } });
   const g = (id: string, orgId: string, zaloAccountId: string, ext: string, groupName: string, lastMin: number) =>
     prisma.conversation.create({
@@ -75,13 +76,14 @@ async function gieo() {
 let app: FastifyInstance;
 let docZalo: DocThanhVienZalo;
 
-async function dungApp(): Promise<FastifyInstance> {
+async function dungApp(them: { hetGioZaloMs?: number } = {}): Promise<FastifyInstance> {
   const a = Fastify({ logger: false });
   await a.register(fastifyJwt, { secret: config.jwtSecret });
   // Bộ đọc Zalo trực tiếp là I/O mạng — test thay bằng hàm giả qua tuỳ chọn plugin.
   await a.register(registerBotQuyenRoutes, {
     prefix: BASE,
     docThanhVienZalo: (accountId: string, groupId: string) => docZalo(accountId, groupId),
+    ...them,
   });
   await a.ready();
   return a;
@@ -138,7 +140,8 @@ describeCanDb('bot-quyen — API quản trị (JWT, owner/admin)', () => {
     expect(res.statusCode).toBe(401);
   });
 
-  it('NV thường (role member) ⇒ 403 ở MỌI route, kể cả đọc; không ghi gì', async () => {
+  it('NV thường (role member) ⇒ 403 ở MỌI route (8/8), kể cả đọc; không ghi gì', async () => {
+    const co = await prisma.botNhanVien.create({ data: { orgId: ORG_A, zaloUid: '4001', tenGoi: 'Có sẵn', vai: 'sales' } });
     const cac = [
       await goi('GET', '/nhom', MEMBER),
       await goi('GET', `/nhom/${G1}/thanh-vien`, MEMBER),
@@ -146,14 +149,17 @@ describeCanDb('bot-quyen — API quản trị (JWT, owner/admin)', () => {
       await goi('DELETE', `/nhom/${G1}`, MEMBER, { lyDo: 'x' }),
       await goi('GET', '/nhan-vien', MEMBER),
       await goi('POST', '/nhan-vien', MEMBER, { zaloUid: '111', tenGoi: 'Tự nâng', vai: 'admin' }),
+      await goi('PUT', `/nhan-vien/${co.id}`, MEMBER, { vai: 'admin' }),
       await goi('GET', '/nhat-ky', MEMBER),
     ];
+    expect(cac).toHaveLength(8);
     for (const r of cac) {
       expect(r.statusCode).toBe(403);
       expect(r.json().code).toBe('CHI_ADMIN');
     }
     expect(await prisma.botNhom.count({ where: { orgId: ORG_A } })).toBe(0);
-    expect(await prisma.botNhanVien.count({ where: { orgId: ORG_A } })).toBe(0);
+    expect(await prisma.botNhanVien.count({ where: { orgId: ORG_A } })).toBe(1);
+    expect(await prisma.botNhanVien.findUnique({ where: { id: co.id } })).toMatchObject({ vai: 'sales', tenGoi: 'Có sẵn' });
     expect(await prisma.botQuyenNhatKy.count({ where: { orgId: ORG_A } })).toBe(0);
   });
 
@@ -333,6 +339,29 @@ describeCanDb('bot-quyen — API quản trị (JWT, owner/admin)', () => {
     expect(await prisma.botNhanVien.count({ where: { orgId: ORG_A } })).toBe(0);
   });
 
+  it('POST /nhan-vien: tạo ở trạng thái khoa/nghi hoặc vai cong_ty là KHOÁ ⇒ thiếu lý do 400; có lý do 201 + nhật ký', async () => {
+    for (const body of [
+      { zaloUid: '6101', tenGoi: 'K', vai: 'sales', trangThai: 'khoa' },
+      { zaloUid: '6102', tenGoi: 'N', vai: 'kho', trangThai: 'nghi' },
+      { zaloUid: '6103', tenGoi: 'C', vai: 'cong_ty' },
+      { zaloUid: '6103', tenGoi: 'C', vai: 'cong_ty', lyDo: '   ' },
+    ]) {
+      const res = await goi('POST', '/nhan-vien', OWNER, body);
+      expect(res.statusCode, JSON.stringify(body)).toBe(400);
+      expect(res.json().code).toBe('THIEU_LY_DO');
+    }
+    expect(await prisma.botNhanVien.count({ where: { orgId: ORG_A } })).toBe(0);
+    expect(await prisma.botQuyenNhatKy.count({ where: { orgId: ORG_A } })).toBe(0);
+
+    const nghi = await taoNv({ zaloUid: '6102', tenGoi: 'N', vai: 'kho', trangThai: 'nghi', lyDo: 'Nghỉ từ 01/09' });
+    expect(nghi.trangThai).toBe('nghi');
+    await taoNv({ zaloUid: '6103', tenGoi: 'C', vai: 'cong_ty', lyDo: 'Kế toán thuê ngoài' });
+    const nk = await prisma.botQuyenNhatKy.findMany({ where: { orgId: ORG_A }, orderBy: { luc: 'asc' } });
+    expect(nk.map((r) => r.lyDo)).toEqual(['Nghỉ từ 01/09', 'Kế toán thuê ngoài']);
+    // Tạo bình thường (hoat_dong, vai dùng bot) vẫn không cần lý do.
+    await taoNv({ zaloUid: '6104', tenGoi: 'S', vai: 'sales' });
+  });
+
   it('POST /nhan-vien: userId cùng org được liên kết', async () => {
     const nv = await taoNv({ zaloUid: '6002', tenGoi: 'Sale', vai: 'sales', userId: MEMBER });
     const ds = (await goi('GET', '/nhan-vien', OWNER)).json().nhanVien as Array<Record<string, any>>;
@@ -356,7 +385,7 @@ describeCanDb('bot-quyen — API quản trị (JWT, owner/admin)', () => {
     expect(await prisma.botQuyenNhatKy.count({ where: { orgId: ORG_A } })).toBe(truoc);
 
     // Admin KHOÁ không tính là admin hoạt động.
-    await taoNv({ zaloUid: '7002', tenGoi: 'Admin khoá', vai: 'admin', trangThai: 'khoa' });
+    await taoNv({ zaloUid: '7002', tenGoi: 'Admin khoá', vai: 'admin', trangThai: 'khoa', lyDo: 'Tạm khoá' });
     expect((await goi('PUT', `/nhan-vien/${a1.id}`, OWNER, { trangThai: 'khoa', lyDo: 'x' })).statusCode).toBe(409);
 
     // Có admin hoạt động thứ hai ⇒ hạ được.
@@ -457,7 +486,7 @@ describeCanDb('bot-quyen — API quản trị (JWT, owner/admin)', () => {
 
   it('thành viên: có bản QUÉT lưu sẵn ⇒ nguồn da_quet, chỉ lần quét mới nhất; nhãn NV / nick CRM / người ngoài', async () => {
     await taoNv({ zaloUid: 'u-nv', tenGoi: 'Hùng kho', vai: 'kho' });
-    await taoNv({ zaloUid: 'u-ct', tenGoi: 'Kế toán thuê', vai: 'cong_ty' });
+    await taoNv({ zaloUid: 'u-ct', tenGoi: 'Kế toán thuê', vai: 'cong_ty', lyDo: 'Người công ty' });
     const cu = new Date(Date.now() - 86_400_000);
     const moi = new Date();
     const gm = (memberUid: string, displayName: string, lastSeenAt: Date) =>
@@ -467,6 +496,7 @@ describeCanDb('bot-quyen — API quản trị (JWT, owner/admin)', () => {
     await gm('u-nv', 'Hùng', moi);
     await gm('u-ct', 'Kế toán', moi);
     await gm(NICK_A_UID, 'Nick LED HN', moi);
+    await gm(NICK_A2_UID, 'Nick LED HCM', moi); // nick CRM KHÁC của org — bot coi là người ngoài
     await gm('u-la', 'Khách lạ', moi);
     await gm('u-da-roi', 'Đã rời nhóm', cu); // lần quét cũ — không còn thấy ở lần mới
 
@@ -476,11 +506,43 @@ describeCanDb('bot-quyen — API quản trị (JWT, owner/admin)', () => {
     expect(body.nguon).toBe('da_quet');
     expect(new Date(body.nguonLuc).getTime()).toBe(moi.getTime());
     const theoUid = Object.fromEntries((body.thanhVien as any[]).map((t) => [t.zaloUid, t]));
-    expect(Object.keys(theoUid).sort()).toEqual([NICK_A_UID, 'u-ct', 'u-la', 'u-nv'].sort());
-    expect(theoUid['u-nv']).toMatchObject({ loai: 'nhan_vien', ten: 'Hùng', nhanVien: { tenGoi: 'Hùng kho', vai: 'kho', trangThai: 'hoat_dong' } });
-    expect(theoUid['u-ct']).toMatchObject({ loai: 'nhan_vien', nhanVien: { vai: 'cong_ty' } });
-    expect(theoUid[NICK_A_UID]).toMatchObject({ loai: 'nick_crm', nhanVien: null });
-    expect(theoUid['u-la']).toMatchObject({ loai: 'nguoi_ngoai', nhanVien: null });
+    expect(Object.keys(theoUid).sort()).toEqual([NICK_A_UID, NICK_A2_UID, 'u-ct', 'u-la', 'u-nv'].sort());
+    expect(theoUid['u-nv']).toMatchObject({ loai: 'nhan_vien', laNickCrm: false, ten: 'Hùng', nhanVien: { tenGoi: 'Hùng kho', vai: 'kho', trangThai: 'hoat_dong' } });
+    expect(theoUid['u-ct']).toMatchObject({ loai: 'nhan_vien', laNickCrm: false, nhanVien: { vai: 'cong_ty' } });
+    // Chỉ nick CỦA CHÍNH hội thoại này là nick_crm (bot nạp nó vào nick_bot qua nick_uid).
+    expect(theoUid[NICK_A_UID]).toMatchObject({ loai: 'nick_crm', laNickCrm: true, nhanVien: null });
+    // Nick CRM khác chưa có trong BotNhanVien: người ngoài với bot ⇒ đếm vào soNguoiNgoai, gắn laNickCrm.
+    expect(theoUid[NICK_A2_UID]).toMatchObject({ loai: 'nguoi_ngoai', laNickCrm: true, nhanVien: null });
+    expect(theoUid['u-la']).toMatchObject({ loai: 'nguoi_ngoai', laNickCrm: false, nhanVien: null });
+    expect(body.soNguoiNgoai).toBe(2);
+  });
+
+  it('thành viên: nick CRM khác ĐÃ là nhân viên (vd cong_ty) ⇒ nhan_vien, không đếm người ngoài', async () => {
+    await taoNv({ zaloUid: NICK_A2_UID, tenGoi: 'Nick HCM', vai: 'cong_ty', lyDo: 'Nick sales của công ty' });
+    await prisma.groupMember.createMany({
+      data: [
+        { orgId: ORG_A, zaloAccountId: NICK_A, groupId: 'test-bq-ext-g1', memberUid: NICK_A_UID, displayName: 'Nick HN' },
+        { orgId: ORG_A, zaloAccountId: NICK_A, groupId: 'test-bq-ext-g1', memberUid: NICK_A2_UID, displayName: 'Nick HCM' },
+      ],
+    });
+    const body = (await goi('GET', `/nhom/${G1}/thanh-vien`, OWNER)).json();
+    const theoUid = Object.fromEntries((body.thanhVien as any[]).map((t) => [t.zaloUid, t]));
+    expect(theoUid[NICK_A2_UID]).toMatchObject({ loai: 'nhan_vien', laNickCrm: true, nhanVien: { vai: 'cong_ty' } });
+    expect(theoUid[NICK_A_UID]).toMatchObject({ loai: 'nick_crm', laNickCrm: true });
+    expect(body.soNguoiNgoai).toBe(0);
+  });
+
+  it('thành viên: nick của nhóm G3 là nick HCM ⇒ ở G3 nick HN mới là người ngoài', async () => {
+    await prisma.groupMember.createMany({
+      data: [
+        { orgId: ORG_A, zaloAccountId: NICK_A2, groupId: 'test-bq-ext-g3', memberUid: NICK_A_UID, displayName: 'Nick HN' },
+        { orgId: ORG_A, zaloAccountId: NICK_A2, groupId: 'test-bq-ext-g3', memberUid: NICK_A2_UID, displayName: 'Nick HCM' },
+      ],
+    });
+    const body = (await goi('GET', `/nhom/${G3}/thanh-vien`, OWNER)).json();
+    const theoUid = Object.fromEntries((body.thanhVien as any[]).map((t) => [t.zaloUid, t]));
+    expect(theoUid[NICK_A2_UID]).toMatchObject({ loai: 'nick_crm', laNickCrm: true });
+    expect(theoUid[NICK_A_UID]).toMatchObject({ loai: 'nguoi_ngoai', laNickCrm: true });
     expect(body.soNguoiNgoai).toBe(1);
   });
 
@@ -494,6 +556,9 @@ describeCanDb('bot-quyen — API quản trị (JWT, owner/admin)', () => {
     expect(res.statusCode, res.body).toBe(200);
     expect(res.json()).toMatchObject({ nguon: 'zalo', soNguoiNgoai: 1, loiZalo: null });
     expect(goiZalo).toEqual([[NICK_A, 'test-bq-ext-g2']]);
+    const tv = Object.fromEntries((res.json().thanhVien as any[]).map((t) => [t.zaloUid, t]));
+    expect(tv['u-z1']).toMatchObject({ loai: 'nguoi_ngoai', laNickCrm: false });
+    expect(tv[NICK_A_UID]).toMatchObject({ loai: 'nick_crm', laNickCrm: true });
 
     await prisma.groupMember.create({
       data: { orgId: ORG_A, zaloAccountId: NICK_A, groupId: 'test-bq-ext-g1', memberUid: 'u-quet', displayName: 'Quét' },
@@ -525,6 +590,29 @@ describeCanDb('bot-quyen — API quản trị (JWT, owner/admin)', () => {
     expect(theoUid['u-a'].ten).toBe('A mới');
     expect(theoUid[NICK_A_UID].loai).toBe('nick_crm');
     expect(body.soNguoiNgoai).toBe(2);
+  });
+
+  it('thành viên: Zalo TREO quá hạn giờ ⇒ rơi về người đã nhắn, loiZalo nói hết giờ', async () => {
+    const appNgan = await dungApp({ hetGioZaloMs: 50 });
+    try {
+      let daGoi = 0;
+      docZalo = () => { daGoi++; return new Promise(() => {}); }; // không bao giờ trả
+      await prisma.message.create({
+        data: { conversationId: G2, zaloMsgId: 'bq-m9', senderType: 'contact', senderUid: 'u-c', senderName: 'C', content: 'x', sentAt: new Date() },
+      });
+      const batDau = Date.now();
+      const res = await appNgan.inject({
+        method: 'GET', url: `${BASE}/nhom/${G2}/thanh-vien`, headers: { authorization: `Bearer ${token(OWNER)}` },
+      });
+      expect(res.statusCode, res.body).toBe(200);
+      expect(Date.now() - batDau).toBeLessThan(5_000);
+      expect(daGoi).toBe(1);
+      expect(res.json()).toMatchObject({ nguon: 'tin_nhan', soNguoiNgoai: 1 });
+      expect(res.json().loiZalo).toContain('không trả lời');
+      expect(res.json().thanhVien.map((t: any) => t.zaloUid)).toEqual(['u-c']);
+    } finally {
+      await appNgan.close();
+    }
   });
 
   it('thành viên: hội thoại 1-1 / org khác ⇒ 404', async () => {

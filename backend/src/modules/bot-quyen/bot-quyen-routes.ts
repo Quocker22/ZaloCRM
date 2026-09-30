@@ -27,6 +27,8 @@ import { layThanhVienNhom, docThanhVienZaloMacDinh, type DocThanhVienZalo } from
 export interface BotQuyenRoutesOpts {
   /** Đọc thành viên nhóm trực tiếp từ Zalo — mặc định qua zaloOps; test tiêm hàm giả. */
   docThanhVienZalo?: DocThanhVienZalo;
+  /** Hạn giờ gọi Zalo (ms) — mặc định HET_GIO_ZALO_MS (10 s); test đặt ngắn. */
+  hetGioZaloMs?: number;
 }
 
 function laAdmin(role: string | undefined): boolean {
@@ -48,6 +50,7 @@ type P<T> = { Params: T };
 
 export async function registerBotQuyenRoutes(app: FastifyInstance, opts: BotQuyenRoutesOpts = {}): Promise<void> {
   const docZalo = opts.docThanhVienZalo ?? docThanhVienZaloMacDinh;
+  const hetGioMs = opts.hetGioZaloMs;
 
   app.addHook('preHandler', authMiddleware);
   app.addHook('preHandler', chiOwnerAdmin);
@@ -66,7 +69,7 @@ export async function registerBotQuyenRoutes(app: FastifyInstance, opts: BotQuye
     reply: FastifyReply,
   ) => {
     const lamMoi = req.query.lamMoi === '1' || req.query.lamMoi === 'true';
-    const kq = await layThanhVienNhom(req.user!.orgId, req.params.conversationId, { lamMoi, docZalo });
+    const kq = await layThanhVienNhom(req.user!.orgId, req.params.conversationId, { lamMoi, docZalo, hetGioMs });
     if (!kq) return reply.code(404).send({ error: 'Không tìm thấy hội thoại nhóm này', code: 'KHONG_TIM_THAY_NHOM' });
     return kq;
   });

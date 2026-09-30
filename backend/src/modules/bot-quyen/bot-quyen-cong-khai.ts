@@ -6,6 +6,10 @@
 // biết có cần áp lại không ⇒ phien_ban = sha256 (hex) của JSON CHUẨN (khoá sắp xếp đệ quy) của
 // đúng hai mảng này: cùng dữ liệu ⇒ cùng chuỗi, đổi bất kỳ ô nào ⇒ chuỗi khác. Ô ngoài payload
 // (ghi chú, người/lúc cập nhật) KHÔNG làm đổi phiên bản — bot không cần áp lại vì chúng.
+//
+// `nick_uid` (vòng sửa 1): uid Zalo của CHÍNH nick CRM nhìn nhóm (ZaloAccount.zaloUid của hội thoại, null khi
+// nick chưa có uid). Bot nạp các uid này vào bảng nick_bot — tin của nick đó trong nhóm không bị coi là người
+// ngoài. Nhóm chuyển sang nick khác / nick đổi uid ⇒ phien_ban đổi.
 import { createHash } from 'node:crypto';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { withTenant } from '../../shared/tenant/tenant-context.js';
@@ -13,6 +17,7 @@ import { withTenant } from '../../shared/tenant/tenant-context.js';
 export interface NhomCongKhai {
   conversation_id: string;
   external_thread_id: string | null;
+  nick_uid: string | null;
   chuc_nang: string;
   ten_dang_ky: string;
 }
@@ -46,13 +51,18 @@ function soSanh(a: string, b: string): number {
 
 /** Ghép dòng DB thành payload + phiên bản. Thuần — test được không cần DB. */
 export function ghepCauHinhCongKhai(
-  nhom: ReadonlyArray<{ conversationId: string; externalThreadId: string | null; chucNang: string; tenDangKy: string }>,
+  nhom: ReadonlyArray<{
+    conversationId: string; externalThreadId: string | null; nickUid: string | null; chucNang: string; tenDangKy: string;
+  }>,
   nhanVien: ReadonlyArray<{ zaloUid: string; tenGoi: string; vai: string; trangThai: string }>,
 ): CauHinhCongKhai {
   const n: NhomCongKhai[] = nhom
     .map((r) => ({
+      // Thứ tự khoá = thứ tự trong JSON trả về (hợp đồng): conversation_id, external_thread_id, nick_uid,
+      // chuc_nang, ten_dang_ky. Băm dùng JSON chuẩn (khoá sắp xếp) nên thứ tự này không ảnh hưởng phien_ban.
       conversation_id: r.conversationId,
       external_thread_id: r.externalThreadId,
+      nick_uid: r.nickUid,
       chuc_nang: r.chucNang,
       ten_dang_ky: r.tenDangKy,
     }))
@@ -75,7 +85,7 @@ export async function docCauHinhCongKhai(orgId: string): Promise<CauHinhCongKhai
         where: { orgId },
         select: {
           conversationId: true, chucNang: true, tenDangKy: true,
-          conversation: { select: { externalThreadId: true } },
+          conversation: { select: { externalThreadId: true, zaloAccount: { select: { zaloUid: true } } } },
         },
       }),
       prisma.botNhanVien.findMany({
@@ -84,7 +94,13 @@ export async function docCauHinhCongKhai(orgId: string): Promise<CauHinhCongKhai
       }),
     ]);
     return ghepCauHinhCongKhai(
-      nhom.map((r) => ({ ...r, externalThreadId: r.conversation.externalThreadId })),
+      nhom.map((r) => ({
+        conversationId: r.conversationId,
+        externalThreadId: r.conversation.externalThreadId,
+        nickUid: r.conversation.zaloAccount.zaloUid,
+        chucNang: r.chucNang,
+        tenDangKy: r.tenDangKy,
+      })),
       nhanVien,
     );
   });

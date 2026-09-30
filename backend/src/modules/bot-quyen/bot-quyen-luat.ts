@@ -69,6 +69,14 @@ export function laHaTrangThai(cu: TrangThaiNv, moi: TrangThaiNv): boolean {
   return BAC_TRANG_THAI[moi] < BAC_TRANG_THAI[cu];
 }
 
+/**
+ * TẠO nhân viên đã ở trạng thái khoa/nghi hoặc vai cong_ty là KHOÁ (cần lý do): khi đồng bộ, bot tìm
+ * actor theo zalo_uid — người đang dùng bot sẽ bị khoá ngay (docs/77 §4).
+ */
+export function laKhoaKhiTao(vai: VaiNv, trangThai: TrangThaiNv): boolean {
+  return vai === 'cong_ty' || trangThai !== 'hoat_dong';
+}
+
 /** Admin tính cho luật "luôn còn ≥ 1 admin": vai admin VÀ đang hoạt động. */
 export function laAdminHoatDong(nv: { vai: string; trangThai: string }): boolean {
   return nv.vai === 'admin' && nv.trangThai === 'hoat_dong';
