@@ -156,6 +156,8 @@ const routes: RouteRecordRaw[] = [
       // M53 2026-05-30 — Trợ Lý AI Virtual Chat
       { path: 'crm/ai-assistant',      name: 'Settings.AiAssistant',     component: () => import('@/views/settings/AiAssistantPage.vue'), meta: { resource: 'settings' } },
       { path: 'crm/agent-operators',   name: 'Settings.AgentOperators',  component: () => import('@/views/settings/AgentOperatorsPage.vue'), meta: { resource: 'settings' } },
+      // Quyền bot (docs/77 §3.3, 30/09) — chức năng nhóm Zalo + nhân viên/vai của bot. Backend chỉ owner/admin.
+      { path: 'bot-quyen',             name: 'Settings.BotQuyen',        component: () => import('@/views/settings/BotQuyenPage.vue'), meta: { resource: 'settings' } },
       { path: 'crm/agent-notify',      name: 'Settings.AgentNotify',     component: () => import('@/views/settings/AgentNotifyTargetsPage.vue'), meta: { resource: 'settings' } },
       // Máy in nhiều chi nhánh (Task 7, 10/09) — admin gen token cho app print-agent-rs.
       { path: 'crm/print-agents',      name: 'Settings.PrintAgents',     component: () => import('@/views/settings/PrintAgentsPage.vue'), meta: { resource: 'settings' } },

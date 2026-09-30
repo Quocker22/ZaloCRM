@@ -1,0 +1,86 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ * Kiểu dùng chung của trang "Quyền bot" (BotQuyenPage + components/bot-quyen/*).
+ * Nhập trong <style scoped> của từng component (như airtable.css ở trang Máy in).
+ *
+ * THEME: chỉ dùng biến theme Vuetify (--v-theme-*, --v-border-*), KHÔNG mã màu cứng — trang đúng cả
+ * hsLight (máy tính) lẫn theme tối (MobileLayout mặc định tối). Màu chữ trạng thái pha màu theme với
+ * `on-surface` (color-mix): nền sáng ra đỏ/vàng/xanh ĐẬM hơn, nền tối ra NHẠT hơn — đủ tương phản cả hai.
+ * Biến đặt trên MỌI gốc (.bq-goc) vì hộp thoại được teleport ra ngoài cây trang.
+ */
+.bq-goc {
+  --bq-do: color-mix(in srgb, rgb(var(--v-theme-error)) 72%, rgb(var(--v-theme-on-surface)));
+  --bq-vang: color-mix(in srgb, rgb(var(--v-theme-warning)) 55%, rgb(var(--v-theme-on-surface)));
+  --bq-xanh: color-mix(in srgb, rgb(var(--v-theme-success)) 60%, rgb(var(--v-theme-on-surface)));
+  --bq-chinh: color-mix(in srgb, rgb(var(--v-theme-primary)) 75%, rgb(var(--v-theme-on-surface)));
+  --bq-vien: rgba(var(--v-border-color), var(--v-border-opacity));
+  --bq-mo: rgba(var(--v-theme-on-surface), var(--v-medium-emphasis-opacity));
+  --bq-nen-nhe: rgba(var(--v-theme-on-surface), 0.04);
+}
+
+.bq-mo { color: var(--bq-mo); }
+.bq-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; word-break: break-all; }
+.bq-nho { font-size: 12.5px; }
+
+/* ── Trạng thái bot của nhóm ── */
+.bq-bot {
+  display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 9999px;
+  font-size: 12.5px; font-weight: 600; line-height: 1.5; white-space: nowrap;
+}
+.bq-bot--do { color: var(--bq-do); background: rgba(var(--v-theme-error), 0.12); }
+.bq-bot--vang { color: var(--bq-vang); background: rgba(var(--v-theme-warning), 0.14); }
+.bq-bot--xanh { color: var(--bq-xanh); background: rgba(var(--v-theme-success), 0.12); }
+
+/* ── Chip nhỏ (chức năng, vai, trạng thái, nhãn thành viên) ── */
+.bq-chip {
+  display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 9999px;
+  font-size: 12px; font-weight: 600; line-height: 1.6; border: 1px solid transparent; white-space: nowrap;
+}
+.bq-chip--nv, .bq-chip--info { color: var(--bq-chinh); background: rgba(var(--v-theme-primary), 0.1); }
+.bq-chip--xanh { color: var(--bq-xanh); background: rgba(var(--v-theme-success), 0.12); }
+.bq-chip--vang { color: var(--bq-vang); background: rgba(var(--v-theme-warning), 0.14); }
+.bq-chip--do { color: var(--bq-do); background: rgba(var(--v-theme-error), 0.12); }
+.bq-chip--xam { color: var(--bq-mo); background: var(--bq-nen-nhe); border-color: var(--bq-vien); }
+.bq-chip--rong { color: var(--bq-mo); border-color: var(--bq-vien); border-style: dashed; }
+
+/* ── Câu hệ quả + lỗi trong hộp thoại ── */
+.bq-he-qua {
+  border: 1px solid var(--bq-vien); border-left: 3px solid rgb(var(--v-theme-primary)); border-radius: 8px;
+  padding: 10px 12px; font-size: 13.5px; line-height: 1.5; background: var(--bq-nen-nhe);
+}
+.bq-he-qua--ha { border-left-color: rgb(var(--v-theme-error)); }
+.bq-he-qua-nhan { font-size: 12px; font-weight: 700; color: var(--bq-mo); text-transform: none; margin-bottom: 2px; }
+.bq-he-qua-ha { margin-top: 6px; font-weight: 600; color: var(--bq-do); }
+
+/* ── Hộp thoại ── */
+.bq-dlg-dau { display: flex; gap: 12px; align-items: flex-start; padding: 18px 20px 8px; }
+.bq-dlg-ico {
+  width: 34px; height: 34px; border-radius: 8px; flex: none; display: flex; align-items: center; justify-content: center;
+  background: rgba(var(--v-theme-primary), 0.12); color: rgb(var(--v-theme-primary));
+}
+.bq-dlg-tieu-de { font-size: 16px; font-weight: 700; line-height: 1.3; overflow-wrap: anywhere; }
+.bq-dlg-phu { font-size: 12.5px; color: var(--bq-mo); margin-top: 2px; overflow-wrap: anywhere; }
+.bq-dlg-than { display: flex; flex-direction: column; gap: 12px; }
+.bq-dlg-than > .v-alert { flex: none; } /* v-alert tự giãn trong cột flex */
+.bq-dlg-chan { padding: 10px 16px 14px; gap: 8px; flex-wrap: wrap; }
+
+/* ── Bảng: màn rộng là bảng, màn hẹp (≤ 700px) mỗi dòng thành một thẻ có nhãn cột ── */
+.bq-bang { background: transparent; }
+.bq-bang th { font-size: 12px; font-weight: 700; color: var(--bq-mo); white-space: nowrap; }
+.bq-bang td { vertical-align: top; padding-top: 10px; padding-bottom: 10px; font-size: 13.5px; }
+.bq-cot-nut { text-align: right; white-space: nowrap; }
+@media (max-width: 700px) {
+  .bq-bang thead { display: none; }
+  .bq-bang tbody tr { display: block; padding: 10px 2px; border-bottom: 1px solid var(--bq-vien); }
+  .bq-bang tbody td {
+    display: flex; gap: 10px; align-items: flex-start; height: auto; min-height: 0; padding: 3px 0; border: 0;
+  }
+  .bq-bang tbody td[data-nhan]::before {
+    content: attr(data-nhan); flex: 0 0 92px; font-size: 12px; font-weight: 600; color: var(--bq-mo); padding-top: 2px;
+  }
+  .bq-bang tbody td > * { min-width: 0; }
+  .bq-cot-nut { text-align: left; white-space: normal; }
+  .bq-cot-nut > .bq-cac-nut { flex-wrap: wrap; }
+}
+.bq-cac-nut { display: inline-flex; gap: 6px; }
+
+.bq-trong { padding: 28px 12px; text-align: center; color: var(--bq-mo); font-size: 14px; }
