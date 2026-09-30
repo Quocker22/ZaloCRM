@@ -238,6 +238,7 @@ async function luu() {
     } else {
       const payload: TaoNhanVienPayload = {
         zaloUid: zaloUid.value.trim(),
+        ...(props.mau?.zaloUidsKem?.length ? { zaloUids: props.mau.zaloUidsKem } : {}),
         tenGoi: tenGoi.value.trim(),
         vai: v,
         trangThai: trangThai.value,

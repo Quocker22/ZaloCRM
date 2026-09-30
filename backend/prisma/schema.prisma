@@ -52,6 +52,7 @@ model Organization {
   botNhanVien                 BotNhanVien[]
   botQuyenNhatKy              BotQuyenNhatKy[]
   botNhomDanhSach             BotNhomDanhSach[]
+  botNhanVienUid              BotNhanVienUid[]
   contacts                    Contact[]
   contactAccess               ContactAccess[]
   conversations               Conversation[]
@@ -4604,10 +4605,34 @@ model BotNhanVien {
 
   org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   user User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  uids BotNhanVienUid[]
 
   @@unique([orgId, zaloUid])
   @@index([orgId, vai, trangThai])
   @@map("bot_nhan_vien")
+}
+
+/// QUYỀN BOT (docs/77 §8b, 30/09) — MỌI uid Zalo của MỘT nhân viên. Zalo cấp uid KHÁC NHAU cho cùng một người ở mỗi nick
+/// nhìn (đo trên staging: "Trần Hưng" = 3395858500519725514 ở nick Cẩm Loan, = 3835588809400259343 ở nick Vận Tải Minh
+/// Thức) ⇒ một người = một BotNhanVien + một dòng ở đây cho mỗi uid (mỗi nick). `BotNhanVien.zaloUid` là uid LÚC GÁN (uid
+/// chính) và luôn có dòng ở đây. uid là duy nhất trong org: một uid không thể thuộc hai nhân viên.
+model BotNhanVienUid {
+  id            String   @id @default(uuid())
+  orgId         String   @map("org_id")
+  nhanVienId    String   @map("nhan_vien_id")
+  /// Nick nhìn thấy uid này (uid là theo nick). null = chưa biết (vd dòng chuyển từ bản cũ, uid gõ tay chưa gặp).
+  zaloAccountId String?  @map("zalo_account_id")
+  zaloUid       String   @map("zalo_uid")
+  /// chon (uid lúc gán / người thêm tay) | cung_tin (cùng mã tin nhắn Zalo trong nhóm chung của hai nick) | global_id
+  nguon         String
+  taoLuc        DateTime @default(now()) @map("tao_luc")
+
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  nhanVien BotNhanVien  @relation(fields: [nhanVienId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, zaloUid])
+  @@index([nhanVienId])
+  @@map("bot_nhan_vien_uid")
 }
 
 /// QUYỀN BOT (docs/77 §8, 30/09) — bản đọc DANH SÁCH THÀNH VIÊN của một hội thoại nhóm, chỉ để tính MẶC ĐỊNH

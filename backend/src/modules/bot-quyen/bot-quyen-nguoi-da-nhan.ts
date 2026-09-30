@@ -7,8 +7,9 @@
 //   tin riêng: hội thoại threadType='user' có ít nhất một tin đến; uid = external_thread_id (uid người kia NHÌN TỪ
 //              nick đó); thời điểm = last_message_at; tên = tên CRM của liên hệ (nếu có).
 //   nhóm:      mỗi (sender_uid, hội thoại nhóm) có tin đến — gom trong SQL (một lượt quét tin của các nhóm).
-// Hội thoại ảo (is_virtual) bỏ. Zalo cấp uid KHÁC nhau cho cùng một người ở mỗi nick ⇒ gom theo uid, mỗi dòng nói rõ
-// nick/nơi; cùng một người nhắn hai nick hiện hai dòng (bot nhận ra người theo uid NHÌN TỪ nick bot).
+// Hội thoại ảo (is_virtual) bỏ. Zalo cấp uid KHÁC nhau cho cùng một người ở mỗi nick ⇒ gom theo uid rồi GỘP các uid của
+// CÙNG người (docs/77 §8b — bot-quyen-cung-nguoi.ts: cùng mã tin nhắn trong nhóm chung của hai nick / cùng globalId) thành
+// MỘT dòng mang mọi uid theo nick. Người đã là nhân viên dưới BẤT KỲ uid nào ⇒ cả dòng biến mất. Gán ⇒ gửi mọi uid.
 //
 // Tốc độ (đo 30/09 trên 2,1 triệu tin giả lập, 6.250 hội thoại): gom ≈ 0,5–0,8 s ⇒ giữ bản gom 60 s trong bộ nhớ theo org;
 // loại trừ (đã là NV, nick của org) + đánh dấu "đang sai bot" đọc TƯƠI mỗi lần (bảng nhỏ) ⇒ gán xong biến mất ngay.
@@ -21,6 +22,7 @@
 // 60 s dùng chung cho mọi người xem (chỉ chứa dữ liệu thô) — lọc theo người xem làm LÚC TRẢ.
 import { prisma } from '../../shared/database/prisma-client.js';
 import { canSeeConversationContent, type PrivacyContext } from '../privacy/redact.js';
+import { docLienKet, gomNguoi } from './bot-quyen-cung-nguoi.js';
 
 export interface NoiNhan {
   conversationId: string;
@@ -32,13 +34,23 @@ export interface NoiNhan {
 
 /** Nơi kèm dữ liệu THÔ (chỉ trong bộ nhớ, không trả thẳng): tên thấy ở nơi đó + nick riêng tư của ai. */
 export interface NoiTho extends NoiNhan {
+  /** uid của người này NHÌN TỪ nick của nơi đó. */
+  zaloUid: string;
   ten: string | null;
   nickRiengTu: boolean;
   nickChu: string | null;
 }
 
-export interface UngVienTho {
+export interface UidUngVien {
   zaloUid: string;
+  nick: { id: string; ten: string };
+}
+
+export interface UngVienTho {
+  /** uid chính = uid ở nơi mới nhất. */
+  zaloUid: string;
+  /** Mọi uid của người này (mỗi nick một uid) — ít nhất `zaloUid`. */
+  uids: UidUngVien[];
   luc: Date | null;
   noi: NoiTho[];
 }
@@ -48,6 +60,8 @@ export const TEN_CHUA_RO = '(chưa rõ tên)';
 
 export interface UngVien {
   zaloUid: string;
+  /** Mọi uid của người này theo nick (docs/77 §8b). Gán ⇒ gửi hết. */
+  uids: UidUngVien[];
   ten: string;
   luc: Date | null;
   /** Tối đa 3 nơi gần nhất. */
@@ -103,6 +117,7 @@ export function gomTheoUid(dong: readonly DongGom[]): UngVienTho[] {
   for (const d of dong) {
     if (!d.uid) continue;
     const noi: NoiTho = {
+      zaloUid: d.uid,
       conversationId: d.conversation_id,
       loai: d.loai === 'group' ? 'nhom' : 'rieng',
       tenNhom: d.loai === 'group' ? d.ten_nhom : null,
@@ -114,7 +129,7 @@ export function gomTheoUid(dong: readonly DongGom[]): UngVienTho[] {
     };
     const cu = m.get(d.uid);
     if (!cu) {
-      m.set(d.uid, { zaloUid: d.uid, luc: d.luc, noi: [noi] });
+      m.set(d.uid, { zaloUid: d.uid, uids: [{ zaloUid: d.uid, nick: noi.nick }], luc: d.luc, noi: [noi] });
       continue;
     }
     cu.noi.push(noi);
@@ -123,6 +138,33 @@ export function gomTheoUid(dong: readonly DongGom[]): UngVienTho[] {
   return [...m.values()].map((u) => ({
     ...u, noi: u.noi.sort((a, b) => (b.luc?.getTime() ?? 0) - (a.luc?.getTime() ?? 0)),
   }));
+}
+
+/**
+ * Gộp ứng viên của CÙNG người (`nhom`: uid → mọi {uid, nick} cùng người — bot-quyen-cung-nguoi.gomNguoi). uid chính = uid ở
+ * nơi mới nhất; nơi sắp mới nhất trước; `uids` sắp theo tên nick rồi uid. Thuần.
+ */
+export function gopTheoNguoi(ds: readonly UngVienTho[], nhom: ReadonlyMap<string, ReadonlyArray<{ zaloUid: string }>>): UngVienTho[] {
+  const khoa = (uid: string): string => {
+    const g = nhom.get(uid);
+    return g && g.length > 0 ? g.map((x) => x.zaloUid).sort()[0] : uid;
+  };
+  const theoNguoi = new Map<string, UngVienTho[]>();
+  for (const u of ds) {
+    const k = khoa(u.zaloUid);
+    const cu = theoNguoi.get(k);
+    if (cu) cu.push(u); else theoNguoi.set(k, [u]);
+  }
+  const ra: UngVienTho[] = [];
+  for (const nhomUv of theoNguoi.values()) {
+    if (nhomUv.length === 1) { ra.push(nhomUv[0]); continue; }
+    const noi = nhomUv.flatMap((u) => u.noi).sort((a, b) => (b.luc?.getTime() ?? 0) - (a.luc?.getTime() ?? 0));
+    const luc = nhomUv.reduce<Date | null>((m, u) => ((u.luc?.getTime() ?? 0) > (m?.getTime() ?? 0) ? u.luc : m), null);
+    const uids = nhomUv.flatMap((u) => u.uids)
+      .sort((a, b) => a.nick.ten.localeCompare(b.nick.ten, 'vi') || (a.zaloUid < b.zaloUid ? -1 : 1));
+    ra.push({ zaloUid: noi[0]?.zaloUid ?? nhomUv[0].zaloUid, uids, luc, noi });
+  }
+  return ra;
 }
 
 /** Người xem có được xem nội dung của nơi này không (chính sách CRM: nick main ⇒ chỉ chủ nick đã mở khoá). */
@@ -142,7 +184,11 @@ export function tenHienThi(u: Pick<UngVienTho, 'noi'>, xem: XemNoi): { ten: stri
   return { ten: null, an: u.noi.some((n) => n.ten && !xem(n)) };
 }
 
-function boTho(n: NoiTho): NoiNhan {
+function boTho(n: NoiTho): NoiNhan & { zaloUid: string } {
+  return { zaloUid: n.zaloUid, ...boThoCong(n) };
+}
+
+function boThoCong(n: NoiTho): NoiNhan {
   return { conversationId: n.conversationId, loai: n.loai, tenNhom: n.tenNhom, nick: n.nick, luc: n.luc };
 }
 
@@ -152,7 +198,7 @@ function boTho(n: NoiTho): NoiNhan {
  */
 export type UngVienLoc = Omit<UngVien, 'tinCuoi' | 'anTinCuoi' | 'redacted'> & {
   /** Nơi mới nhất người xem được xem nội dung (lấy tin cuối) — null = không có. Không trả ra API. */
-  noiXemDuoc: NoiNhan | null;
+  noiXemDuoc: (NoiNhan & { zaloUid: string }) | null;
 };
 
 export function locVaPhanTrang(
@@ -166,20 +212,23 @@ export function locVaPhanTrang(
   const xem = o.xem ?? xemHet;
   const moiTrang = Math.min(Math.max(Math.trunc(o.moiTrang ?? MOI_TRANG_MAC_DINH) || MOI_TRANG_MAC_DINH, 1), MOI_TRANG_TOI_DA);
   const loc = ds
-    .filter((u) => !o.loaiTru.has(u.zaloUid))
+    // Đã là nhân viên dưới BẤT KỲ uid nào của người này ⇒ bỏ cả dòng.
+    .filter((u) => !o.loaiTru.has(u.zaloUid) && !u.uids.some((x) => o.loaiTru.has(x.zaloUid)))
     .map((u) => ({ u, t: tenHienThi(u, xem) }))
     // Tìm theo tên CHỈ trên tên người xem được thấy — tìm theo tên bị che là dò ra tên đó.
-    .filter(({ u, t }) => !q || u.zaloUid.includes(q) || boDau(t.ten ?? '').includes(q))
+    .filter(({ u, t }) => !q || u.uids.some((x) => x.zaloUid.includes(q)) || u.zaloUid.includes(q)
+      || boDau(t.ten ?? '').includes(q))
     .map(({ u, t }) => {
       const noiXem = u.noi.find((n) => xem(n));
       return {
         zaloUid: u.zaloUid,
+        uids: u.uids,
         ten: t.ten ?? (t.an ? TEN_AN : TEN_CHUA_RO),
         anTen: t.an,
         luc: u.luc,
-        noi: u.noi.slice(0, SO_NOI_HIEN).map(boTho),
+        noi: u.noi.slice(0, SO_NOI_HIEN).map(boThoCong),
         soNoi: u.noi.length,
-        dangSaiBot: o.dangSaiBot.has(u.zaloUid),
+        dangSaiBot: o.dangSaiBot.has(u.zaloUid) || u.uids.some((x) => o.dangSaiBot.has(x.zaloUid)),
         noiXemDuoc: noiXem ? boTho(noiXem) : null,
       };
     })
@@ -245,16 +294,21 @@ async function gom(orgId: string): Promise<UngVienTho[]> {
     FROM tat_ca t
     JOIN conv c ON c.id = t.conversation_id
     JOIN zalo_accounts z ON z.id = c.zalo_account_id`;
-  return gomTheoUid(dong);
+  // Cùng người ở nhiều nick ⇒ một dòng (docs/77 §8b).
+  return gopTheoNguoi(gomTheoUid(dong), gomNguoi(await docLienKet(orgId)));
 }
 
-async function tinCuoi(cap: Array<{ uid: string; cid: string; rieng: boolean }>): Promise<Map<string, UngVien['tinCuoi']>> {
-  // Chỉ gọi với nơi người xem ĐƯỢC xem nội dung (locVaPhanTrang.noiXemDuoc).
+async function tinCuoi(
+  cap: Array<{ khoa: string; uid: string; cid: string; rieng: boolean }>,
+): Promise<Map<string, UngVien['tinCuoi']>> {
+  // Chỉ gọi với nơi người xem ĐƯỢC xem nội dung (locVaPhanTrang.noiXemDuoc). `uid` = uid THEO NICK của nơi đó; kết quả
+  // theo `khoa` (uid chính của dòng).
   if (cap.length === 0) return new Map();
   const rows = await prisma.$queryRaw<Array<{ uid: string; content: string | null; content_type: string; sent_at: Date }>>`
-    SELECT x.uid, t.content, t.content_type, t.sent_at
-    FROM unnest(${cap.map((c) => c.uid)}::text[], ${cap.map((c) => c.cid)}::text[], ${cap.map((c) => c.rieng)}::boolean[])
-         AS x(uid, cid, rieng)
+    SELECT x.khoa AS uid, t.content, t.content_type, t.sent_at
+    FROM unnest(${cap.map((c) => c.khoa)}::text[], ${cap.map((c) => c.uid)}::text[], ${cap.map((c) => c.cid)}::text[],
+                ${cap.map((c) => c.rieng)}::boolean[])
+         AS x(khoa, uid, cid, rieng)
     JOIN LATERAL (
       SELECT m.content, m.content_type, m.sent_at FROM messages m
       WHERE m.conversation_id = x.cid AND m.sender_type = 'contact'
@@ -291,11 +345,14 @@ export async function danhSachNguoiDaNhan(
     ban = await p;
   }
   const [nv, nick, op] = await Promise.all([
-    prisma.botNhanVien.findMany({ where: { orgId }, select: { zaloUid: true } }),
+    prisma.botNhanVien.findMany({ where: { orgId }, select: { zaloUid: true, uids: { select: { zaloUid: true } } } }),
     prisma.zaloAccount.findMany({ where: { orgId, zaloUid: { not: null } }, select: { zaloUid: true } }),
     prisma.agentOperator.findMany({ where: { orgId, enabled: true }, select: { zaloUid: true } }),
   ]);
-  const loaiTru = new Set<string>([...nv.map((x) => x.zaloUid), ...nick.map((x) => x.zaloUid!)]);
+  // MỌI uid của mọi nhân viên (mỗi nick một uid — docs/77 §8b).
+  const loaiTru = new Set<string>([
+    ...nv.flatMap((x) => [x.zaloUid, ...x.uids.map((u) => u.zaloUid)]), ...nick.map((x) => x.zaloUid!),
+  ]);
   const ctx: PrivacyContext = o.ctx ?? { viewerUserId: null, orgId, privacyUnlocked: false };
   const trang = locVaPhanTrang(ban.ds, {
     loaiTru, dangSaiBot: new Set(op.map((x) => x.zaloUid)), tuKhoa: o.tuKhoa, trang: o.trang, moiTrang: o.moiTrang,
@@ -303,7 +360,9 @@ export async function danhSachNguoiDaNhan(
   });
   const tin = await tinCuoi(trang.ungVien
     .filter((u) => u.noiXemDuoc)
-    .map((u) => ({ uid: u.zaloUid, cid: u.noiXemDuoc!.conversationId, rieng: u.noiXemDuoc!.loai === 'rieng' })));
+    .map((u) => ({
+      khoa: u.zaloUid, uid: u.noiXemDuoc!.zaloUid, cid: u.noiXemDuoc!.conversationId, rieng: u.noiXemDuoc!.loai === 'rieng',
+    })));
   return {
     tong: trang.tong,
     trang: trang.trang,

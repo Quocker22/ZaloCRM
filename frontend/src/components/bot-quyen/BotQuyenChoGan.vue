@@ -5,6 +5,9 @@
   Nguồn: GET /bot-quyen/nguoi-da-nhan — tin riêng + tin nhóm, bỏ người đã là nhân viên và nick của org; người "đang sai
   bot" (trang agent-operators) có chip và đứng đầu. Chọn vai rồi bấm Gán ⇒ hộp xác nhận (uid + tên + vai điền sẵn) như
   mọi thay đổi khác của trang. Tìm (tên không dấu / uid) + phân trang ở máy chủ.
+  Zalo cấp uid KHÁC nhau cho cùng một người ở mỗi nick (docs/77 §8b): máy gộp các uid CHẮC là cùng người (cùng tin nhắn
+  trong nhóm chung của hai nick / cùng globalId) thành một dòng — Gán gửi hết. Còn sót (không có bằng chứng) ⇒ "Là NV đã
+  có…" thêm uid của dòng này vào một nhân viên sẵn có (gợi ý người trùng tên lên đầu).
 -->
 <template>
   <section class="bq-goc bq-cho-gan" aria-label="Chờ gán — người đã nhắn cho shop">
@@ -13,7 +16,8 @@
         <h2 class="bq-cg-tieu-de">Chờ gán — người đã nhắn cho shop <span v-if="trang" class="bq-mo">({{ trang.tong }})</span></h2>
         <p class="bq-mo bq-cg-mo-ta">
           Mọi người đã nhắn vào nick shop (tin riêng hoặc trong nhóm) mà chưa có trong danh sách nhân viên. Zalo cấp uid
-          <b>khác nhau cho mỗi nick</b> — gán đúng dòng của nick bot đang dùng.
+          <b>khác nhau cho mỗi nick</b> — cùng một người ở nhiều nick được gộp một dòng và <b>gán cả mọi uid</b>. Người đã là
+          nhân viên dưới uid nick khác mà vẫn còn ở đây ⇒ bấm <b>Là NV đã có</b>.
         </p>
       </div>
       <v-btn variant="outlined" size="small" prepend-icon="mdi-refresh" :loading="dangTai" @click="tai(true)">Làm mới</v-btn>
@@ -62,7 +66,7 @@
                   <v-icon size="12" icon="mdi-robot-outline" />đang sai bot
                 </span>
               </div>
-              <div class="bq-mono bq-mo">{{ u.zaloUid }}</div>
+              <div v-for="d in moTaUid(u)" :key="d" class="bq-mono bq-mo bq-cg-uid">{{ d }}</div>
             </div>
           </td>
           <td data-nhan="Tin gần nhất">
@@ -82,7 +86,25 @@
             </select>
           </td>
           <td class="bq-cot-nut">
-            <v-btn size="small" color="primary" variant="flat" prepend-icon="mdi-account-plus-outline" @click="gan(u)">Gán</v-btn>
+            <div class="bq-cg-nut">
+              <v-btn size="small" color="primary" variant="flat" prepend-icon="mdi-account-plus-outline" @click="gan(u)">Gán</v-btn>
+              <v-menu v-if="nhanVien.length > 0" location="bottom end">
+                <template #activator="{ props: p }">
+                  <v-btn
+                    v-bind="p" size="small" variant="outlined" data-nut="la-nv-da-co"
+                    :color="nhanVienCungTen(u, nhanVien).length > 0 ? 'warning' : undefined"
+                    :title="nhanVienCungTen(u, nhanVien).length > 0 ? 'Có nhân viên trùng tên — có thể là cùng người ở nick khác' : undefined"
+                  >Là NV đã có</v-btn>
+                </template>
+                <v-list density="compact" max-height="320">
+                  <v-list-item
+                    v-for="nv in xepNhanVien(u)" :key="nv.id" :data-nv="nv.id"
+                    :title="nv.tenGoi" :subtitle="nhanVienCungTen(u, nhanVien).includes(nv) ? 'trùng tên' : undefined"
+                    @click="moGop(u, nv)"
+                  />
+                </v-list>
+              </v-menu>
+            </div>
           </td>
         </tr>
       </tbody>
@@ -93,6 +115,26 @@
       <span class="bq-nho">Trang {{ trang.trang }} / {{ soTrang }}</span>
       <v-btn size="small" variant="text" :disabled="trang.trang >= soTrang || dangTai" append-icon="mdi-chevron-right" @click="denTrang(trang.trang + 1)">Sau</v-btn>
     </div>
+
+    <v-dialog v-model="hopGop" max-width="520">
+      <v-card v-if="gop" class="bq-goc" rounded="lg">
+        <v-card-title class="bq-dlg-tieu-de">Thêm Zalo này vào “{{ gop.nv.tenGoi }}”?</v-card-title>
+        <v-card-text>
+          <p class="bq-nho">
+            Bot sẽ nhận ra “{{ gop.nv.tenGoi }}” cả qua {{ gop.u.uids.length > 1 ? 'các uid' : 'uid' }} dưới đây (mỗi nick một uid),
+            với cùng vai và trạng thái. Chỉ làm khi chắc là CÙNG một người.
+          </p>
+          <div v-for="d in moTaUid(gop.u)" :key="d" class="bq-mono bq-nho">{{ d }}</div>
+          <v-text-field v-model="lyDoGop" class="mt-3" label="Lý do (không bắt buộc)" maxlength="500" hide-details />
+          <v-alert v-if="loiGop" type="error" variant="tonal" density="compact" class="bq-loi mt-3" role="alert">{{ loiGop }}</v-alert>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" :disabled="dangGop" @click="hopGop = false">Huỷ</v-btn>
+          <v-btn color="primary" variant="flat" data-nut="xac-nhan-gop" :loading="dangGop" @click="xacNhanGop">Thêm</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <BotQuyenNhanVienDialog
       v-model="hop"
@@ -106,16 +148,19 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
-import { layNguoiDaNhan, type NguoiDaNhan, type NguoiDungCrm, type TrangNguoiDaNhan, type VaiNhanVien } from '@/api/bot-quyen';
+import {
+  layNguoiDaNhan, themUidNhanVien,
+  type NguoiDaNhan, type NguoiDungCrm, type NhanVien, type TrangNguoiDaNhan, type VaiNhanVien,
+} from '@/api/bot-quyen';
 import { useToast } from '@/composables/use-toast';
 import { VAI, NHAN_VAI } from '@/views/settings/bot-quyen-luat';
-import { moTaNoi, mauGan, tomTatTin } from '@/views/settings/bot-quyen-cho-gan';
+import { moTaNoi, moTaUid, mauGan, nhanVienCungTen, tomTatTin } from '@/views/settings/bot-quyen-cho-gan';
 import type { MauNhanVien } from '@/views/settings/bot-quyen-thanh-vien';
 import { loiApi } from '@/views/settings/bot-quyen-loi';
 import { dinhDangGioVN } from '@/views/settings/may-in-nhat-ky';
 import BotQuyenNhanVienDialog from './BotQuyenNhanVienDialog.vue';
 
-defineProps<{ nguoiDungCrm: NguoiDungCrm[] }>();
+const props = withDefaults(defineProps<{ nguoiDungCrm: NguoiDungCrm[]; nhanVien?: NhanVien[] }>(), { nhanVien: () => [] });
 const emit = defineEmits<{ 'da-gan': [] }>();
 
 const MOI_TRANG = 30;
@@ -170,6 +215,46 @@ function gan(u: NguoiDaNhan) {
   hop.value = true;
 }
 
+/** Nhân viên cho menu "Là NV đã có": trùng tên lên đầu, rồi theo tên. */
+function xepNhanVien(u: NguoiDaNhan): NhanVien[] {
+  const trung = new Set(nhanVienCungTen(u, props.nhanVien).map((nv) => nv.id));
+  return [...props.nhanVien].sort((a, b) => Number(trung.has(b.id)) - Number(trung.has(a.id))
+    || a.tenGoi.localeCompare(b.tenGoi, 'vi'));
+}
+
+const hopGop = ref(false);
+const gop = ref<{ u: NguoiDaNhan; nv: NhanVien } | null>(null);
+const lyDoGop = ref('');
+const loiGop = ref('');
+const dangGop = ref(false);
+
+function moGop(u: NguoiDaNhan, nv: NhanVien) {
+  gop.value = { u, nv };
+  lyDoGop.value = '';
+  loiGop.value = '';
+  hopGop.value = true;
+}
+
+async function xacNhanGop() {
+  if (!gop.value) return;
+  const { u, nv } = gop.value;
+  dangGop.value = true;
+  loiGop.value = '';
+  try {
+    const uids = (u.uids?.length ? u.uids.map((x) => x.zaloUid) : [u.zaloUid]);
+    await themUidNhanVien(nv.id, { zaloUids: uids, ...(lyDoGop.value.trim() ? { lyDo: lyDoGop.value.trim() } : {}) });
+    toast.success(`Đã thêm Zalo vào “${nv.tenGoi}” — bot áp trong khoảng 1 phút.`);
+    hopGop.value = false;
+    await daGan();
+  } catch (e) {
+    const l = loiApi(e, 'Không thêm được');
+    loiGop.value = l.chu;
+    if (!l.daBao) toast.error(l.chu, 6000);
+  } finally {
+    dangGop.value = false;
+  }
+}
+
 async function daGan() {
   emit('da-gan');
   await tai(false, trang.value?.trang ?? 1);
@@ -196,6 +281,8 @@ onMounted(() => { void tai(); });
   padding: 5px 8px; border: 1px solid var(--bq-vien); border-radius: 6px; background: rgb(var(--v-theme-surface));
   color: rgb(var(--v-theme-on-surface)); font: inherit; font-size: 13px; max-width: 220px;
 }
+.bq-cg-uid { font-size: 11.5px; overflow-wrap: anywhere; }
+.bq-cg-nut { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 .bq-cg-trang { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 10px; }
 @media (max-width: 700px) {
   .bq-cg-tin, .bq-cg-noi { max-width: none; }

@@ -25,6 +25,7 @@
 // (`danh_dau_luc >= bat_dau` ⇒ giữ cờ — cùng mili-giây cũng giữ). Đọc lỗi không bao giờ gỡ cờ.
 import { prisma, tenantTransaction } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
+import { boSungUidNhanVien } from './bot-quyen-nhan-vien-uid.js';
 import { runSystemQuery, withTenant } from '../../shared/tenant/tenant-context.js';
 import { tinhMacDinhNhom, cauDoiMacDinhTuDong } from './bot-quyen-mac-dinh.js';
 
@@ -465,11 +466,20 @@ export async function ghiNhanDoiMacDinh(orgId: string, conversationIds?: string[
     });
     if (rows.length === 0) return 0;
     const [nhanVien, nicks] = await Promise.all([
-      tx.botNhanVien.findMany({ where: { orgId }, select: { zaloUid: true, trangThai: true, tenGoi: true } }),
+      tx.botNhanVien.findMany({
+        where: { orgId }, select: { zaloUid: true, trangThai: true, tenGoi: true, uids: { select: { zaloUid: true } } },
+      }),
       tx.zaloAccount.findMany({ where: { orgId, zaloUid: { not: null } }, select: { zaloUid: true } }),
     ]);
-    const trangThaiNv = new Map(nhanVien.map((n) => [n.zaloUid, n.trangThai]));
-    const tenNv = new Map(nhanVien.map((n) => [n.zaloUid, n.tenGoi]));
+    // MỌI uid của mọi NV (docs/77 §8b): mỗi nick nhìn một uid.
+    const trangThaiNv = new Map<string, string>();
+    const tenNv = new Map<string, string>();
+    for (const n of nhanVien) {
+      for (const uid of [n.zaloUid, ...n.uids.map((u) => u.zaloUid)]) {
+        trangThaiNv.set(uid, n.trangThai);
+        tenNv.set(uid, n.tenGoi);
+      }
+    }
     const nickCrm = new Set(nicks.map((n) => n.zaloUid!).filter(Boolean));
     let soGhi = 0;
     for (const r of rows) {
@@ -577,6 +587,19 @@ export async function quetDinhKy(bayGio = dongHo()): Promise<number> {
   return rows.length;
 }
 
+/**
+ * Bổ sung uid cùng người ở nick khác cho nhân viên của MỌI org có nhân viên (docs/77 §8b) — người mới nhắn trong nhóm
+ * chung với nick khác sau lúc gán. Chạy trước đối soát mặc định (uid mới có thể đổi mặc định nhóm).
+ */
+export async function doiSoatUidNhanVien(): Promise<void> {
+  const orgs = await runSystemQuery(() => prisma.$queryRaw<Array<{ org_id: string }>>`
+    SELECT DISTINCT org_id FROM bot_nhan_vien`);
+  for (const o of orgs) {
+    await boSungUidNhanVien(o.org_id)
+      .catch((err) => logger.warn(`[bot-quyen-danh-sach] bổ sung uid nhân viên org ${o.org_id} lỗi:`, err));
+  }
+}
+
 /** Đối soát mặc định đổi cho MỌI org có bản đọc (lưới an toàn — thay đổi NV đã gọi riêng). */
 export async function doiSoatMacDinh(): Promise<void> {
   const orgs = await runSystemQuery(() => prisma.$queryRaw<Array<{ org_id: string }>>`
@@ -601,6 +624,7 @@ export function startBotQuyenDanhSachCron(): void {
       if (dinhKy) {
         dinhKyLuc = now;
         await quetDinhKy();
+        await doiSoatUidNhanVien();
         await doiSoatMacDinh();
       }
     })().catch((err) => logger.warn('[bot-quyen-danh-sach] vòng quét lỗi:', err));

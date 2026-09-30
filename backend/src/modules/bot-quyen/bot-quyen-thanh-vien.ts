@@ -3,7 +3,8 @@
 // đếm người ngoài (docs/76 tam_im): uid là người ngoài trừ khi có trong actor_identities (⇐ BotNhanVien) hoặc
 // trong bảng nick_bot của bot (⇐ `nick_uid` của payload công khai = nick CỦA CHÍNH hội thoại). Bot không biết
 // gì về các nick CRM khác, nên:
-//   nhan_vien   uid có trong BotNhanVien của org (kèm vai/trạng thái — kể cả cong_ty: người công ty)
+//   nhan_vien   uid là MỘT trong các uid của một BotNhanVien của org (bot_nhan_vien_uid — mỗi nick một uid, docs/77 §8b;
+//               kèm vai/trạng thái — kể cả cong_ty: người công ty)
 //   nick_crm    uid là nick CRM CỦA CHÍNH hội thoại này (conversation.zaloAccount.zaloUid)
 //   nguoi_ngoai còn lại — KỂ CẢ nick CRM khác của org chưa có trong BotNhanVien (vd nick LED HCM gõ trong
 //               nhóm của nick HN làm bot im). Trang gợi ý đánh dấu nó "người công ty" (vai cong_ty).
@@ -19,6 +20,7 @@
 //   3. tin_nhan — Zalo lỗi/hết giờ/rỗng ⇒ những người ĐÃ NHẮN trong hội thoại (bảng messages). Thiếu
 //                 người chưa từng nhắn; `loiZalo` nói vì sao phải rơi xuống đây.
 import { prisma } from '../../shared/database/prisma-client.js';
+import { nhanVienTheoUid } from './bot-quyen-nhan-vien-uid.js';
 
 export interface ThanhVienTho {
   zaloUid: string;
@@ -179,14 +181,11 @@ export async function layThanhVienNhom(
   }
   const uids = [...theoUid.keys()];
 
-  const [nhanVien, nick] = uids.length === 0 ? [[], []] : await Promise.all([
-    prisma.botNhanVien.findMany({
-      where: { orgId, zaloUid: { in: uids } },
-      select: { id: true, zaloUid: true, tenGoi: true, vai: true, trangThai: true },
-    }),
+  // Nhân viên theo MỌI uid của họ (docs/77 §8b): thành viên là uid THEO NICK của nhóm này.
+  const [nvTheoUid, nick] = uids.length === 0 ? [new Map(), []] as const : await Promise.all([
+    nhanVienTheoUid(orgId, uids),
     prisma.zaloAccount.findMany({ where: { orgId, zaloUid: { in: uids } }, select: { zaloUid: true } }),
   ]);
-  const nvTheoUid = new Map(nhanVien.map((n) => [n.zaloUid, n]));
   const uidNick = new Set(nick.map((n) => n.zaloUid));
   const uidNickNhom = conv.zaloAccount.zaloUid;
 

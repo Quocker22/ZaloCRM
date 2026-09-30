@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // bot-quyen-cho-gan.ts — hàm THUẦN của "Chờ gán — người đã nhắn cho shop" (tab Nhân viên, docs/77 §8).
 // Backend: GET /bot-quyen/nguoi-da-nhan (bot-quyen-nguoi-da-nhan.ts) — người đã nhắn (tin riêng + nhóm) chưa có trong
-// danh sách nhân viên. Zalo cấp uid KHÁC nhau cho mỗi nick ⇒ luôn nói rõ "uid theo nick nào".
-import type { NguoiDaNhan, NoiNhan, VaiNhanVien } from '@/api/bot-quyen';
+// danh sách nhân viên. Zalo cấp uid KHÁC nhau cho mỗi nick ⇒ luôn nói rõ "uid theo nick nào"; cùng người ở nhiều nick
+// là MỘT dòng mang mọi uid (docs/77 §8b) — gán gửi hết.
+import type { NguoiDaNhan, NhanVien, NoiNhan, VaiNhanVien } from '@/api/bot-quyen';
 import type { MauNhanVien } from './bot-quyen-thanh-vien';
 
 function motNoi(n: NoiNhan): string {
@@ -27,16 +28,33 @@ export function tomTatTin(u: Pick<NguoiDaNhan, 'tinCuoi'> & Partial<Pick<NguoiDa
   return NHAN_LOAI_TIN[t.loai] ?? `[${t.loai}]`;
 }
 
+/** "uid · nick" cho từng uid của người (sắp theo tên nick). */
+export function moTaUid(u: { uids?: Array<{ zaloUid: string; nick: { ten: string } | null }> }): string[] {
+  return (u.uids ?? []).map((x) => `${x.zaloUid} · ${x.nick ? `nick ${x.nick.ten}` : 'nick chưa rõ'}`);
+}
+
+/** Nhân viên có tên gọi trùng (không dấu) — gợi ý "cùng người với nhân viên đã có" (chỉ gợi ý, người bấm quyết). */
+export function nhanVienCungTen(u: Pick<NguoiDaNhan, 'ten' | 'anTen'>, ds: readonly NhanVien[]): NhanVien[] {
+  if (u.anTen) return [];
+  const bo = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'd').toLowerCase().trim();
+  const t = bo(u.ten);
+  return t ? ds.filter((nv) => bo(nv.tenGoi) === t) : [];
+}
+
 export function mauGan(u: NguoiDaNhan, vai: VaiNhanVien): MauNhanVien {
   const ten = u.anTen || u.ten === '(chưa rõ tên)' ? '' : u.ten.trim();
   const noi = u.noi[0];
+  const kem = (u.uids ?? []).map((x) => x.zaloUid).filter((x) => x !== u.zaloUid);
   return {
     zaloUid: u.zaloUid,
+    ...(kem.length > 0 ? { zaloUidsKem: kem } : {}),
     tenGoi: ten,
     khoaUid: true,
     vai,
     choPhepCongTy: true,
     tieuDe: `Gán “${ten || u.zaloUid}” làm nhân viên`,
-    nguon: noi ? `Đã nhắn ở ${motNoi(noi).replace(' · nick ', ' · uid theo nick ')}` : `uid ${u.zaloUid}`,
+    nguon: kem.length > 0
+      ? `Cùng một người ở ${kem.length + 1} nick — gán cả ${kem.length + 1} uid: ${moTaUid(u).join('; ')}`
+      : noi ? `Đã nhắn ở ${motNoi(noi).replace(' · nick ', ' · uid theo nick ')}` : `uid ${u.zaloUid}`,
   };
 }

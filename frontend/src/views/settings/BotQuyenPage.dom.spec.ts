@@ -24,11 +24,13 @@ vi.mock('@/api/bot-quyen', () => ({
   layNguoiDungCrm: vi.fn(),
   layNguoiDaNhan: vi.fn(),
   docLaiThanhVienNhom: vi.fn(),
+  themUidNhanVien: vi.fn(),
 }));
 
 import {
   layDanhSachNhom, layThanhVienNhom, luuChucNangNhom, boXepLoaiNhom,
   layDanhSachNhanVien, themNhanVien, suaNhanVien, layNhatKy, layNguoiDungCrm, layNguoiDaNhan, docLaiThanhVienNhom,
+  themUidNhanVien,
 } from '@/api/bot-quyen';
 import BotQuyenPage from './BotQuyenPage.vue';
 
@@ -115,11 +117,25 @@ const VoTab = defineComponent({
     return () => h('button', { role: 'tab', onClick: () => chon(p.value!) }, slots.default?.());
   },
 });
+/** v-menu: kích hoạt + nội dung luôn hiện (đủ để bấm mục). */
+const VoMenu = defineComponent({
+  name: 'VoMenu',
+  setup(_, { slots }) {
+    return () => h('div', { class: 'vo-menu' }, [slots.activator?.({ props: {} }), slots.default?.()]);
+  },
+});
+const VoMucDs = defineComponent({
+  name: 'VoMucDs',
+  props: { title: String, subtitle: String },
+  setup(p) {
+    return () => h('button', { class: 'vo-muc' }, [p.title, p.subtitle ? ` (${p.subtitle})` : '']);
+  },
+});
 const VUETIFY_VO = {
   VBtn: vo('button'), VIcon: vo('i'), VAlert: vo('div'), VDialog: VoDialog, VCard: vo('div'), VCardText: vo('div'),
   VCardActions: vo('div'), VSpacer: vo('span'), VTextField: VoNhap, VSelect: VoChon, VSwitch: VoCongTac,
   VTable: vo('table'), VProgressLinear: vo('div'), VChip: vo('span'), VDivider: vo('hr'), VTabs: VoTabs, VTab: VoTab,
-  VThemeProvider: vo('div'),
+  VThemeProvider: vo('div'), VMenu: VoMenu, VList: vo('div'), VListItem: VoMucDs, VCardTitle: vo('div'),
 };
 
 // ── Dữ liệu ──
@@ -159,7 +175,9 @@ const CHO_GAN: TrangNguoiDaNhan = {
   tong: 2, trang: 1, moiTrang: 30, gomLuc: '2026-09-30T08:00:00.000Z',
   ungVien: [
     {
+      // Cùng một người ở hai nick (docs/77 §8b) — một dòng, hai uid.
       zaloUid: '777', ten: 'Trần Hưng', luc: '2026-09-30T07:00:00.000Z', soNoi: 2, dangSaiBot: true,
+      uids: [{ zaloUid: '777', nick: { id: 'nickHN', ten: 'Nick HN' } }, { zaloUid: '778', nick: { id: 'nickHCM', ten: 'Nick HCM' } }],
       anTen: false, anTinCuoi: false, redacted: false,
       tinCuoi: { noiDung: 'lên đơn cho khách A', loai: 'text', luc: '2026-09-30T07:00:00.000Z' },
       noi: [
@@ -169,6 +187,7 @@ const CHO_GAN: TrangNguoiDaNhan = {
     },
     {
       zaloUid: '888', ten: 'Khách Đức', luc: '2026-09-30T06:00:00.000Z', soNoi: 1, dangSaiBot: false, tinCuoi: null,
+      uids: [{ zaloUid: '888', nick: { id: 'nickHCM', ten: 'Nick HCM' } }],
       anTen: false, anTinCuoi: false, redacted: false,
       noi: [{ conversationId: 'd2', loai: 'rieng', tenNhom: null, nick: { id: 'nickHCM', ten: 'Nick HCM' }, luc: null }],
     },
@@ -185,6 +204,10 @@ const THANH_VIEN_C2: ThanhVienNhom = {
 };
 const NV_QUYET: NhanVien = {
   id: 'n1', zaloUid: '100', tenGoi: 'Quyết', vai: 'admin', trangThai: 'hoat_dong', userId: null, user: null,
+  uids: [
+    { zaloUid: '100', nick: { id: 'nickHN', ten: 'Nick HN', zaloUid: '900' }, nguon: 'chon' },
+    { zaloUid: '101', nick: { id: 'nickHCM', ten: 'Nick HCM', zaloUid: '901' }, nguon: 'cung_tin' },
+  ],
   ghiChu: null, capNhatLuc: '2026-09-30T01:00:00.000Z', capNhatBoi: null,
 };
 const NHAT_KY: NhatKy[] = [{
@@ -462,7 +485,7 @@ describe('BotQuyenPage — Chờ gán: người đã nhắn cho shop (docs/77 §
     await nut(hung, 'Gán').trigger('click');
     const hop = w.find('.bq-nv-dialog');
     expect(hop.text()).toContain('Gán “Trần Hưng” làm nhân viên');
-    expect(hop.text()).toContain('uid theo nick Nick HN');
+    expect(hop.text()).toContain('Cùng một người ở 2 nick — gán cả 2 uid: 777 · nick Nick HN; 778 · nick Nick HCM');
     expect(hop.find('[data-o="zalo-uid"] input').attributes('readonly')).toBeDefined();
     expect((hop.find('[data-o="zalo-uid"] input').element as HTMLInputElement).value).toBe('777');
     expect((hop.find('[data-o="vai"] select').element as HTMLSelectElement).value).toBe('kho');
@@ -470,9 +493,37 @@ describe('BotQuyenPage — Chờ gán: người đã nhắn cho shop (docs/77 §
     const soLanNv = vi.mocked(layDanhSachNhanVien).mock.calls.length;
     await hop.find('[data-nut="luu"]').trigger('click');
     await flushPromises();
-    expect(themNhanVien).toHaveBeenCalledWith(expect.objectContaining({ zaloUid: '777', tenGoi: 'Trần Hưng', vai: 'kho' }));
+    expect(themNhanVien).toHaveBeenCalledWith(expect.objectContaining({
+      zaloUid: '777', zaloUids: ['778'], tenGoi: 'Trần Hưng', vai: 'kho',
+    }));
     expect(vi.mocked(layNguoiDaNhan).mock.calls.length).toBeGreaterThan(soLanTai);
     expect(vi.mocked(layDanhSachNhanVien).mock.calls.length).toBeGreaterThan(soLanNv);
+    w.unmount();
+  });
+
+  it('mỗi dòng hiện MỌI uid theo nick (docs/77 §8b)', async () => {
+    const w = await moTab();
+    const hung = w.find('.bq-cho-gan tr[data-uid="777"]');
+    expect(hung.text()).toContain('777 · nick Nick HN');
+    expect(hung.text()).toContain('778 · nick Nick HCM');
+    w.unmount();
+  });
+
+  it('"Là NV đã có" ⇒ chọn NV ⇒ xác nhận ⇒ thêm MỌI uid của dòng vào NV đó ⇒ tải lại', async () => {
+    vi.mocked(themUidNhanVien).mockResolvedValue({ nhanVien: { ...NV_QUYET }, doi: true });
+    vi.mocked(layDanhSachNhanVien).mockResolvedValue([{ ...NV_QUYET }, { ...NV_QUYET, id: 'n9', tenGoi: 'Khách Đức', uids: [] }]);
+    const w = await moTab();
+    const duc = w.find('.bq-cho-gan tr[data-uid="888"]');
+    const muc = duc.findAll('.vo-muc');
+    // trùng tên lên đầu, có nhãn
+    expect(muc[0].text()).toBe('Khách Đức (trùng tên)');
+    await muc[1].trigger('click');
+    expect(w.text()).toContain('Thêm Zalo này vào “Quyết”?');
+    const soLanTai = vi.mocked(layNguoiDaNhan).mock.calls.length;
+    await w.find('[data-nut="xac-nhan-gop"]').trigger('click');
+    await flushPromises();
+    expect(themUidNhanVien).toHaveBeenCalledWith('n1', { zaloUids: ['888'] });
+    expect(vi.mocked(layNguoiDaNhan).mock.calls.length).toBeGreaterThan(soLanTai);
     w.unmount();
   });
 
@@ -497,6 +548,10 @@ describe('BotQuyenPage — tab Nhân viên', () => {
     await flushPromises();
     expect(hang(w, 'n1').text()).toContain('Quyết');
     expect(hang(w, 'n1').text()).toContain('100');
+    // mọi uid của NV, theo nick (docs/77 §8b)
+    expect(hang(w, 'n1').text()).toContain('nick Nick HN');
+    expect(hang(w, 'n1').text()).toContain('101');
+    expect(hang(w, 'n1').text()).toContain('nick Nick HCM · tự nhận ra');
     await nut(hang(w, 'n1'), 'Sửa').trigger('click');
     return w;
   }

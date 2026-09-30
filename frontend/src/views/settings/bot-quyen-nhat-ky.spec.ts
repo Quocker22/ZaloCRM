@@ -93,3 +93,24 @@ describe('cauNhatKy — nhân viên', () => {
     }))).toBe('Nguyễn A đổi nhân viên “Lan”: tài khoản CRM từ (tài khoản không còn) sang (không liên kết)');
   });
 });
+
+describe('nhiều uid (docs/77 §8b)', () => {
+  const goc = {
+    id: 'x', luc: '2026-09-30T03:00:00.000Z', aiId: 'u1', ai: { id: 'u1', fullName: 'Nguyễn A' }, tuDong: false,
+    doiTuong: 'nhan_vien', doiTuongId: 'n1', tenDoiTuong: 'Trần Hưng', lyDo: null,
+  } as const;
+  it('thêm NV nhiều uid', () => {
+    expect(cauNhatKy({ ...goc, truoc: null, sau: { zaloUid: '1', tenGoi: 'Trần Hưng', vai: 'admin', trangThai: 'hoat_dong', uids: ['1', '2'] } }))
+      .toBe('Nguyễn A thêm nhân viên “Trần Hưng” (Zalo 1, 2) với vai Quản trị, trạng thái Hoạt động');
+  });
+  it('người thêm uid ở nick khác', () => {
+    expect(cauNhatKy({ ...goc, truoc: { tenGoi: 'Trần Hưng', uids: ['1'] }, sau: { tenGoi: 'Trần Hưng', uids: ['1', '3'] }, lyDo: 'cùng người' }))
+      .toBe('Nguyễn A đổi nhân viên “Trần Hưng”: thêm Zalo ở nick khác 3 — lý do: cùng người');
+  });
+  it('hệ thống tự thêm', () => {
+    expect(cauNhatKy({
+      ...goc, aiId: 'tu_dong', ai: null, tuDong: true, truoc: { tenGoi: 'Trần Hưng', uids: ['1'] },
+      sau: { tenGoi: 'Trần Hưng', uids: ['1', '2'] }, lyDo: 'nhận ra cùng người ở nick khác (cùng tin nhắn trong nhóm chung)',
+    })).toBe('Nhân viên “Trần Hưng”: thêm Zalo 2 — nhận ra cùng người ở nick khác (cùng tin nhắn trong nhóm chung)');
+  });
+});

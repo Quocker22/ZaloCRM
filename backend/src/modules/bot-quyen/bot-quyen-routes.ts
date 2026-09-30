@@ -13,8 +13,10 @@
 //   POST   /nhom/:conversationId/doc-lai                      — xếp hàng đọc lại danh sách thành viên (mặc định)
 //   GET    /nguoi-da-nhan                     ?tuKhoa=&trang=&moiTrang=&lamMoi=1 — người đã nhắn cho shop, chưa gán
 //   GET    /nhan-vien
-//   POST   /nhan-vien                         {zaloUid, tenGoi, vai, trangThai?, userId?, ghiChu?, lyDo?}
+//   POST   /nhan-vien                         {zaloUid, zaloUids?, tenGoi, vai, trangThai?, userId?, ghiChu?, lyDo?}
+//                                             (zaloUids = uid cùng người ở nick khác; máy tự thêm uid nhận ra được — §8b)
 //   PUT    /nhan-vien/:id                     {tenGoi?, vai?, trangThai?, userId?, ghiChu?, lyDo?}
+//   POST   /nhan-vien/:id/uid                 {zaloUid? | zaloUids?, lyDo?} — thêm uid của CÙNG người ở nick khác (§8b)
 //   GET    /nhat-ky                           ?limit= (mặc định 100, tối đa 500)
 //
 // Lỗi: {error: <câu tiếng Việt cho người dùng>, code: <MÃ>} — mã ở bot-quyen-service.ts.
@@ -23,7 +25,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { authMiddleware, requireActiveUser } from '../auth/auth-middleware.js';
 import {
   LoiBotQuyen, danhSachNhom, datChucNangNhom, boXepLoaiNhom,
-  danhSachNhanVien, themNhanVien, suaNhanVien, docNhatKy,
+  danhSachNhanVien, themNhanVien, suaNhanVien, themUidNhanVien, docNhatKy,
 } from './bot-quyen-service.js';
 import { layThanhVienNhom, docThanhVienZaloMacDinh, type DocThanhVienZalo } from './bot-quyen-thanh-vien.js';
 import { yeuCauDocLai } from './bot-quyen-danh-sach.js';
@@ -133,6 +135,12 @@ export async function registerBotQuyenRoutes(app: FastifyInstance, opts: BotQuye
   app.put('/nhan-vien/:id', async (req: FastifyRequest<P<{ id: string }>>, reply: FastifyReply) => {
     try {
       return await suaNhanVien(req.user!.orgId, req.user!.id, req.params.id, req.body);
+    } catch (err) { return guiLoi(reply, err); }
+  });
+
+  app.post('/nhan-vien/:id/uid', async (req: FastifyRequest<P<{ id: string }>>, reply: FastifyReply) => {
+    try {
+      return await themUidNhanVien(req.user!.orgId, req.user!.id, req.params.id, req.body);
     } catch (err) { return guiLoi(reply, err); }
   });
 

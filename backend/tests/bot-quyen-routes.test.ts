@@ -308,7 +308,9 @@ describeCanDb('bot-quyen — API quản trị (JWT, owner/admin)', () => {
     expect(nk).toHaveLength(1);
     expect(nk[0]).toMatchObject({ doiTuong: 'nhan_vien', doiTuongId: nv.id, aiId: OWNER, lyDo: 'Chủ' });
     expect(nk[0].truoc).toBeNull();
-    expect(nk[0].sau).toEqual({ zaloUid: '5001', tenGoi: 'Quyết', vai: 'admin', trangThai: 'hoat_dong', userId: null, ghiChu: null });
+    expect(nk[0].sau).toEqual({
+      zaloUid: '5001', tenGoi: 'Quyết', vai: 'admin', trangThai: 'hoat_dong', userId: null, ghiChu: null, uids: ['5001'],
+    });
 
     const trung = await goi('POST', '/nhan-vien', OWNER, { zaloUid: '5001', tenGoi: 'Khác', vai: 'sales' });
     expect(trung.statusCode).toBe(409);

@@ -10,8 +10,10 @@
 //   POST   /bot-quyen/nhom/:conversationId/doc-lai  -> { ok }  (xếp hàng đọc lại danh sách thành viên)
 //   GET    /bot-quyen/nguoi-da-nhan                ?tuKhoa=&trang=&moiTrang=&lamMoi=1 -> TrangNguoiDaNhan
 //   GET    /bot-quyen/nhan-vien                    -> { nhanVien: NhanVien[] }
-//   POST   /bot-quyen/nhan-vien                    {zaloUid, tenGoi, vai, trangThai?, userId?, ghiChu?, lyDo?} -> 201 { nhanVien }
+//   POST   /bot-quyen/nhan-vien                    {zaloUid, zaloUids?, tenGoi, vai, trangThai?, userId?, ghiChu?, lyDo?} -> 201 { nhanVien }
 //   PUT    /bot-quyen/nhan-vien/:id                {tenGoi?, vai?, trangThai?, userId?, ghiChu?, lyDo?} -> { nhanVien, doi }
+//   POST   /bot-quyen/nhan-vien/:id/uid            {zaloUid?|zaloUids?, lyDo?} -> { nhanVien, doi } (uid cùng người ở nick khác)
+// Zalo cấp uid KHÁC nhau cho cùng một người ở mỗi nick (docs/77 §8b) ⇒ một nhân viên mang nhiều uid (`uids`).
 //   GET    /bot-quyen/nhat-ky                      ?limit= (mặc định 100, tối đa 500) -> { nhatKy: NhatKy[] } (mới nhất trước)
 // Lỗi: { error: <câu tiếng Việt>, code: <MÃ> } — trang hiện nguyên `error` (bot-quyen-loi.ts).
 //
@@ -89,8 +91,17 @@ export interface NoiNhan {
   luc: string | null;
 }
 
-export interface NguoiDaNhan {
+/** Một uid của cùng người, nhìn từ một nick. */
+export interface UidTheoNick {
   zaloUid: string;
+  nick: { id: string; ten: string };
+}
+
+export interface NguoiDaNhan {
+  /** uid ở nơi mới nhất. */
+  zaloUid: string;
+  /** Mọi uid của người này (mỗi nick một uid) — gán gửi hết. */
+  uids: UidTheoNick[];
   ten: string;
   luc: string | null;
   noi: NoiNhan[];
@@ -134,9 +145,20 @@ export interface ThanhVienNhom {
   soNguoiNgoai: number;
 }
 
+export interface UidNhanVien {
+  zaloUid: string;
+  /** Nick nhìn thấy uid này — null = chưa biết. */
+  nick: { id: string; ten: string; zaloUid: string | null } | null;
+  /** chon = uid lúc gán / thêm tay · cung_tin / global_id = máy tự nhận ra cùng người. */
+  nguon: 'chon' | 'cung_tin' | 'global_id' | string;
+}
+
 export interface NhanVien {
   id: string;
+  /** uid lúc gán. */
   zaloUid: string;
+  /** Mọi uid của người này — bot nhận ra qua BẤT KỲ uid nào. */
+  uids: UidNhanVien[];
   tenGoi: string;
   vai: VaiNhanVien;
   trangThai: TrangThaiNhanVien;
@@ -178,6 +200,8 @@ export interface LuuNhomPayload {
 
 export interface TaoNhanVienPayload {
   zaloUid: string;
+  /** uid cùng người ở nick khác (dòng "Chờ gán" đã gộp). */
+  zaloUids?: string[];
   tenGoi: string;
   vai: VaiNhanVien;
   trangThai?: TrangThaiNhanVien;
@@ -253,6 +277,14 @@ export async function themNhanVien(payload: TaoNhanVienPayload): Promise<NhanVie
 
 export async function suaNhanVien(id: string, payload: SuaNhanVienPayload): Promise<{ nhanVien: NhanVien; doi: boolean }> {
   const { data } = await api.put(`/bot-quyen/nhan-vien/${encodeURIComponent(id)}`, payload, CAU_HINH);
+  return { nhanVien: data?.nhanVien, doi: data?.doi !== false };
+}
+
+/** Thêm uid của CÙNG người ở nick khác vào một nhân viên đã có. */
+export async function themUidNhanVien(
+  id: string, payload: { zaloUids: string[]; lyDo?: string },
+): Promise<{ nhanVien: NhanVien; doi: boolean }> {
+  const { data } = await api.post(`/bot-quyen/nhan-vien/${encodeURIComponent(id)}/uid`, payload, CAU_HINH);
   return { nhanVien: data?.nhanVien, doi: data?.doi !== false };
 }
 

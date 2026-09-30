@@ -2,10 +2,12 @@
 // Tab Nhân viên — "Chờ gán — người đã nhắn cho shop" (docs/77 §8): chữ "ở đâu" của từng người, mẫu hộp gán.
 import { describe, it, expect } from 'vitest';
 import type { NguoiDaNhan } from '@/api/bot-quyen';
-import { moTaNoi, mauGan, tomTatTin } from './bot-quyen-cho-gan';
+import { moTaNoi, moTaUid, mauGan, nhanVienCungTen, tomTatTin } from './bot-quyen-cho-gan';
+import type { NhanVien } from '@/api/bot-quyen';
 
 const u = (them: Partial<NguoiDaNhan> = {}): NguoiDaNhan => ({
   zaloUid: '123', ten: 'Trần Hưng', luc: null, soNoi: 1, dangSaiBot: false, tinCuoi: null,
+  uids: [{ zaloUid: '123', nick: { id: 'n1', ten: 'LED HN' } }],
   anTen: false, anTinCuoi: false, redacted: false,
   noi: [{ conversationId: 'g1', loai: 'nhom', tenNhom: 'Sales HN', nick: { id: 'n1', ten: 'LED HN' }, luc: null }], ...them,
 });
@@ -50,5 +52,24 @@ describe('nick Riêng tư (review P1-3)', () => {
     const m = mauGan(u({ ten: '(ẩn — nick Riêng tư)', anTen: true, redacted: true }), 'sales');
     expect(m.tenGoi).toBe('');
     expect(m.tieuDe).toBe('Gán “123” làm nhân viên');
+  });
+});
+
+describe('nhiều uid (docs/77 §8b)', () => {
+  const hai = u({ uids: [{ zaloUid: '123', nick: { id: 'n1', ten: 'LED HN' } }, { zaloUid: '456', nick: { id: 'n2', ten: 'LED HCM' } }] });
+  it('moTaUid: uid · nick', () => {
+    expect(moTaUid(hai)).toEqual(['123 · nick LED HN', '456 · nick LED HCM']);
+  });
+  it('mauGan gửi kèm uid ở nick khác và nói rõ', () => {
+    const m = mauGan(hai, 'sales');
+    expect(m.zaloUid).toBe('123');
+    expect(m.zaloUidsKem).toEqual(['456']);
+    expect(m.nguon).toContain('Cùng một người ở 2 nick');
+    expect(mauGan(u(), 'sales').zaloUidsKem).toBeUndefined();
+  });
+  it('nhanVienCungTen: so không dấu; tên bị che ⇒ không gợi ý', () => {
+    const nv = [{ id: 'a', tenGoi: 'Tran Hung' }, { id: 'b', tenGoi: 'Viết Quốc' }] as NhanVien[];
+    expect(nhanVienCungTen(u(), nv).map((x) => x.id)).toEqual(['a']);
+    expect(nhanVienCungTen(u({ anTen: true }), nv)).toEqual([]);
   });
 });

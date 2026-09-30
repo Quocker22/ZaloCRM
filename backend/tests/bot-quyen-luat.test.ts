@@ -113,10 +113,10 @@ describe('phiên bản cấu hình công khai (phien_ban)', () => {
     ]);
     // Thứ tự khoá trong một phần tử là một phần hợp đồng (docs/77 §3.2 + vòng sửa 1).
     expect(Object.keys(ch.nhom[0])).toEqual(['conversation_id', 'external_thread_id', 'nick_uid', 'chuc_nang', 'ten_dang_ky', 'mac_dinh']);
-    expect(Object.keys(ch.nhan_vien[0])).toEqual(['zalo_uid', 'ten_goi', 'vai', 'trang_thai']);
+    expect(Object.keys(ch.nhan_vien[0])).toEqual(['zalo_uid', 'ten_goi', 'vai', 'trang_thai', 'uids']);
     expect(ch.nhan_vien).toEqual([
-      { zalo_uid: '100', ten_goi: 'Quyết', vai: 'admin', trang_thai: 'hoat_dong' },
-      { zalo_uid: '900', ten_goi: 'Hùng', vai: 'kho', trang_thai: 'hoat_dong' },
+      { zalo_uid: '100', ten_goi: 'Quyết', vai: 'admin', trang_thai: 'hoat_dong', uids: [{ nick_uid: null, uid: '100' }] },
+      { zalo_uid: '900', ten_goi: 'Hùng', vai: 'kho', trang_thai: 'hoat_dong', uids: [{ nick_uid: null, uid: '900' }] },
     ]);
     expect(ch.phien_ban).toMatch(/^[0-9a-f]{64}$/);
   });
@@ -140,5 +140,29 @@ describe('phiên bản cấu hình công khai (phien_ban)', () => {
     const thanhMacDinh = ghepCauHinhCongKhai([{ ...nhom[0], macDinh: true }, nhom[1]], nv).phien_ban;
     const tatCa = new Set([goc, doiVai, doiTrangThai, doiTen, boNhom, rong, doiNick, nickNull, thanhMacDinh]);
     expect(tatCa.size).toBe(9);
+  });
+
+  // docs/77 §8b — một người, nhiều uid (mỗi nick một uid).
+  it('uids: mọi uid theo nick, kể cả zalo_uid, sắp theo uid, không trùng; thêm uid ⇒ đổi phien_ban', () => {
+    const hung = {
+      zaloUid: '3395858500519725514', tenGoi: 'Trần Hưng', vai: 'admin', trangThai: 'hoat_dong',
+      uids: [
+        { zaloUid: '3835588809400259343', nickUid: '619833576870383279' },
+        { zaloUid: '3395858500519725514', nickUid: '632106073555356463' },
+        { zaloUid: '3835588809400259343', nickUid: '619833576870383279' },
+      ],
+    };
+    const ch = ghepCauHinhCongKhai([], [hung]);
+    expect(ch.nhan_vien).toEqual([{
+      zalo_uid: '3395858500519725514', ten_goi: 'Trần Hưng', vai: 'admin', trang_thai: 'hoat_dong',
+      uids: [
+        { nick_uid: '632106073555356463', uid: '3395858500519725514' },
+        { nick_uid: '619833576870383279', uid: '3835588809400259343' },
+      ],
+    }]);
+    const motUid = ghepCauHinhCongKhai([], [{ ...hung, uids: [hung.uids[1]] }]).phien_ban;
+    expect(motUid).not.toBe(ch.phien_ban);
+    // thứ tự uids đầu vào không đổi phiên bản
+    expect(ghepCauHinhCongKhai([], [{ ...hung, uids: [...hung.uids].reverse() }]).phien_ban).toBe(ch.phien_ban);
   });
 });

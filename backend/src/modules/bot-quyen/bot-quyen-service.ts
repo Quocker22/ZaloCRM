@@ -20,6 +20,7 @@ import {
 } from './bot-quyen-luat.js';
 import { tinhMacDinhNhom, chucNangHieuLuc, type MacDinhNhom } from './bot-quyen-mac-dinh.js';
 import { ghiNhanDoiMacDinh, AI_TU_DONG } from './bot-quyen-danh-sach.js';
+import { boSungUidNhanVien, trangThaiTheoUid, uidCungNguoi, type NguonUid } from './bot-quyen-nhan-vien-uid.js';
 import { logger } from '../../shared/utils/logger.js';
 
 /** Sau thay đổi NV: mặc định các nhóm có thể đổi ⇒ ghi nhật ký "tự động" (góp ý chủ (4)). Không làm hỏng thay đổi NV. */
@@ -168,10 +169,11 @@ export async function danhSachNhom(orgId: string, loc: { zaloAccountId?: string 
   });
   const [nguoi, nhanVien, nicks] = await Promise.all([
     tenNguoi(orgId, rows.map((r) => r.botNhom?.capNhatBoiId)),
-    prisma.botNhanVien.findMany({ where: { orgId }, select: { zaloUid: true, trangThai: true } }),
+    trangThaiTheoUid(orgId),
     prisma.zaloAccount.findMany({ where: { orgId, zaloUid: { not: null } }, select: { zaloUid: true } }),
   ]);
-  const trangThaiNv = new Map(nhanVien.map((n) => [n.zaloUid, n.trangThai]));
+  // MỌI uid của mọi NV (mỗi nick một uid — docs/77 §8b): thành viên nhóm là uid THEO NICK của nhóm.
+  const trangThaiNv = nhanVien;
   const nickCrm = new Set(nicks.map((n) => n.zaloUid!));
   const bayGio = new Date();
   return rows.map((r) => {
@@ -300,13 +302,24 @@ const CHON_NV = {
   id: true, zaloUid: true, tenGoi: true, vai: true, trangThai: true, userId: true, ghiChu: true,
   capNhatLuc: true, capNhatBoiId: true,
   user: { select: { id: true, fullName: true } },
+  uids: { select: { zaloUid: true, zaloAccountId: true, nguon: true }, orderBy: { zaloUid: 'asc' } },
 } as const;
 
 type NvRow = Prisma.BotNhanVienGetPayload<{ select: typeof CHON_NV }>;
 
+/** Một uid của nhân viên: uid theo nick nào (null = chưa biết), vì sao có (chọn / tự nhận ra). */
+export interface UidNhanVienView {
+  zaloUid: string;
+  nick: { id: string; ten: string; zaloUid: string | null } | null;
+  nguon: NguonUid | string;
+}
+
 export interface NhanVienView {
   id: string;
+  /** uid LÚC GÁN (uid chính). Mọi uid — kể cả uid này — ở `uids`. */
   zaloUid: string;
+  /** Mọi uid Zalo của người này, mỗi nick một uid (docs/77 §8b). Bot nhận ra người này qua BẤT KỲ uid nào. */
+  uids: UidNhanVienView[];
   tenGoi: string;
   vai: string;
   trangThai: string;
@@ -318,15 +331,29 @@ export interface NhanVienView {
 }
 
 async function nhanVienViews(orgId: string, rows: NvRow[]): Promise<NhanVienView[]> {
-  const nguoi = await tenNguoi(orgId, rows.map((r) => r.capNhatBoiId));
+  const idNick = [...new Set(rows.flatMap((r) => r.uids.map((u) => u.zaloAccountId)).filter((x): x is string => !!x))];
+  const [nguoi, nicks] = await Promise.all([
+    tenNguoi(orgId, rows.map((r) => r.capNhatBoiId)),
+    idNick.length === 0 ? [] : prisma.zaloAccount.findMany({
+      where: { orgId, id: { in: idNick } }, select: { id: true, displayName: true, zaloUid: true },
+    }),
+  ]);
+  const nick = new Map(nicks.map((n) => [n.id, { id: n.id, ten: n.displayName?.trim() || 'Nick chưa đặt tên', zaloUid: n.zaloUid }]));
   return rows.map((r) => ({
     id: r.id, zaloUid: r.zaloUid, tenGoi: r.tenGoi, vai: r.vai, trangThai: r.trangThai,
+    uids: (r.uids.length > 0 ? r.uids : [{ zaloUid: r.zaloUid, zaloAccountId: null, nguon: 'chon' }]).map((u) => ({
+      zaloUid: u.zaloUid, nick: (u.zaloAccountId && nick.get(u.zaloAccountId)) || null, nguon: u.nguon,
+    })),
     userId: r.userId, user: r.user, ghiChu: r.ghiChu, capNhatLuc: r.capNhatLuc,
     capNhatBoi: (r.capNhatBoiId && nguoi.get(r.capNhatBoiId)) || null,
   }));
 }
 
 export async function danhSachNhanVien(orgId: string): Promise<NhanVienView[]> {
+  // Tự bổ sung uid cùng người ở nick khác (≤ 1 lần / phút / org). Lỗi không làm hỏng trang.
+  const them = await boSungUidNhanVien(orgId, { nhip: true })
+    .catch((err) => { logger.warn('[bot-quyen] bổ sung uid cùng người lỗi:', err); return 0; });
+  if (them > 0) await ghiNhanSauDoiNv(orgId);
   const rows = await prisma.botNhanVien.findMany({
     where: { orgId }, select: CHON_NV, orderBy: [{ tenGoi: 'asc' }, { zaloUid: 'asc' }],
   });
@@ -345,6 +372,66 @@ function kiemTrangThai(x: unknown): TrangThaiNv {
   return x;
 }
 
+/** Danh sách uid kèm (tuỳ chọn): mảng chuỗi, mỗi chuỗi ≤ DAI_UID, tối đa 20. Sai ⇒ 400. */
+function docDanhSachUid(x: unknown): string[] {
+  if (x === undefined || x === null) return [];
+  if (!Array.isArray(x) || x.length > 20) {
+    throw new LoiBotQuyen(400, 'DU_LIEU_KHONG_HOP_LE', 'zaloUids phải là mảng tối đa 20 uid');
+  }
+  return [...new Set(x.map((u) => chuoi(u, 'zaloUids[]', DAI_UID)).filter((u): u is string => !!u))];
+}
+
+/** Mọi uid chưa thuộc nhân viên nào (trong khoá org). Có ⇒ 409 nói rõ thuộc ai. */
+async function kiemUidChuaCoChu(tx: Tx, orgId: string, uids: string[]): Promise<void> {
+  const co = await tx.botNhanVienUid.findMany({
+    where: { orgId, zaloUid: { in: uids } },
+    select: { zaloUid: true, nhanVien: { select: { tenGoi: true } } },
+    orderBy: { zaloUid: 'asc' },
+  });
+  if (co.length > 0) {
+    throw new LoiBotQuyen(409, 'NHAN_VIEN_DA_CO',
+      `Người này đã là nhân viên “${co[0].nhanVien.tenGoi}” (Zalo ${co[0].zaloUid}) — sửa nhân viên đó thay vì thêm mới`);
+  }
+}
+
+/**
+ * POST /nhan-vien/:id/uid — thêm uid của CÙNG người ở nick khác (vd "Chờ gán" còn dòng của người này ở một nick mà máy
+ * chưa tự nhận ra). uid kèm cả uid cùng người với nó. uid đã thuộc nhân viên khác ⇒ 409.
+ */
+export async function themUidNhanVien(
+  orgId: string, aiId: string, id: string, input: unknown,
+): Promise<{ nhanVien: NhanVienView; doi: boolean }> {
+  const body = laBody(input);
+  const mot = chuoi(body.zaloUid, 'zaloUid', DAI_UID);
+  const chon = [...new Set([...(mot ? [mot] : []), ...docDanhSachUid(body.zaloUids)])];
+  if (chon.length === 0) throw new LoiBotQuyen(400, 'THIEU_ZALO_UID', 'Thiếu Zalo uid');
+  const lyDo = docLyDo(body.lyDo);
+  const uids = await uidCungNguoi(orgId, chon);
+  for (const u of uids) if (chon.includes(u.zaloUid)) u.nguon = 'chon';
+
+  const ket = await tenantTransaction(async (tx) => {
+    await khoaOrg(tx, orgId);
+    const cu = await tx.botNhanVien.findFirst({ where: { id, orgId }, select: CHON_NV });
+    if (!cu) throw new LoiBotQuyen(404, 'KHONG_TIM_THAY_NHAN_VIEN', 'Không tìm thấy nhân viên này');
+    const cuaMinh = new Set(cu.uids.map((u) => u.zaloUid));
+    const moi = uids.filter((u) => !cuaMinh.has(u.zaloUid));
+    if (moi.length === 0) return { row: cu, doi: false };
+    await kiemUidChuaCoChu(tx, orgId, moi.map((u) => u.zaloUid));
+    await tx.botNhanVienUid.createMany({
+      data: moi.map((u) => ({ orgId, nhanVienId: cu.id, zaloUid: u.zaloUid, zaloAccountId: u.zaloAccountId, nguon: u.nguon })),
+    });
+    const row = await tx.botNhanVien.update({ where: { id: cu.id }, data: { capNhatBoiId: aiId }, select: CHON_NV });
+    await ghiNhatKy(tx, {
+      orgId, aiId, doiTuong: 'nhan_vien', doiTuongId: cu.id,
+      truoc: { tenGoi: cu.tenGoi, uids: [...cuaMinh].sort() },
+      sau: { tenGoi: row.tenGoi, uids: row.uids.map((u) => u.zaloUid) }, lyDo,
+    });
+    return { row, doi: true };
+  });
+  if (ket.doi) await ghiNhanSauDoiNv(orgId);
+  return { nhanVien: (await nhanVienViews(orgId, [ket.row]))[0], doi: ket.doi };
+}
+
 /**
  * POST /nhan-vien — thêm NV. Lý do bắt buộc khi tạo đã khoa/nghi hoặc vai cong_ty (laKhoaKhiTao);
  * còn lại tuỳ chọn, có thì ghi nhật ký.
@@ -353,6 +440,7 @@ export async function themNhanVien(orgId: string, aiId: string, input: unknown):
   const body = laBody(input);
   const zaloUid = chuoi(body.zaloUid, 'zaloUid', DAI_UID);
   if (!zaloUid) throw new LoiBotQuyen(400, 'THIEU_ZALO_UID', 'Thiếu Zalo uid');
+  const uidKem = docDanhSachUid(body.zaloUids);
   const tenGoi = chuoi(body.tenGoi, 'tenGoi', DAI_TEN);
   if (!tenGoi) throw new LoiBotQuyen(400, 'THIEU_TEN_GOI', 'Thiếu tên gọi');
   const vai = kiemVai(body.vai);
@@ -364,19 +452,28 @@ export async function themNhanVien(orgId: string, aiId: string, input: unknown):
     canLyDo(lyDo, 'thêm nhân viên đang khoá / đã nghỉ / là người công ty (bot sẽ khoá Zalo này)');
   }
   await kiemUser(orgId, userId);
+  // uid đã chọn + uid của CÙNG người ở nick khác (docs/77 §8b) — đọc trước giao dịch (đọc tin nhắn, không khoá).
+  const uids = await uidCungNguoi(orgId, [zaloUid, ...uidKem]);
+  for (const u of uids) if (uidKem.includes(u.zaloUid)) u.nguon = 'chon';
 
   const row = await tenantTransaction(async (tx) => {
     await khoaOrg(tx, orgId);
     const trung = await tx.botNhanVien.findUnique({ where: { orgId_zaloUid: { orgId, zaloUid } }, select: { id: true } });
     if (trung) throw new LoiBotQuyen(409, 'NHAN_VIEN_DA_CO', 'Zalo này đã có trong danh sách nhân viên');
+    await kiemUidChuaCoChu(tx, orgId, uids.map((u) => u.zaloUid));
     const tao = await tx.botNhanVien.create({
       data: { orgId, zaloUid, tenGoi, vai, trangThai, userId, ghiChu, capNhatBoiId: aiId },
-      select: CHON_NV,
+      select: { id: true },
     });
+    await tx.botNhanVienUid.createMany({
+      data: uids.map((u) => ({ orgId, nhanVienId: tao.id, zaloUid: u.zaloUid, zaloAccountId: u.zaloAccountId, nguon: u.nguon })),
+    });
+    const day = await tx.botNhanVien.findUniqueOrThrow({ where: { id: tao.id }, select: CHON_NV });
     await ghiNhatKy(tx, {
-      orgId, aiId, doiTuong: 'nhan_vien', doiTuongId: tao.id, truoc: null, sau: anhNhanVien(tao), lyDo,
+      orgId, aiId, doiTuong: 'nhan_vien', doiTuongId: tao.id, truoc: null,
+      sau: { ...anhNhanVien(day), uids: day.uids.map((u) => u.zaloUid) }, lyDo,
     });
-    return tao;
+    return day;
   });
   await ghiNhanSauDoiNv(orgId);
   return (await nhanVienViews(orgId, [row]))[0];

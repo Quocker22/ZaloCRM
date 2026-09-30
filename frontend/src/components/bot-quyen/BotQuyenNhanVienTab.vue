@@ -9,7 +9,8 @@
   <section class="bq-goc" aria-label="Nhân viên của bot">
     <div class="bq-nv-dau">
       <p class="bq-nv-mo-ta bq-mo">
-        Bot nhận ra nhân viên theo <b>Zalo uid</b>. Cách nhanh nhất: chọn người trong “Chờ gán” bên dưới rồi bấm <b>Gán</b>
+        Bot nhận ra nhân viên theo <b>Zalo uid</b> — mỗi nick Zalo thấy cùng một người bằng một uid khác, nên một nhân viên
+        có thể có nhiều uid (máy tự thêm uid ở nick khác khi thấy cùng tin nhắn trong nhóm chung). Cách nhanh nhất: chọn người trong “Chờ gán” bên dưới rồi bấm <b>Gán</b>
         (hoặc tab <b>Nhóm</b> → <b>Thành viên</b> → “Đặt làm nhân viên”).
       </p>
       <div class="bq-cac-nut">
@@ -49,18 +50,21 @@
         <tr v-for="nv in ds" :key="nv.id" :data-id="nv.id">
           <td data-nhan="Tên gọi"><span class="bq-ten">{{ nv.tenGoi }}</span></td>
           <td data-nhan="Zalo uid">
-            <span class="bq-uid">
-              <span class="bq-mono">{{ nv.zaloUid }}</span>
-              <v-btn
-                icon="mdi-content-copy"
-                size="x-small"
-                variant="text"
-                density="comfortable"
-                :aria-label="`Sao chép Zalo uid của ${nv.tenGoi}`"
-                title="Sao chép"
-                @click="saoChep(nv.zaloUid)"
-              />
-            </span>
+            <div class="bq-uids">
+              <span v-for="x in uidsCua(nv)" :key="x.zaloUid" class="bq-uid" :data-uid="x.zaloUid">
+                <span class="bq-mono">{{ x.zaloUid }}</span>
+                <span class="bq-nho bq-mo">{{ x.nick ? `nick ${x.nick.ten}` : 'nick chưa rõ' }}{{ x.nguon === 'chon' ? '' : ' · tự nhận ra' }}</span>
+                <v-btn
+                  icon="mdi-content-copy"
+                  size="x-small"
+                  variant="text"
+                  density="comfortable"
+                  :aria-label="`Sao chép Zalo uid của ${nv.tenGoi}`"
+                  title="Sao chép"
+                  @click="saoChep(x.zaloUid)"
+                />
+              </span>
+            </div>
           </td>
           <td data-nhan="Vai"><span class="bq-chip" :class="nv.vai === 'cong_ty' ? 'bq-chip--xam' : 'bq-chip--nv'">{{ nhanVai(nv.vai) }}</span></td>
           <td data-nhan="Trạng thái"><span class="bq-chip" :class="`bq-chip--${MAU_TRANG_THAI[nv.trangThai] ?? 'xam'}`">{{ nhanTrangThai(nv.trangThai) }}</span></td>
@@ -79,7 +83,7 @@
       </tbody>
     </v-table>
 
-    <BotQuyenChoGan ref="choGan" :nguoi-dung-crm="nguoiDungCrm" @da-gan="tai" />
+    <BotQuyenChoGan ref="choGan" :nguoi-dung-crm="nguoiDungCrm" :nhan-vien="ds" @da-gan="tai" />
 
     <BotQuyenNhanVienDialog
       v-model="hop"
@@ -134,6 +138,11 @@ async function tai() {
   }
 }
 
+/** Mọi uid (mỗi nick một uid — docs/77 §8b); bản cũ không có `uids` ⇒ uid chính. */
+function uidsCua(nv: NhanVien) {
+  return nv.uids?.length ? nv.uids : [{ zaloUid: nv.zaloUid, nick: null, nguon: 'chon' }];
+}
+
 async function saoChep(uid: string) {
   try {
     await navigator.clipboard.writeText(uid);
@@ -173,6 +182,7 @@ onMounted(tai);
 .bq-nv-dau { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .bq-nv-mo-ta { margin: 0; font-size: 13px; flex: 1 1 280px; }
 .bq-ten { font-weight: 600; overflow-wrap: anywhere; }
-.bq-uid { display: inline-flex; align-items: center; gap: 2px; }
+.bq-uids { display: flex; flex-direction: column; gap: 2px; }
+.bq-uid { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; overflow-wrap: anywhere; }
 .bq-ghi-chu { display: inline-block; max-width: 220px; overflow-wrap: anywhere; }
 </style>

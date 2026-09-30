@@ -43,6 +43,8 @@ export function goiYCongTy(tv: ThanhVien): boolean {
 /** Điền sẵn hộp thêm nhân viên (BotQuyenNhanVienDialog) khi thêm từ ngăn thành viên nhóm. */
 export interface MauNhanVien {
   zaloUid?: string;
+  /** uid cùng người ở nick khác — gửi kèm khi thêm (docs/77 §8b). */
+  zaloUidsKem?: string[];
   tenGoi?: string;
   /** Uid lấy từ Zalo — không cho sửa tay. */
   khoaUid?: boolean;

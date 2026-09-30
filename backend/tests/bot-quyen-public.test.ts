@@ -119,9 +119,9 @@ describeCanDb('bot-quyen — API công khai (x-api-key)', () => {
     expect(res.body.indexOf('"chuc_nang"')).toBeLessThan(res.body.indexOf('"ten_dang_ky"'));
     expect(res.body.indexOf('"ten_dang_ky"')).toBeLessThan(res.body.indexOf('"mac_dinh"'));
     expect(body.nhan_vien).toEqual([
-      { zalo_uid: '100', ten_goi: 'Quyết', vai: 'admin', trang_thai: 'hoat_dong' },
-      { zalo_uid: '500', ten_goi: 'Lan', vai: 'cong_ty', trang_thai: 'nghi' },
-      { zalo_uid: '900', ten_goi: 'Hùng', vai: 'kho', trang_thai: 'hoat_dong' },
+      { zalo_uid: '100', ten_goi: 'Quyết', vai: 'admin', trang_thai: 'hoat_dong', uids: [{ nick_uid: null, uid: '100' }] },
+      { zalo_uid: '500', ten_goi: 'Lan', vai: 'cong_ty', trang_thai: 'nghi', uids: [{ nick_uid: null, uid: '500' }] },
+      { zalo_uid: '900', ten_goi: 'Hùng', vai: 'kho', trang_thai: 'hoat_dong', uids: [{ nick_uid: null, uid: '900' }] },
     ]);
   });
 
@@ -131,7 +131,7 @@ describeCanDb('bot-quyen — API công khai (x-api-key)', () => {
       { conversation_id: 'test-bqp-cb', external_thread_id: 'ext-cb', nick_uid: 'test-bqp-uid-nick-b', chuc_nang: 'kho', ten_dang_ky: 'Kho B', mac_dinh: false },
     ]);
     expect(body.nhan_vien).toEqual([
-      { zalo_uid: '100', ten_goi: 'Người org B', vai: 'sales', trang_thai: 'hoat_dong' },
+      { zalo_uid: '100', ten_goi: 'Người org B', vai: 'sales', trang_thai: 'hoat_dong', uids: [{ nick_uid: null, uid: '100' }] },
     ]);
   });
 
