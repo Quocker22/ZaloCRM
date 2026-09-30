@@ -97,13 +97,22 @@ async function goi(method: 'GET' | 'POST' | 'PUT' | 'DELETE', url: string, paylo
 function giaZalo(
   bang: Record<string, Record<string, string>>,
   sdt: Record<string, { uid: string; globalId: string | null; ten?: string }> = {},
-  o: { nem?: boolean } = {},
-): ZaloDanhTinhApi & { dem: { thongTin: number; sdt: number }; hoi: string[]; tra: string[] } {
-  const dem = { thongTin: 0, sdt: 0 };
+  o: { nem?: boolean; nemNhom?: boolean } = {},
+): ZaloDanhTinhApi & { dem: { thongTin: number; sdt: number; nhom: number }; hoi: string[]; tra: string[]; hoiNhom: string[] } {
+  const dem = { thongTin: 0, sdt: 0, nhom: 0 };
   const hoi: string[] = [];
   const tra: string[] = [];
+  const hoiNhom: string[] = [];
   return {
-    dem, hoi, tra,
+    dem, hoi, tra, hoiNhom,
+    async thanhVienNhom(nick, uids) {
+      dem.nhom++;
+      hoiNhom.push(...uids);
+      if (o.nem || o.nemNhom) throw new Error('Zalo lỗi (giả, getGroupMembersInfo)');
+      const m = new Map<string, { globalId: string | null; ten: string | null }>();
+      for (const u of uids) if (bang[nick]?.[u] !== undefined) m.set(u, { globalId: bang[nick][u], ten: null });
+      return m;
+    },
     async thongTin(nick, uids) {
       dem.thongTin++;
       hoi.push(...uids);
@@ -588,5 +597,60 @@ describeCanDb('bot-quyen — an toàn "một NV nhiều uid" (§8b-an-toàn)', (
     expect(await prisma.botQuyenDanhTinh.count({ where: { orgId: ORG, zaloUid: { in: ['lc-1', 'lc-2', 'lc-3'] }, globalId: { not: null } } })).toBe(3);
     expect((await prisma.botNhanVienUid.findMany({ where: { nhanVienId: nv.id } })).map((u) => u.zaloUid).sort()).toEqual(['lc-1', 'lc-2']);
     _datZaloDanhTinhChoTest(null, { tranNgay: null });
+  });
+  it('KHÁCH trong nhóm: globalId không khớp ai ⇒ Khách; globalId rỗng ⇒ Khách; globalId giữ chỗ (2 uid một nick) ⇒ Khách và bị nhiễm cho MỌI người', async () => {
+    const s = await dungStaging();
+    try {
+      // "private 1" thêm một khách; "Led Nelia" thêm khách không có globalId; nhóm thứ ba: khách mang globalId giữ chỗ
+      await prisma.botNhomDanhSach.update({ where: { conversationId: 'p1-vt' }, data: { uids: [s.VT_SELF, s.HUNG_VT, s.QUOC_VT, s.TM_TU_VT, 'khach-1'] } });
+      await prisma.botNhomDanhSach.update({ where: { conversationId: 'ln-vt' }, data: { uids: [s.VT_SELF, s.HUNG_VT, s.QUOC_VT, s.CL_TU_VT, 'khach-rong'] } });
+      await nhom('gc-vt', s.VT, 'Nhóm giữ chỗ');
+      await prisma.botNhomDanhSach.create({ data: { orgId: ORG, conversationId: 'gc-vt', zaloAccountId: s.VT, uids: [s.VT_SELF, s.HUNG_VT, 'khach-gc1', 'khach-gc2'], dayDu: true, canDocLai: false, docLuc: new Date() } });
+      // NV Lan ở nick Cẩm Loan có globalId ĐÚNG bằng globalId giữ chỗ ⇒ không được nối vào 'khach-gc*'
+      await tin('ai-cl', ma(2101), 'lan-cl');
+      await prisma.botNhomDanhSach.update({ where: { conversationId: 'ai-cl' }, data: { uids: { push: 'lan-cl' } } });
+      const bang = structuredClone(s.bang);
+      Object.assign(bang[s.VT], { 'khach-1': 'G-KHACH-1', 'khach-gc1': 'G-GIU-CHO', 'khach-gc2': 'G-GIU-CHO' }); // khach-rong: không có globalId
+      Object.assign(bang[s.CL], { 'lan-cl': 'G-GIU-CHO' });
+      const g = giaZalo(bang);
+      _datZaloDanhTinhChoTest(g);
+      await goi('POST', '/nhan-vien', { zaloUid: s.HUNG_CL, tenGoi: 'Trần Hưng', vai: 'sales' });
+      await goi('POST', '/nhan-vien', { zaloUid: s.QUOC_VT, tenGoi: 'Viết Quốc', vai: 'admin' });
+      const lan = (await goi('POST', '/nhan-vien', { zaloUid: 'lan-cl', tenGoi: 'Lan', vai: 'sales' })).json().nhanVien;
+      await chayDanhTinh(ORG);
+      expect(g.dem.nhom).toBeGreaterThan(0); // thành viên đọc bằng getGroupMembersInfo trước
+      const cfg = await docCauHinhCongKhai(ORG);
+      const cn = Object.fromEntries(cfg.nhom.map((n) => [n.conversation_id, n.chuc_nang]));
+      expect(cn).toMatchObject({ 'p1-vt': 'khach', 'ln-vt': 'khach', 'gc-vt': 'khach' });
+      // globalId khách được lưu (bảng hệ thống) nhưng không cấp gì
+      expect(await prisma.botQuyenDanhTinh.findFirst({ where: { orgId: ORG, zaloUid: 'khach-1' } })).toMatchObject({ globalId: 'G-KHACH-1' });
+      expect(cfg.nick_crm.map((k) => k.uid)).not.toContain('khach-1');
+      expect(cfg.nhan_vien.flatMap((n) => n.uids.map((u) => u.uid))).not.toContain('khach-1');
+      // giữ chỗ nhiễm cho mọi người: Lan (globalId trùng giữ chỗ) KHÔNG được nối uid khách
+      expect((await prisma.botNhanVienUid.findMany({ where: { nhanVienId: lan.id } })).map((u) => u.zaloUid)).toEqual(['lan-cl']);
+      // người/nick thật vẫn nhận ra
+      expect(cfg.nick_crm.map((k) => k.uid)).toEqual(expect.arrayContaining([s.TM_TU_VT, s.CL_TU_VT]));
+      // bỏ khách ⇒ Nhóm nhân viên
+      await prisma.botNhomDanhSach.update({ where: { conversationId: 'p1-vt' }, data: { uids: [s.VT_SELF, s.HUNG_VT, s.QUOC_VT, s.TM_TU_VT] } });
+      expect((await docCauHinhCongKhai(ORG)).nhom.find((n) => n.conversation_id === 'p1-vt')!.chuc_nang).toBe('sales');
+    } finally {
+      await prisma.botNhomDanhSach.deleteMany({ where: { conversationId: 'gc-vt' } });
+      await prisma.conversation.deleteMany({ where: { id: 'gc-vt' } });
+      await s.don();
+    }
+  });
+
+  it('getGroupMembersInfo hỏng ⇒ rơi về getUserInfo (lô 50) — vẫn nhận ra; cả hai hỏng ⇒ không nối (Khách)', async () => {
+    const s = await dungStaging();
+    try {
+      const g = giaZalo(s.bang, {}, { nemNhom: true });
+      _datZaloDanhTinhChoTest(g);
+      await chayDanhTinh(ORG);
+      expect(g.dem.nhom).toBeGreaterThan(0);
+      expect(g.hoi).toEqual(expect.arrayContaining([s.TM_TU_VT, s.CL_TU_VT]));
+      expect((await docCauHinhCongKhai(ORG)).nick_crm.map((k) => k.uid)).toEqual(expect.arrayContaining([s.TM_TU_VT, s.CL_TU_VT]));
+    } finally {
+      await s.don();
+    }
   });
 });

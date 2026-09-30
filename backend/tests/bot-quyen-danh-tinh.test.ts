@@ -13,6 +13,12 @@ describe('bot-quyen-danh-tinh (thuần)', () => {
     expect(sachGlobalId(123)).toBe('123');
   });
 
+  it('bocThongTin: đọc được cả kết quả getGroupMembersInfo (profiles)', () => {
+    const m = bocThongTin({ profiles: { u1: { id: 'u1', globalId: 'G1', zaloName: 'A' } } }, ['u1', 'u2']);
+    expect(m.get('u1')).toEqual({ globalId: 'G1', ten: 'A', sdt: null });
+    expect(m.has('u2')).toBe(false);
+  });
+
   it('bocThongTin: khoá "<uid>_0" hoặc "<uid>", uid vắng ⇒ không có trong Map', () => {
     const m = bocThongTin({ changed_profiles: {
       '2945555577789699285_0': { globalId: 'G-TM', zaloName: 'Tiểu Mã', phoneNumber: '+84847565324' }, u2: { globalId: '' },
@@ -67,6 +73,7 @@ describe('vòng danh tính hẹn sau thay đổi NV', () => {
     let goi = 0;
     dt._datZaloDanhTinhChoTest({
       async thongTin() { goi++; return new Map(); },
+      async thanhVienNhom() { goi++; return new Map(); },
       async timSdt() { return null; },
     });
     svc.kichHoatDanhTinh('org-khong-co');
