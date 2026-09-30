@@ -12,8 +12,9 @@ import { prepareContact, type BulkContactInput } from './bulk-upsert-helpers.js'
 import { upsertOneContact } from './bulk-upsert-service.js';
 
 // ── API key auth middleware ────────────────────────────────────────────────────
+// Export để route công khai ở module khác (bot-quyen-public-routes.ts) dùng ĐÚNG cơ chế khoá này.
 
-async function apiKeyAuth(request: FastifyRequest, reply: FastifyReply) {
+export async function apiKeyAuth(request: FastifyRequest, reply: FastifyReply) {
   const apiKey = request.headers['x-api-key'] as string;
   if (!apiKey) return reply.status(401).send({ error: 'API key required' });
 

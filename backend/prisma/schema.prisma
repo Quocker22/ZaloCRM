@@ -47,6 +47,10 @@ model Organization {
   zaloAccounts                ZaloAccount[]
   agentOperators              AgentOperator[]
   agentNotifyTargets          AgentNotifyTarget[]
+  // Quyền bot (docs/77 30/09) — chức năng nhóm + vai NV cho bot Zalo, nhật ký đổi quyền.
+  botNhom                     BotNhom[]
+  botNhanVien                 BotNhanVien[]
+  botQuyenNhatKy              BotQuyenNhatKy[]
   contacts                    Contact[]
   contactAccess               ContactAccess[]
   conversations               Conversation[]
@@ -278,6 +282,7 @@ model User {
   team                      Team?                        @relation(fields: [teamId], references: [id])
   zaloAccounts              ZaloAccount[]
   agentOperators            AgentOperator[]
+  botNhanVien               BotNhanVien[]
   zaloAccess                ZaloAccountAccess[]
   assignedContacts          Contact[]                    @relation("AssignedContacts")
   contactAccess             ContactAccess[]
@@ -819,6 +824,8 @@ model Conversation {
   pins          PinnedConversation[]
   // 2026-06-18 — Cầu Telegram: 1 hội thoại = 1 forum topic (định tuyến reply).
   telegramTopic TelegramTopicMap?
+  // Quyền bot (docs/77 30/09) — chức năng nhóm với bot (chỉ threadType=group).
+  botNhom       BotNhom?
 
   @@unique([zaloAccountId, externalThreadId])
   @@index([orgId, zaloAccountId, isReplied, lastMessageAt])
@@ -4548,4 +4555,77 @@ model PrintAppLog {
   @@index([orgId, suKien, luc(sort: Desc)])
   @@index([orgId, mucDo, luc(sort: Desc)])
   @@map("print_app_logs")
+}
+
+/// QUYỀN BOT (docs/77, 30/09) — chức năng của một NHÓM Zalo với bot LEDNELIA. Bot (repo Hermes)
+/// đọc qua GET /api/public/bot-quyen mỗi ~60 s rồi áp; bot KHÔNG ghi ngược. Nhóm không có dòng
+/// ở đây = "chưa xếp loại" ⇒ bot im trong nhóm đó. Chỉ owner/admin CRM sửa (bot-quyen-routes.ts),
+/// mọi thay đổi ghi BotQuyenNhatKy CÙNG giao dịch. Không liên quan PermissionGroup (quyền màn hình CRM).
+model BotNhom {
+  id             String   @id @default(uuid())
+  orgId          String   @map("org_id")
+  /// Hội thoại NHÓM (threadType='group') — một nhóm Zalo nhìn từ một nick CRM.
+  conversationId String   @unique @map("conversation_id")
+  /// admin | sales | kho | ke_toan | khach (bot-quyen-luat.ts CHUC_NANG_NHOM)
+  chucNang       String   @map("chuc_nang")
+  /// Tên bot dùng khi nhắc tới nhóm (câu IM-NV) — KHÔNG lấy tên Zalo tự do (N7). Mặc định rỗng.
+  tenDangKy      String   @default("") @map("ten_dang_ky")
+  ghiChu         String?  @map("ghi_chu")
+  /// User CRM sửa lần cuối. Không FK — xoá user không mất cấu hình.
+  capNhatBoiId   String?  @map("cap_nhat_boi_id")
+  capNhatLuc     DateTime @default(now()) @updatedAt @map("cap_nhat_luc")
+
+  org          Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("bot_nhom")
+}
+
+/// QUYỀN BOT (docs/77) — vai của một Zalo NHÂN VIÊN với bot. Khoá theo zaloUid trong org. Không xoá
+/// cứng: người nghỉ đổi trangThai='nghi' (bot cần biết để im ở nhóm có người đã nghỉ).
+model BotNhanVien {
+  id           String   @id @default(uuid())
+  orgId        String   @map("org_id")
+  zaloUid      String   @map("zalo_uid")
+  tenGoi       String   @map("ten_goi")
+  /// admin | sales | kho | ke_toan | cong_ty (bot-quyen-luat.ts VAI_NV)
+  vai          String
+  /// hoat_dong | khoa | nghi (bot-quyen-luat.ts TRANG_THAI_NV)
+  trangThai    String   @default("hoat_dong") @map("trang_thai")
+  /// Tài khoản CRM tương ứng (tuỳ chọn).
+  userId       String?  @map("user_id")
+  ghiChu       String?  @map("ghi_chu")
+  capNhatBoiId String?  @map("cap_nhat_boi_id")
+  capNhatLuc   DateTime @default(now()) @updatedAt @map("cap_nhat_luc")
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([orgId, zaloUid])
+  @@index([orgId, vai, trangThai])
+  @@map("bot_nhan_vien")
+}
+
+/// QUYỀN BOT (docs/77) — nhật ký CHỈ THÊM của mọi thay đổi BotNhom/BotNhanVien: ai, lúc nào,
+/// trước → sau, lý do. Ghi cùng giao dịch với thay đổi. truoc=null: tạo mới; sau=null: bỏ xếp loại.
+model BotQuyenNhatKy {
+  id         String   @id @default(uuid())
+  orgId      String   @map("org_id")
+  /// User CRM thực hiện. Không FK — nhật ký phải sống lâu hơn tài khoản.
+  aiId       String   @map("ai_id")
+  luc        DateTime @default(now())
+  /// nhom | nhan_vien
+  doiTuong   String   @map("doi_tuong")
+  /// nhom: conversationId · nhan_vien: BotNhanVien.id
+  doiTuongId String   @map("doi_tuong_id")
+  truoc      Json?
+  sau        Json?
+  lyDo       String?  @map("ly_do")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, luc(sort: Desc)])
+  @@index([orgId, doiTuong, doiTuongId])
+  @@map("bot_quyen_nhat_ky")
 }

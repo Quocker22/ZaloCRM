@@ -309,6 +309,11 @@ async function bootstrap() {
   const { registerAgentNotifyRoutes } = await import('./modules/ai/agent/agent-notify-routes.js');
   await app.register(registerAgentNotifyRoutes, { prefix: '/api/v1/agent-notify-targets' });
 
+  // Quyền bot (docs/77, 30/09) — chức năng nhóm + vai NV với bot Zalo; chỉ owner/admin CRM.
+  // Bot đọc lại qua GET /api/public/bot-quyen (đăng ký cạnh publicApiRoutes bên dưới).
+  const { registerBotQuyenRoutes } = await import('./modules/bot-quyen/bot-quyen-routes.js');
+  await app.register(registerBotQuyenRoutes, { prefix: '/api/v1/bot-quyen' });
+
   // Máy in nhiều chi nhánh (Task 6, 10/09) — admin CRUD + gen token print_agents.
   const { registerPrintAgentRoutes } = await import('./modules/ai/may-in/print-agent-routes.js');
   await app.register(registerPrintAgentRoutes, { prefix: '/api/v1/may-in-agents' });
@@ -346,6 +351,9 @@ async function bootstrap() {
   // Lead Pool + Facebook Lead Ads routes → registered by extension bundle.
   await app.register(searchRoutes);
   await app.register(publicApiRoutes);
+  // Quyền bot (docs/77) — bridge bot poll ~60 s, cùng khoá x-api-key như publicApiRoutes.
+  const { botQuyenPublicRoutes } = await import('./modules/bot-quyen/bot-quyen-public-routes.js');
+  await app.register(botQuyenPublicRoutes);
   // Gợi ý @khách / #sản-phẩm cho ô chat.
   await app.register(goiYRoutes);
   await app.register(webhookSettingsRoutes);
