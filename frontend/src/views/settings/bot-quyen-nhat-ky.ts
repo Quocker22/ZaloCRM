@@ -33,6 +33,26 @@ function uidThem(truoc: Anh, sau: Anh): string[] {
   return dsUid(sau).filter((u) => !cu.has(u));
 }
 
+/** uid có ở `truoc` mà không còn ở `sau` (gỡ / thành đề xuất — §8b-an-toàn). */
+function uidBo(truoc: Anh, sau: Anh): string[] {
+  const moi = new Set(dsUid(sau));
+  return dsUid(truoc).filter((u) => !moi.has(u));
+}
+
+function obj(a: Anh, k: string): Record<string, unknown> | null {
+  const v = a?.[k];
+  return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+}
+
+/** "(N tin trùng)" / "(globalId …)" từ ô bằng chứng. */
+function chuBangChung(b: Record<string, unknown> | null): string {
+  if (!b) return '';
+  const bc = obj(b, 'bangChung') ?? b;
+  if (typeof bc.globalId === 'string') return ` (globalId Zalo ${bc.globalId})`;
+  const so = typeof b.soTin === 'number' ? b.soTin : typeof bc.soTin === 'number' ? bc.soTin : null;
+  return so !== null ? ` (${so} tin trùng)` : '';
+}
+
 function doi(ten: string, a: string, b: string): string {
   return `${ten} từ ${a} sang ${b}`;
 }
@@ -67,6 +87,8 @@ function cauNhanVien(ai: string, e: NhatKy, tenNguoiDung: (id: string) => string
   const sau = e.sau;
   const ten = e.tenDoiTuong?.trim() || chuoi(sau, 'tenGoi') || chuoi(truoc, 'tenGoi') || chuoi(sau ?? truoc, 'zaloUid') || '(không tên)';
   const nv = `nhân viên “${ten}”`;
+  const tuChoi = obj(sau, 'tuChoi');
+  if (!truoc && tuChoi) return `${ai} xác nhận Zalo ${String(tuChoi.zaloUid)} KHÔNG phải ${nv}${chuBangChung(tuChoi)}`;
   if (!truoc && sau) {
     const uids = dsUid(sau);
     const uid = uids.length > 0 ? uids.join(', ') : chuoi(sau, 'zaloUid');
@@ -91,8 +113,15 @@ function cauNhanVien(ai: string, e: NhatKy, tenNguoiDung: (id: string) => string
   if ((chuoi(truoc, 'ghiChu') ?? '') !== (chuoi(sau, 'ghiChu') ?? '')) {
     khac.push(doi('ghi chú', trich(chuoi(truoc, 'ghiChu')), trich(chuoi(sau, 'ghiChu'))));
   }
+  if ((chuoi(truoc, 'soDienThoai') ?? '') !== (chuoi(sau, 'soDienThoai') ?? '')) {
+    khac.push(doi('SĐT Zalo', trich(chuoi(truoc, 'soDienThoai')), trich(chuoi(sau, 'soDienThoai'))));
+  }
+  const xacNhan = obj(sau, 'xacNhan');
   const them = uidThem(truoc, sau);
-  if (them.length > 0) khac.push(`thêm Zalo ở nick khác ${them.join(', ')}`);
+  if (xacNhan) khac.push(`nối đề xuất Zalo ${String(xacNhan.zaloUid)}${chuBangChung(xacNhan)}`);
+  else if (them.length > 0) khac.push(`thêm Zalo ở nick khác ${them.join(', ')}`);
+  const bo = uidBo(truoc, sau);
+  if (bo.length > 0) khac.push(`gỡ Zalo ${bo.join(', ')}${chuBangChung(obj(sau, 'goUid'))}`);
   return khac.length ? `${ai} đổi ${nv}: ${khac.join('; ')}` : `${ai} lưu ${nv} (không đổi gì)`;
 }
 
@@ -102,10 +131,15 @@ function cauTuDong(e: NhatKy): string {
     // Hệ thống tự thêm uid cùng người ở nick khác (docs/77 §8b).
     const ten = e.tenDoiTuong?.trim() || '(không tên)';
     const them = uidThem(e.truoc, e.sau);
-    const than = `Nhân viên “${ten}”: thêm Zalo ${them.length > 0 ? them.join(', ') : '(không rõ)'}`;
+    const bo = uidBo(e.truoc, e.sau);
+    const phan: string[] = [];
+    if (them.length > 0) phan.push(`thêm Zalo ${them.join(', ')}`);
+    if (bo.length > 0) phan.push(`chuyển Zalo ${bo.join(', ')} thành đề xuất`);
+    const than = `Nhân viên “${ten}”: ${phan.length > 0 ? phan.join('; ') : 'thêm Zalo (không rõ)'}`;
     const lyDo = e.lyDo?.trim();
     return lyDo ? `${than} — ${lyDo}` : than;
   }
+  if (e.doiTuong === 'nick_crm') return cauNickCrm('Hệ thống', e);
   const ten = e.tenDoiTuong?.trim() || '(nhóm chưa có tên)';
   const nhan = (a: Anh) => {
     const cn = chuoi(a, 'chucNang');
@@ -116,6 +150,16 @@ function cauTuDong(e: NhatKy): string {
   return lyDo ? `${than} — ${lyDo}` : than;
 }
 
+/** Nick CRM nhìn từ nick khác (§8b-an-toàn): sau = {nhinTu, zaloUid, …} · truoc = … (gỡ). */
+function cauNickCrm(ai: string, e: NhatKy): string {
+  const nick = `nick CRM “${e.tenDoiTuong?.trim() || '(nick không còn)'}”`;
+  const uid = chuoi(e.sau, 'zaloUid') ?? chuoi(e.truoc, 'zaloUid') ?? '(không rõ)';
+  const sau = e.sau;
+  if (sau && sau.tuChoi === true) return `${ai} gỡ Zalo ${uid} khỏi ${nick}`;
+  if (!sau) return `${ai} thôi coi Zalo ${uid} là ${nick}`;
+  return `${ai} ${e.tuDong ? 'nhận ra' : 'đánh dấu'} Zalo ${uid} là ${nick}${chuBangChung(sau)}`;
+}
+
 export function cauNhatKy(e: NhatKy, tuy: { tenNguoiDung?: (id: string) => string | null } = {}): string {
   if (e.tuDong) return cauTuDong(e);
   const ai = e.ai?.fullName?.trim() || 'Người dùng đã bị xoá';
@@ -123,7 +167,7 @@ export function cauNhatKy(e: NhatKy, tuy: { tenNguoiDung?: (id: string) => strin
     ? cauNhom(ai, e)
     : e.doiTuong === 'nhan_vien'
       ? cauNhanVien(ai, e, tuy.tenNguoiDung ?? (() => null))
-      : `${ai} thay đổi ${e.doiTuong}`;
+      : e.doiTuong === 'nick_crm' ? cauNickCrm(ai, e) : `${ai} thay đổi ${e.doiTuong}`;
   const lyDo = e.lyDo?.trim();
   return lyDo ? `${than} — lý do: ${lyDo}` : than;
 }

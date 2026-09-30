@@ -53,6 +53,10 @@ model Organization {
   botQuyenNhatKy              BotQuyenNhatKy[]
   botNhomDanhSach             BotNhomDanhSach[]
   botNhanVienUid              BotNhanVienUid[]
+  botNhanVienUidDeXuat        BotNhanVienUidDeXuat[]
+  botNhanVienUidTuChoi        BotNhanVienUidTuChoi[]
+  botNickCrmUid               BotNickCrmUid[]
+  botQuyenDanhTinh            BotQuyenDanhTinh[]
   contacts                    Contact[]
   contactAccess               ContactAccess[]
   conversations               Conversation[]
@@ -451,6 +455,9 @@ model ZaloAccount {
   groupMembers                     GroupMember[]
   groupScans                       GroupScan[]
 
+  botNickCrmNhinTu BotNickCrmUid[]    @relation("BotNickCrmNhinTu")
+  botNickCrmLa     BotNickCrmUid[]    @relation("BotNickCrmLa")
+  botQuyenDanhTinh BotQuyenDanhTinh[] @relation("BotQuyenDanhTinhNhinTu")
   @@map("zalo_accounts")
 }
 
@@ -4603,9 +4610,13 @@ model BotNhanVien {
   capNhatBoiId String?  @map("cap_nhat_boi_id")
   capNhatLuc   DateTime @default(now()) @updatedAt @map("cap_nhat_luc")
 
-  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  user User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
-  uids BotNhanVienUid[]
+  /// SĐT Zalo (tuỳ chọn) — nick khác findUser(sđt) ⇒ uid, CHỈ nhận khi globalId sống trùng (§8b-an-toàn).
+  soDienThoai String?                @map("so_dien_thoai")
+  org         Organization           @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user        User?                  @relation(fields: [userId], references: [id], onDelete: SetNull)
+  uids        BotNhanVienUid[]
+  deXuatUid   BotNhanVienUidDeXuat[]
+  tuChoiUid   BotNhanVienUidTuChoi[]
 
   @@unique([orgId, zaloUid])
   @@index([orgId, vai, trangThai])
@@ -4623,8 +4634,12 @@ model BotNhanVienUid {
   /// Nick nhìn thấy uid này (uid là theo nick). null = chưa biết (vd dòng chuyển từ bản cũ, uid gõ tay chưa gặp).
   zaloAccountId String?  @map("zalo_account_id")
   zaloUid       String   @map("zalo_uid")
-  /// chon (uid lúc gán / người thêm tay) | cung_tin (cùng mã tin nhắn Zalo trong nhóm chung của hai nick) | global_id
+  /// chon (uid lúc gán / chủ thêm tay) | zalo_global_id (máy nối: globalId CRM đọc TRỰC TIẾP từ Zalo trùng — bảng hệ
+  /// thống bot_quyen_danh_tinh; mọi vai) | chu_xac_nhan (chủ bấm "Nối" một đề xuất tin chung). globalId của bảng người
+  /// dùng ghi được (friends/group_members) KHÔNG BAO GIỜ là nguồn (§8b-an-toàn P0).
   nguon         String
+  /// Bằng chứng: zalo_global_id ⇒ { globalId, uidGoc, nhinTuGoc, layLucGoc, nhinTu, layLuc } · chu_xac_nhan ⇒ { soTin, maTin }.
+  bangChung     Json?    @map("bang_chung")
   taoLuc        DateTime @default(now()) @map("tao_luc")
 
   org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
@@ -4635,6 +4650,96 @@ model BotNhanVienUid {
   @@map("bot_nhan_vien_uid")
 }
 
+/// QUYỀN BOT (docs/77 §8b-an-toàn, 30/09) — ĐỀ XUẤT uid cùng người cho NV vai ĐẶC QUYỀN (admin/ke_toan/kho/cong_ty):
+/// máy KHÔNG tự gắn, chủ bấm "Nối" (⇒ bot_nhan_vien_uid nguon chu_xac_nhan) hoặc "Không phải" (⇒ bot_nhan_vien_uid_tu_choi).
+/// Vòng tự nối dựng lại bảng này mỗi lần (thêm/cập nhật bằng chứng, xoá đề xuất hết bằng chứng).
+model BotNhanVienUidDeXuat {
+  id            String   @id @default(uuid())
+  orgId         String   @map("org_id")
+  nhanVienId    String   @map("nhan_vien_id")
+  zaloAccountId String?  @map("zalo_account_id")
+  zaloUid       String   @map("zalo_uid")
+  /// Số tin chung (null = chuyển từ bản cũ, chưa đo lại).
+  soTin         Int?     @map("so_tin")
+  bangChung     Json?    @map("bang_chung")
+  taoLuc        DateTime @default(now()) @map("tao_luc")
+  capNhatLuc    DateTime @default(now()) @updatedAt @map("cap_nhat_luc")
+
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  nhanVien BotNhanVien  @relation(fields: [nhanVienId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, nhanVienId, zaloUid])
+  @@index([orgId])
+  @@map("bot_nhan_vien_uid_de_xuat")
+}
+/// QUYỀN BOT (docs/77 §8b-an-toàn, 30/09) — cặp (NV, uid) chủ đã nói "KHÔNG phải cùng người" (bấm "Không phải" hoặc gỡ uid).
+/// Vòng tự nối + đề xuất bỏ qua cặp này; chủ thêm tay lại uid đó ⇒ xoá dòng.
+model BotNhanVienUidTuChoi {
+  id         String   @id @default(uuid())
+  orgId      String   @map("org_id")
+  nhanVienId String   @map("nhan_vien_id")
+  zaloUid    String   @map("zalo_uid")
+  aiId       String   @map("ai_id")
+  lyDo       String?  @map("ly_do")
+  taoLuc     DateTime @default(now()) @map("tao_luc")
+
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  nhanVien BotNhanVien  @relation(fields: [nhanVienId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, nhanVienId, zaloUid])
+  @@map("bot_nhan_vien_uid_tu_choi")
+}
+/// QUYỀN BOT (docs/77 §8b-an-toàn) — BẢNG HỆ THỐNG: danh tính Zalo CRM tự đọc TRỰC TIẾP (getUserInfo / findUser qua nick
+/// `zaloAccountId`). KHÔNG route người dùng nào ghi. globalId không đổi theo nick nhìn ⇒ bằng chứng CHÍNH "cùng người"/"là
+/// nick CRM X". `globalId` null = Zalo không trả. Đọc lại sau 7 ngày / khi nick nối lại.
+model BotQuyenDanhTinh {
+  id            String   @id @default(uuid())
+  orgId         String   @map("org_id")
+  zaloAccountId String   @map("zalo_account_id")
+  zaloUid       String   @map("zalo_uid")
+  globalId      String?  @map("global_id")
+  ten           String?
+  nguon         String   @default("zalo_api")
+  layLuc        DateTime @default(now()) @map("lay_luc")
+  loi           String?
+  /// CHỈ dòng nick tự nhìn mình: SĐT thật của nick (getUserInfo(ownId).phoneNumber). Không dùng zalo_accounts.phone.
+  soDienThoai   String?  @map("so_dien_thoai")
+  /// Dòng do findUser: SĐT đã tra.
+  timTheoSdt    String?  @map("tim_theo_sdt")
+
+  org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  nhinTu ZaloAccount  @relation("BotQuyenDanhTinhNhinTu", fields: [zaloAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, zaloAccountId, zaloUid])
+  @@index([orgId, globalId])
+  @@map("bot_quyen_danh_tinh")
+}
+/// QUYỀN BOT (docs/77 §8b-an-toàn, 30/09) — nick X CỦA ORG nhìn từ nick Y (uid theo nick Y). Là "người công ty" cho mặc
+/// định nhóm, nhãn thành viên và bot (payload `nick_crm` ⇒ nick_bot của bot) — KHÔNG phải nhân viên ra lệnh bot.
+/// HIỆU LỰC: zalo_global_id (globalId sống trùng) · chu_chon (chủ đánh dấu) · chu_xac_nhan (chủ nối đề xuất). cung_tin (tin X
+/// tự gửi mà nick Y cũng ghi) CHỈ là ĐỀ XUẤT. `tuChoi` = chủ đã gỡ ⇒ máy không nhận lại, không phát cho bot.
+model BotNickCrmUid {
+  id            String   @id @default(uuid())
+  orgId         String   @map("org_id")
+  /// Nick Y — nick NHÌN uid này.
+  zaloAccountId String   @map("zalo_account_id")
+  zaloUid       String   @map("zalo_uid")
+  /// Nick X — nick của org mà uid này là.
+  nickId        String   @map("nick_id")
+  nguon         String
+  bangChung     Json?    @map("bang_chung")
+  tuChoi        Boolean  @default(false) @map("tu_choi")
+  taoLuc        DateTime @default(now()) @map("tao_luc")
+  capNhatLuc    DateTime @default(now()) @updatedAt @map("cap_nhat_luc")
+
+  org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  nhinTu ZaloAccount  @relation("BotNickCrmNhinTu", fields: [zaloAccountId], references: [id], onDelete: Cascade)
+  nick   ZaloAccount  @relation("BotNickCrmLa", fields: [nickId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, zaloAccountId, zaloUid])
+  @@index([orgId])
+  @@map("bot_nick_crm_uid")
+}
 /// QUYỀN BOT (docs/77 §8, 30/09) — bản đọc DANH SÁCH THÀNH VIÊN của một hội thoại nhóm, chỉ để tính MẶC ĐỊNH
 /// chức năng nhóm (toàn nhân viên ⇒ sales, có người ngoài ⇒ khach). Đọc bằng getGroupInfo (bot-quyen-danh-sach.ts):
 /// lúc nick kết nối (lại), lúc Zalo báo thành viên vào/ra, và vòng quét 60 s cho dòng còn thiếu/lỗi.

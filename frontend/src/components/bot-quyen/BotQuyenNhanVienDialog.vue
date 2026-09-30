@@ -73,6 +73,10 @@
           hide-details="auto"
         />
         <v-text-field v-model="ghiChu" data-o="ghi-chu" label="Ghi chú (không bắt buộc)" maxlength="500" hide-details="auto" />
+        <v-text-field
+          v-model="soDienThoai" data-o="so-dien-thoai" class="mt-2" label="SĐT Zalo (không bắt buộc)" maxlength="20"
+          hint="Nick khác tìm người này theo SĐT — chỉ nối khi globalId Zalo trùng Zalo đã chọn" persistent-hint
+        />
 
         <div v-if="cauHeQua" class="bq-he-qua" :class="{ 'bq-he-qua--ha': canLyDo }" aria-live="polite">
           <div class="bq-he-qua-nhan">Sau khi lưu</div>
@@ -136,6 +140,7 @@ const vai = ref<Vai | null>(null);
 const trangThai = ref<TrangThai>('hoat_dong');
 const userId = ref<string>('');
 const ghiChu = ref('');
+const soDienThoai = ref('');
 const lyDo = ref('');
 const loi = ref('');
 const loiLyDo = ref(false);
@@ -186,6 +191,7 @@ watch(
     trangThai.value = nv?.trangThai ?? 'hoat_dong';
     userId.value = nv?.userId ?? '';
     ghiChu.value = nv?.ghiChu ?? '';
+    soDienThoai.value = nv?.soDienThoai ?? '';
     lyDo.value = '';
     loi.value = '';
     loiLyDo.value = false;
@@ -230,6 +236,7 @@ async function luu() {
         trangThai: trangThai.value,
         userId: userId.value || null,
         ghiChu: ghiChu.value.trim() || null,
+        soDienThoai: soDienThoai.value.trim() || null,
         ...(lyDoGui ? { lyDo: lyDoGui } : {}),
       };
       const kq = await suaNhanVien(props.nhanVien.id, payload);
@@ -244,6 +251,7 @@ async function luu() {
         trangThai: trangThai.value,
         ...(userId.value ? { userId: userId.value } : {}),
         ...(ghiChu.value.trim() ? { ghiChu: ghiChu.value.trim() } : {}),
+        ...(soDienThoai.value.trim() ? { soDienThoai: soDienThoai.value.trim() } : {}),
         ...(lyDoGui ? { lyDo: lyDoGui } : {}),
       };
       ketQua = await themNhanVien(payload);

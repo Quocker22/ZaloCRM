@@ -22,10 +22,18 @@
 // `nhan_vien` là MỘT người: `zalo_uid` = uid lúc gán (giữ cho bot bản cũ), `uids` = MỌI uid [{nick_uid, uid}] (kể cả
 // `zalo_uid`; `nick_uid` = ZaloAccount.zaloUid của nick nhìn uid đó, null = chưa biết), sắp theo uid. Bot đăng ký MỌI uid
 // làm danh tính của cùng một actor. Mặc định nhóm so thành viên với MỌI uid (thành viên là uid theo nick của nhóm).
+//
+// AN TOÀN (§8b-an-toàn, 30/09): mỗi uid mang `nguon` — `chu_chon` (uid lúc gán / chủ thêm tay; uid chính luôn là
+// chu_chon), `zalo_global_id` (globalId CRM tự đọc từ Zalo trùng — chắc, mọi vai), `chu_xac_nhan` (chủ bấm "Nối" một đề
+// xuất tin chung). `cung_tin` không còn được CRM phát (tin chung chỉ là đề xuất) — bot vẫn rào: chỉ nhận cho actor sales,
+// KHÔNG BAO GIỜ chuyển danh tính giữa actor dựa trên nó.
+// `nick_crm` = [{nick_uid, uid, nick_ten}] — nick CRM KHÁC của org nhìn từ nick `nick_uid` (bảng bot_nick_crm_uid): bot
+// thêm vào nick_bot (không phải người ngoài, không phải nhân viên), sắp theo uid. phien_ban băm cả ba mảng.
 import { createHash } from 'node:crypto';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { withTenant } from '../../shared/tenant/tenant-context.js';
 import { tinhMacDinhNhom, chucNangHieuLuc } from './bot-quyen-mac-dinh.js';
+import { docNickCrm, nickCongTyTheoNick } from './bot-quyen-nick-crm.js';
 
 export interface NhomCongKhai {
   conversation_id: string;
@@ -37,9 +45,32 @@ export interface NhomCongKhai {
   mac_dinh: boolean;
 }
 
+/**
+ * Nguồn một uid trong payload (§8b-an-toàn P1-3): chu_chon (chủ chọn) · zalo_global_id (globalId CRM đọc trực tiếp từ Zalo
+ * trùng — chắc) · chu_xac_nhan (chủ nối đề xuất) · cung_tin (dự phòng cho giá trị lạ/cũ — CRM không còn phát; bot ít tin nhất).
+ */
+export type NguonUidCongKhai = 'chu_chon' | 'zalo_global_id' | 'chu_xac_nhan' | 'cung_tin';
+
 export interface UidCongKhai {
   nick_uid: string | null;
   uid: string;
+  nguon: NguonUidCongKhai;
+}
+
+/** Nick CRM khác của org nhìn từ một nick (§8b-an-toàn): người CÔNG TY, không phải người ngoài, không phải NV. */
+export interface NickCrmCongKhai {
+  /** uid (tự nhìn) của nick NHÌN — nick sở hữu các nhóm nơi uid này xuất hiện. null = CRM chưa biết. */
+  nick_uid: string | null;
+  uid: string;
+  /** Tên nick X của org mà uid này là. */
+  nick_ten: string;
+}
+
+/** DB `nguon` → payload. Giá trị lạ ⇒ cung_tin (ít quyền nhất phía bot). */
+export function nguonCongKhai(nguon: string | null | undefined): NguonUidCongKhai {
+  return nguon === 'chon' ? 'chu_chon'
+    : nguon === 'chu_xac_nhan' ? 'chu_xac_nhan'
+      : nguon === 'zalo_global_id' ? 'zalo_global_id' : 'cung_tin';
 }
 
 export interface NhanVienCongKhai {
@@ -55,6 +86,7 @@ export interface CauHinhCongKhai {
   phien_ban: string;
   nhom: NhomCongKhai[];
   nhan_vien: NhanVienCongKhai[];
+  nick_crm: NickCrmCongKhai[];
 }
 
 /** JSON chuẩn: khoá object sắp xếp đệ quy, mảng giữ thứ tự, không khoảng trắng. */
@@ -79,8 +111,9 @@ export function ghepCauHinhCongKhai(
   }>,
   nhanVien: ReadonlyArray<{
     zaloUid: string; tenGoi: string; vai: string; trangThai: string;
-    uids?: ReadonlyArray<{ zaloUid: string; nickUid: string | null }>;
+    uids?: ReadonlyArray<{ zaloUid: string; nickUid: string | null; nguon?: string }>;
   }>,
+  nickCrm: ReadonlyArray<{ nickUid: string | null; zaloUid: string; nickTen: string }> = [],
 ): CauHinhCongKhai {
   const n: NhomCongKhai[] = nhom
     .map((r) => ({
@@ -97,14 +130,21 @@ export function ghepCauHinhCongKhai(
   const v: NhanVienCongKhai[] = nhanVien
     .map((r) => {
       const theoUid = new Map<string, UidCongKhai>();
-      for (const u of r.uids ?? []) if (u.zaloUid && !theoUid.has(u.zaloUid)) theoUid.set(u.zaloUid, { nick_uid: u.nickUid, uid: u.zaloUid });
-      if (!theoUid.has(r.zaloUid)) theoUid.set(r.zaloUid, { nick_uid: null, uid: r.zaloUid });
+      for (const u of r.uids ?? []) {
+        if (!u.zaloUid || theoUid.has(u.zaloUid)) continue;
+        // uid chính luôn là chủ chọn (dù dòng bảng uid ghi gì).
+        theoUid.set(u.zaloUid, { nick_uid: u.nickUid, uid: u.zaloUid, nguon: u.zaloUid === r.zaloUid ? 'chu_chon' : nguonCongKhai(u.nguon) });
+      }
+      if (!theoUid.has(r.zaloUid)) theoUid.set(r.zaloUid, { nick_uid: null, uid: r.zaloUid, nguon: 'chu_chon' });
       const uids = [...theoUid.values()].sort((a, b) => soSanh(a.uid, b.uid));
       return { zalo_uid: r.zaloUid, ten_goi: r.tenGoi, vai: r.vai, trang_thai: r.trangThai, uids };
     })
     .sort((a, b) => soSanh(a.zalo_uid, b.zalo_uid));
-  const phien_ban = createHash('sha256').update(jsonChuan({ nhom: n, nhan_vien: v })).digest('hex');
-  return { phien_ban, nhom: n, nhan_vien: v };
+  const k: NickCrmCongKhai[] = nickCrm
+    .map((r) => ({ nick_uid: r.nickUid, uid: r.zaloUid, nick_ten: r.nickTen }))
+    .sort((a, b) => soSanh(a.uid, b.uid) || soSanh(a.nick_uid ?? '', b.nick_uid ?? ''));
+  const phien_ban = createHash('sha256').update(jsonChuan({ nhom: n, nhan_vien: v, nick_crm: k })).digest('hex');
+  return { phien_ban, nhom: n, nhan_vien: v, nick_crm: k };
 }
 
 // ── Bộ nhớ đệm bản đọc danh sách (review P2-8) ─────────────────────────────
@@ -153,11 +193,11 @@ async function docDanhSachCoDem(orgId: string): Promise<Map<string, DongDanhSach
  */
 export async function docCauHinhCongKhai(orgId: string, bayGio: Date = new Date()): Promise<CauHinhCongKhai> {
   return withTenant(orgId, async () => {
-    const [convs, nhanVien, nicks, danhSach] = await Promise.all([
+    const [convs, nhanVien, nicks, danhSach, nickCrmDs] = await Promise.all([
       prisma.conversation.findMany({
         where: { orgId, threadType: 'group', OR: [{ botNhom: { isNot: null } }, { botNhomDanhSach: { isNot: null } }] },
         select: {
-          id: true, externalThreadId: true, deletedAt: true,
+          id: true, externalThreadId: true, deletedAt: true, zaloAccountId: true,
           zaloAccount: { select: { zaloUid: true, archivedAt: true } },
           botNhom: { select: { chucNang: true, tenDangKy: true } },
         },
@@ -166,12 +206,14 @@ export async function docCauHinhCongKhai(orgId: string, bayGio: Date = new Date(
         where: { orgId },
         select: {
           zaloUid: true, tenGoi: true, vai: true, trangThai: true,
-          uids: { select: { zaloUid: true, zaloAccountId: true } },
+          uids: { select: { zaloUid: true, zaloAccountId: true, nguon: true } },
         },
       }),
-      prisma.zaloAccount.findMany({ where: { orgId }, select: { id: true, zaloUid: true } }),
+      prisma.zaloAccount.findMany({ where: { orgId }, select: { id: true, zaloUid: true, displayName: true } }),
       docDanhSachCoDem(orgId),
+      docNickCrm(orgId),
     ]);
+    const nickCongTy = nickCongTyTheoNick(nickCrmDs);
     // MỌI uid của mọi NV (docs/77 §8b) — thành viên nhóm là uid THEO NICK của nhóm.
     const trangThaiNv = new Map<string, string>();
     for (const n of nhanVien) {
@@ -179,12 +221,15 @@ export async function docCauHinhCongKhai(orgId: string, bayGio: Date = new Date(
       for (const u of n.uids) trangThaiNv.set(u.zaloUid, n.trangThai);
     }
     const uidNick = new Map(nicks.map((n) => [n.id, n.zaloUid]));
+    const tenNick = new Map(nicks.map((n) => [n.id, n.displayName ?? '']));
     const nickCrm = new Set(nicks.map((n) => n.zaloUid).filter((x): x is string => !!x));
     const nhom = [];
     for (const c of convs) {
       const nickUid = c.zaloAccount.zaloUid;
       const daAn = c.deletedAt !== null || c.zaloAccount.archivedAt !== null;
-      const md = tinhMacDinhNhom(danhSach.get(c.id) ?? null, { nickUid, trangThaiNv, nickCrm, bayGio, daAn });
+      const md = tinhMacDinhNhom(danhSach.get(c.id) ?? null, {
+        nickUid, trangThaiNv, nickCrm, bayGio, daAn, nickCongTy: nickCongTy.get(c.zaloAccountId),
+      });
       const hl = chucNangHieuLuc(c.botNhom?.chucNang ?? null, md);
       if (!hl.chucNang) continue;
       nhom.push({
@@ -198,7 +243,12 @@ export async function docCauHinhCongKhai(orgId: string, bayGio: Date = new Date(
     }
     return ghepCauHinhCongKhai(nhom, nhanVien.map((n) => ({
       zaloUid: n.zaloUid, tenGoi: n.tenGoi, vai: n.vai, trangThai: n.trangThai,
-      uids: n.uids.map((u) => ({ zaloUid: u.zaloUid, nickUid: (u.zaloAccountId && uidNick.get(u.zaloAccountId)) || null })),
+      uids: n.uids.map((u) => ({
+        zaloUid: u.zaloUid, nickUid: (u.zaloAccountId && uidNick.get(u.zaloAccountId)) || null, nguon: u.nguon,
+      })),
+    })), nickCrmDs.map((r) => ({
+      nickUid: uidNick.get(r.zaloAccountId) ?? null, zaloUid: r.zaloUid,
+      nickTen: tenNick.get(r.nickId)?.trim() || 'Nick CRM',
     })));
   });
 }

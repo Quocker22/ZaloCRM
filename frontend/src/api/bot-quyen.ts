@@ -12,7 +12,12 @@
 //   GET    /bot-quyen/nhan-vien                    -> { nhanVien: NhanVien[] }
 //   POST   /bot-quyen/nhan-vien                    {zaloUid, zaloUids?, tenGoi, vai, trangThai?, userId?, ghiChu?, lyDo?} -> 201 { nhanVien }
 //   PUT    /bot-quyen/nhan-vien/:id                {tenGoi?, vai?, trangThai?, userId?, ghiChu?, lyDo?} -> { nhanVien, doi }
-//   POST   /bot-quyen/nhan-vien/:id/uid            {zaloUid?|zaloUids?, lyDo?} -> { nhanVien, doi } (uid cùng người ở nick khác)
+//   POST   /bot-quyen/nhan-vien/:id/uid            {zaloUid?|zaloUids?, lyDo} -> { nhanVien, doi } (uid cùng người ở nick khác; lyDo bắt buộc)
+//   DELETE /bot-quyen/nhan-vien/:id/uid/:uid       body {lyDo} -> { nhanVien, doi } (gỡ uid + ghi từ chối — §8b-an-toàn)
+//   POST   /bot-quyen/nhan-vien/:id/de-xuat/:uid/noi     {lyDo?} -> { nhanVien, doi } ("Nối" đề xuất tin chung)
+//   POST   /bot-quyen/nhan-vien/:id/de-xuat/:uid/tu-choi {lyDo?} -> { doi } ("Không phải")
+//   POST   /bot-quyen/nhom/:conversationId/nick-crm       {zaloUid, nickId, lyDo?} -> { doi } ("Đây là nick CRM …")
+//   DELETE /bot-quyen/nhom/:conversationId/nick-crm/:uid  body {lyDo} -> { doi }
 // Zalo cấp uid KHÁC nhau cho cùng một người ở mỗi nick (docs/77 §8b) ⇒ một nhân viên mang nhiều uid (`uids`).
 //   GET    /bot-quyen/nhat-ky                      ?limit= (mặc định 100, tối đa 500) -> { nhatKy: NhatKy[] } (mới nhất trước)
 // Lỗi: { error: <câu tiếng Việt>, code: <MÃ> } — trang hiện nguyên `error` (bot-quyen-loi.ts).
@@ -97,6 +102,13 @@ export interface UidTheoNick {
   nick: { id: string; ten: string };
 }
 
+/** Gợi ý (KHÔNG tự áp) nhân viên cùng globalId — globalId bảng CRM ghi được, chỉ để xếp lên đầu ở "Là NV đã có…". */
+export interface GoiYNhanVien {
+  id: string;
+  tenGoi: string;
+  lyDo: 'global_id' | string;
+}
+
 export interface NguoiDaNhan {
   /** uid ở nơi mới nhất. */
   zaloUid: string;
@@ -114,6 +126,7 @@ export interface NguoiDaNhan {
   /** Không nơi nào người xem được xem nội dung ⇒ không có tin cuối. */
   anTinCuoi: boolean;
   redacted: boolean;
+  goiYNhanVien?: GoiYNhanVien[];
 }
 
 export interface TrangNguoiDaNhan {
@@ -127,11 +140,15 @@ export interface TrangNguoiDaNhan {
 export interface ThanhVien {
   zaloUid: string;
   ten: string;
-  /** nick_crm = CHỈ nick của chính hội thoại này. */
+  /** nick_crm = nick của chính hội thoại này HOẶC nick CRM khác đã nhận ra (xem `nickCrm`). */
   loai: 'nhan_vien' | 'nick_crm' | 'nguoi_ngoai';
   /** uid là một nick CRM bất kỳ của org (kể cả nick của nhóm). */
   laNickCrm: boolean;
   nhanVien: { id: string; tenGoi: string; vai: string; trangThai: string } | null;
+  /** Nick CRM khác mà uid này là (nhìn từ nick của nhóm): zalo_global_id / chu_chon / chu_xac_nhan. */
+  nickCrm?: { id: string; ten: string; nguon: string } | null;
+  /** ĐỀ XUẤT (tin chung, chưa hiệu lực): có vẻ là nick CRM này. */
+  nickCrmDeXuat?: { id: string; ten: string; soTin: number | null } | null;
 }
 
 export interface ThanhVienNhom {
@@ -143,14 +160,27 @@ export interface ThanhVienNhom {
   loiZalo: string | null;
   thanhVien: ThanhVien[];
   soNguoiNgoai: number;
+  /** Các nick CRM khác của org (chọn cho "Đây là nick CRM …"). */
+  nickKhac?: Array<{ id: string; ten: string }>;
 }
 
 export interface UidNhanVien {
   zaloUid: string;
   /** Nick nhìn thấy uid này — null = chưa biết. */
   nick: { id: string; ten: string; zaloUid: string | null } | null;
-  /** chon = uid lúc gán / thêm tay · cung_tin / global_id = máy tự nhận ra cùng người. */
-  nguon: 'chon' | 'cung_tin' | 'global_id' | string;
+  /** chon = uid lúc gán / thêm tay · zalo_global_id = máy nối (globalId đọc từ Zalo trùng) · chu_xac_nhan = chủ nối đề xuất. */
+  nguon: 'chon' | 'zalo_global_id' | 'chu_xac_nhan' | string;
+  /** zalo_global_id ⇒ { globalId, uidGoc, nhinTu, layLuc, … } · chu_xac_nhan ⇒ { soTin, maTin }. */
+  bangChung?: unknown;
+}
+
+/** Đề xuất uid cùng người bằng TIN CHUNG (bằng chứng phụ) — chủ "Nối" / "Không phải". */
+export interface DeXuatUid {
+  zaloUid: string;
+  nick: { id: string; ten: string; zaloUid: string | null } | null;
+  /** Số tin chung (null = chuyển từ bản cũ, chưa đo lại). */
+  soTin: number | null;
+  bangChung?: unknown;
 }
 
 export interface NhanVien {
@@ -159,12 +189,16 @@ export interface NhanVien {
   zaloUid: string;
   /** Mọi uid của người này — bot nhận ra qua BẤT KỲ uid nào. */
   uids: UidNhanVien[];
+  /** Đề xuất chờ chủ (tin chung). */
+  deXuat?: DeXuatUid[];
   tenGoi: string;
   vai: VaiNhanVien;
   trangThai: TrangThaiNhanVien;
   userId: string | null;
   user: { id: string; fullName: string } | null;
   ghiChu: string | null;
+  /** SĐT Zalo (tuỳ chọn) — nick khác tìm theo SĐT, chỉ nối khi globalId trùng. */
+  soDienThoai?: string | null;
   capNhatLuc: string;
   capNhatBoi: { id: string; fullName: string } | null;
 }
@@ -207,6 +241,7 @@ export interface TaoNhanVienPayload {
   trangThai?: TrangThaiNhanVien;
   userId?: string;
   ghiChu?: string;
+  soDienThoai?: string;
   lyDo?: string;
 }
 
@@ -218,6 +253,8 @@ export interface SuaNhanVienPayload {
   userId?: string | null;
   /** null = xoá ghi chú. */
   ghiChu?: string | null;
+  /** null = xoá SĐT. */
+  soDienThoai?: string | null;
   lyDo?: string;
 }
 
@@ -280,12 +317,50 @@ export async function suaNhanVien(id: string, payload: SuaNhanVienPayload): Prom
   return { nhanVien: data?.nhanVien, doi: data?.doi !== false };
 }
 
-/** Thêm uid của CÙNG người ở nick khác vào một nhân viên đã có. */
+/** Thêm uid của CÙNG người ở nick khác vào một nhân viên đã có (lý do BẮT BUỘC). */
 export async function themUidNhanVien(
-  id: string, payload: { zaloUids: string[]; lyDo?: string },
+  id: string, payload: { zaloUids: string[]; lyDo: string },
 ): Promise<{ nhanVien: NhanVien; doi: boolean }> {
   const { data } = await api.post(`/bot-quyen/nhan-vien/${encodeURIComponent(id)}/uid`, payload, CAU_HINH);
   return { nhanVien: data?.nhanVien, doi: data?.doi !== false };
+}
+
+/** Gỡ một uid (không phải uid chính) khỏi nhân viên — máy không nối lại (lý do BẮT BUỘC). */
+export async function goUidNhanVien(id: string, zaloUid: string, lyDo: string): Promise<{ nhanVien: NhanVien; doi: boolean }> {
+  const { data } = await api.delete(`/bot-quyen/nhan-vien/${encodeURIComponent(id)}/uid/${encodeURIComponent(zaloUid)}`, {
+    ...CAU_HINH, data: { lyDo },
+  });
+  return { nhanVien: data?.nhanVien, doi: data?.doi !== false };
+}
+
+/** "Nối" một đề xuất (tin chung) ⇒ uid thành của nhân viên (chủ xác nhận). */
+export async function noiDeXuat(id: string, zaloUid: string, lyDo?: string): Promise<{ nhanVien: NhanVien; doi: boolean }> {
+  const { data } = await api.post(`/bot-quyen/nhan-vien/${encodeURIComponent(id)}/de-xuat/${encodeURIComponent(zaloUid)}/noi`,
+    lyDo ? { lyDo } : {}, CAU_HINH);
+  return { nhanVien: data?.nhanVien, doi: data?.doi !== false };
+}
+
+/** "Không phải" — bỏ đề xuất, máy không đề xuất lại. */
+export async function tuChoiDeXuat(id: string, zaloUid: string, lyDo?: string): Promise<{ doi: boolean }> {
+  const { data } = await api.post(`/bot-quyen/nhan-vien/${encodeURIComponent(id)}/de-xuat/${encodeURIComponent(zaloUid)}/tu-choi`,
+    lyDo ? { lyDo } : {}, CAU_HINH);
+  return { doi: data?.doi !== false };
+}
+
+/** "Đây là nick CRM …" — uid (nhìn từ nick của nhóm) là nick CRM `nickId`. */
+export async function danhDauNickCrm(
+  conversationId: string, payload: { zaloUid: string; nickId: string; lyDo?: string },
+): Promise<{ doi: boolean }> {
+  const { data } = await api.post(`/bot-quyen/nhom/${encodeURIComponent(conversationId)}/nick-crm`, payload, CAU_HINH);
+  return { doi: data?.doi !== false };
+}
+
+/** Gỡ / từ chối nick CRM của một uid (lý do BẮT BUỘC). */
+export async function goNickCrm(conversationId: string, zaloUid: string, lyDo: string): Promise<{ doi: boolean }> {
+  const { data } = await api.delete(`/bot-quyen/nhom/${encodeURIComponent(conversationId)}/nick-crm/${encodeURIComponent(zaloUid)}`, {
+    ...CAU_HINH, data: { lyDo },
+  });
+  return { doi: data?.doi !== false };
 }
 
 export async function layNhatKy(limit = 200): Promise<NhatKy[]> {

@@ -6,8 +6,9 @@
   bot" (trang agent-operators) có chip và đứng đầu. Chọn vai rồi bấm Gán ⇒ hộp xác nhận (uid + tên + vai điền sẵn) như
   mọi thay đổi khác của trang. Tìm (tên không dấu / uid) + phân trang ở máy chủ.
   Zalo cấp uid KHÁC nhau cho cùng một người ở mỗi nick (docs/77 §8b): máy gộp các uid CHẮC là cùng người (cùng tin nhắn
-  trong nhóm chung của hai nick / cùng globalId) thành một dòng — Gán gửi hết. Còn sót (không có bằng chứng) ⇒ "Là NV đã
-  có…" thêm uid của dòng này vào một nhân viên sẵn có (gợi ý người trùng tên lên đầu).
+  trong nhóm chung của hai nick — luật chặt) thành một dòng — Gán gửi hết. Còn sót ⇒ "Là NV đã có…" thêm uid của dòng này
+  vào một nhân viên sẵn có (LÝ DO bắt buộc — §8b-an-toàn). Gợi ý lên đầu: NV cùng globalId (CHỈ gợi ý — globalId trong bảng
+  CRM ghi được nên không bao giờ tự áp) rồi NV trùng tên.
 -->
 <template>
   <section class="bq-goc bq-cho-gan" aria-label="Chờ gán — người đã nhắn cho shop">
@@ -92,14 +93,14 @@
                 <template #activator="{ props: p }">
                   <v-btn
                     v-bind="p" size="small" variant="outlined" data-nut="la-nv-da-co"
-                    :color="nhanVienCungTen(u, nhanVien).length > 0 ? 'warning' : undefined"
-                    :title="nhanVienCungTen(u, nhanVien).length > 0 ? 'Có nhân viên trùng tên — có thể là cùng người ở nick khác' : undefined"
+                    :color="nhanVienGoiY(u).length > 0 ? 'warning' : undefined"
+                    :title="nhanVienGoiY(u).length > 0 ? 'Có nhân viên trùng tên / cùng globalId — có thể là cùng người ở nick khác' : undefined"
                   >Là NV đã có</v-btn>
                 </template>
                 <v-list density="compact" max-height="320">
                   <v-list-item
                     v-for="nv in xepNhanVien(u)" :key="nv.id" :data-nv="nv.id"
-                    :title="nv.tenGoi" :subtitle="nhanVienCungTen(u, nhanVien).includes(nv) ? 'trùng tên' : undefined"
+                    :title="nv.tenGoi" :subtitle="nhanGoiY(u, nv)"
                     @click="moGop(u, nv)"
                   />
                 </v-list>
@@ -125,13 +126,13 @@
             với cùng vai và trạng thái. Chỉ làm khi chắc là CÙNG một người.
           </p>
           <div v-for="d in moTaUid(gop.u)" :key="d" class="bq-mono bq-nho">{{ d }}</div>
-          <v-text-field v-model="lyDoGop" class="mt-3" label="Lý do (không bắt buộc)" maxlength="500" hide-details />
+          <v-text-field v-model="lyDoGop" class="mt-3" label="Lý do (bắt buộc)" maxlength="500" hide-details data-o="ly-do-gop" />
           <v-alert v-if="loiGop" type="error" variant="tonal" density="compact" class="bq-loi mt-3" role="alert">{{ loiGop }}</v-alert>
         </v-card-text>
         <v-card-actions>
           <v-spacer />
           <v-btn variant="text" :disabled="dangGop" @click="hopGop = false">Huỷ</v-btn>
-          <v-btn color="primary" variant="flat" data-nut="xac-nhan-gop" :loading="dangGop" @click="xacNhanGop">Thêm</v-btn>
+          <v-btn color="primary" variant="flat" data-nut="xac-nhan-gop" :loading="dangGop" :disabled="!lyDoGop.trim()" @click="xacNhanGop">Thêm</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -154,7 +155,7 @@ import {
 } from '@/api/bot-quyen';
 import { useToast } from '@/composables/use-toast';
 import { VAI, NHAN_VAI } from '@/views/settings/bot-quyen-luat';
-import { moTaNoi, moTaUid, mauGan, nhanVienCungTen, tomTatTin } from '@/views/settings/bot-quyen-cho-gan';
+import { moTaNoi, moTaUid, mauGan, nhanVienCungTen, nhanVienGoiYGlobalId, tomTatTin } from '@/views/settings/bot-quyen-cho-gan';
 import type { MauNhanVien } from '@/views/settings/bot-quyen-thanh-vien';
 import { loiApi } from '@/views/settings/bot-quyen-loi';
 import { dinhDangGioVN } from '@/views/settings/may-in-nhat-ky';
@@ -215,10 +216,25 @@ function gan(u: NguoiDaNhan) {
   hop.value = true;
 }
 
-/** Nhân viên cho menu "Là NV đã có": trùng tên lên đầu, rồi theo tên. */
+/** Gợi ý (globalId — chưa chắc — rồi trùng tên). */
+function nhanVienGoiY(u: NguoiDaNhan): NhanVien[] {
+  return [...new Set([...nhanVienGoiYGlobalId(u, props.nhanVien), ...nhanVienCungTen(u, props.nhanVien)])];
+}
+
+function nhanGoiY(u: NguoiDaNhan, nv: NhanVien): string | undefined {
+  const gid = nhanVienGoiYGlobalId(u, props.nhanVien).includes(nv);
+  const ten = nhanVienCungTen(u, props.nhanVien).includes(nv);
+  if (gid && ten) return 'gợi ý: cùng globalId (chưa chắc) · trùng tên';
+  if (gid) return 'gợi ý: cùng globalId (chưa chắc)';
+  return ten ? 'trùng tên' : undefined;
+}
+
+/** Nhân viên cho menu "Là NV đã có": cùng globalId, rồi trùng tên lên đầu, rồi theo tên. */
 function xepNhanVien(u: NguoiDaNhan): NhanVien[] {
+  const gid = new Set(nhanVienGoiYGlobalId(u, props.nhanVien).map((nv) => nv.id));
   const trung = new Set(nhanVienCungTen(u, props.nhanVien).map((nv) => nv.id));
-  return [...props.nhanVien].sort((a, b) => Number(trung.has(b.id)) - Number(trung.has(a.id))
+  return [...props.nhanVien].sort((a, b) => Number(gid.has(b.id)) - Number(gid.has(a.id))
+    || Number(trung.has(b.id)) - Number(trung.has(a.id))
     || a.tenGoi.localeCompare(b.tenGoi, 'vi'));
 }
 
@@ -242,7 +258,8 @@ async function xacNhanGop() {
   loiGop.value = '';
   try {
     const uids = (u.uids?.length ? u.uids.map((x) => x.zaloUid) : [u.zaloUid]);
-    await themUidNhanVien(nv.id, { zaloUids: uids, ...(lyDoGop.value.trim() ? { lyDo: lyDoGop.value.trim() } : {}) });
+    if (!lyDoGop.value.trim()) { loiGop.value = 'Cần ghi lý do khi thêm uid Zalo cho nhân viên.'; return; }
+    await themUidNhanVien(nv.id, { zaloUids: uids, lyDo: lyDoGop.value.trim() });
     toast.success(`Đã thêm Zalo vào “${nv.tenGoi}” — bot áp trong khoảng 1 phút.`);
     hopGop.value = false;
     await daGan();

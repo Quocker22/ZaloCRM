@@ -40,6 +40,11 @@ export interface BoiCanhMacDinh {
   trangThaiNv: ReadonlyMap<string, string>;
   /** uid của mọi nick Zalo của org — chỉ để đếm riêng "nick khác" trong lý do. */
   nickCrm: ReadonlySet<string>;
+  /**
+   * uid là nick CRM KHÁC của org nhìn từ nick của hội thoại này (bot_nick_crm_uid — docs/77 §8b-an-toàn) ⇒ người công ty,
+   * KHÔNG phải người ngoài (bot cũng nhận qua payload `nick_crm` ⇒ nick_bot).
+   */
+  nickCongTy?: ReadonlySet<string>;
   /** Có ⇒ áp độ cũ tối đa cho `sales` (API công khai + trang). Không ⇒ bỏ qua (so sánh "mặc định cuối"). */
   bayGio?: Date;
   /** Mặc định TUOI_TOI_DA_SALES_MS. */
@@ -82,6 +87,7 @@ export function tinhMacDinhNhom(ds: DanhSachDaDoc | null, bc: BoiCanhMacDinh): M
   let soNguoiNghi = 0;
   for (const uid of uids) {
     if (bc.nickUid && uid === bc.nickUid) continue;
+    if (bc.nickCongTy?.has(uid)) continue;
     const tt = bc.trangThaiNv.get(uid);
     if (tt !== undefined && tt !== 'nghi') continue;
     ngoai.push(uid);

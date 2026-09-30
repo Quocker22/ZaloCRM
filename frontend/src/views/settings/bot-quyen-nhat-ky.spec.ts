@@ -114,3 +114,40 @@ describe('nhiều uid (docs/77 §8b)', () => {
     })).toBe('Nhân viên “Trần Hưng”: thêm Zalo 2 — nhận ra cùng người ở nick khác (cùng tin nhắn trong nhóm chung)');
   });
 });
+
+describe('an toàn nhiều uid (docs/77 §8b-an-toàn)', () => {
+  const goc = {
+    id: 'x', luc: '2026-09-30T03:00:00.000Z', aiId: 'u1', ai: { id: 'u1', fullName: 'Nguyễn A' }, tuDong: false,
+    doiTuong: 'nhan_vien', doiTuongId: 'n1', tenDoiTuong: 'Trần Hưng', lyDo: null,
+  } as const;
+  it('gỡ uid (kèm bằng chứng globalId)', () => {
+    expect(cauNhatKy({
+      ...goc, truoc: { tenGoi: 'Trần Hưng', uids: ['1', '2'] },
+      sau: { tenGoi: 'Trần Hưng', uids: ['1'], goUid: { zaloUid: '2', nguon: 'zalo_global_id', bangChung: { globalId: 'G1' } } }, lyDo: 'nối sai',
+    })).toBe('Nguyễn A đổi nhân viên “Trần Hưng”: gỡ Zalo 2 (globalId Zalo G1) — lý do: nối sai');
+  });
+  it('nối đề xuất tin chung / từ chối đề xuất', () => {
+    expect(cauNhatKy({
+      ...goc, truoc: { tenGoi: 'Trần Hưng', uids: ['1'] },
+      sau: { tenGoi: 'Trần Hưng', uids: ['1', '2'], xacNhan: { zaloUid: '2', soTin: 236 } },
+    })).toBe('Nguyễn A đổi nhân viên “Trần Hưng”: nối đề xuất Zalo 2 (236 tin trùng)');
+    expect(cauNhatKy({ ...goc, truoc: null, sau: { tenGoi: 'Trần Hưng', tuChoi: { zaloUid: '9', soTin: 2 } }, lyDo: 'em trai' }))
+      .toBe('Nguyễn A xác nhận Zalo 9 KHÔNG phải nhân viên “Trần Hưng” (2 tin trùng) — lý do: em trai');
+  });
+  it('hệ thống chuyển uid tự nối cũ thành đề xuất', () => {
+    expect(cauNhatKy({
+      ...goc, aiId: 'tu_dong', ai: null, tuDong: true, truoc: { tenGoi: 'Trần Hưng', uids: ['1', '2'] },
+      sau: { tenGoi: 'Trần Hưng', uids: ['1'], thanhDeXuat: ['2'] }, lyDo: 'tin chung chỉ là bằng chứng phụ',
+    })).toBe('Nhân viên “Trần Hưng”: chuyển Zalo 2 thành đề xuất — tin chung chỉ là bằng chứng phụ');
+  });
+  it('nick CRM: hệ thống nhận ra / chủ đánh dấu / chủ gỡ', () => {
+    const k = { ...goc, doiTuong: 'nick_crm', doiTuongId: 'tm', tenDoiTuong: 'Tiểu Mã Nelia' };
+    expect(cauNhatKy({ ...k, aiId: 'tu_dong', ai: null, tuDong: true, truoc: null,
+      sau: { nhinTu: 'vt', zaloUid: '2945', nguon: 'zalo_global_id', bangChung: { globalId: 'G-TM' } }, lyDo: null }))
+      .toBe('Hệ thống nhận ra Zalo 2945 là nick CRM “Tiểu Mã Nelia” (globalId Zalo G-TM)');
+    expect(cauNhatKy({ ...k, truoc: null, sau: { nhinTu: 'vt', zaloUid: '2945', nickId: 'tm' }, lyDo: 'đúng' }))
+      .toBe('Nguyễn A đánh dấu Zalo 2945 là nick CRM “Tiểu Mã Nelia” — lý do: đúng');
+    expect(cauNhatKy({ ...k, truoc: { zaloUid: '2945' }, sau: { zaloUid: '2945', tuChoi: true }, lyDo: 'sai' }))
+      .toBe('Nguyễn A gỡ Zalo 2945 khỏi nick CRM “Tiểu Mã Nelia” — lý do: sai');
+  });
+});

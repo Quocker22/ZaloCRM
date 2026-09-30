@@ -23,7 +23,8 @@
 // 60 s dùng chung cho mọi người xem (chỉ chứa dữ liệu thô) — lọc theo người xem làm LÚC TRẢ.
 import { prisma } from '../../shared/database/prisma-client.js';
 import { canSeeConversationContent, type PrivacyContext } from '../privacy/redact.js';
-import { docLienKet, gomNguoi } from './bot-quyen-cung-nguoi.js';
+import { docLienKet, gomNguoi, goiYGlobalId } from './bot-quyen-cung-nguoi.js';
+import { NGUON_HIEU_LUC } from './bot-quyen-nick-crm.js';
 
 export interface NoiNhan {
   conversationId: string;
@@ -78,6 +79,11 @@ export interface UngVien {
   /** Không có nơi nào người xem được xem nội dung ⇒ không có tin cuối. */
   anTinCuoi: boolean;
   redacted: boolean;
+  /**
+   * GỢI Ý (không bao giờ tự áp — §8b-an-toàn P0): nhân viên có uid mang CÙNG globalId Zalo với người này. globalId ghi được
+   * bởi user CRM / chép qua liên hệ gộp / có giá trị giữ chỗ dùng chung ⇒ chỉ để xếp NV lên đầu ở "Là NV đã có…".
+   */
+  goiYNhanVien?: Array<{ id: string; tenGoi: string; lyDo: 'global_id' }>;
 }
 
 export interface TrangUngVien {
@@ -357,14 +363,16 @@ export async function danhSachNguoiDaNhan(
     }
     ban = await p;
   }
-  const [nv, nick, op] = await Promise.all([
-    prisma.botNhanVien.findMany({ where: { orgId }, select: { zaloUid: true, uids: { select: { zaloUid: true } } } }),
+  const [nv, nick, op, nickNhin] = await Promise.all([
+    prisma.botNhanVien.findMany({ where: { orgId }, select: { id: true, tenGoi: true, zaloUid: true, uids: { select: { zaloUid: true } } } }),
     prisma.zaloAccount.findMany({ where: { orgId, zaloUid: { not: null } }, select: { zaloUid: true } }),
     prisma.agentOperator.findMany({ where: { orgId, enabled: true }, select: { zaloUid: true } }),
+    prisma.botNickCrmUid.findMany({ where: { orgId, tuChoi: false, nguon: { in: [...NGUON_HIEU_LUC] } }, select: { zaloUid: true } }),
   ]);
-  // MỌI uid của mọi nhân viên (mỗi nick một uid — docs/77 §8b).
+  // MỌI uid của mọi nhân viên (mỗi nick một uid — docs/77 §8b) + mọi nick CRM (tự nhìn / nhìn từ nick khác — §8b-an-toàn).
   const loaiTru = new Set<string>([
     ...nv.flatMap((x) => [x.zaloUid, ...x.uids.map((u) => u.zaloUid)]), ...nick.map((x) => x.zaloUid!),
+    ...nickNhin.map((x) => x.zaloUid),
   ]);
   const ctx: PrivacyContext = o.ctx ?? { viewerUserId: null, orgId, privacyUnlocked: false };
   const trang = locVaPhanTrang(ban.ds, {
@@ -376,12 +384,25 @@ export async function danhSachNguoiDaNhan(
     .map((u) => ({
       khoa: u.zaloUid, uid: u.noiXemDuoc!.zaloUid, cid: u.noiXemDuoc!.conversationId, rieng: u.noiXemDuoc!.loai === 'rieng',
     })));
+  // Gợi ý globalId chỉ cho trang đang xem (rẻ) — đóng an toàn: lỗi ⇒ không gợi ý.
+  const gid = await goiYGlobalId(orgId, trang.ungVien.flatMap((u) => u.uids.map((x) => x.zaloUid)));
+  const nvTheoUid = new Map<string, { id: string; tenGoi: string }>();
+  for (const x of nv) for (const u of [x.zaloUid, ...x.uids.map((y) => y.zaloUid)]) nvTheoUid.set(u, { id: x.id, tenGoi: x.tenGoi });
+  const goiY = (u: { uids: Array<{ zaloUid: string }> }) => {
+    const m = new Map<string, { id: string; tenGoi: string; lyDo: 'global_id' }>();
+    for (const x of u.uids) for (const y of gid.get(x.zaloUid) ?? []) {
+      const n = nvTheoUid.get(y);
+      if (n && !m.has(n.id)) m.set(n.id, { ...n, lyDo: 'global_id' });
+    }
+    return [...m.values()].sort((a, b) => a.tenGoi.localeCompare(b.tenGoi, 'vi'));
+  };
   return {
     tong: trang.tong,
     trang: trang.trang,
     moiTrang: trang.moiTrang,
     ungVien: trang.ungVien.map(({ noiXemDuoc, ...u }) => ({
       ...u,
+      goiYNhanVien: goiY(u),
       tinCuoi: noiXemDuoc ? (tin.get(u.zaloUid) ?? null) : null,
       anTinCuoi: !noiXemDuoc,
       redacted: u.anTen || !noiXemDuoc,

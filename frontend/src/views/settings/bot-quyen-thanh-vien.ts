@@ -4,8 +4,9 @@
 // đâu", và cảnh báo "người ngoài làm bot im".
 //
 // Nhãn đi theo đúng cách bot đếm người (báo cáo backend, vòng sửa 1): uid có trong danh sách nhân viên ⇒
-// nhân viên (kể cả người công ty, mọi trạng thái); uid là nick của CHÍNH nhóm ⇒ nick của nhóm; còn lại —
-// kể cả một nick CRM khác chưa xếp — là người ngoài.
+// nhân viên (kể cả người công ty, mọi trạng thái); uid là nick của CHÍNH nhóm, hoặc nick CRM khác đã nhận ra (globalId
+// Zalo trùng / chủ đánh dấu — §8b-an-toàn; bot nhận qua `nick_crm`) ⇒ nick CRM; còn lại — kể cả nick CRM khác CHƯA nhận
+// ra (chỉ đề xuất tin chung) — là người ngoài.
 import type { ChucNangNhom, NhomView, ThanhVien, ThanhVienNhom } from '@/api/bot-quyen';
 import { dinhDangGioVN } from './may-in-nhat-ky';
 import { nhanTrangThai, nhanVai, type Vai } from './bot-quyen-luat';
@@ -27,9 +28,11 @@ export function chipThanhVien(tv: ThanhVien): ChipThanhVien[] {
     chip.push(vai === 'cong_ty' ? { chu: nhanVai(vai), mau: 'xam' } : { chu: `Nhân viên · ${nhanVai(vai)}`, mau: 'nv' });
     chip.push({ chu: nhanTrangThai(trangThai), mau: MAU_TRANG_THAI[trangThai] ?? 'xam' });
   } else if (tv.loai === 'nick_crm') {
-    return [{ chu: 'Nick của nhóm', mau: 'info' }];
+    // nick CRM KHÁC nhìn từ nick của nhóm (§8b-an-toàn) — người công ty, không phải người ngoài
+    return tv.nickCrm ? [{ chu: `Nick CRM “${tv.nickCrm.ten}”`, mau: 'info' }] : [{ chu: 'Nick của nhóm', mau: 'info' }];
   } else {
     chip.push({ chu: 'Người ngoài', mau: 'do' });
+    if (tv.nickCrmDeXuat) chip.push({ chu: `Có vẻ là nick “${tv.nickCrmDeXuat.ten}”`, mau: 'vang' });
   }
   if (tv.laNickCrm) chip.push({ chu: 'Nick CRM khác', mau: 'xam' });
   return chip;
@@ -38,6 +41,11 @@ export function chipThanhVien(tv: ThanhVien): ChipThanhVien[] {
 /** Người ngoài mà là một nick CRM của công ty ⇒ gợi ý "Là người công ty" (không phải khách). */
 export function goiYCongTy(tv: ThanhVien): boolean {
   return tv.loai === 'nguoi_ngoai' && tv.laNickCrm;
+}
+
+/** Nick CRM KHÁC (không phải nick của nhóm) đã nhận ra ⇒ có nút "Gỡ". */
+export function laNickCrmKhac(tv: ThanhVien): boolean {
+  return tv.loai === 'nick_crm' && !!tv.nickCrm;
 }
 
 /** Điền sẵn hộp thêm nhân viên (BotQuyenNhanVienDialog) khi thêm từ ngăn thành viên nhóm. */

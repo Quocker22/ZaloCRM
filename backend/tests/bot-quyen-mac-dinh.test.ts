@@ -39,6 +39,14 @@ describe('tinhMacDinhNhom — bảng mặc định', () => {
     expect(kq).toMatchObject({ chucNang: 'khach', soNguoiNgoai: 1, soNickKhac: 1 });
   });
 
+  it('nick CRM khác NHÌN TỪ nick của nhóm đã nhận ra (nickCongTy, §8b-an-toàn) ⇒ người công ty, không phải người ngoài', () => {
+    const bc = { ...boiCanh({ a: 'hoat_dong' }), nickCongTy: new Set(['uid-hcm-nhin-tu-hn']) };
+    expect(tinhMacDinhNhom(ds([NICK, 'a', 'uid-hcm-nhin-tu-hn']), bc))
+      .toMatchObject({ chucNang: 'sales', lyDo: 'toan_nhan_vien', soNguoiNgoai: 0, soNickKhac: 0 });
+    // chỉ uid đã nhận ra — người khác vẫn là người ngoài
+    expect(tinhMacDinhNhom(ds([NICK, 'a', 'uid-hcm-nhin-tu-hn', 'x']), bc)).toMatchObject({ chucNang: 'khach', soNguoiNgoai: 1 });
+  });
+
   it('nick CRM khác ĐÃ được xếp là NV (vd người công ty) ⇒ không còn là người ngoài', () => {
     expect(tinhMacDinhNhom(ds([NICK, 'a', NICK_KHAC]), boiCanh({ a: 'hoat_dong', [NICK_KHAC]: 'hoat_dong' })).chucNang)
       .toBe('sales');

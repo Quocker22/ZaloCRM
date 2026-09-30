@@ -26,6 +26,8 @@
 import { prisma, tenantTransaction } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
 import { boSungUidNhanVien } from './bot-quyen-nhan-vien-uid.js';
+import { layDanhTinhZalo, danhDauNickKetNoiLaiDanhTinh } from './bot-quyen-danh-tinh.js';
+import { docNickCrm, nickCongTyTheoNick } from './bot-quyen-nick-crm.js';
 import { runSystemQuery, withTenant } from '../../shared/tenant/tenant-context.js';
 import { tinhMacDinhNhom, cauDoiMacDinhTuDong } from './bot-quyen-mac-dinh.js';
 
@@ -421,6 +423,9 @@ export async function danhDauNickKetNoiLai(orgId: string, zaloAccountId: string)
   docKetNoiLuc.set(zaloAccountId, moc);
   await upsertDanhDau(orgId, ids, bayGio, docNgay ? null : new Date(moc));
   if (docNgay) void xepHangDocLai(ids, 'gap');
+  // Danh tính Zalo nhìn từ nick này ⇒ đọc lại ở vòng kế (§8b-an-toàn).
+  await danhDauNickKetNoiLaiDanhTinh(orgId, zaloAccountId)
+    .catch((err) => logger.warn('[bot-quyen-danh-sach] đánh dấu đọc lại danh tính lỗi:', err));
 }
 
 /** Chủ bấm "Đọc lại thành viên" trên trang (hoặc sau khi chủ bỏ xếp tường minh về mặc định). */
@@ -465,12 +470,14 @@ export async function ghiNhanDoiMacDinh(orgId: string, conversationIds?: string[
       },
     });
     if (rows.length === 0) return 0;
-    const [nhanVien, nicks] = await Promise.all([
+    const [nhanVien, nicks, nickCrmDs] = await Promise.all([
       tx.botNhanVien.findMany({
         where: { orgId }, select: { zaloUid: true, trangThai: true, tenGoi: true, uids: { select: { zaloUid: true } } },
       }),
       tx.zaloAccount.findMany({ where: { orgId, zaloUid: { not: null } }, select: { zaloUid: true } }),
+      docNickCrm(orgId, tx),
     ]);
+    const nickCongTy = nickCongTyTheoNick(nickCrmDs);
     // MỌI uid của mọi NV (docs/77 §8b): mỗi nick nhìn một uid.
     const trangThaiNv = new Map<string, string>();
     const tenNv = new Map<string, string>();
@@ -483,7 +490,9 @@ export async function ghiNhanDoiMacDinh(orgId: string, conversationIds?: string[
     const nickCrm = new Set(nicks.map((n) => n.zaloUid!).filter(Boolean));
     let soGhi = 0;
     for (const r of rows) {
-      const md = tinhMacDinhNhom(r, { nickUid: r.conversation.zaloAccount.zaloUid, trangThaiNv, nickCrm });
+      const md = tinhMacDinhNhom(r, {
+        nickUid: r.conversation.zaloAccount.zaloUid, trangThaiNv, nickCrm, nickCongTy: nickCongTy.get(r.conversation.zaloAccountId),
+      });
       if (!md.chucNang || md.chucNang === r.macDinhCuoi) continue;
       await tx.botNhomDanhSach.update({ where: { id: r.id }, data: { macDinhCuoi: md.chucNang } });
       if (!r.macDinhCuoi || r.conversation.botNhom) continue;
@@ -588,13 +597,17 @@ export async function quetDinhKy(bayGio = dongHo()): Promise<number> {
 }
 
 /**
- * Bổ sung uid cùng người ở nick khác cho nhân viên của MỌI org có nhân viên (docs/77 §8b) — người mới nhắn trong nhóm
- * chung với nick khác sau lúc gán. Chạy trước đối soát mặc định (uid mới có thể đổi mặc định nhóm).
+ * Vòng danh tính (docs/77 §8b-an-toàn) cho MỌI org có nhân viên hoặc ≥ 2 nick: đọc globalId SỐNG từ Zalo (ngân sách
+ * 'query'), rồi nối — nick CRM nhìn từ nick khác, uid cùng người (globalId ⇒ tự gắn mọi vai; tin chung ⇒ đề xuất). Chạy
+ * trước đối soát mặc định (uid / nick mới đổi mặc định nhóm).
  */
 export async function doiSoatUidNhanVien(): Promise<void> {
   const orgs = await runSystemQuery(() => prisma.$queryRaw<Array<{ org_id: string }>>`
-    SELECT DISTINCT org_id FROM bot_nhan_vien`);
+    SELECT org_id FROM bot_nhan_vien
+    UNION
+    SELECT org_id FROM zalo_accounts WHERE zalo_uid IS NOT NULL AND zalo_uid <> '' GROUP BY org_id HAVING count(*) >= 2`);
   for (const o of orgs) {
+    await layDanhTinhZalo(o.org_id);
     await boSungUidNhanVien(o.org_id)
       .catch((err) => logger.warn(`[bot-quyen-danh-sach] bổ sung uid nhân viên org ${o.org_id} lỗi:`, err));
   }

@@ -106,7 +106,7 @@ describe('phiên bản cấu hình công khai (phien_ban)', () => {
 
   it('snake_case, sắp theo conversation_id / zalo_uid, đúng bộ khoá', () => {
     const ch = ghepCauHinhCongKhai(nhom, nv);
-    expect(Object.keys(ch)).toEqual(['phien_ban', 'nhom', 'nhan_vien']);
+    expect(Object.keys(ch)).toEqual(['phien_ban', 'nhom', 'nhan_vien', 'nick_crm']);
     expect(ch.nhom).toEqual([
       { conversation_id: 'c-1', external_thread_id: 'g1', nick_uid: null, chuc_nang: 'admin', ten_dang_ky: '', mac_dinh: false },
       { conversation_id: 'c-2', external_thread_id: 'g2', nick_uid: 'nick-hn', chuc_nang: 'sales', ten_dang_ky: 'Sales HN', mac_dinh: false },
@@ -115,8 +115,8 @@ describe('phiên bản cấu hình công khai (phien_ban)', () => {
     expect(Object.keys(ch.nhom[0])).toEqual(['conversation_id', 'external_thread_id', 'nick_uid', 'chuc_nang', 'ten_dang_ky', 'mac_dinh']);
     expect(Object.keys(ch.nhan_vien[0])).toEqual(['zalo_uid', 'ten_goi', 'vai', 'trang_thai', 'uids']);
     expect(ch.nhan_vien).toEqual([
-      { zalo_uid: '100', ten_goi: 'Quyết', vai: 'admin', trang_thai: 'hoat_dong', uids: [{ nick_uid: null, uid: '100' }] },
-      { zalo_uid: '900', ten_goi: 'Hùng', vai: 'kho', trang_thai: 'hoat_dong', uids: [{ nick_uid: null, uid: '900' }] },
+      { zalo_uid: '100', ten_goi: 'Quyết', vai: 'admin', trang_thai: 'hoat_dong', uids: [{ nick_uid: null, uid: '100', nguon: 'chu_chon' }] },
+      { zalo_uid: '900', ten_goi: 'Hùng', vai: 'kho', trang_thai: 'hoat_dong', uids: [{ nick_uid: null, uid: '900', nguon: 'chu_chon' }] },
     ]);
     expect(ch.phien_ban).toMatch(/^[0-9a-f]{64}$/);
   });
@@ -147,22 +147,46 @@ describe('phiên bản cấu hình công khai (phien_ban)', () => {
     const hung = {
       zaloUid: '3395858500519725514', tenGoi: 'Trần Hưng', vai: 'admin', trangThai: 'hoat_dong',
       uids: [
-        { zaloUid: '3835588809400259343', nickUid: '619833576870383279' },
-        { zaloUid: '3395858500519725514', nickUid: '632106073555356463' },
-        { zaloUid: '3835588809400259343', nickUid: '619833576870383279' },
+        { zaloUid: '3835588809400259343', nickUid: '619833576870383279', nguon: 'chu_xac_nhan' },
+        { zaloUid: '3395858500519725514', nickUid: '632106073555356463', nguon: 'cung_tin' },
+        { zaloUid: '3835588809400259343', nickUid: '619833576870383279', nguon: 'chu_xac_nhan' },
       ],
     };
     const ch = ghepCauHinhCongKhai([], [hung]);
     expect(ch.nhan_vien).toEqual([{
       zalo_uid: '3395858500519725514', ten_goi: 'Trần Hưng', vai: 'admin', trang_thai: 'hoat_dong',
       uids: [
-        { nick_uid: '632106073555356463', uid: '3395858500519725514' },
-        { nick_uid: '619833576870383279', uid: '3835588809400259343' },
+        // uid chính LUÔN chu_chon (dù dòng bảng uid ghi gì)
+        { nick_uid: '632106073555356463', uid: '3395858500519725514', nguon: 'chu_chon' },
+        { nick_uid: '619833576870383279', uid: '3835588809400259343', nguon: 'chu_xac_nhan' },
       ],
     }]);
+    expect(ch.nick_crm).toEqual([]);
     const motUid = ghepCauHinhCongKhai([], [{ ...hung, uids: [hung.uids[1]] }]).phien_ban;
     expect(motUid).not.toBe(ch.phien_ban);
     // thứ tự uids đầu vào không đổi phiên bản
     expect(ghepCauHinhCongKhai([], [{ ...hung, uids: [...hung.uids].reverse() }]).phien_ban).toBe(ch.phien_ban);
+    // đổi nguồn một uid ⇒ đổi phien_ban (bot phải áp lại luật nhận uid)
+    const doiNguon = ghepCauHinhCongKhai([], [{ ...hung, uids: hung.uids.map((u) => ({ ...u, nguon: 'cung_tin' })) }]);
+    expect(doiNguon.nhan_vien[0].uids[1].nguon).toBe('cung_tin');
+    expect(doiNguon.phien_ban).not.toBe(ch.phien_ban);
+    // nguồn lạ / thiếu ⇒ cung_tin (ít quyền nhất phía bot)
+    const la = ghepCauHinhCongKhai([], [{ ...hung, uids: [{ zaloUid: 'x', nickUid: null, nguon: 'global_id' }, { zaloUid: 'y', nickUid: null }] }]);
+    expect(la.nhan_vien[0].uids.filter((u) => u.uid !== hung.zaloUid).map((u) => u.nguon)).toEqual(['cung_tin', 'cung_tin']);
+  });
+
+  // docs/77 §8b-an-toàn — nick CRM nhìn từ nick khác.
+  it('nick_crm: [{nick_uid, uid, nick_ten}] sắp theo uid; đổi ⇒ đổi phien_ban', () => {
+    const k = [
+      { nickUid: '619833576870383279', zaloUid: '2945555577789699285', nickTen: 'Tiểu Mã Nelia' },
+      { nickUid: '619833576870383279', zaloUid: '1359961729460490730', nickTen: 'Cẩm Loan' },
+    ];
+    const ch = ghepCauHinhCongKhai([], [], k);
+    expect(ch.nick_crm).toEqual([
+      { nick_uid: '619833576870383279', uid: '1359961729460490730', nick_ten: 'Cẩm Loan' },
+      { nick_uid: '619833576870383279', uid: '2945555577789699285', nick_ten: 'Tiểu Mã Nelia' },
+    ]);
+    expect(ghepCauHinhCongKhai([], [], [k[0]]).phien_ban).not.toBe(ch.phien_ban);
+    expect(ghepCauHinhCongKhai([], [], [...k].reverse()).phien_ban).toBe(ch.phien_ban);
   });
 });

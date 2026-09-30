@@ -107,3 +107,16 @@ describe('canhBaoNguoiNgoai', () => {
     expect(canhBaoNguoiNgoai(0, 'admin')).toBeNull();
   });
 });
+
+describe('nick CRM nhìn từ nick khác (docs/77 §8b-an-toàn)', () => {
+  it('nick CRM khác đã nhận ra ⇒ chip "Nick CRM “X”", không phải người ngoài; đề xuất ⇒ chip vàng', async () => {
+    const { chipThanhVien: chip, laNickCrmKhac } = await import('./bot-quyen-thanh-vien');
+    const t = { zaloUid: 'u', ten: 'TM', laNickCrm: true, nhanVien: null } as const;
+    expect(chip({ ...t, loai: 'nick_crm', nickCrm: { id: 'tm', ten: 'Tiểu Mã Nelia', nguon: 'zalo_global_id' } }).map((x) => x.chu))
+      .toEqual(['Nick CRM “Tiểu Mã Nelia”']);
+    expect(laNickCrmKhac({ ...t, loai: 'nick_crm', nickCrm: { id: 'tm', ten: 'x', nguon: 'chu_chon' } })).toBe(true);
+    expect(laNickCrmKhac({ ...t, loai: 'nick_crm' })).toBe(false);
+    expect(chip({ ...t, loai: 'nguoi_ngoai', laNickCrm: false, nickCrmDeXuat: { id: 'tm', ten: 'Tiểu Mã', soTin: 2 } }))
+      .toEqual([{ chu: 'Người ngoài', mau: 'do' }, { chu: 'Có vẻ là nick “Tiểu Mã”', mau: 'vang' }]);
+  });
+});

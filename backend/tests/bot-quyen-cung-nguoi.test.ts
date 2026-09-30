@@ -2,7 +2,7 @@
 // Quyền bot (docs/77 §8b) — nhận ra CÙNG một người qua nhiều nick (hàm thuần): union-find có rào "một uid mỗi nick",
 // gộp ứng viên "Chờ gán" theo người.
 import { describe, it, expect } from 'vitest';
-import { gomNguoi, type LienKet } from '../src/modules/bot-quyen/bot-quyen-cung-nguoi.js';
+import { gomNguoi, bangChungGiua, type LienKet } from '../src/modules/bot-quyen/bot-quyen-cung-nguoi.js';
 import { gopTheoNguoi, gomTheoUid, locVaPhanTrang, type DongGom } from '../src/modules/bot-quyen/bot-quyen-nguoi-da-nhan.js';
 import { AI_TU_DONG_UID } from '../src/modules/bot-quyen/bot-quyen-nhan-vien-uid.js';
 import { AI_TU_DONG } from '../src/modules/bot-quyen/bot-quyen-danh-sach.js';
@@ -12,7 +12,7 @@ const HUNG_CL = '3395858500519725514';
 const HUNG_VT = '3835588809400259343';
 const QUOC_CL = '5809610033196845429';
 const QUOC_VT = '5369941570764297136';
-const tin = (a: string, nickA: string, b: string, nickB: string, so: number): LienKet => ({ a, nickA, b, nickB, so, nguon: 'cung_tin' });
+const tin = (a: string, nickA: string, b: string, nickB: string, so: number): LienKet => ({ a, nickA, b, nickB, so, maTin: [] });
 
 describe('gomNguoi', () => {
   it('ghép đúng một-một theo tin chung (dữ liệu staging)', () => {
@@ -29,7 +29,7 @@ describe('gomNguoi', () => {
   });
 
   it('rào: không gộp khi một nick sẽ có HAI uid (liên kết yếu hơn bị bỏ, không đoán)', () => {
-    const m = gomNguoi([tin('a1', 'A', 'b1', 'B', 50), tin('a1', 'A', 'b2', 'B', 1)]);
+    const m = gomNguoi([tin('a1', 'A', 'b1', 'B', 50), tin('a1', 'A', 'b2', 'B', 2)]);
     expect(m.get('a1')!.map((x) => x.zaloUid)).toEqual(['a1', 'b1']);
     expect(m.get('b2')).toEqual([{ zaloUid: 'b2', zaloAccountId: 'B' }]);
   });
@@ -40,15 +40,26 @@ describe('gomNguoi', () => {
     expect(m.has('c1')).toBe(false);
   });
 
-  it('tin chung xét trước globalId; cùng nick / cùng uid bị bỏ', () => {
+  it('liên kết < 2 tin chung bị bỏ (§8b-an-toàn); cùng nick / cùng uid bị bỏ', () => {
     const m = gomNguoi([
-      { a: 'a1', nickA: 'A', b: 'b9', nickB: 'B', so: 1, nguon: 'global_id' },
-      tin('a1', 'A', 'b1', 'B', 1),
+      tin('a1', 'A', 'b9', 'B', 1),
+      tin('a1', 'A', 'b1', 'B', 2),
       tin('x', 'A', 'y', 'A', 9),
       tin('z', 'A', 'z', 'B', 9),
     ]);
     expect(m.get('a1')!.map((x) => x.zaloUid)).toEqual(['a1', 'b1']);
+    expect(m.has('b9')).toBe(false);
     expect(m.has('x')).toBe(false);
+  });
+
+  it('bangChungGiua: liên kết trực tiếp mạnh nhất + mã tin mẫu (≤ 5, sắp xếp)', () => {
+    const l = [
+      { ...tin('a1', 'A', 'b1', 'B', 3), maTin: ['9', '7', '8'] },
+      { ...tin('b1', 'B', 'c1', 'C', 7), maTin: ['1', '2', '3', '4', '5', '6'] },
+    ];
+    expect(bangChungGiua('b1', new Set(['a1']), l)).toEqual({ soTin: 3, maTin: ['7', '8', '9'] });
+    expect(bangChungGiua('b1', new Set(['a1', 'c1']), l)).toEqual({ soTin: 7, maTin: ['7', '8', '9', '1', '2'].sort() });
+    expect(bangChungGiua('zz', new Set(['a1']), l)).toEqual({ soTin: 0, maTin: [] });
   });
 
   it('AI_TU_DONG của bảng uid = của danh sách (nhật ký "tự động")', () => {

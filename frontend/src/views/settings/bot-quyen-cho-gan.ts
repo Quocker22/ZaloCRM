@@ -41,6 +41,15 @@ export function nhanVienCungTen(u: Pick<NguoiDaNhan, 'ten' | 'anTen'>, ds: reado
   return t ? ds.filter((nv) => bo(nv.tenGoi) === t) : [];
 }
 
+/**
+ * Nhân viên được backend GỢI Ý vì cùng globalId (§8b-an-toàn P0: globalId trong bảng CRM ghi được ⇒ CHỈ gợi ý, không bao
+ * giờ tự áp; người bấm quyết).
+ */
+export function nhanVienGoiYGlobalId(u: Pick<NguoiDaNhan, 'goiYNhanVien'>, ds: readonly NhanVien[]): NhanVien[] {
+  const id = new Set((u.goiYNhanVien ?? []).map((g) => g.id));
+  return ds.filter((nv) => id.has(nv.id));
+}
+
 export function mauGan(u: NguoiDaNhan, vai: VaiNhanVien): MauNhanVien {
   const ten = u.anTen || u.ten === '(chưa rõ tên)' ? '' : u.ten.trim();
   const noi = u.noi[0];

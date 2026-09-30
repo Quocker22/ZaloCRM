@@ -5,10 +5,11 @@
 // gì về các nick CRM khác, nên:
 //   nhan_vien   uid là MỘT trong các uid của một BotNhanVien của org (bot_nhan_vien_uid — mỗi nick một uid, docs/77 §8b;
 //               kèm vai/trạng thái — kể cả cong_ty: người công ty)
-//   nick_crm    uid là nick CRM CỦA CHÍNH hội thoại này (conversation.zaloAccount.zaloUid)
-//   nguoi_ngoai còn lại — KỂ CẢ nick CRM khác của org chưa có trong BotNhanVien (vd nick LED HCM gõ trong
-//               nhóm của nick HN làm bot im). Trang gợi ý đánh dấu nó "người công ty" (vai cong_ty).
-//   laNickCrm   true khi uid là MỘT nick Zalo bất kỳ của org (kể cả nick của chính nhóm), false với người thường.
+//   nick_crm    uid là nick CRM CỦA CHÍNH hội thoại này (conversation.zaloAccount.zaloUid), HOẶC nick CRM KHÁC của org
+//               nhìn từ nick của nhóm (bảng bot_nick_crm_uid — §8b-an-toàn: máy nhận ra bằng tin chung chặt hoặc chủ
+//               đánh dấu "Đây là nick CRM …"; bot nhận qua payload `nick_crm` ⇒ nick_bot) — kèm `nickCrm` {id, ten}.
+//   nguoi_ngoai còn lại — kể cả nick CRM khác CHƯA nhận ra (trang gợi ý "Đây là nick CRM …" / người công ty).
+//   laNickCrm   true khi uid là MỘT nick Zalo bất kỳ của org (tự nhìn, hoặc đã nhận ra nhìn từ nick nhóm).
 // Thứ tự xét: nhan_vien trước (nick CRM đã được xếp vai là nhân viên như mọi người), rồi nick_crm, rồi nguoi_ngoai.
 //
 // NGUỒN thành viên, theo thứ tự (trả kèm `nguon` để trang nói rõ đang xem gì):
@@ -21,7 +22,7 @@
 //                 người chưa từng nhắn; `loiZalo` nói vì sao phải rơi xuống đây.
 import { prisma } from '../../shared/database/prisma-client.js';
 import { nhanVienTheoUid } from './bot-quyen-nhan-vien-uid.js';
-import { docLienKet, gomNguoi } from './bot-quyen-cung-nguoi.js';
+import { NGUON_HIEU_LUC } from './bot-quyen-nick-crm.js';
 
 export interface ThanhVienTho {
   zaloUid: string;
@@ -41,6 +42,10 @@ export interface ThanhVienNhom {
   /** uid là một nick Zalo của CRM trong org (bất kể nhãn). */
   laNickCrm: boolean;
   nhanVien: { id: string; tenGoi: string; vai: string; trangThai: string } | null;
+  /** Nick CRM KHÁC của org mà uid này là (nhìn từ nick của nhóm) — null nếu không phải. */
+  nickCrm: { id: string; ten: string; nguon: string } | null;
+  /** ĐỀ XUẤT (tin chung — chưa hiệu lực): có vẻ là nick CRM X; chủ bấm "Đúng" (POST nick-crm) / "Không phải" (DELETE). */
+  nickCrmDeXuat: { id: string; ten: string; soTin: number | null } | null;
 }
 
 export interface KetQuaThanhVien {
@@ -52,6 +57,8 @@ export interface KetQuaThanhVien {
   loiZalo: string | null;
   thanhVien: ThanhVienNhom[];
   soNguoiNgoai: number;
+  /** Các nick CRM KHÁC của org (chọn cho "Đây là nick CRM …"). */
+  nickKhac: Array<{ id: string; ten: string }>;
 }
 
 /** Hạn giờ gọi Zalo — quá hạn thì rơi về người đã nhắn, không treo trang. */
@@ -188,31 +195,39 @@ export async function layThanhVienNhom(
     prisma.zaloAccount.findMany({ where: { orgId, zaloUid: { in: uids } }, select: { zaloUid: true } }),
   ]);
   const uidNick = new Set(nick.map((n) => n.zaloUid));
-  // Nick CRM khác nhìn từ nick của nhóm mang uid KHÁC uid nick tự nhìn mình (docs/77 §8b) — nhận qua liên kết chắc chắn
-  // (cùng tin nhắn trong nhóm chung / globalId). Chỉ đổi nhãn `laNickCrm` (bot vẫn đếm là người ngoài như trước).
-  if (uids.length > 0) {
-    const tatCaNick = new Set((await prisma.zaloAccount.findMany({
-      where: { orgId, zaloUid: { not: null } }, select: { zaloUid: true },
-    })).map((n) => n.zaloUid!));
-    const nhomNguoi = gomNguoi(await docLienKet(orgId, uids));
-    for (const uid of uids) {
-      if ((nhomNguoi.get(uid) ?? []).some((x) => tatCaNick.has(x.zaloUid))) uidNick.add(uid);
-    }
-  }
+  // Nick CRM khác nhìn từ nick của nhóm (§8b-an-toàn) — đọc bảng đã nhận ra (rẻ; không truy vấn tin nhắn mỗi lần mở ngăn).
+  const nhin = uids.length === 0 ? [] : await prisma.botNickCrmUid.findMany({
+    where: { orgId, zaloAccountId: conv.zaloAccountId, zaloUid: { in: uids }, tuChoi: false },
+    select: { zaloUid: true, nguon: true, bangChung: true, nick: { select: { id: true, displayName: true } } },
+  });
+  const tenNick = (r: (typeof nhin)[number]) => r.nick.displayName?.trim() || 'Nick chưa đặt tên';
+  const nickNhin = new Map(nhin.filter((r) => (NGUON_HIEU_LUC as readonly string[]).includes(r.nguon))
+    .map((r) => [r.zaloUid, { id: r.nick.id, ten: tenNick(r), nguon: r.nguon }]));
+  const nickDeXuat = new Map(nhin.filter((r) => r.nguon === 'cung_tin').map((r) => [r.zaloUid, {
+    id: r.nick.id, ten: tenNick(r), soTin: typeof (r.bangChung as { soTin?: unknown } | null)?.soTin === 'number'
+      ? (r.bangChung as { soTin: number }).soTin : null,
+  }]));
+  for (const u of nickNhin.keys()) uidNick.add(u);
   const uidNickNhom = conv.zaloAccount.zaloUid;
 
   const thanhVien: ThanhVienNhom[] = uids.map((uid) => {
     const nv = nvTheoUid.get(uid);
-    const loai: LoaiThanhVien = nv ? 'nhan_vien' : uid === uidNickNhom ? 'nick_crm' : 'nguoi_ngoai';
+    const nc = nickNhin.get(uid) ?? null;
+    const loai: LoaiThanhVien = nv ? 'nhan_vien' : uid === uidNickNhom || nc ? 'nick_crm' : 'nguoi_ngoai';
     return {
       zaloUid: uid,
       ten: theoUid.get(uid)!.ten,
       loai,
       laNickCrm: uidNick.has(uid),
       nhanVien: nv ? { id: nv.id, tenGoi: nv.tenGoi, vai: nv.vai, trangThai: nv.trangThai } : null,
+      nickCrm: nc,
+      nickCrmDeXuat: !nv && !nc ? nickDeXuat.get(uid) ?? null : null,
     };
   }).sort((a, b) => a.ten.localeCompare(b.ten, 'vi'));
 
+  const nickKhac = (await prisma.zaloAccount.findMany({
+    where: { orgId, id: { not: conv.zaloAccountId }, archivedAt: null }, select: { id: true, displayName: true }, orderBy: { displayName: 'asc' },
+  })).map((n) => ({ id: n.id, ten: n.displayName?.trim() || 'Nick chưa đặt tên' }));
   return {
     conversationId: conv.id,
     nguon,
@@ -220,5 +235,6 @@ export async function layThanhVienNhom(
     loiZalo,
     thanhVien,
     soNguoiNgoai: thanhVien.filter((t) => t.loai === 'nguoi_ngoai').length,
+    nickKhac,
   };
 }

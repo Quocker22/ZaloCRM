@@ -14,7 +14,7 @@ export type VaiNv = (typeof VAI_NV)[number];
 export const TRANG_THAI_NV = ['hoat_dong', 'khoa', 'nghi'] as const;
 export type TrangThaiNv = (typeof TRANG_THAI_NV)[number];
 
-export const DOI_TUONG_NHAT_KY = ['nhom', 'nhan_vien'] as const;
+export const DOI_TUONG_NHAT_KY = ['nhom', 'nhan_vien', 'nick_crm'] as const;
 export type DoiTuongNhatKy = (typeof DOI_TUONG_NHAT_KY)[number];
 
 export function laChucNang(x: unknown): x is ChucNangNhom {
@@ -81,3 +81,4 @@ export function laKhoaKhiTao(vai: VaiNv, trangThai: TrangThaiNv): boolean {
 export function laAdminHoatDong(nv: { vai: string; trangThai: string }): boolean {
   return nv.vai === 'admin' && nv.trangThai === 'hoat_dong';
 }
+

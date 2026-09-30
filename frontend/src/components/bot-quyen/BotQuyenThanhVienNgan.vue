@@ -72,10 +72,33 @@
             </div>
             <div v-if="tv.loai === 'nguoi_ngoai'" class="bq-tv-nut">
               <p v-if="goiYCongTy(tv)" class="bq-tv-goi-y">Đây là một nick Zalo của công ty — nên chọn “Là người công ty”.</p>
+              <div v-if="tv.nickCrmDeXuat" class="bq-tv-de-xuat" data-de-xuat-nick>
+                <span class="bq-nho">
+                  Có vẻ là nick CRM “{{ tv.nickCrmDeXuat.ten }}” — bằng chứng: {{ tv.nickCrmDeXuat.soTin ?? '?' }} tin trùng
+                </span>
+                <v-btn size="small" color="primary" variant="tonal" data-nut="dung-nick" @click="moNick({ loai: 'dat', tv, nickId: tv.nickCrmDeXuat.id, tenNick: tv.nickCrmDeXuat.ten })">Đúng là nick này</v-btn>
+                <v-btn size="small" variant="text" data-nut="khong-phai-nick" @click="moNick({ loai: 'go', tv, nickId: tv.nickCrmDeXuat.id, tenNick: tv.nickCrmDeXuat.ten })">Không phải</v-btn>
+              </div>
               <div class="bq-cac-nut">
                 <v-btn size="small" variant="tonal" color="primary" @click="moThem(tv, 'nhan_vien')">Đặt làm nhân viên</v-btn>
                 <v-btn size="small" variant="outlined" @click="moThem(tv, 'cong_ty')">Là người công ty (không dùng bot)</v-btn>
+                <v-menu v-if="(ketQua.nickKhac ?? []).length > 0" location="bottom end">
+                  <template #activator="{ props: p }">
+                    <v-btn v-bind="p" size="small" variant="outlined" data-nut="la-nick-crm">Đây là nick CRM…</v-btn>
+                  </template>
+                  <v-list density="compact" max-height="320">
+                    <v-list-item
+                      v-for="n in ketQua.nickKhac ?? []" :key="n.id" :data-nick="n.id" :title="n.ten"
+                      @click="moNick({ loai: 'dat', tv, nickId: n.id, tenNick: n.ten })"
+                    />
+                  </v-list>
+                </v-menu>
               </div>
+            </div>
+            <div v-else-if="laNickCrmKhac(tv)" class="bq-tv-nut">
+              <v-btn size="small" variant="text" color="error" data-nut="go-nick" @click="moNick({ loai: 'go', tv, nickId: tv.nickCrm!.id, tenNick: tv.nickCrm!.ten })">
+                Không phải nick này — gỡ
+              </v-btn>
             </div>
           </li>
         </ul>
@@ -90,24 +113,41 @@
     :nguoi-dung-crm="nguoiDungCrm"
     @da-luu="daThemNhanVien"
   />
+
+  <BotQuyenLyDoDialog
+    v-model="hopNick"
+    :tieu-de="viecNick ? (viecNick.loai === 'dat' ? `Zalo ${viecNick.tv.zaloUid} là nick CRM “${viecNick.tenNick}”?` : `Zalo ${viecNick.tv.zaloUid} KHÔNG phải nick “${viecNick.tenNick}”?`) : ''"
+    :mo-ta="viecNick?.loai === 'dat'
+      ? 'Người này được tính là người CÔNG TY trong nhóm (không phải người ngoài; bot không im vì họ) nhưng KHÔNG ra lệnh được cho bot.'
+      : 'Máy sẽ không nhận lại uid này là nick CRM này.'"
+    :bat-buoc="viecNick?.loai === 'go'"
+    :nut-chu="viecNick?.loai === 'dat' ? 'Đúng là nick này' : 'Không phải'"
+    :dang-lam="dangNick"
+    :loi="loiNick"
+    @xac-nhan="lamNick"
+  />
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { layThanhVienNhom, type NhanVien, type NguoiDungCrm, type NhomView, type ThanhVien, type ThanhVienNhom } from '@/api/bot-quyen';
+import {
+  layThanhVienNhom, danhDauNickCrm, goNickCrm,
+  type NhanVien, type NguoiDungCrm, type NhomView, type ThanhVien, type ThanhVienNhom,
+} from '@/api/bot-quyen';
+import BotQuyenLyDoDialog from './BotQuyenLyDoDialog.vue';
 import { useToast } from '@/composables/use-toast';
 import { useMobile } from '@/composables/use-mobile';
 import { trangThaiBotNhom } from '@/views/settings/bot-quyen-luat';
 import { nhanChucNangNhom } from '@/views/settings/bot-quyen-mac-dinh';
 import { tenNhomHienThi, tenNick } from '@/views/settings/bot-quyen-nhom';
 import {
-  chipThanhVien, chuNguonThanhVien, canhBaoNguoiNgoai, tenThanhVien, goiYCongTy, mauTuThanhVien, type MauNhanVien,
+  chipThanhVien, chuNguonThanhVien, canhBaoNguoiNgoai, tenThanhVien, goiYCongTy, laNickCrmKhac, mauTuThanhVien, type MauNhanVien,
 } from '@/views/settings/bot-quyen-thanh-vien';
 import { loiApi } from '@/views/settings/bot-quyen-loi';
 import BotQuyenNhanVienDialog from './BotQuyenNhanVienDialog.vue';
 
 const props = defineProps<{ modelValue: boolean; nhom: NhomView | null; nguoiDungCrm: NguoiDungCrm[] }>();
-const emit = defineEmits<{ 'update:modelValue': [boolean]; 'xep-loai': [] }>();
+const emit = defineEmits<{ 'update:modelValue': [boolean]; 'xep-loai': []; 'da-doi': [] }>();
 
 const toast = useToast();
 const { isMobile } = useMobile();
@@ -168,6 +208,41 @@ function moThem(tv: ThanhVien, kieu: 'nhan_vien' | 'cong_ty') {
   hopNv.value = true;
 }
 
+// ── Nick CRM nhìn từ nick khác (§8b-an-toàn) ──
+type ViecNick = { loai: 'dat' | 'go'; tv: ThanhVien; nickId: string; tenNick: string };
+const hopNick = ref(false);
+const viecNick = ref<ViecNick | null>(null);
+const dangNick = ref(false);
+const loiNick = ref('');
+
+function moNick(v: ViecNick) {
+  viecNick.value = v;
+  loiNick.value = '';
+  hopNick.value = true;
+}
+
+async function lamNick(lyDo: string) {
+  const v = viecNick.value;
+  const n = props.nhom;
+  if (!v || !n) return;
+  dangNick.value = true;
+  loiNick.value = '';
+  try {
+    if (v.loai === 'dat') await danhDauNickCrm(n.conversationId, { zaloUid: v.tv.zaloUid, nickId: v.nickId, ...(lyDo ? { lyDo } : {}) });
+    else await goNickCrm(n.conversationId, v.tv.zaloUid, lyDo);
+    toast.success('Đã lưu — bot áp trong khoảng 1 phút.');
+    hopNick.value = false;
+    emit('da-doi');
+    await tai(false);
+  } catch (e) {
+    const l = loiApi(e, 'Không lưu được');
+    loiNick.value = l.chu;
+    if (!l.daBao) toast.error(l.chu, 6000);
+  } finally {
+    dangNick.value = false;
+  }
+}
+
 /** Cập nhật nhãn tại chỗ — không gọi Zalo lần nữa (quota), số người ngoài đếm lại từ danh sách. */
 function daThemNhanVien(nv: NhanVien) {
   const kq = ketQua.value;
@@ -206,6 +281,10 @@ function daThemNhanVien(nv: NhanVien) {
 .bq-tv-nut { margin-top: 8px; }
 .bq-tv-goi-y { font-size: 12.5px; color: var(--bq-mo); margin: 0 0 6px; }
 .bq-tv-nut .bq-cac-nut { flex-wrap: wrap; }
+.bq-tv-de-xuat {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0 0 6px; padding: 4px 8px;
+  border: 1px dashed var(--bq-vien); border-radius: 6px;
+}
 @media (max-width: 520px) {
   .bq-tv-nhan { justify-content: flex-start; }
   .bq-ngan-than { padding: 12px 14px 20px; }

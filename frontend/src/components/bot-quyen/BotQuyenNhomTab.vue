@@ -120,6 +120,7 @@
       :nhom="nhomThanhVien"
       :nguoi-dung-crm="nguoiDungCrm"
       @xep-loai="nhomThanhVien && moXepLoai(nhomThanhVien)"
+      @da-doi="tai"
     />
   </section>
 </template>

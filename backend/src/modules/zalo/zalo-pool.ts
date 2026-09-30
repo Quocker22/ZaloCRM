@@ -265,6 +265,11 @@ class ZaloAccountPool {
         const userInfo = await api.getUserInfo(ownId);
         const profiles = userInfo?.changed_profiles || {};
         const profile = profiles[ownId] || profiles[`${ownId}_0`];
+        // Quyền bot (docs/77 §8b-an-toàn): giữ globalId + SĐT THẬT của chính nick (bảng hệ thống) — nick khác nhận ra
+        // nick này kể cả khi nó tắt. Không gọi thêm Zalo.
+        void import('../bot-quyen/bot-quyen-danh-tinh.js')
+          .then((m) => m.ghiHoSoNickKetNoi(accountId, ownId, profile))
+          .catch(() => undefined);
         if (profile?.avatar) {
           await runSystemQuery(() => prisma.zaloAccount.update({
             where: { id: accountId },
@@ -407,6 +412,10 @@ class ZaloAccountPool {
         const userInfo = await api.getUserInfo(ownId);
         const profiles = userInfo?.changed_profiles || {};
         const profile = profiles[ownId] || profiles[`${ownId}_0`];
+        // Quyền bot (docs/77 §8b-an-toàn): giữ globalId + SĐT THẬT của chính nick (bảng hệ thống). Không gọi thêm Zalo.
+        void import('../bot-quyen/bot-quyen-danh-tinh.js')
+          .then((m) => m.ghiHoSoNickKetNoi(accountId, ownId, profile))
+          .catch(() => undefined);
         if (profile?.avatar) {
           await runSystemQuery(() => prisma.zaloAccount.update({
             where: { id: accountId },

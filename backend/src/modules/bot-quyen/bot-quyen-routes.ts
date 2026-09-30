@@ -16,7 +16,13 @@
 //   POST   /nhan-vien                         {zaloUid, zaloUids?, tenGoi, vai, trangThai?, userId?, ghiChu?, lyDo?}
 //                                             (zaloUids = uid cùng người ở nick khác; máy tự thêm uid nhận ra được — §8b)
 //   PUT    /nhan-vien/:id                     {tenGoi?, vai?, trangThai?, userId?, ghiChu?, lyDo?}
-//   POST   /nhan-vien/:id/uid                 {zaloUid? | zaloUids?, lyDo?} — thêm uid của CÙNG người ở nick khác (§8b)
+//   POST   /nhan-vien/:id/uid                 {zaloUid? | zaloUids?, lyDo} — thêm uid của CÙNG người ở nick khác (§8b);
+//                                             lyDo BẮT BUỘC; uid phải đã thấy trong tin, không là nick CRM (§8b-an-toàn)
+//   DELETE /nhan-vien/:id/uid/:uid            {lyDo} — GỠ uid (không gỡ uid chính) + ghi từ chối (máy không nối lại)
+//   POST   /nhan-vien/:id/de-xuat/:uid/noi    {lyDo?} — chủ xác nhận đề xuất ⇒ uid nguon chu_xac_nhan
+//   POST   /nhan-vien/:id/de-xuat/:uid/tu-choi {lyDo?} — "Không phải" ⇒ xoá đề xuất + ghi từ chối
+//   POST   /nhom/:conversationId/nick-crm     {zaloUid, nickId, lyDo?} — "Đây là nick CRM …" (uid nhìn từ nick của nhóm)
+//   DELETE /nhom/:conversationId/nick-crm/:zaloUid {lyDo} — gỡ (máy không nhận lại)
 //   GET    /nhat-ky                           ?limit= (mặc định 100, tối đa 500)
 //
 // Lỗi: {error: <câu tiếng Việt cho người dùng>, code: <MÃ>} — mã ở bot-quyen-service.ts.
@@ -25,10 +31,12 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { authMiddleware, requireActiveUser } from '../auth/auth-middleware.js';
 import {
   LoiBotQuyen, danhSachNhom, datChucNangNhom, boXepLoaiNhom,
-  danhSachNhanVien, themNhanVien, suaNhanVien, themUidNhanVien, docNhatKy,
+  danhSachNhanVien, themNhanVien, suaNhanVien, themUidNhanVien, goUidNhanVien, noiDeXuat, tuChoiDeXuat, docNhatKy,
 } from './bot-quyen-service.js';
+import { danhDauNickCrm, goNickCrm, LoiNickCrm } from './bot-quyen-nick-crm.js';
+import { logger } from '../../shared/utils/logger.js';
 import { layThanhVienNhom, docThanhVienZaloMacDinh, type DocThanhVienZalo } from './bot-quyen-thanh-vien.js';
-import { yeuCauDocLai } from './bot-quyen-danh-sach.js';
+import { yeuCauDocLai, ghiNhanDoiMacDinh } from './bot-quyen-danh-sach.js';
 import { danhSachNguoiDaNhan } from './bot-quyen-nguoi-da-nhan.js';
 import { buildPrivacyContext } from '../privacy/redact.js';
 
@@ -50,7 +58,7 @@ async function chiOwnerAdmin(req: FastifyRequest, reply: FastifyReply): Promise<
 }
 
 function guiLoi(reply: FastifyReply, err: unknown) {
-  if (err instanceof LoiBotQuyen) return reply.code(err.status).send({ error: err.message, code: err.code });
+  if (err instanceof LoiBotQuyen || err instanceof LoiNickCrm) return reply.code(err.status).send({ error: err.message, code: err.code });
   throw err;
 }
 
@@ -141,6 +149,53 @@ export async function registerBotQuyenRoutes(app: FastifyInstance, opts: BotQuye
   app.post('/nhan-vien/:id/uid', async (req: FastifyRequest<P<{ id: string }>>, reply: FastifyReply) => {
     try {
       return await themUidNhanVien(req.user!.orgId, req.user!.id, req.params.id, req.body);
+    } catch (err) { return guiLoi(reply, err); }
+  });
+
+  app.delete('/nhan-vien/:id/uid/:uid', async (req: FastifyRequest<P<{ id: string; uid: string }>>, reply: FastifyReply) => {
+    try {
+      return await goUidNhanVien(req.user!.orgId, req.user!.id, req.params.id, req.params.uid, req.body);
+    } catch (err) { return guiLoi(reply, err); }
+  });
+
+  app.post('/nhan-vien/:id/de-xuat/:uid/noi', async (req: FastifyRequest<P<{ id: string; uid: string }>>, reply: FastifyReply) => {
+    try {
+      return await noiDeXuat(req.user!.orgId, req.user!.id, req.params.id, req.params.uid, req.body);
+    } catch (err) { return guiLoi(reply, err); }
+  });
+
+  app.post('/nhan-vien/:id/de-xuat/:uid/tu-choi', async (req: FastifyRequest<P<{ id: string; uid: string }>>, reply: FastifyReply) => {
+    try {
+      return await tuChoiDeXuat(req.user!.orgId, req.user!.id, req.params.id, req.params.uid, req.body);
+    } catch (err) { return guiLoi(reply, err); }
+  });
+
+  // ── Nick CRM nhìn từ nick khác (§8b-an-toàn) ──────────────────────────────
+
+  app.post('/nhom/:conversationId/nick-crm', async (req: FastifyRequest<P<{ conversationId: string }>>, reply: FastifyReply) => {
+    try {
+      const b = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
+      const chu = (x: unknown, ten: string) => {
+        if (typeof x !== 'string' || !x.trim() || x.length > 64) throw new LoiNickCrm(400, 'DU_LIEU_KHONG_HOP_LE', `${ten} không hợp lệ`);
+        return x.trim();
+      };
+      const lyDo = typeof b.lyDo === 'string' && b.lyDo.trim() ? b.lyDo.trim().slice(0, 500) : null;
+      const kq = await danhDauNickCrm(req.user!.orgId, req.user!.id, req.params.conversationId, chu(b.zaloUid, 'zaloUid'), chu(b.nickId, 'nickId'), lyDo);
+      if (kq.doi) await ghiNhanDoiMacDinh(req.user!.orgId).catch((e) => logger.warn('[bot-quyen] ghi nhận mặc định lỗi:', e));
+      return kq;
+    } catch (err) { return guiLoi(reply, err); }
+  });
+
+  app.delete('/nhom/:conversationId/nick-crm/:zaloUid', async (
+    req: FastifyRequest<P<{ conversationId: string; zaloUid: string }>>, reply: FastifyReply,
+  ) => {
+    try {
+      const b = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
+      const lyDo = typeof b.lyDo === 'string' ? b.lyDo.trim().slice(0, 500) : '';
+      if (!lyDo) throw new LoiNickCrm(400, 'THIEU_LY_DO', 'Cần ghi lý do khi gỡ nick CRM');
+      const kq = await goNickCrm(req.user!.orgId, req.user!.id, req.params.conversationId, req.params.zaloUid, lyDo);
+      if (kq.doi) await ghiNhanDoiMacDinh(req.user!.orgId).catch((e) => logger.warn('[bot-quyen] ghi nhận mặc định lỗi:', e));
+      return kq;
     } catch (err) { return guiLoi(reply, err); }
   });
 
