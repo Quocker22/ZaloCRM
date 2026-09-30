@@ -7,22 +7,31 @@
 // Ở đây CRM tự hỏi Zalo qua CHÍNH nick nhìn và lưu vào bảng mà không route người dùng nào ghi được.
 //
 // Lời gọi zca-js (qua zaloOps.exec ⇒ rate limiter + sdk-limit-service):
-//   getGroupMembersInfo(uids[]) — category 'group_read'. Trả { profiles: { "<uid>": { id, globalId, zaloName, … } } }.
-//                          ƯU TIÊN cho THÀNH VIÊN nhóm của nick (bản đọc danh sách) — một lô cho cả nhóm; hỏng/thiếu ⇒ rơi
-//                          về getUserInfo. Ngân sách riêng TI_LE_NGAN_SACH_NHOM (20%) trần group_read/ngày (đọc danh sách
-//                          nhóm đã dùng 40%).
 //   getUserInfo(uids[])  — category 'query' (2000/ngày, 30/30 s mặc định). Trả { changed_profiles: { "<uid>_0" | "<uid>":
-//                          User{ userId, globalId, zaloName, displayName, … } } }. Tối đa LO_UID uid mỗi lần gọi.
+//                          User{ userId, globalId, zaloName, displayName, … } } }. Tối đa LO_UID uid mỗi lần gọi. NGUỒN DUY
+//                          NHẤT của globalId người khác (đo LIVE staging 30/09: Hưng 3835… → PODILQ…, Quốc 5369… → OGGI1EMN…,
+//                          cả người không phải bạn).
 //   findUser(phone)      — category 'friend_lookup' (chung quota chiến dịch tìm khách). Trả UserBasic{ uid, globalId,
 //                          zalo_name, display_name }. Dùng ÍT (≤ TRAN_TIM_SDT_NGAY/nick/ngày), chỉ khi còn thiếu.
+//   ⚠️ KHÔNG dùng getGroupMembersInfo cho globalId (giám sát LIVE 30/09, D1): qua VTMT nó trả globalId CỦA CHÍNH NICK GỌI
+//   (4LGTI…) cho MỌI thành viên ⇒ 5 dòng cùng globalId ⇒ globalId của VTMT bị coi là "nhiễm" ⇒ không nhận ra ai.
+// Rào (phòng thủ nhiều lớp, `locLoHoSo`): globalId = globalId của chính nick gọi mà uid ≠ uid của nick ⇒ bỏ; cả lô (> 1
+// uid có globalId) trả CÙNG MỘT globalId ⇒ bỏ cả lô. Dòng bị bỏ KHÔNG BAO GIỜ làm "nhiễm" globalId của nick gọi
+// (`dungBanDanhTinh` bỏ qua dòng mang globalId của chính nick nhìn trên uid khác).
 // Đã đo LIVE trên staging qua VTMT (docs/77 cach-crm-nhan-dien.md §5): getUserInfo trả globalId cho cả người KHÔNG phải
 // bạn (isFr=0) nhưng CHỈ với uid theo góc của chính nick gọi (uid nick khác ⇒ rỗng); getUserInfo(ownId) trả globalId +
-// phoneNumber; findUser(sđt nick CRM khác) trả uid theo góc nick gọi + globalId trùng. Lỗi 216 bị zca-js nuốt ⇒ rỗng.
+// phoneNumber; findUser(sđt nick CRM khác) trả uid theo góc nick gọi + globalId trùng. Lỗi 216 bị zca-js nuốt ⇒ rỗng ⇒
+// globalId TIN ĐƯỢC đã có KHÔNG bị hạ về null (giữ cũ, ghi `loi` — D3).
 // globalId CỦA CHÍNH nick lưu lúc nối (ghiHoSoNickKetNoi — zalo-pool đã gọi getUserInfo(ownId)) ⇒ nick đang tắt vẫn được
 // nhận ra ở nick khác. SĐT dùng cho findUser nick lấy từ hồ sơ sống đó, KHÔNG BAO GIỜ từ zalo_accounts.phone (gõ tay —
 // staging gõ lẫn VTMT/Tiểu Mã). Không bao giờ hỏi getUserInfo trên MÃ NHÓM (Zalo trả globalId giữ chỗ).
 //
-// Ngân sách: tối đa TI_LE_NGAN_SACH_TRA (40%) trần NGÀY 'query' của mỗi nick (đếm trong bộ nhớ, như đọc danh sách nhóm).
+// NGUỒN TIN ĐƯỢC (NGUON_TIN_DUOC): zalo_user_info · zalo_find_user · zalo_nick_ket_noi. Dòng nguồn khác (vd 'zalo_api' của
+// bản trước — không phân biệt được getUserInfo với getGroupMembersInfo) KHÔNG dùng làm bằng chứng và KHÔNG tính là tươi
+// (đọc lại ngay vòng kế).
+//
+// Ngân sách: tối đa TI_LE_NGAN_SACH_TRA (40%) trần NGÀY 'query' của mỗi nick — bộ đếm bot-quyen-ngan-sach.ts (Redis nếu
+// có ⇒ khởi động lại không đếm lại từ 0). Nhịp: tối đa NỬA trần burst (query 30/30 s ⇒ 1 lần / 2 s; friend_lookup 15/30 s).
 // Đọc lại sau TUOI_DANH_TINH_MS (7 ngày) hoặc khi nick nối lại (danhDauNickKetNoiLaiDanhTinh). Lỗi ⇒ không ghi globalId ⇒
 // không nối (đóng an toàn — nhóm vẫn Khách/im).
 //
@@ -31,14 +40,27 @@
 import { prisma } from '../../shared/database/prisma-client.js';
 import { runSystemQuery, withTenant } from '../../shared/tenant/tenant-context.js';
 import { logger } from '../../shared/utils/logger.js';
+import { daDungHomNay, ghiDung, choNhip, _datNganSachChoTest } from './bot-quyen-ngan-sach.js';
 
 export const LO_UID = 50;
 export const TUOI_DANH_TINH_MS = 7 * 24 * 60 * 60_000;
 export const THU_LAI_LOI_MS = 60 * 60_000;
 export const TI_LE_NGAN_SACH_TRA = 0.4;
-export const TI_LE_NGAN_SACH_NHOM = 0.2;
 export const TRAN_TIM_SDT_NGAY = 10;
 export const THU_LAI_SDT_MS = 7 * 24 * 60 * 60_000;
+
+/** Nguồn dòng danh tính. Chỉ ba nguồn TIN ĐƯỢC mới làm bằng chứng + tính là tươi. */
+export const NGUON_USER_INFO = 'zalo_user_info';
+export const NGUON_FIND_USER = 'zalo_find_user';
+export const NGUON_NICK_KET_NOI = 'zalo_nick_ket_noi';
+export const NGUON_TIN_DUOC = [NGUON_USER_INFO, NGUON_FIND_USER, NGUON_NICK_KET_NOI] as const;
+export function laNguonTinDuoc(n: string | null | undefined): boolean {
+  return !!n && (NGUON_TIN_DUOC as readonly string[]).includes(n);
+}
+
+/** Loại ngân sách ngày (bot-quyen-ngan-sach.ts) của vòng danh tính. */
+const NS_QUERY = 'dt_query';
+const NS_SDT = 'dt_sdt';
 
 export interface HoSoZalo {
   globalId: string | null;
@@ -51,8 +73,6 @@ export interface HoSoZalo {
 export interface ZaloDanhTinhApi {
   /** getUserInfo qua nick `nickId` cho ≤ LO_UID uid. uid không có trong kết quả ⇒ vắng khỏi Map. */
   thongTin(nickId: string, uids: string[]): Promise<Map<string, HoSoZalo>>;
-  /** getGroupMembersInfo qua nick `nickId` cho ≤ LO_UID uid THÀNH VIÊN nhóm. uid không có ⇒ vắng khỏi Map. */
-  thanhVienNhom(nickId: string, uids: string[]): Promise<Map<string, HoSoZalo>>;
   /** findUser(sđt) qua nick `nickId` ⇒ uid NHÌN TỪ nick đó + globalId (null = không có tài khoản). */
   timSdt(nickId: string, sdt: string): Promise<{ uid: string; globalId: string | null; ten: string | null } | null>;
 }
@@ -64,7 +84,7 @@ export function sachGlobalId(x: unknown): string | null {
   return s && s !== '0' && s !== 'null' && s !== 'undefined' ? s : null;
 }
 
-/** Bóc kết quả getUserInfo (`changed_profiles`) hoặc getGroupMembersInfo (`profiles`) — khoá "<uid>_0" hoặc "<uid>". THUẦN. */
+/** Bóc kết quả getUserInfo (`changed_profiles`; `profiles` cũng đọc được) — khoá "<uid>_0" hoặc "<uid>". THUẦN. */
 export function bocThongTin(kq: unknown, uids: readonly string[]): Map<string, HoSoZalo> {
   const ra = new Map<string, HoSoZalo>();
   const k = kq as { changed_profiles?: Record<string, Record<string, unknown>>; profiles?: Record<string, Record<string, unknown>> } | null;
@@ -81,14 +101,45 @@ export function bocThongTin(kq: unknown, uids: readonly string[]): Map<string, H
   return ra;
 }
 
+export interface KetQuaLoc {
+  /** Hồ sơ giữ lại (đã bỏ phần bị rào). */
+  hoSo: Map<string, HoSoZalo>;
+  /** Cả lô bị bỏ (mọi uid có globalId trả CÙNG một globalId). */
+  boLo: boolean;
+  /** uid → lý do bị bỏ. */
+  bo: Map<string, 'gid_cua_nick_goi' | 'lo_trung_gid'>;
+}
+
+/**
+ * RÀO D1 (giám sát LIVE 30/09) — THUẦN. `uidNick`/`gidNick` = uid + globalId của CHÍNH nick gọi (`gidNick` null ⇒ lấy từ lô
+ * nếu lô có uid của nick).
+ *   • lô có > 1 uid mang globalId mà tất cả CÙNG một globalId ⇒ bỏ cả lô (Zalo trả globalId giữ chỗ / của nick gọi);
+ *   • uid ≠ uid của nick mà globalId = globalId của nick ⇒ bỏ uid đó.
+ */
+export function locLoHoSo(
+  lo: readonly string[], hoSo: ReadonlyMap<string, HoSoZalo>, o: { uidNick: string | null; gidNick: string | null },
+): KetQuaLoc {
+  const bo = new Map<string, 'gid_cua_nick_goi' | 'lo_trung_gid'>();
+  const coGid = lo.filter((u) => !!hoSo.get(u)?.globalId);
+  if (coGid.length > 1 && new Set(coGid.map((u) => hoSo.get(u)!.globalId)).size === 1) {
+    for (const u of lo) bo.set(u, 'lo_trung_gid');
+    return { hoSo: new Map(), boLo: true, bo };
+  }
+  const gidNick = o.gidNick ?? (o.uidNick ? hoSo.get(o.uidNick)?.globalId ?? null : null);
+  const ra = new Map<string, HoSoZalo>();
+  for (const u of lo) {
+    const h = hoSo.get(u);
+    if (!h) continue;
+    if (gidNick && h.globalId === gidNick && u !== o.uidNick) { bo.set(u, 'gid_cua_nick_goi'); continue; }
+    ra.set(u, h);
+  }
+  return { hoSo: ra, boLo: false, bo };
+}
+
 const apiMacDinh: ZaloDanhTinhApi = {
   async thongTin(nickId, uids) {
     const { zaloOps } = await import('../../shared/zalo-operations.js');
     return bocThongTin(await zaloOps.getUserInfo(nickId, uids as unknown as string), uids);
-  },
-  async thanhVienNhom(nickId, uids) {
-    const { zaloOps } = await import('../../shared/zalo-operations.js');
-    return bocThongTin(await zaloOps.getGroupMembersInfo(nickId, uids), uids);
   },
   async timSdt(nickId, sdt) {
     const { zaloOps } = await import('../../shared/zalo-operations.js');
@@ -98,82 +149,71 @@ const apiMacDinh: ZaloDanhTinhApi = {
   },
 };
 
-let api: ZaloDanhTinhApi = apiMacDinh;
-let moiNick = false;
-let nickDungTest: string[] | null = null;
-let layTran: (nick: string) => Promise<number> = async (nick) => {
+type LoaiNhip = 'query' | 'friend_lookup';
+const BURST_MAC_DINH: Record<LoaiNhip, { burst: number; burstWindowMs: number }> = {
+  query: { burst: 30, burstWindowMs: 30_000 }, friend_lookup: { burst: 15, burstWindowMs: 30_000 },
+};
+/** Chờ nhịp nửa-burst của nick cho loại lời gọi (trần hiệu lực của nick, như rate limiter). */
+const nhipThat = async (nick: string, loai: LoaiNhip): Promise<void> => {
+  let t = BURST_MAC_DINH[loai];
+  try {
+    const { getEffectiveLimit } = await import('../zalo/sdk-limit-service.js');
+    t = await getEffectiveLimit(nick, loai);
+  } catch { /* trần mặc định */ }
+  await choNhip(nick, loai, t.burst, t.burstWindowMs);
+};
+const tranThat = async (nick: string): Promise<number> => {
   const { getEffectiveLimit } = await import('../zalo/sdk-limit-service.js');
   return Math.max(1, Math.floor((await getEffectiveLimit(nick, 'query')).daily * TI_LE_NGAN_SACH_TRA));
 };
-let layTranNhom: (nick: string) => Promise<number> = async (nick) => {
-  const { getEffectiveLimit } = await import('../zalo/sdk-limit-service.js');
-  return Math.max(1, Math.floor((await getEffectiveLimit(nick, 'group_read')).daily * TI_LE_NGAN_SACH_NHOM));
-};
-const daDung = new Map<string, { ngay: string; so: number; sdt: number; nhom: number }>();
+
+let api: ZaloDanhTinhApi = apiMacDinh;
+let moiNick = false;
+let nickDungTest: string[] | null = null;
+let layTran: (nick: string) => Promise<number> = tranThat;
+let nhip: (nick: string, loai: LoaiNhip) => Promise<void> = nhipThat;
 const daTimSdt = new Map<string, number>();
 
-/** Chỉ cho test: cổng Zalo giả (null = thật) + dùng MỌI nick (kể cả không 'connected'), ngân sách ngày (null = thật). */
-export function _datZaloDanhTinhChoTest(a: ZaloDanhTinhApi | null, o: { tranNgay?: number | null; nickDung?: string[] | null } = {}): void {
+/**
+ * Chỉ cho test: cổng Zalo giả (null = thật) + dùng MỌI nick (kể cả không 'connected'), ngân sách ngày (null = thật), nhịp
+ * (mặc định: cổng giả ⇒ không chờ; null = thật). Luôn xoá bộ đếm ngày của vòng danh tính.
+ */
+export function _datZaloDanhTinhChoTest(
+  a: ZaloDanhTinhApi | null,
+  o: { tranNgay?: number | null; nickDung?: string[] | null; nhip?: ((nick: string, loai: LoaiNhip) => Promise<void>) | null } = {},
+): void {
   api = a ?? apiMacDinh;
   moiNick = !!a;
   nickDungTest = o.nickDung ?? null;
-  if (o.tranNgay !== undefined) {
-    layTranNhom = o.tranNgay === null
-      ? async (nick) => {
-        const { getEffectiveLimit } = await import('../zalo/sdk-limit-service.js');
-        return Math.max(1, Math.floor((await getEffectiveLimit(nick, 'group_read')).daily * TI_LE_NGAN_SACH_NHOM));
-      }
-      : async () => o.tranNgay as number;
-    layTran = o.tranNgay === null
-      ? async (nick) => {
-        const { getEffectiveLimit } = await import('../zalo/sdk-limit-service.js');
-        return Math.max(1, Math.floor((await getEffectiveLimit(nick, 'query')).daily * TI_LE_NGAN_SACH_TRA));
-      }
-      : async () => o.tranNgay as number;
-  }
-  daDung.clear();
+  if (o.tranNgay !== undefined) layTran = o.tranNgay === null ? tranThat : async () => o.tranNgay as number;
+  nhip = o.nhip !== undefined ? (o.nhip ?? nhipThat) : a ? async () => undefined : nhipThat;
+  _datNganSachChoTest({ loai: [NS_QUERY, NS_SDT] });
   daTimSdt.clear();
-}
-
-function ngay(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function soDaDung(nick: string): { so: number; sdt: number; nhom: number } {
-  const d = daDung.get(nick);
-  return d && d.ngay === ngay() ? d : { so: 0, sdt: 0, nhom: 0 };
-}
-
-function dung(nick: string, loai: 'so' | 'sdt' | 'nhom'): void {
-  const h = ngay();
-  const d = daDung.get(nick);
-  const x = d && d.ngay === h ? d : { ngay: h, so: 0, sdt: 0, nhom: 0 };
-  x[loai]++;
-  daDung.set(nick, x);
 }
 
 export interface KetQuaLay {
   /** Số lần gọi getUserInfo. */
   goi: number;
-  /** Số lần gọi getGroupMembersInfo. */
-  goiNhom: number;
   /** Số uid đã ghi (có hoặc không có globalId). */
   uid: number;
   /** Số lần findUser. */
   timSdt: number;
-  /** Số lô hỏng (lỗi Zalo / hết giờ) — không ghi gì cho lô đó. */
+  /** Số lô hỏng (lỗi Zalo / hết giờ / lô bị rào D1) — không ghi globalId cho lô đó. */
   loi: number;
+  /** Số uid bị rào D1 bỏ (globalId của chính nick gọi / lô trùng globalId). */
+  boRao: number;
 }
 
-type Dong = { zaloUid: string; globalId: string | null; layLuc: Date; loi: string | null };
+type Dong = { zaloUid: string; globalId: string | null; layLuc: Date; loi: string | null; nguon: string };
 
 /**
  * Giai đoạn MẠNG: đọc globalId sống cho uid cần của MỌI nick dùng được của org (theo ngân sách), ghi bảng hệ thống.
  * Thứ tự ưu tiên mỗi nick Y: uid của chính Y → uid nhân viên thấy ở Y → thành viên nhóm của Y (bản đọc danh sách) → người
- * gửi trong nhóm của Y. Rồi findUser(sđt) cho nick X / nhân viên có sđt mà Y chưa thấy. Không bao giờ ném.
+ * gửi trong nhóm của Y — TẤT CẢ bằng getUserInfo (không bao giờ getGroupMembersInfo — D1). Rồi findUser(sđt) cho nick X /
+ * nhân viên có sđt mà Y chưa thấy. Không bao giờ ném.
  */
 export async function layDanhTinhZalo(orgId: string): Promise<KetQuaLay> {
-  const kq: KetQuaLay = { goi: 0, goiNhom: 0, uid: 0, timSdt: 0, loi: 0 };
+  const kq: KetQuaLay = { goi: 0, uid: 0, timSdt: 0, loi: 0, boRao: 0 };
   try {
     await withTenant(orgId, async () => {
       const nicks = await prisma.zaloAccount.findMany({
@@ -185,6 +225,7 @@ export async function layDanhTinhZalo(orgId: string): Promise<KetQuaLay> {
         orderBy: { id: 'asc' },
       });
       if (nicks.length === 0) return;
+      // Mọi nick của org (kể cả đã lưu trữ / đang tắt): hồ sơ sống của nick X để tìm X từ nick khác.
       const tatCaNick = await prisma.zaloAccount.findMany({
         where: { orgId, zaloUid: { not: null } }, select: { id: true, zaloUid: true },
       });
@@ -196,13 +237,20 @@ export async function layDanhTinhZalo(orgId: string): Promise<KetQuaLay> {
       const nvSdt = await sdtNhanVien(orgId);
       const bayGio = Date.now();
       for (const y of nicks) {
+        const uidY = y.zaloUid!;
         const coSan = new Map<string, Dong>((await prisma.botQuyenDanhTinh.findMany({
-          where: { orgId, zaloAccountId: y.id }, select: { zaloUid: true, globalId: true, layLuc: true, loi: true },
+          where: { orgId, zaloAccountId: y.id },
+          select: { zaloUid: true, globalId: true, layLuc: true, loi: true, nguon: true },
         })).map((r) => [r.zaloUid, r]));
+        const gidTinDuoc = (u: string): string | null => {
+          const r = coSan.get(u);
+          return r && laNguonTinDuoc(r.nguon) ? sachGlobalId(r.globalId) : null;
+        };
+        // Tươi CHỈ khi nguồn tin được (dòng 'zalo_api' cũ ⇒ đọc lại ngay).
         const canDoc = (u: string) => {
           const r = coSan.get(u);
-          if (!r) return true;
-          if (u === y.zaloUid && r.globalId) return false; // globalId của chính nick không đổi
+          if (!r || !laNguonTinDuoc(r.nguon)) return true;
+          if (u === uidY) return !gidTinDuoc(u); // globalId của chính nick không đổi; chưa có ⇒ đọc (cần cho rào D1)
           if (r.loi) return bayGio - r.layLuc.getTime() > THU_LAI_LOI_MS;
           return bayGio - r.layLuc.getTime() > TUOI_DANH_TINH_MS;
         };
@@ -214,46 +262,35 @@ export async function layDanhTinhZalo(orgId: string): Promise<KetQuaLay> {
         const them = (u: string | null | undefined) => {
           if (u && !maNhom.has(u) && !muon.includes(u) && canDoc(u)) muon.push(u);
         };
-        const ghi = async (u: string, h: HoSoZalo | undefined) => {
-          const data = {
-            globalId: h?.globalId ?? null, ten: h?.ten ?? null, nguon: 'zalo_api', layLuc: new Date(), loi: h ? null : 'khong_tra',
-            // SĐT CHỈ của chính nick (tìm lại nick này từ nick khác khi nó tắt) — không lưu SĐT người khác.
-            soDienThoai: u === y.zaloUid ? (h?.sdt ?? null) : null,
-          };
-          await prisma.botQuyenDanhTinh.upsert({
-            where: { orgId_zaloAccountId_zaloUid: { orgId, zaloAccountId: y.id, zaloUid: u } },
-            create: { orgId, zaloAccountId: y.id, zaloUid: u, ...data },
-            update: data,
-          });
+        /** Ghi một uid. D3: không bao giờ hạ globalId TIN ĐƯỢC đã có về null — giữ cũ, ghi `loi`. */
+        const ghi = async (u: string, h: HoSoZalo | undefined, loiRao?: string) => {
+          const cu = gidTinDuoc(u);
+          const loi = loiRao ?? (h ? (h.globalId ? null : (cu ? 'gid_rong' : null)) : 'khong_tra');
+          const khoa = { orgId_zaloAccountId_zaloUid: { orgId, zaloAccountId: y.id, zaloUid: u } };
+          const luc = new Date();
+          if (cu && !(h?.globalId && !loiRao)) {
+            await prisma.botQuyenDanhTinh.update({ where: khoa, data: { layLuc: luc, loi } });
+            coSan.set(u, { ...coSan.get(u)!, layLuc: luc, loi });
+          } else {
+            const g = loiRao ? null : h?.globalId ?? null;
+            const data = {
+              globalId: g, ten: loiRao ? null : h?.ten ?? null, nguon: NGUON_USER_INFO, layLuc: luc, loi,
+              // SĐT CHỈ của chính nick (tìm lại nick này từ nick khác khi nó tắt) — không lưu SĐT người khác.
+              soDienThoai: u === uidY && !loiRao ? (h?.sdt ?? null) : null,
+            };
+            await prisma.botQuyenDanhTinh.upsert({ where: khoa, create: { orgId, zaloAccountId: y.id, zaloUid: u, ...data }, update: data });
+            coSan.set(u, { zaloUid: u, globalId: g, layLuc: luc, loi, nguon: NGUON_USER_INFO });
+          }
           kq.uid++;
         };
-        // (a) THÀNH VIÊN nhóm (bản đọc danh sách) — getGroupMembersInfo trước (globalId từng thành viên: NV, nick CRM,
-        //     KHÁCH — globalId của khách chỉ lưu, không bao giờ cấp gì). Hỏng / thiếu ⇒ để (b) getUserInfo lo.
+        // getUserInfo: chính nick TRƯỚC (lô đầu — globalId của nick là mốc cho rào D1), uid NV thấy ở nick này, thành
+        // viên nhóm (bản đọc danh sách — chỉ lấy uid), người gửi trong nhóm.
+        them(uidY);
+        for (const r of nvUid) if (r.zaloAccountId === y.id) them(r.zaloUid);
         const ds = await prisma.botNhomDanhSach.findMany({
           where: { orgId, zaloAccountId: y.id }, select: { uids: true }, orderBy: { conversationId: 'asc' },
         });
-        const thanhVien = [...new Set(ds.flatMap((d) => d.uids))].filter((u) => u && u !== y.zaloUid && !maNhom.has(u) && canDoc(u));
-        const tranNhom = await layTranNhom(y.id).catch(() => 1);
-        for (let i = 0; i < thanhVien.length; i += LO_UID) {
-          if (soDaDung(y.id).nhom >= tranNhom) break;
-          const lo = thanhVien.slice(i, i + LO_UID);
-          dung(y.id, 'nhom');
-          kq.goiNhom++;
-          try {
-            const hoSo = await api.thanhVienNhom(y.id, lo);
-            for (const u of lo) {
-              const h = hoSo.get(u);
-              if (h?.globalId) { await ghi(u, h); coSan.set(u, { zaloUid: u, globalId: h.globalId, layLuc: new Date(), loi: null }); }
-            }
-          } catch (err) {
-            kq.loi++;
-            logger.warn(`[bot-quyen-danh-tinh] getGroupMembersInfo qua nick ${y.id} lỗi — rơi về getUserInfo:`, err instanceof Error ? err.message : err);
-          }
-        }
-        // (b) getUserInfo: chính nick, uid NV thấy ở nick này, thành viên còn thiếu, người gửi trong nhóm.
-        them(y.zaloUid);
-        for (const r of nvUid) if (r.zaloAccountId === y.id) them(r.zaloUid);
-        for (const u of thanhVien) them(u);
+        for (const u of new Set(ds.flatMap((d) => d.uids))) them(u);
         const nguoiGui = await prisma.$queryRaw<Array<{ uid: string }>>`
           SELECT DISTINCT m.sender_uid AS uid FROM conversations c JOIN messages m ON m.conversation_id = c.id
           WHERE c.org_id = ${orgId} AND c.zalo_account_id = ${y.id} AND c."threadType" = 'group' AND c.is_virtual = false
@@ -264,12 +301,13 @@ export async function layDanhTinhZalo(orgId: string): Promise<KetQuaLay> {
 
         const tran = await layTran(y.id).catch(() => 1);
         for (let i = 0; i < muon.length; i += LO_UID) {
-          if (soDaDung(y.id).so >= tran) {
+          if (await daDungHomNay(y.id, NS_QUERY) >= tran) {
             logger.info(`[bot-quyen-danh-tinh] nick ${y.id}: hết ngân sách đọc hồ sơ Zalo hôm nay (${tran}) — còn ${muon.length - i} uid`);
             break;
           }
           const lo = muon.slice(i, i + LO_UID);
-          dung(y.id, 'so');
+          await nhip(y.id, 'query');
+          await ghiDung(y.id, NS_QUERY);
           kq.goi++;
           let hoSo: Map<string, HoSoZalo>;
           try {
@@ -279,7 +317,13 @@ export async function layDanhTinhZalo(orgId: string): Promise<KetQuaLay> {
             logger.warn(`[bot-quyen-danh-tinh] getUserInfo qua nick ${y.id} lỗi — không ghi (đóng an toàn):`, err instanceof Error ? err.message : err);
             continue;
           }
-          for (const u of lo) await ghi(u, hoSo.get(u));
+          const loc = locLoHoSo(lo, hoSo, { uidNick: uidY, gidNick: gidTinDuoc(uidY) });
+          if (loc.boLo) {
+            kq.loi++;
+            logger.warn(`[bot-quyen-danh-tinh] nick ${y.id}: getUserInfo trả CÙNG một globalId cho cả lô ${lo.length} uid — bỏ lô (rào D1)`);
+          }
+          kq.boRao += loc.bo.size;
+          for (const u of lo) await ghi(u, loc.hoSo.get(u), loc.bo.get(u));
         }
 
         // findUser(sđt): nick X khác (hồ sơ SỐNG của X đã lưu: globalId + SĐT thật) mà Y chưa thấy uid nào mang globalId
@@ -287,13 +331,15 @@ export async function layDanhTinhZalo(orgId: string): Promise<KetQuaLay> {
         const hoSoNick = new Map<string, { gid: string | null; sdt: string | null }>();
         for (const x of tatCaNick) {
           const r = await prisma.botQuyenDanhTinh.findFirst({
-            where: { orgId, zaloAccountId: x.id, zaloUid: x.zaloUid! }, select: { globalId: true, soDienThoai: true },
+            where: { orgId, zaloAccountId: x.id, zaloUid: x.zaloUid!, nguon: { in: [...NGUON_TIN_DUOC] } },
+            select: { globalId: true, soDienThoai: true },
           });
           if (r) hoSoNick.set(x.id, { gid: sachGlobalId(r.globalId), sdt: r.soDienThoai });
         }
-        const gidThayTuY = new Set((await prisma.botQuyenDanhTinh.findMany({
-          where: { orgId, zaloAccountId: y.id, globalId: { not: null } }, select: { globalId: true },
-        })).map((r) => r.globalId!));
+        const gidY = gidTinDuoc(uidY);
+        const gidThayTuY = new Set([...coSan.entries()]
+          .filter(([u, r]) => laNguonTinDuoc(r.nguon) && r.globalId && !(r.globalId === gidY && u !== uidY))
+          .map(([, r]) => r.globalId!));
         const sdtCanTim: string[] = [];
         for (const x of tatCaNick) {
           const h = hoSoNick.get(x.id);
@@ -303,21 +349,34 @@ export async function layDanhTinhZalo(orgId: string): Promise<KetQuaLay> {
         const nvCoUidY = new Set(nvUid.filter((r) => r.zaloAccountId === y.id).map((r) => r.nhanVienId));
         for (const n of nvSdt) if (!nvCoUidY.has(n.id)) for (const so of n.sdt) sdtCanTim.push(so);
         for (const sdt of [...new Set(sdtCanTim)]) {
-          const khoa = `${y.id}|${sdt}`;
-          if (bayGio - (daTimSdt.get(khoa) ?? 0) < THU_LAI_SDT_MS) continue;
-          if (soDaDung(y.id).sdt >= TRAN_TIM_SDT_NGAY) break;
-          daTimSdt.set(khoa, bayGio);
-          dung(y.id, 'sdt');
+          const khoaSdt = `${y.id}|${sdt}`;
+          if (bayGio - (daTimSdt.get(khoaSdt) ?? 0) < THU_LAI_SDT_MS) continue;
+          // Đã tra trong 7 ngày (dòng DB sống qua khởi động lại) ⇒ bỏ.
+          const daTra = await prisma.botQuyenDanhTinh.findFirst({
+            where: { orgId, zaloAccountId: y.id, timTheoSdt: sdt, layLuc: { gt: new Date(bayGio - THU_LAI_SDT_MS) } }, select: { id: true },
+          });
+          if (daTra) { daTimSdt.set(khoaSdt, bayGio); continue; }
+          if (await daDungHomNay(y.id, NS_SDT) >= TRAN_TIM_SDT_NGAY) break;
+          daTimSdt.set(khoaSdt, bayGio);
+          await nhip(y.id, 'friend_lookup');
+          await ghiDung(y.id, NS_SDT);
           kq.timSdt++;
           try {
             const f = await api.timSdt(y.id, sdt);
             if (!f?.uid) continue;
-            const data = { globalId: f.globalId, ten: f.ten, nguon: 'zalo_find_user', layLuc: new Date(), loi: null, timTheoSdt: sdt };
-            await prisma.botQuyenDanhTinh.upsert({
-              where: { orgId_zaloAccountId_zaloUid: { orgId, zaloAccountId: y.id, zaloUid: f.uid } },
-              create: { orgId, zaloAccountId: y.id, zaloUid: f.uid, ...data },
-              update: data,
-            });
+            if (f.uid === uidY || (gidY && f.globalId === gidY)) {
+              kq.boRao++;
+              logger.warn(`[bot-quyen-danh-tinh] findUser qua nick ${y.id} ra chính nick gọi (uid ${f.uid}) — bỏ (rào D1)`);
+              continue;
+            }
+            const khoa = { orgId_zaloAccountId_zaloUid: { orgId, zaloAccountId: y.id, zaloUid: f.uid } };
+            const cu = gidTinDuoc(f.uid);
+            if (cu && !f.globalId) {
+              await prisma.botQuyenDanhTinh.update({ where: khoa, data: { layLuc: new Date(), loi: 'gid_rong', timTheoSdt: sdt } });
+            } else {
+              const data = { globalId: f.globalId, ten: f.ten, nguon: NGUON_FIND_USER, layLuc: new Date(), loi: null, timTheoSdt: sdt };
+              await prisma.botQuyenDanhTinh.upsert({ where: khoa, create: { orgId, zaloAccountId: y.id, zaloUid: f.uid, ...data }, update: data });
+            }
             kq.uid++;
           } catch (err) {
             kq.loi++;
@@ -352,9 +411,10 @@ export async function sdtNhanVien(orgId: string): Promise<Array<{ id: string; te
   })).filter((n) => n.sdt.length > 0);
 }
 
+
 /**
  * Lúc nick nối (zalo-pool đã gọi getUserInfo(ownId)): lưu globalId + SĐT thật của CHÍNH nick vào bảng hệ thống. Không
- * gọi thêm Zalo. Không bao giờ ném.
+ * gọi thêm Zalo. globalId tin được đã có mà hồ sơ lần này không có ⇒ giữ cũ (D3). Không bao giờ ném.
  */
 export async function ghiHoSoNickKetNoi(zaloAccountId: string, ownId: string, profile: Record<string, unknown> | null | undefined): Promise<void> {
   try {
@@ -363,11 +423,21 @@ export async function ghiHoSoNickKetNoi(zaloAccountId: string, ownId: string, pr
     if (!nick) return;
     const h = bocThongTin({ changed_profiles: { [ownId]: profile } }, [ownId]).get(ownId);
     if (!h) return;
-    await withTenant(nick.orgId, () => prisma.botQuyenDanhTinh.upsert({
-      where: { orgId_zaloAccountId_zaloUid: { orgId: nick.orgId, zaloAccountId, zaloUid: ownId } },
-      create: { orgId: nick.orgId, zaloAccountId, zaloUid: ownId, globalId: h.globalId, ten: h.ten, soDienThoai: h.sdt ?? null, nguon: 'zalo_api' },
-      update: { globalId: h.globalId, ten: h.ten, soDienThoai: h.sdt ?? null, nguon: 'zalo_api', layLuc: new Date(), loi: null },
-    }));
+    await withTenant(nick.orgId, async () => {
+      const khoa = { orgId_zaloAccountId_zaloUid: { orgId: nick.orgId, zaloAccountId, zaloUid: ownId } };
+      const cu = await prisma.botQuyenDanhTinh.findUnique({ where: khoa, select: { globalId: true, nguon: true } });
+      if (!h.globalId && cu && laNguonTinDuoc(cu.nguon) && sachGlobalId(cu.globalId)) {
+        await prisma.botQuyenDanhTinh.update({
+          where: khoa, data: { layLuc: new Date(), loi: 'gid_rong', ...(h.sdt ? { soDienThoai: h.sdt } : {}) },
+        });
+        return;
+      }
+      await prisma.botQuyenDanhTinh.upsert({
+        where: khoa,
+        create: { orgId: nick.orgId, zaloAccountId, zaloUid: ownId, globalId: h.globalId, ten: h.ten, soDienThoai: h.sdt ?? null, nguon: NGUON_NICK_KET_NOI },
+        update: { globalId: h.globalId, ten: h.ten, soDienThoai: h.sdt ?? null, nguon: NGUON_NICK_KET_NOI, layLuc: new Date(), loi: null },
+      });
+    });
   } catch (err) {
     logger.warn(`[bot-quyen-danh-tinh] lưu hồ sơ nick ${zaloAccountId} lúc nối lỗi:`, err instanceof Error ? err.message : err);
   }
@@ -386,7 +456,7 @@ export async function danhDauNickKetNoiLaiDanhTinh(orgId: string, zaloAccountId:
 
 /** Bản đọc danh tính của org (chỉ DB). */
 export interface BanDanhTinh {
-  /** `${nick}|${uid}` → globalId sạch (null = không có / nhiễm / lệch). */
+  /** `${nick}|${uid}` → globalId sạch (null = không có / nhiễm / lệch / globalId của chính nick nhìn). */
   gid: (nick: string | null, uid: string) => string | null;
   /** globalId → mọi {nick, uid} mang nó (đã bỏ nhiễm). */
   theoGid: Map<string, Array<{ nick: string; uid: string; layLuc: Date }>>;
@@ -397,23 +467,42 @@ export interface BanDanhTinh {
 }
 
 /**
- * Đọc bảng danh tính của org + luật nhiễm. THUẦN phần tính (`dungBanDanhTinh`). uid không biết nick (`nick` null) ⇒ lấy
- * globalId nếu MỌI dòng của uid đó (mọi nick) đồng ý.
+ * Đọc bảng danh tính của org (CHỈ dòng nguồn tin được) + luật nhiễm. THUẦN phần tính (`dungBanDanhTinh`). uid không biết
+ * nick (`nick` null) ⇒ lấy globalId nếu MỌI dòng của uid đó (mọi nick) đồng ý.
  */
 export async function docBanDanhTinh(orgId: string): Promise<BanDanhTinh> {
-  const rows = await prisma.botQuyenDanhTinh.findMany({
-    where: { orgId }, select: { zaloAccountId: true, zaloUid: true, globalId: true, layLuc: true },
-  });
-  return dungBanDanhTinh(rows);
+  const [rows, nicks] = await Promise.all([
+    prisma.botQuyenDanhTinh.findMany({
+      where: { orgId, nguon: { in: [...NGUON_TIN_DUOC] } },
+      select: { zaloAccountId: true, zaloUid: true, globalId: true, layLuc: true },
+    }),
+    prisma.zaloAccount.findMany({ where: { orgId, zaloUid: { not: null } }, select: { id: true, zaloUid: true } }),
+  ]);
+  return dungBanDanhTinh(rows, new Map(nicks.map((n) => [n.id, n.zaloUid!])));
 }
 
+/**
+ * `tuNhin` (nick → uid tự nhìn): dòng (nick Y, uid ≠ uid của Y) mang globalId CỦA CHÍNH Y là dòng hỏng (D1 — Zalo trả
+ * globalId của nick gọi) ⇒ coi như không có globalId, KHÔNG làm nhiễm globalId của Y (Y vẫn nhận ra được ở nick khác).
+ */
 export function dungBanDanhTinh(
   rows: ReadonlyArray<{ zaloAccountId: string; zaloUid: string; globalId: string | null; layLuc: Date }>,
+  tuNhin: ReadonlyMap<string, string> = new Map(),
 ): BanDanhTinh {
+  const gidNick = new Map<string, string>();
+  for (const r of rows) {
+    const g = sachGlobalId(r.globalId);
+    if (g && tuNhin.get(r.zaloAccountId) === r.zaloUid) gidNick.set(r.zaloAccountId, g);
+  }
+  const sach = (r: { zaloAccountId: string; zaloUid: string; globalId: string | null }): string | null => {
+    const g = sachGlobalId(r.globalId);
+    if (!g) return null;
+    return gidNick.get(r.zaloAccountId) === g && tuNhin.get(r.zaloAccountId) !== r.zaloUid ? null : g;
+  };
   const nhiem = new Set<string>();
   const trenNick = new Map<string, Set<string>>(); // `${nick}|${gid}` → uids
   for (const r of rows) {
-    const g = sachGlobalId(r.globalId);
+    const g = sach(r);
     if (!g) continue;
     const k = `${r.zaloAccountId}|${g}`;
     const s = trenNick.get(k) ?? new Set<string>();
@@ -425,7 +514,7 @@ export function dungBanDanhTinh(
   const theoUid = new Map<string, Set<string | null>>();
   const theoGid = new Map<string, Array<{ nick: string; uid: string; layLuc: Date }>>();
   for (const r of rows) {
-    const g0 = sachGlobalId(r.globalId);
+    const g0 = sach(r);
     const g = g0 && !nhiem.has(g0) ? g0 : null;
     theoCap.set(`${r.zaloAccountId}|${r.zaloUid}`, { g, luc: r.layLuc });
     const s = theoUid.get(r.zaloUid) ?? new Set<string | null>();

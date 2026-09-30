@@ -713,3 +713,77 @@ describe('BotQuyenPage — ngăn thành viên: nick CRM nhìn từ nick khác (�
     w.unmount();
   });
 });
+
+describe('BotQuyenPage — giám sát LIVE 30/09 (D2, D6)', () => {
+  it('D2: "Đây là nick CRM…" liệt kê cả nick ĐÃ LƯU TRỮ (nhãn "đã lưu trữ") và đánh dấu được', async () => {
+    const tv = structuredClone(THANH_VIEN_C2);
+    tv.nickKhac = [{ id: 'nickHCM', ten: 'Nick HCM', daLuuTru: false }, { id: 'nickTM', ten: 'Tiểu Mã Nelia', daLuuTru: true }];
+    vi.mocked(layThanhVienNhom).mockResolvedValue(tv);
+    vi.mocked(danhDauNickCrm).mockResolvedValue({ doi: true });
+    const w = gan();
+    await flushPromises();
+    await nut(hang(w, 'c2'), 'Thành viên').trigger('click');
+    await flushPromises();
+    const dong = w.find('.bq-tv[data-uid="555"]');
+    expect(dong.find('[data-nick="nickTM"]').text()).toBe('Tiểu Mã Nelia (đã lưu trữ)');
+    expect(dong.find('[data-nick="nickHCM"]').text()).toBe('Nick HCM');
+    await dong.find('[data-nick="nickTM"]').trigger('click');
+    await w.find('[data-nut="xac-nhan-ly-do"]').trigger('click');
+    await flushPromises();
+    expect(danhDauNickCrm).toHaveBeenCalledWith('c2', { zaloUid: '555', nickId: 'nickTM' });
+    w.unmount();
+  });
+
+  it('D6: ngăn Thành viên — uid có ĐỀ XUẤT nối vào NV sẵn có ⇒ hiện đề xuất + "Nối" / "Không phải", KHÔNG có "Đặt làm nhân viên"', async () => {
+    const tv = structuredClone(THANH_VIEN_C2);
+    tv.thanhVien.push({
+      zaloUid: '3835588809400259343', ten: 'Trần Hưng', loai: 'nguoi_ngoai', laNickCrm: false, nhanVien: null,
+      deXuatNhanVien: [{ id: 'n7', tenGoi: 'Trần Hưng', vai: 'admin', soTin: 236 }],
+    });
+    vi.mocked(layThanhVienNhom).mockResolvedValue(tv);
+    vi.mocked(noiDeXuat).mockResolvedValue({ nhanVien: { ...NV_QUYET }, doi: true });
+    vi.mocked(tuChoiDeXuat).mockResolvedValue({ doi: true });
+    const w = gan();
+    await flushPromises();
+    await nut(hang(w, 'c2'), 'Thành viên').trigger('click');
+    await flushPromises();
+    const dong = () => w.find('.bq-tv[data-uid="3835588809400259343"]');
+    expect(dong().text()).toContain('Có vẻ là nhân viên “Trần Hưng” (Quản trị) — bằng chứng: 236 tin trùng');
+    expect(dong().text()).not.toContain('Đặt làm nhân viên');
+    expect(w.find('.bq-tv[data-uid="555"]').text()).toContain('Đặt làm nhân viên');
+    const soLanTai = vi.mocked(layThanhVienNhom).mock.calls.length;
+    await dong().find('[data-nut="noi-de-xuat-nv"]').trigger('click');
+    await w.find('[data-nut="xac-nhan-ly-do"]').trigger('click');
+    await flushPromises();
+    expect(noiDeXuat).toHaveBeenCalledWith('n7', '3835588809400259343', undefined);
+    expect(vi.mocked(layThanhVienNhom).mock.calls.length).toBeGreaterThan(soLanTai);
+    await dong().find('[data-nut="tu-choi-de-xuat-nv"]').trigger('click');
+    await w.find('[data-o="ly-do"] input').setValue('em trai');
+    await w.find('[data-nut="xac-nhan-ly-do"]').trigger('click');
+    await flushPromises();
+    expect(tuChoiDeXuat).toHaveBeenCalledWith('n7', '3835588809400259343', 'em trai');
+    w.unmount();
+  });
+
+  it('D6: Chờ gán — dòng có ĐỀ XUẤT nối vào NV sẵn có ⇒ "Nối" / "Không phải" THAY cho "Gán"', async () => {
+    const cg = structuredClone(CHO_GAN);
+    cg.ungVien[0].deXuatNhanVien = [{ id: 'n7', tenGoi: 'Trần Hưng', zaloUid: '778', soTin: 236 }];
+    vi.mocked(layNguoiDaNhan).mockResolvedValue(cg);
+    vi.mocked(noiDeXuat).mockResolvedValue({ nhanVien: { ...NV_QUYET }, doi: true });
+    const w = gan();
+    await flushPromises();
+    await nut(w, 'Nhân viên').trigger('click');
+    await flushPromises();
+    const hung = w.find('.bq-cho-gan tr[data-uid="777"]');
+    expect(hung.text()).toContain('Có vẻ là nhân viên “Trần Hưng” (uid 778) — bằng chứng: 236 tin trùng');
+    expect(hung.findAll('button').some((b) => b.text().trim() === 'Gán')).toBe(false);
+    expect(w.find('.bq-cho-gan tr[data-uid="888"]').findAll('button').some((b) => b.text().trim() === 'Gán')).toBe(true);
+    const soLanTai = vi.mocked(layNguoiDaNhan).mock.calls.length;
+    await hung.find('[data-nut="noi-de-xuat-nv"]').trigger('click');
+    await w.find('[data-nut="xac-nhan-ly-do"]').trigger('click');
+    await flushPromises();
+    expect(noiDeXuat).toHaveBeenCalledWith('n7', '778', undefined);
+    expect(vi.mocked(layNguoiDaNhan).mock.calls.length).toBeGreaterThan(soLanTai);
+    w.unmount();
+  });
+});

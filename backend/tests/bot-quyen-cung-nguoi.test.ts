@@ -2,7 +2,7 @@
 // Quyền bot (docs/77 §8b) — nhận ra CÙNG một người qua nhiều nick (hàm thuần): union-find có rào "một uid mỗi nick",
 // gộp ứng viên "Chờ gán" theo người.
 import { describe, it, expect } from 'vitest';
-import { gomNguoi, bangChungGiua, type LienKet } from '../src/modules/bot-quyen/bot-quyen-cung-nguoi.js';
+import { gomNguoi, bangChungGiua, khoaNgat, cauLienKet, type LienKet } from '../src/modules/bot-quyen/bot-quyen-cung-nguoi.js';
 import { gopTheoNguoi, gomTheoUid, locVaPhanTrang, type DongGom } from '../src/modules/bot-quyen/bot-quyen-nguoi-da-nhan.js';
 import { AI_TU_DONG_UID } from '../src/modules/bot-quyen/bot-quyen-nhan-vien-uid.js';
 import { AI_TU_DONG } from '../src/modules/bot-quyen/bot-quyen-danh-sach.js';
@@ -92,5 +92,17 @@ describe('gopTheoNguoi (Chờ gán)', () => {
     expect(loai.ungVien.map((u) => u.zaloUid)).toEqual(['khach']);
     expect(locVaPhanTrang(ds, { loaiTru: new Set(), dangSaiBot: new Set(), tuKhoa: HUNG_CL.slice(0, 8) }).tong).toBe(1);
     expect(locVaPhanTrang(ds, { loaiTru: new Set(), dangSaiBot: new Set([HUNG_CL]) }).ungVien[0].dangSaiBot).toBe(true);
+  });
+});
+
+describe('bộ ngắt — khoá theo DẠNG câu + tham số (D4)', () => {
+  it('câu cả org (không lọc) và câu lọc uid của một NV — CÙNG tên — là HAI khoá; khác tập uid cũng khác khoá; giống hệt ⇒ cùng khoá', () => {
+    const ten = 'đọc liên kết cùng người';
+    const caOrg = khoaNgat('org', ten, cauLienKet('org', null));
+    const motNv = khoaNgat('org', ten, cauLienKet('org', [HUNG_CL]));
+    const nvKhac = khoaNgat('org', ten, cauLienKet('org', [QUOC_CL]));
+    expect(new Set([caOrg, motNv, nvKhac]).size).toBe(3);
+    expect(khoaNgat('org', ten, cauLienKet('org', [HUNG_CL]))).toBe(motNv);
+    expect(khoaNgat('org-khac', ten, cauLienKet('org', [HUNG_CL]))).not.toBe(motNv);
   });
 });

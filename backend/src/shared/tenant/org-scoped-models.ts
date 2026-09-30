@@ -31,5 +31,5 @@ export const ORG_SCOPED_MODELS: ReadonlySet<string> = new Set([
   'ZaloOaAppConfig', 'ZaloOaConnection', 'ZaloFormMapping', 'ZaloLeadEvent',
   // Quyền bot (docs/77, 30/09) — mọi truy vấn chạy trong request JWT hoặc withTenant (route công khai).
   'BotNhom', 'BotNhanVien', 'BotQuyenNhatKy', 'BotNhomDanhSach', 'BotNhanVienUid',
-  'BotNhanVienUidDeXuat', 'BotNhanVienUidTuChoi', 'BotNickCrmUid',
+  'BotNhanVienUidDeXuat', 'BotNhanVienUidTuChoi', 'BotNickCrmUid', 'BotQuyenDanhTinh',
 ]);

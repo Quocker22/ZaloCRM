@@ -46,6 +46,11 @@ export interface ThanhVienNhom {
   nickCrm: { id: string; ten: string; nguon: string } | null;
   /** ĐỀ XUẤT (tin chung — chưa hiệu lực): có vẻ là nick CRM X; chủ bấm "Đúng" (POST nick-crm) / "Không phải" (DELETE). */
   nickCrmDeXuat: { id: string; ten: string; soTin: number | null } | null;
+  /**
+   * D6: ĐỀ XUẤT đang chờ nối uid này vào nhân viên CÓ SẴN (bot_nhan_vien_uid_de_xuat) ⇒ trang hiện "Nối" / "Không phải"
+   * THAY cho "Đặt làm nhân viên" (tránh tạo NV thứ hai cho cùng người — vd Trần Hưng 3835… ở nick VTMT).
+   */
+  deXuatNhanVien: Array<{ id: string; tenGoi: string; vai: string; soTin: number | null }>;
 }
 
 export interface KetQuaThanhVien {
@@ -57,8 +62,11 @@ export interface KetQuaThanhVien {
   loiZalo: string | null;
   thanhVien: ThanhVienNhom[];
   soNguoiNgoai: number;
-  /** Các nick CRM KHÁC của org (chọn cho "Đây là nick CRM …"). */
-  nickKhac: Array<{ id: string; ten: string }>;
+  /**
+   * Các nick CRM KHÁC của org (chọn cho "Đây là nick CRM …") — KỂ CẢ nick đã lưu trữ (`daLuuTru`; D2: staging Tiểu Mã
+   * Nelia đã lưu trữ mà vẫn ở trong nhóm, bản trước không đánh dấu được). Nick lưu trữ vẫn là người CÔNG TY.
+   */
+  nickKhac: Array<{ id: string; ten: string; daLuuTru: boolean }>;
 }
 
 /** Hạn giờ gọi Zalo — quá hạn thì rơi về người đã nhắn, không treo trang. */
@@ -208,6 +216,13 @@ export async function layThanhVienNhom(
       ? (r.bangChung as { soTin: number }).soTin : null,
   }]));
   for (const u of nickNhin.keys()) uidNick.add(u);
+  const dx = uids.length === 0 ? [] : await prisma.botNhanVienUidDeXuat.findMany({
+    where: { orgId, zaloUid: { in: uids } },
+    select: { zaloUid: true, soTin: true, nhanVien: { select: { id: true, tenGoi: true, vai: true } } },
+    orderBy: [{ zaloUid: 'asc' }, { nhanVienId: 'asc' }],
+  });
+  const deXuatNv = new Map<string, ThanhVienNhom['deXuatNhanVien']>();
+  for (const r of dx) deXuatNv.set(r.zaloUid, [...(deXuatNv.get(r.zaloUid) ?? []), { ...r.nhanVien, soTin: r.soTin }]);
   const uidNickNhom = conv.zaloAccount.zaloUid;
 
   const thanhVien: ThanhVienNhom[] = uids.map((uid) => {
@@ -222,12 +237,15 @@ export async function layThanhVienNhom(
       nhanVien: nv ? { id: nv.id, tenGoi: nv.tenGoi, vai: nv.vai, trangThai: nv.trangThai } : null,
       nickCrm: nc,
       nickCrmDeXuat: !nv && !nc ? nickDeXuat.get(uid) ?? null : null,
+      deXuatNhanVien: !nv && !nc ? deXuatNv.get(uid) ?? [] : [],
     };
   }).sort((a, b) => a.ten.localeCompare(b.ten, 'vi'));
 
   const nickKhac = (await prisma.zaloAccount.findMany({
-    where: { orgId, id: { not: conv.zaloAccountId }, archivedAt: null }, select: { id: true, displayName: true }, orderBy: { displayName: 'asc' },
-  })).map((n) => ({ id: n.id, ten: n.displayName?.trim() || 'Nick chưa đặt tên' }));
+    where: { orgId, id: { not: conv.zaloAccountId } }, select: { id: true, displayName: true, archivedAt: true },
+    orderBy: [{ displayName: 'asc' }, { id: 'asc' }],
+  })).map((n) => ({ id: n.id, ten: n.displayName?.trim() || 'Nick chưa đặt tên', daLuuTru: !!n.archivedAt }))
+    .sort((a, b) => Number(a.daLuuTru) - Number(b.daLuuTru)); // nick đang dùng lên trước
   return {
     conversationId: conv.id,
     nguon,

@@ -25,6 +25,7 @@
 //
 // Mọi truy vấn chạy với `SET LOCAL statement_timeout` (HET_GIO_LIEN_KET_MS) — lỗi/hết giờ ⇒ KHÔNG liên kết nào (đóng
 // an toàn) + WARNING. Chỉ mục: migration 20260930210100_messages_idx_lien_ket.
+import { createHash } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { tenantTransaction } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
@@ -203,12 +204,27 @@ export function _epLienKetHong(bat: boolean): void {
 }
 
 /**
- * Bộ ngắt: một truy vấn (org + tên) vừa hỏng/hết giờ ⇒ NGHI_SAU_HONG_MS không chạy lại (trả mặc định ngay — vẫn đóng an
- * toàn). Đo 30/09 trên 2,1 triệu tin: tin chung của nick tự gửi (đề xuất nick CRM) 77 s, "Chờ gán" cả org > 3 s ⇒ không để
- * mỗi lần mở trang tốn 3 s DB vô ích.
+ * Bộ ngắt: một truy vấn vừa hỏng/hết giờ ⇒ NGHI_SAU_HONG_MS không chạy lại (trả mặc định ngay — vẫn đóng an toàn). Đo
+ * 30/09 trên 2,1 triệu tin: tin chung của nick tự gửi (đề xuất nick CRM) 77 s, "Chờ gán" cả org > 3 s ⇒ không để mỗi lần
+ * mở trang tốn 3 s DB vô ích.
+ * KHOÁ (D4, giám sát 30/09) = org + tên + DẠNG câu SQL + tham số (tập uid lọc…): câu cả org (không lọc — chậm) hết giờ
+ * KHÔNG được ngắt luôn câu lọc vài uid của một NV (rẻ) dùng CÙNG tên — bản trước khoá theo (org, tên) nên một lần "Chờ
+ * gán" hết giờ làm mọi vòng tự nối/đề xuất của org mù 30 phút.
  */
 export const NGHI_SAU_HONG_MS = 30 * 60_000;
 const ngat = new Map<string, number>();
+
+/** Khoá bộ ngắt cho một truy vấn cụ thể. THUẦN. */
+export function khoaNgat(orgId: string, ten: string, cau: Prisma.Sql): string {
+  let thamSo = '';
+  try {
+    thamSo = JSON.stringify(cau.values, (_k, v) => (typeof v === 'bigint' ? v.toString() : v));
+  } catch {
+    thamSo = String(cau.values.length);
+  }
+  const bam = createHash('sha1').update(cau.sql).update('\u0000').update(thamSo).digest('hex').slice(0, 16);
+  return `${orgId}|${ten}|${bam}`;
+}
 
 /**
  * Chạy MỘT truy vấn đọc với `SET LOCAL statement_timeout`. Lỗi/hết giờ ⇒ `macDinh` + WARNING (đóng an toàn — không bao giờ
@@ -218,7 +234,7 @@ export async function docCoHetGio<T>(
   orgId: string, ten: string, cau: Prisma.Sql, macDinh: T, hetGioMs = HET_GIO_LIEN_KET_MS,
 ): Promise<T> {
   const ms = Math.max(1, Math.trunc(hetGioMs));
-  const khoa = `${orgId}|${ten}`;
+  const khoa = khoaNgat(orgId, ten, cau);
   if (!epHong && Date.now() - (ngat.get(khoa) ?? 0) < NGHI_SAU_HONG_MS) return macDinh;
   try {
     if (epHong) throw new Error('ép hỏng (test)');
@@ -228,7 +244,11 @@ export async function docCoHetGio<T>(
     }, { timeout: ms + 10_000, maxWait: 10_000 });
   } catch (err) {
     soLanHong++;
-    if (!epHong) ngat.set(khoa, Date.now());
+    if (!epHong) {
+      const bay = Date.now();
+      for (const [k, luc] of ngat) if (bay - luc >= NGHI_SAU_HONG_MS) ngat.delete(k); // không phình theo tập uid
+      ngat.set(khoa, bay);
+    }
     logger.warn(`[bot-quyen] ${ten} org ${orgId} lỗi/hết giờ — đóng an toàn (không liên kết):`,
       err instanceof Error ? err.message : err);
     return macDinh;

@@ -189,6 +189,17 @@ export async function danhDauNickCrm(
     }))
     || !!(await prisma.botNhomDanhSach.findFirst({ where: { orgId, conversationId: c.id, uids: { has: zaloUid } }, select: { id: true } }));
   if (!thay) throw new LoiNickCrm(400, 'UID_CHUA_THAY', 'uid này chưa từng thấy trong nhóm (thành viên / tin nhắn)');
+  // D2: globalId SỐNG (đọc trực tiếp từ Zalo, nguồn tin được) của uid này (nhìn từ nick nhóm) KHÁC globalId của chính nick
+  // được chọn ⇒ chắc chắn KHÔNG phải nick đó — từ chối (chủ chọn nhầm nick trong menu).
+  if (nick.zaloUid) {
+    const ban = await docBanDanhTinh(orgId);
+    const gUid = ban.gid(c.zaloAccountId, zaloUid);
+    const gNick = ban.gid(nick.id, nick.zaloUid);
+    if (gUid && gNick && gUid !== gNick) {
+      throw new LoiNickCrm(409, 'GLOBAL_ID_KHAC',
+        'Zalo xác nhận uid này là một tài khoản KHÁC nick đã chọn (globalId đọc trực tiếp từ Zalo không trùng) — kiểm lại nick');
+    }
+  }
   return tenantTransaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`bot-quyen:${orgId}`}))`;
     const cu = await tx.botNickCrmUid.findUnique({ where: { orgId_zaloAccountId_zaloUid: { orgId, zaloAccountId: c.zaloAccountId, zaloUid } } });

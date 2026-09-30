@@ -127,6 +127,8 @@ export interface NguoiDaNhan {
   anTinCuoi: boolean;
   redacted: boolean;
   goiYNhanVien?: GoiYNhanVien[];
+  /** ĐỀ XUẤT đang chờ nối một uid của dòng này vào NV có sẵn ⇒ hiện "Nối" / "Không phải" thay cho "Gán". */
+  deXuatNhanVien?: Array<{ id: string; tenGoi: string; zaloUid: string; soTin: number | null }>;
 }
 
 export interface TrangNguoiDaNhan {
@@ -149,6 +151,8 @@ export interface ThanhVien {
   nickCrm?: { id: string; ten: string; nguon: string } | null;
   /** ĐỀ XUẤT (tin chung, chưa hiệu lực): có vẻ là nick CRM này. */
   nickCrmDeXuat?: { id: string; ten: string; soTin: number | null } | null;
+  /** ĐỀ XUẤT đang chờ nối uid này vào NV có sẵn ⇒ hiện "Nối" / "Không phải" thay cho "Đặt làm nhân viên". */
+  deXuatNhanVien?: Array<{ id: string; tenGoi: string; vai: string; soTin: number | null }>;
 }
 
 export interface ThanhVienNhom {
@@ -161,7 +165,7 @@ export interface ThanhVienNhom {
   thanhVien: ThanhVien[];
   soNguoiNgoai: number;
   /** Các nick CRM khác của org (chọn cho "Đây là nick CRM …"). */
-  nickKhac?: Array<{ id: string; ten: string }>;
+  nickKhac?: Array<{ id: string; ten: string; daLuuTru?: boolean }>;
 }
 
 export interface UidNhanVien {

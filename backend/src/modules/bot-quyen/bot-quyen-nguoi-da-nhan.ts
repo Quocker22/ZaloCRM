@@ -84,6 +84,11 @@ export interface UngVien {
    * bởi user CRM / chép qua liên hệ gộp / có giá trị giữ chỗ dùng chung ⇒ chỉ để xếp NV lên đầu ở "Là NV đã có…".
    */
   goiYNhanVien?: Array<{ id: string; tenGoi: string; lyDo: 'global_id' }>;
+  /**
+   * D6: ĐỀ XUẤT đang chờ nối một uid của dòng này vào nhân viên CÓ SẴN ⇒ trang hiện "Nối" / "Không phải" THAY cho "Gán"
+   * (không tạo NV thứ hai cho cùng người).
+   */
+  deXuatNhanVien?: Array<{ id: string; tenGoi: string; zaloUid: string; soTin: number | null }>;
 }
 
 export interface TrangUngVien {
@@ -384,6 +389,14 @@ export async function danhSachNguoiDaNhan(
     .map((u) => ({
       khoa: u.zaloUid, uid: u.noiXemDuoc!.zaloUid, cid: u.noiXemDuoc!.conversationId, rieng: u.noiXemDuoc!.loai === 'rieng',
     })));
+  const dx = await prisma.botNhanVienUidDeXuat.findMany({
+    where: { orgId, zaloUid: { in: trang.ungVien.flatMap((u) => u.uids.map((x) => x.zaloUid)) } },
+    select: { zaloUid: true, soTin: true, nhanVien: { select: { id: true, tenGoi: true } } },
+    orderBy: [{ zaloUid: 'asc' }, { nhanVienId: 'asc' }],
+  });
+  const deXuat = (u: { uids: Array<{ zaloUid: string }> }) => dx
+    .filter((r) => u.uids.some((x) => x.zaloUid === r.zaloUid))
+    .map((r) => ({ id: r.nhanVien.id, tenGoi: r.nhanVien.tenGoi, zaloUid: r.zaloUid, soTin: r.soTin }));
   // Gợi ý globalId chỉ cho trang đang xem (rẻ) — đóng an toàn: lỗi ⇒ không gợi ý.
   const gid = await goiYGlobalId(orgId, trang.ungVien.flatMap((u) => u.uids.map((x) => x.zaloUid)));
   const nvTheoUid = new Map<string, { id: string; tenGoi: string }>();
@@ -403,6 +416,7 @@ export async function danhSachNguoiDaNhan(
     ungVien: trang.ungVien.map(({ noiXemDuoc, ...u }) => ({
       ...u,
       goiYNhanVien: goiY(u),
+      deXuatNhanVien: deXuat(u),
       tinCuoi: noiXemDuoc ? (tin.get(u.zaloUid) ?? null) : null,
       anTinCuoi: !noiXemDuoc,
       redacted: u.anTen || !noiXemDuoc,

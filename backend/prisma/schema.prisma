@@ -4699,7 +4699,8 @@ model BotQuyenDanhTinh {
   zaloUid       String   @map("zalo_uid")
   globalId      String?  @map("global_id")
   ten           String?
-  nguon         String   @default("zalo_api")
+  /// zalo_user_info (getUserInfo) · zalo_find_user · zalo_nick_ket_noi — TIN ĐƯỢC. zalo_api = bản cũ (không dùng làm bằng chứng).
+  nguon         String   @default("zalo_user_info")
   layLuc        DateTime @default(now()) @map("lay_luc")
   loi           String?
   /// CHỈ dòng nick tự nhìn mình: SĐT thật của nick (getUserInfo(ownId).phoneNumber). Không dùng zalo_accounts.phone.

@@ -93,26 +93,20 @@ function token(): string {
 async function goi(method: 'GET' | 'POST' | 'PUT' | 'DELETE', url: string, payload?: object) {
   return app.inject({ method, url: `${BASE}${url}`, headers: { authorization: `Bearer ${token()}` }, ...(payload ? { payload } : {}) });
 }
-/** Cổng Zalo GIẢ: bảng nick → uid → globalId; sđt `${nick}|${sđt}` → kết quả findUser; đếm số lần gọi. */
+/**
+ * Cổng Zalo GIẢ: bảng nick → uid → globalId; sđt `${nick}|${sđt}` → kết quả findUser; đếm số lần gọi. Không có
+ * getGroupMembersInfo: vòng danh tính KHÔNG BAO GIỜ đọc globalId bằng nó (D1 — LIVE nó trả globalId của nick gọi).
+ */
 function giaZalo(
   bang: Record<string, Record<string, string>>,
   sdt: Record<string, { uid: string; globalId: string | null; ten?: string }> = {},
-  o: { nem?: boolean; nemNhom?: boolean } = {},
-): ZaloDanhTinhApi & { dem: { thongTin: number; sdt: number; nhom: number }; hoi: string[]; tra: string[]; hoiNhom: string[] } {
-  const dem = { thongTin: 0, sdt: 0, nhom: 0 };
+  o: { nem?: boolean } = {},
+): ZaloDanhTinhApi & { dem: { thongTin: number; sdt: number }; hoi: string[]; tra: string[] } {
+  const dem = { thongTin: 0, sdt: 0 };
   const hoi: string[] = [];
   const tra: string[] = [];
-  const hoiNhom: string[] = [];
   return {
-    dem, hoi, tra, hoiNhom,
-    async thanhVienNhom(nick, uids) {
-      dem.nhom++;
-      hoiNhom.push(...uids);
-      if (o.nem || o.nemNhom) throw new Error('Zalo lỗi (giả, getGroupMembersInfo)');
-      const m = new Map<string, { globalId: string | null; ten: string | null }>();
-      for (const u of uids) if (bang[nick]?.[u] !== undefined) m.set(u, { globalId: bang[nick][u], ten: null });
-      return m;
-    },
+    dem, hoi, tra,
     async thongTin(nick, uids) {
       dem.thongTin++;
       hoi.push(...uids);
@@ -424,9 +418,11 @@ describeCanDb('bot-quyen — an toàn "một NV nhiều uid" (§8b-an-toàn)', (
     const kq = await docCoHetGio(ORG, 'thử hết giờ', Prisma.sql`SELECT pg_sleep(0.5)`, 'MAC_DINH' as unknown, 50);
     expect(kq).toBe('MAC_DINH');
     expect(_soLanLienKetHong()).toBe(truoc + 1);
-    // bộ ngắt: cùng truy vấn (org + tên) trong 30 phút ⇒ trả mặc định NGAY, không chạm DB
-    expect(await docCoHetGio(ORG, 'thử hết giờ', Prisma.sql`SELECT 1 AS x`, 'MAC_DINH' as unknown)).toBe('MAC_DINH');
+    // bộ ngắt: CÙNG truy vấn (org + tên + dạng câu + tham số) trong 30 phút ⇒ trả mặc định NGAY, không chạm DB
+    expect(await docCoHetGio(ORG, 'thử hết giờ', Prisma.sql`SELECT pg_sleep(0.5)`, 'MAC_DINH' as unknown)).toBe('MAC_DINH');
     expect(_soLanLienKetHong()).toBe(truoc + 1);
+    // D4: câu KHÁC dạng cùng tên vẫn chạy
+    expect(await docCoHetGio(ORG, 'thử hết giờ', Prisma.sql`SELECT 1 AS x`, 'MAC_DINH' as unknown)).toEqual([{ x: 1 }]);
     _epLienKetHong(false); // xoá bộ ngắt
     expect(await docCoHetGio(ORG, 'thử hết giờ', Prisma.sql`SELECT 1 AS x`, 'MAC_DINH' as unknown)).toEqual([{ x: 1 }]);
   });
@@ -558,7 +554,10 @@ describeCanDb('bot-quyen — an toàn "một NV nhiều uid" (§8b-an-toàn)', (
     _datZaloDanhTinhChoTest(giaZalo({ [A]: { 'gc-nv': 'G-GIU-CHO' }, [B]: { 'gc-x1': 'G-GIU-CHO', 'gc-x2': 'G-GIU-CHO' } }));
     const nv = (await goi('POST', '/nhan-vien', { zaloUid: 'gc-nv', tenGoi: 'N', vai: 'sales' })).json().nhanVien;
     await chayDanhTinh(ORG);
-    expect(await prisma.botQuyenDanhTinh.count({ where: { orgId: ORG, globalId: 'G-GIU-CHO' } })).toBe(3);
+    // Ở nick B, lô getUserInfo chỉ có hai uid mang globalId và CÙNG một globalId ⇒ rào D1 bỏ cả lô (không ghi globalId).
+    expect(await prisma.botQuyenDanhTinh.count({ where: { orgId: ORG, globalId: 'G-GIU-CHO' } })).toBe(1);
+    expect((await prisma.botQuyenDanhTinh.findMany({ where: { orgId: ORG, zaloAccountId: B, zaloUid: { in: ['gc-x1', 'gc-x2'] } } }))
+      .map((r) => [r.globalId, r.loi])).toEqual([[null, 'lo_trung_gid'], [null, 'lo_trung_gid']]);
     expect(await prisma.botNhanVienUid.count({ where: { nhanVienId: nv.id } })).toBe(1);
   });
 
@@ -618,7 +617,7 @@ describeCanDb('bot-quyen — an toàn "một NV nhiều uid" (§8b-an-toàn)', (
       await goi('POST', '/nhan-vien', { zaloUid: s.QUOC_VT, tenGoi: 'Viết Quốc', vai: 'admin' });
       const lan = (await goi('POST', '/nhan-vien', { zaloUid: 'lan-cl', tenGoi: 'Lan', vai: 'sales' })).json().nhanVien;
       await chayDanhTinh(ORG);
-      expect(g.dem.nhom).toBeGreaterThan(0); // thành viên đọc bằng getGroupMembersInfo trước
+      expect(g.hoi).toEqual(expect.arrayContaining(['khach-1', 'khach-gc1', 'khach-gc2'])); // thành viên: getUserInfo
       const cfg = await docCauHinhCongKhai(ORG);
       const cn = Object.fromEntries(cfg.nhom.map((n) => [n.conversation_id, n.chuc_nang]));
       expect(cn).toMatchObject({ 'p1-vt': 'khach', 'ln-vt': 'khach', 'gc-vt': 'khach' });
@@ -640,13 +639,12 @@ describeCanDb('bot-quyen — an toàn "một NV nhiều uid" (§8b-an-toàn)', (
     }
   });
 
-  it('getGroupMembersInfo hỏng ⇒ rơi về getUserInfo (lô 50) — vẫn nhận ra; cả hai hỏng ⇒ không nối (Khách)', async () => {
+  it('thành viên nhóm (bản đọc danh sách) đọc globalId CHỈ bằng getUserInfo (lô ≤ 50) — vẫn nhận ra nick CRM', async () => {
     const s = await dungStaging();
     try {
-      const g = giaZalo(s.bang, {}, { nemNhom: true });
+      const g = giaZalo(s.bang);
       _datZaloDanhTinhChoTest(g);
       await chayDanhTinh(ORG);
-      expect(g.dem.nhom).toBeGreaterThan(0);
       expect(g.hoi).toEqual(expect.arrayContaining([s.TM_TU_VT, s.CL_TU_VT]));
       expect((await docCauHinhCongKhai(ORG)).nick_crm.map((k) => k.uid)).toEqual(expect.arrayContaining([s.TM_TU_VT, s.CL_TU_VT]));
     } finally {

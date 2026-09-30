@@ -715,7 +715,11 @@ export async function themNhanVien(orgId: string, aiId: string, input: unknown):
     await khoaOrg(tx, orgId);
     const trung = await tx.botNhanVien.findUnique({ where: { orgId_zaloUid: { orgId, zaloUid } }, select: { id: true } });
     if (trung) throw new LoiBotQuyen(409, 'NHAN_VIEN_DA_CO', 'Zalo này đã có trong danh sách nhân viên');
-    await kiemUidChuaCoChu(tx, orgId, [...chon, ...suyRa.map((u) => u.zaloUid)]);
+    // D5 (giám sát 30/09): CHỈ uid chủ chọn phải chưa có chủ. uid máy SUY RA (tin chung) chỉ là đề xuất — thuộc NV khác thì
+    // ghiDeXuat tự bỏ; không được chặn cả việc thêm người (bản trước: 409 "đã là nhân viên …" vì một uid máy đoán).
+    await kiemUidChuaCoChu(tx, orgId, chon);
+    // uid chủ chọn làm NV mới mà đang là ĐỀ XUẤT của NV khác ⇒ đề xuất đó hết nghĩa (uid đã có chủ) — xoá.
+    await tx.botNhanVienUidDeXuat.deleteMany({ where: { orgId, zaloUid: { in: chon } } });
     const tao = await tx.botNhanVien.create({
       data: { orgId, zaloUid, tenGoi, vai, trangThai, userId, ghiChu, soDienThoai, capNhatBoiId: aiId },
       select: { id: true },

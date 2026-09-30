@@ -193,13 +193,21 @@ describeCanDb('bot-quyen — một nhân viên nhiều uid (mỗi nick một uid
     expect(cfg.nhan_vien[0].uids).toEqual([{ nick_uid: CL_UID, uid: HUNG_CL, nguon: 'chu_chon' }]);
   });
 
-  it('người đã là NV dưới uid nick khác ⇒ thêm mới bằng uid kia bị chặn (409, nói tên)', async () => {
-    expect((await goi('POST', '/nhan-vien', { zaloUid: HUNG_CL, tenGoi: 'Trần Hưng', vai: 'admin' })).statusCode).toBe(201);
+  it('D5: uid máy SUY RA (tin chung) thuộc NV khác KHÔNG chặn thêm mới — chỉ uid CHỦ CHỌN phải chưa có chủ', async () => {
+    const hung = (await goi('POST', '/nhan-vien', { zaloUid: HUNG_CL, tenGoi: 'Trần Hưng', vai: 'admin' })).json().nhanVien;
+    expect(hung.deXuat.map((d: { zaloUid: string }) => d.zaloUid)).toEqual([HUNG_VT]); // tin chung ⇒ chỉ đề xuất
+    // HUNG_VT chỉ là ĐỀ XUẤT của Hưng (chưa ai sở hữu) ⇒ chủ vẫn thêm được; uid suy ra HUNG_CL (đã có chủ) không chặn.
     const r = await goi('POST', '/nhan-vien', { zaloUid: HUNG_VT, tenGoi: 'Hưng VT', vai: 'sales' });
-    expect(r.statusCode).toBe(409);
-    expect(r.json()).toMatchObject({ code: 'NHAN_VIEN_DA_CO' });
-    expect(r.json().error).toContain('Trần Hưng');
-    expect(await prisma.botNhanVien.count({ where: { orgId: ORG } })).toBe(1);
+    expect(r.statusCode).toBe(201);
+    expect(r.json().nhanVien.deXuat).toEqual([]); // HUNG_CL đã thuộc Trần Hưng ⇒ không đề xuất
+    // đề xuất HUNG_VT của Trần Hưng hết nghĩa (uid đã có chủ) ⇒ xoá
+    expect(await prisma.botNhanVienUidDeXuat.count({ where: { orgId: ORG, zaloUid: HUNG_VT } })).toBe(0);
+    // uid CHỦ CHỌN đã có chủ ⇒ vẫn 409, nói tên
+    const trung = await goi('POST', '/nhan-vien', { zaloUid: 'khac-x', zaloUids: [HUNG_CL], tenGoi: 'X', vai: 'sales' });
+    expect(trung.statusCode).toBe(409);
+    expect(trung.json()).toMatchObject({ code: 'NHAN_VIEN_DA_CO' });
+    expect(trung.json().error).toContain('Trần Hưng');
+    expect(await prisma.botNhanVien.count({ where: { orgId: ORG } })).toBe(2);
   });
 
   it('gán kèm zaloUids (dòng "Chờ gán" đã gộp) + POST /nhan-vien/:id/uid thêm uid nick thứ ba (lyDo bắt buộc)', async () => {

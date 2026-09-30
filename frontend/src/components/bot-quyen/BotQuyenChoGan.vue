@@ -8,7 +8,8 @@
   Zalo cấp uid KHÁC nhau cho cùng một người ở mỗi nick (docs/77 §8b): máy gộp các uid CHẮC là cùng người (cùng tin nhắn
   trong nhóm chung của hai nick — luật chặt) thành một dòng — Gán gửi hết. Còn sót ⇒ "Là NV đã có…" thêm uid của dòng này
   vào một nhân viên sẵn có (LÝ DO bắt buộc — §8b-an-toàn). Gợi ý lên đầu: NV cùng globalId (CHỈ gợi ý — globalId trong bảng
-  CRM ghi được nên không bao giờ tự áp) rồi NV trùng tên.
+  CRM ghi được nên không bao giờ tự áp) rồi NV trùng tên. Dòng có ĐỀ XUẤT nối vào một nhân viên có sẵn (D6, giám sát
+  30/09) ⇒ hiện đề xuất + "Nối" / "Không phải" THAY cho "Gán" (không tạo NV thứ hai cho cùng người).
 -->
 <template>
   <section class="bq-goc bq-cho-gan" aria-label="Chờ gán — người đã nhắn cho shop">
@@ -87,8 +88,15 @@
             </select>
           </td>
           <td class="bq-cot-nut">
+            <div v-for="d in u.deXuatNhanVien ?? []" :key="`dx-${d.id}-${d.zaloUid}`" class="bq-cg-de-xuat" data-de-xuat-nv>
+              <span class="bq-nho">Có vẻ là nhân viên “{{ d.tenGoi }}” (uid {{ d.zaloUid }}) — bằng chứng: {{ d.soTin ?? '?' }} tin trùng</span>
+              <span class="bq-cg-nut">
+                <v-btn size="small" color="primary" variant="tonal" data-nut="noi-de-xuat-nv" @click="moDx({ loai: 'noi', d })">Nối</v-btn>
+                <v-btn size="small" variant="text" data-nut="tu-choi-de-xuat-nv" @click="moDx({ loai: 'tu_choi', d })">Không phải</v-btn>
+              </span>
+            </div>
             <div class="bq-cg-nut">
-              <v-btn size="small" color="primary" variant="flat" prepend-icon="mdi-account-plus-outline" @click="gan(u)">Gán</v-btn>
+              <v-btn v-if="!(u.deXuatNhanVien ?? []).length" size="small" color="primary" variant="flat" prepend-icon="mdi-account-plus-outline" @click="gan(u)">Gán</v-btn>
               <v-menu v-if="nhanVien.length > 0" location="bottom end">
                 <template #activator="{ props: p }">
                   <v-btn
@@ -137,6 +145,18 @@
       </v-card>
     </v-dialog>
 
+    <BotQuyenLyDoDialog
+      v-model="hopDx"
+      :tieu-de="viecDx ? (viecDx.loai === 'noi' ? `Zalo ${viecDx.d.zaloUid} là nhân viên “${viecDx.d.tenGoi}”?` : `Zalo ${viecDx.d.zaloUid} KHÔNG phải “${viecDx.d.tenGoi}”?`) : ''"
+      :mo-ta="viecDx?.loai === 'noi'
+        ? 'Bot sẽ nhận Zalo này là nhân viên đó (cùng vai, cùng trạng thái). Chỉ làm khi chắc là CÙNG một người.'
+        : 'Máy sẽ không đề xuất lại uid này cho nhân viên đó.'"
+      :nut-chu="viecDx?.loai === 'noi' ? 'Nối' : 'Không phải'"
+      :dang-lam="dangDx"
+      :loi="loiDx"
+      @xac-nhan="lamDx"
+    />
+
     <BotQuyenNhanVienDialog
       v-model="hop"
       che-do="tao"
@@ -150,7 +170,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
 import {
-  layNguoiDaNhan, themUidNhanVien,
+  layNguoiDaNhan, themUidNhanVien, noiDeXuat, tuChoiDeXuat,
   type NguoiDaNhan, type NguoiDungCrm, type NhanVien, type TrangNguoiDaNhan, type VaiNhanVien,
 } from '@/api/bot-quyen';
 import { useToast } from '@/composables/use-toast';
@@ -160,6 +180,7 @@ import type { MauNhanVien } from '@/views/settings/bot-quyen-thanh-vien';
 import { loiApi } from '@/views/settings/bot-quyen-loi';
 import { dinhDangGioVN } from '@/views/settings/may-in-nhat-ky';
 import BotQuyenNhanVienDialog from './BotQuyenNhanVienDialog.vue';
+import BotQuyenLyDoDialog from './BotQuyenLyDoDialog.vue';
 
 const props = withDefaults(defineProps<{ nguoiDungCrm: NguoiDungCrm[]; nhanVien?: NhanVien[] }>(), { nhanVien: () => [] });
 const emit = defineEmits<{ 'da-gan': [] }>();
@@ -272,6 +293,39 @@ async function xacNhanGop() {
   }
 }
 
+// ── Đề xuất nối uid vào nhân viên CÓ SẴN (D6) ──
+type DeXuatNv = NonNullable<NguoiDaNhan['deXuatNhanVien']>[number];
+const hopDx = ref(false);
+const viecDx = ref<{ loai: 'noi' | 'tu_choi'; d: DeXuatNv } | null>(null);
+const dangDx = ref(false);
+const loiDx = ref('');
+
+function moDx(v: { loai: 'noi' | 'tu_choi'; d: DeXuatNv }) {
+  viecDx.value = v;
+  loiDx.value = '';
+  hopDx.value = true;
+}
+
+async function lamDx(lyDo: string) {
+  const v = viecDx.value;
+  if (!v) return;
+  dangDx.value = true;
+  loiDx.value = '';
+  try {
+    if (v.loai === 'noi') await noiDeXuat(v.d.id, v.d.zaloUid, lyDo || undefined);
+    else await tuChoiDeXuat(v.d.id, v.d.zaloUid, lyDo || undefined);
+    toast.success(v.loai === 'noi' ? `Đã nối vào “${v.d.tenGoi}” — bot áp trong khoảng 1 phút.` : 'Đã ghi “Không phải”.');
+    hopDx.value = false;
+    await daGan();
+  } catch (e) {
+    const l = loiApi(e, 'Không lưu được');
+    loiDx.value = l.chu;
+    if (!l.daBao) toast.error(l.chu, 6000);
+  } finally {
+    dangDx.value = false;
+  }
+}
+
 async function daGan() {
   emit('da-gan');
   await tai(false, trang.value?.trang ?? 1);
@@ -300,6 +354,10 @@ onMounted(() => { void tai(); });
 }
 .bq-cg-uid { font-size: 11.5px; overflow-wrap: anywhere; }
 .bq-cg-nut { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.bq-cg-de-xuat {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0 0 6px; padding: 4px 8px;
+  border: 1px dashed var(--bq-vien); border-radius: 6px;
+}
 .bq-cg-trang { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 10px; }
 @media (max-width: 700px) {
   .bq-cg-tin, .bq-cg-noi { max-width: none; }

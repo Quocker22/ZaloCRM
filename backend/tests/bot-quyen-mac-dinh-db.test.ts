@@ -448,7 +448,7 @@ describeCanDb('bot-quyen — mặc định chức năng nhóm (DB)', () => {
       await xepHangDocLai([G(3)]);
       await choHangDoiXong();
       expect(goi).toHaveLength(2);
-      expect(soLanDaDocHomNay(NICK)).toBe(2);
+      expect(await soLanDaDocHomNay(NICK)).toBe(2);
       const d3 = await docDong(3);
       expect(d3).toMatchObject({ canDocLai: true });
       expect(d3!.loi).toMatch(/hết 2 lượt/);

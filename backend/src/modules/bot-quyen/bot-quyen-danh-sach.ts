@@ -18,8 +18,8 @@
 // Ngân sách (review P1-2): getGroupInfo tính vào trần `group_read` của nick (sdk-limit-service: 1000/ngày, 20/30 s) CHUNG
 // với "Quét group" và ngăn thành viên. Tính năng này dùng tối đa TI_LE_NGAN_SACH (40%) trần NGÀY của mỗi nick, trong đó
 // đọc định kỳ tối đa TI_LE_DINH_KY (một nửa) ⇒ luôn còn chỗ cho đọc gấp (sự kiện thành viên). Nhịp: tối đa nửa trần
-// burst của nick. Đếm theo ngày UTC như zalo-rate-limiter, trong bộ nhớ tiến trình (khởi động lại ⇒ đếm lại từ 0 —
-// trần của rate-limiter vẫn là chốt chặn cuối).
+// burst của nick. Đếm theo ngày UTC như zalo-rate-limiter, bộ đếm bot-quyen-ngan-sach.ts (Redis nếu có ⇒ khởi động lại
+// KHÔNG đếm lại từ 0 — D7; không có Redis ⇒ RAM, trần của rate-limiter vẫn là chốt chặn cuối).
 //
 // Đua "đọc ↔ đánh dấu": lần đọc ghi mốc BẮT ĐẦU; cờ chỉ gỡ nếu KHÔNG có lần đánh dấu nào CÙNG LÚC hoặc sau mốc đó
 // (`danh_dau_luc >= bat_dau` ⇒ giữ cờ — cùng mili-giây cũng giữ). Đọc lỗi không bao giờ gỡ cờ.
@@ -29,6 +29,7 @@ import { boSungUidNhanVien } from './bot-quyen-nhan-vien-uid.js';
 import { layDanhTinhZalo, danhDauNickKetNoiLaiDanhTinh } from './bot-quyen-danh-tinh.js';
 import { docNickCrm, nickCongTyTheoNick } from './bot-quyen-nick-crm.js';
 import { runSystemQuery, withTenant } from '../../shared/tenant/tenant-context.js';
+import { daDungHomNay, ghiDung, _datNganSachChoTest } from './bot-quyen-ngan-sach.js';
 import { tinhMacDinhNhom, cauDoiMacDinhTuDong } from './bot-quyen-mac-dinh.js';
 
 /** Đọc thông tin NHIỀU nhóm của một nick (zca-js getGroupInfo). Tiêm được — test thay bằng hàm giả. */
@@ -124,7 +125,8 @@ let docThongTin: DocThongTinNhom = docMacDinh;
 let dongHo: () => Date = () => new Date();
 let nghiCoDinh: number | null = null;
 let layTranNgay: (nick: string) => Promise<number> = tranNgayThat;
-const daDung = new Map<string, { ngay: string; so: number }>();
+/** Loại ngân sách ngày (bot-quyen-ngan-sach.ts) của việc đọc danh sách nhóm. */
+const NS_DOC_NHOM = 'ds_group_read';
 const daCanhBao = new Map<string, string>();
 /** nick → mốc (ms) lượt đọc gần nhất (hoặc đã hẹn) do nối lại. */
 const docKetNoiLuc = new Map<string, number>();
@@ -139,7 +141,7 @@ export function _datBoDocChoTest(doc: DocThongTinNhom | null): void {
 export function _datMoiTruongChoTest(o: { dongHo?: (() => Date) | null; tranNgay?: ((nick: string) => Promise<number>) | null } = {}): void {
   if (o.dongHo !== undefined) dongHo = o.dongHo ?? (() => new Date());
   if (o.tranNgay !== undefined) layTranNgay = o.tranNgay ?? tranNgayThat;
-  daDung.clear();
+  _datNganSachChoTest({ loai: [NS_DOC_NHOM] });
   daCanhBao.clear();
   docKetNoiLuc.clear();
 }
@@ -155,16 +157,12 @@ function dauNgayMaiUtc(d: Date): Date {
 }
 
 /** Số lần gọi getGroupInfo hôm nay (UTC) của nick do tính năng này. */
-export function soLanDaDocHomNay(nick: string): number {
-  const d = daDung.get(nick);
-  return d && d.ngay === ngayUtc(dongHo()) ? d.so : 0;
+export async function soLanDaDocHomNay(nick: string): Promise<number> {
+  return daDungHomNay(nick, NS_DOC_NHOM, dongHo());
 }
 
-function dung(nick: string): void {
-  const hom = ngayUtc(dongHo());
-  const d = daDung.get(nick);
-  if (d && d.ngay === hom) d.so++;
-  else daDung.set(nick, { ngay: hom, so: 1 });
+async function dung(nick: string): Promise<void> {
+  await ghiDung(nick, NS_DOC_NHOM, dongHo());
 }
 
 /** Xếp hàng đọc lại danh sách. `gap` (sự kiện, nhóm mới, chủ bấm) đi trước `dinh_ky`. Trả promise xong vòng hiện tại. */
@@ -259,7 +257,7 @@ async function xuLyLo(lo: Lo): Promise<boolean> {
   } catch {
     tran = tranNganSach(1000);
   }
-  const da = soLanDaDocHomNay(lo.nick);
+  const da = await soLanDaDocHomNay(lo.nick);
   const choPhep = lo.uuTien === 'gap' ? da < tran : da < Math.floor(tran * TI_LE_DINH_KY);
   if (!choPhep) {
     if (lo.uuTien === 'gap') {
@@ -277,7 +275,7 @@ async function xuLyLo(lo: Lo): Promise<boolean> {
     }
     return false;
   }
-  dung(lo.nick);
+  await dung(lo.nick);
   await docMotLo(lo.nick, lo.ds);
   await ghiNhanDoiMacDinh(lo.orgId, lo.ds.map((c) => c.id))
     .catch((err) => logger.warn('[bot-quyen-danh-sach] ghi nhận mặc định đổi lỗi:', err));

@@ -5,7 +5,9 @@
   người đã nhắn trong nhóm; dòng nguồn nói rõ lấy từ đâu, lúc nào.
   Mỗi người một nhãn: Nhân viên (vai + trạng thái) / Nick của nhóm / Người ngoài / Nick CRM khác. Người ngoài
   có hai nút: "Đặt làm nhân viên" và "Là người công ty (không dùng bot)" — mở hộp thêm nhân viên điền sẵn
-  uid + tên. Nhóm có người ngoài mà chức năng ≠ Khách ⇒ cảnh báo bot sẽ im.
+  uid + tên. Người ngoài mà máy ĐỀ XUẤT nối vào một nhân viên có sẵn (giám sát 30/09, D6) ⇒ hiện đề xuất + "Nối" /
+  "Không phải" THAY cho "Đặt làm nhân viên" (không tạo NV thứ hai cho cùng người). "Đây là nick CRM…" liệt kê cả nick đã
+  lưu trữ (D2). Nhóm có người ngoài mà chức năng ≠ Khách ⇒ cảnh báo bot sẽ im.
   Máy tính: ngăn trượt bên phải; điện thoại: toàn màn hình.
 -->
 <template>
@@ -79,8 +81,15 @@
                 <v-btn size="small" color="primary" variant="tonal" data-nut="dung-nick" @click="moNick({ loai: 'dat', tv, nickId: tv.nickCrmDeXuat.id, tenNick: tv.nickCrmDeXuat.ten })">Đúng là nick này</v-btn>
                 <v-btn size="small" variant="text" data-nut="khong-phai-nick" @click="moNick({ loai: 'go', tv, nickId: tv.nickCrmDeXuat.id, tenNick: tv.nickCrmDeXuat.ten })">Không phải</v-btn>
               </div>
+              <div v-for="d in tv.deXuatNhanVien ?? []" :key="`dxnv-${d.id}`" class="bq-tv-de-xuat" data-de-xuat-nv>
+                <span class="bq-nho">
+                  Có vẻ là nhân viên “{{ d.tenGoi }}” ({{ NHAN_VAI[d.vai as VaiNhanVien] ?? d.vai }}) — bằng chứng: {{ d.soTin ?? '?' }} tin trùng
+                </span>
+                <v-btn size="small" color="primary" variant="tonal" data-nut="noi-de-xuat-nv" @click="moDx({ loai: 'noi', tv, nv: d })">Nối</v-btn>
+                <v-btn size="small" variant="text" data-nut="tu-choi-de-xuat-nv" @click="moDx({ loai: 'tu_choi', tv, nv: d })">Không phải</v-btn>
+              </div>
               <div class="bq-cac-nut">
-                <v-btn size="small" variant="tonal" color="primary" @click="moThem(tv, 'nhan_vien')">Đặt làm nhân viên</v-btn>
+                <v-btn v-if="!(tv.deXuatNhanVien ?? []).length" size="small" variant="tonal" color="primary" @click="moThem(tv, 'nhan_vien')">Đặt làm nhân viên</v-btn>
                 <v-btn size="small" variant="outlined" @click="moThem(tv, 'cong_ty')">Là người công ty (không dùng bot)</v-btn>
                 <v-menu v-if="(ketQua.nickKhac ?? []).length > 0" location="bottom end">
                   <template #activator="{ props: p }">
@@ -89,6 +98,7 @@
                   <v-list density="compact" max-height="320">
                     <v-list-item
                       v-for="n in ketQua.nickKhac ?? []" :key="n.id" :data-nick="n.id" :title="n.ten"
+                      :subtitle="n.daLuuTru ? 'đã lưu trữ' : undefined"
                       @click="moNick({ loai: 'dat', tv, nickId: n.id, tenNick: n.ten })"
                     />
                   </v-list>
@@ -126,18 +136,30 @@
     :loi="loiNick"
     @xac-nhan="lamNick"
   />
+
+  <BotQuyenLyDoDialog
+    v-model="hopDx"
+    :tieu-de="viecDx ? (viecDx.loai === 'noi' ? `Zalo ${viecDx.tv.zaloUid} là nhân viên “${viecDx.nv.tenGoi}”?` : `Zalo ${viecDx.tv.zaloUid} KHÔNG phải “${viecDx.nv.tenGoi}”?`) : ''"
+    :mo-ta="viecDx?.loai === 'noi'
+      ? 'Bot sẽ nhận Zalo này là nhân viên đó (cùng vai, cùng trạng thái). Chỉ làm khi chắc là CÙNG một người.'
+      : 'Máy sẽ không đề xuất lại uid này cho nhân viên đó.'"
+    :nut-chu="viecDx?.loai === 'noi' ? 'Nối' : 'Không phải'"
+    :dang-lam="dangDx"
+    :loi="loiDx"
+    @xac-nhan="lamDx"
+  />
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import {
-  layThanhVienNhom, danhDauNickCrm, goNickCrm,
-  type NhanVien, type NguoiDungCrm, type NhomView, type ThanhVien, type ThanhVienNhom,
+  layThanhVienNhom, danhDauNickCrm, goNickCrm, noiDeXuat, tuChoiDeXuat,
+  type NhanVien, type NguoiDungCrm, type NhomView, type ThanhVien, type ThanhVienNhom, type VaiNhanVien,
 } from '@/api/bot-quyen';
 import BotQuyenLyDoDialog from './BotQuyenLyDoDialog.vue';
 import { useToast } from '@/composables/use-toast';
 import { useMobile } from '@/composables/use-mobile';
-import { trangThaiBotNhom } from '@/views/settings/bot-quyen-luat';
+import { trangThaiBotNhom, NHAN_VAI } from '@/views/settings/bot-quyen-luat';
 import { nhanChucNangNhom } from '@/views/settings/bot-quyen-mac-dinh';
 import { tenNhomHienThi, tenNick } from '@/views/settings/bot-quyen-nhom';
 import {
@@ -240,6 +262,40 @@ async function lamNick(lyDo: string) {
     if (!l.daBao) toast.error(l.chu, 6000);
   } finally {
     dangNick.value = false;
+  }
+}
+
+// ── Đề xuất nối uid vào nhân viên CÓ SẴN (D6) ──
+type ViecDx = { loai: 'noi' | 'tu_choi'; tv: ThanhVien; nv: { id: string; tenGoi: string } };
+const hopDx = ref(false);
+const viecDx = ref<ViecDx | null>(null);
+const dangDx = ref(false);
+const loiDx = ref('');
+
+function moDx(v: ViecDx) {
+  viecDx.value = v;
+  loiDx.value = '';
+  hopDx.value = true;
+}
+
+async function lamDx(lyDo: string) {
+  const v = viecDx.value;
+  if (!v) return;
+  dangDx.value = true;
+  loiDx.value = '';
+  try {
+    if (v.loai === 'noi') await noiDeXuat(v.nv.id, v.tv.zaloUid, lyDo || undefined);
+    else await tuChoiDeXuat(v.nv.id, v.tv.zaloUid, lyDo || undefined);
+    toast.success(v.loai === 'noi' ? `Đã nối vào “${v.nv.tenGoi}” — bot áp trong khoảng 1 phút.` : 'Đã ghi “Không phải”.');
+    hopDx.value = false;
+    emit('da-doi');
+    await tai(false);
+  } catch (e) {
+    const l = loiApi(e, 'Không lưu được');
+    loiDx.value = l.chu;
+    if (!l.daBao) toast.error(l.chu, 6000);
+  } finally {
+    dangDx.value = false;
   }
 }
 
