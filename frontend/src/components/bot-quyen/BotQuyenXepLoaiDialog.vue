@@ -4,7 +4,9 @@
   của lựa chọn đang chọn hiện lại trong khung "Sau khi lưu" — người bấm Lưu đã đọc bot sẽ làm gì khác đi.
   Đổi làm bot BỚT quyền (bot-quyen-luat.ts canLyDoNhom, chép luật backend) ⇒ bắt buộc lý do; thiếu thì
   chặn ngay trong hộp, không gửi. Backend vẫn kiểm; lỗi 4xx hiện nguyên câu `error` (toast + trong hộp).
-  "Bỏ xếp loại" (DELETE) chỉ có khi nhóm đang được xếp.
+  "Theo mặc định" (DELETE — docs/77 §8) chỉ có khi nhóm đang được xếp tường minh: bỏ lựa chọn của chủ, nhóm tự theo
+  thành viên (toàn nhân viên ⇒ Nhóm nhân viên, có người ngoài ⇒ Khách). Nhóm đang theo mặc định mở hộp với giá trị mặc
+  định chọn sẵn — bấm Lưu là CỐ ĐỊNH giá trị đó.
 -->
 <template>
   <v-dialog
@@ -18,14 +20,17 @@
       <div class="bq-dlg-dau">
         <div class="bq-dlg-ico" aria-hidden="true"><v-icon size="18" icon="mdi-tag-outline" /></div>
         <div>
-          <div class="bq-dlg-tieu-de">{{ nhom?.chucNang ? 'Đổi chức năng nhóm' : 'Xếp loại nhóm' }} “{{ ten }}”</div>
+          <div class="bq-dlg-tieu-de">{{ tieuDe }} “{{ ten }}”</div>
           <div class="bq-dlg-phu">
-            Nick {{ nhom ? tenNick(nhom.nick) : '' }} · hiện tại: {{ nhom?.chucNang ? NHAN_CHUC_NANG[nhom.chucNang] : 'chưa xếp loại (bot đang im)' }}
+            Nick {{ nhom ? tenNick(nhom.nick) : '' }} · hiện tại: {{ hienTai }}
           </div>
         </div>
       </div>
 
       <v-card-text class="bq-dlg-than">
+        <div v-if="nhom" class="bq-mac-dinh bq-nho" data-o="mac-dinh">
+          <v-icon size="14" icon="mdi-account-group-outline" /> Mặc định theo thành viên: <b>{{ cauMacDinh(nhom.macDinh) }}</b>
+        </div>
         <div class="bq-lua-chon-ds" role="radiogroup" aria-label="Chức năng nhóm">
           <button
             v-for="o in luaChon"
@@ -41,7 +46,7 @@
             <span class="bq-lua-chon-cham" aria-hidden="true" />
             <span class="bq-lua-chon-chu">
               <span class="bq-lua-chon-ten">
-                {{ o.ten }}<span v-if="o.giaTri === nhom?.chucNang" class="bq-mo"> (hiện tại)</span>
+                {{ o.ten }}<span v-if="o.giaTri === nhom?.chucNangHieuLuc" class="bq-mo"> (hiện tại{{ nhom?.laMacDinh ? ' — mặc định' : '' }})</span>
               </span>
               <span class="bq-lua-chon-cau">{{ o.cau }}</span>
             </span>
@@ -87,7 +92,7 @@
           :loading="dangLuu"
           @click="luu"
         >
-          {{ chon === 'bo' ? 'Bỏ xếp loại' : 'Lưu' }}
+          {{ chon === 'bo' ? 'Về mặc định' : 'Lưu' }}
         </v-btn>
       </v-card-actions>
     </v-card>
@@ -100,9 +105,10 @@ import { luuChucNangNhom, boXepLoaiNhom, type NhomView } from '@/api/bot-quyen';
 import { useToast } from '@/composables/use-toast';
 import { useMobile } from '@/composables/use-mobile';
 import {
-  CHUC_NANG, NHAN_CHUC_NANG, HE_QUA_CHUC_NANG, HE_QUA_BO_XEP_LOAI, CAU_CAN_LY_DO_NHOM,
+  CHUC_NANG, NHAN_CHUC_NANG, HE_QUA_CHUC_NANG, CAU_CAN_LY_DO_NHOM,
   canLyDoNhom, thieuLyDo, type ChucNang,
 } from '@/views/settings/bot-quyen-luat';
+import { cauMacDinh, heQuaVeMacDinh, nhanChucNangNhom } from '@/views/settings/bot-quyen-mac-dinh';
 import { tenNhomHienThi, tenDangKyMacDinh, tenNick } from '@/views/settings/bot-quyen-nhom';
 import { loiApi } from '@/views/settings/bot-quyen-loi';
 
@@ -123,12 +129,25 @@ const loiLyDo = ref(false);
 const dangLuu = ref(false);
 
 const ten = computed(() => (props.nhom ? tenNhomHienThi(props.nhom) : ''));
+const tieuDe = computed(() => {
+  const n = props.nhom;
+  if (n?.chucNang) return 'Đổi chức năng nhóm';
+  return n?.chucNangHieuLuc ? 'Cố định chức năng nhóm' : 'Xếp loại nhóm';
+});
+const hienTai = computed(() => {
+  const n = props.nhom;
+  if (!n) return '';
+  const nh = nhanChucNangNhom(n);
+  if (nh.coDinh) return `${nh.chu} (cố định)`;
+  return nh.lyDo ? `${nh.chu} — ${nh.lyDo}${n.chucNangHieuLuc ? '' : ' (bot đang im)'}` : nh.chu;
+});
+const cauVeMacDinh = computed(() => (props.nhom ? heQuaVeMacDinh(props.nhom.macDinh) : ''));
 
 const luaChon = computed(() => {
   const ds: Array<{ giaTri: LuaChon; ten: string; cau: string }> = CHUC_NANG.map((c) => ({
     giaTri: c, ten: NHAN_CHUC_NANG[c], cau: HE_QUA_CHUC_NANG[c],
   }));
-  if (props.nhom?.chucNang) ds.push({ giaTri: 'bo', ten: 'Bỏ xếp loại', cau: HE_QUA_BO_XEP_LOAI });
+  if (props.nhom?.chucNang) ds.push({ giaTri: 'bo', ten: 'Theo mặc định (tự theo thành viên)', cau: cauVeMacDinh.value });
   return ds;
 });
 
@@ -139,14 +158,15 @@ const canLyDo = computed(() => {
 
 const cauHeQua = computed(() => {
   if (!chon.value) return '';
-  return chon.value === 'bo' ? HE_QUA_BO_XEP_LOAI : HE_QUA_CHUC_NANG[chon.value];
+  return chon.value === 'bo' ? cauVeMacDinh.value : HE_QUA_CHUC_NANG[chon.value];
 });
 
 watch(
   () => [props.modelValue, props.nhom] as const,
   ([mo, n]) => {
     if (!mo || !n) return;
-    chon.value = n.chucNang;
+    // Đang theo mặc định ⇒ chọn sẵn giá trị mặc định (Lưu = cố định nó).
+    chon.value = n.chucNang ?? n.macDinh?.chucNang ?? null;
     tenDangKy.value = tenDangKyMacDinh(n);
     ghiChu.value = n.ghiChu ?? '';
     lyDo.value = '';
@@ -186,8 +206,8 @@ async function luu() {
     if (chon.value === 'bo') {
       const kq = await boXepLoaiNhom(n.conversationId, lyDoGui || undefined);
       toast.success(kq.doi
-        ? `Đã bỏ xếp loại nhóm “${ten.value}” — bot sẽ im trong nhóm này (trong khoảng 1 phút).`
-        : 'Nhóm này vốn chưa được xếp loại.');
+        ? `Nhóm “${ten.value}” về mặc định: ${cauMacDinh(n.macDinh)} — bot áp trong khoảng 1 phút.`
+        : 'Nhóm này vốn đang theo mặc định.');
     } else {
       const c = chon.value;
       const kq = await luuChucNangNhom(n.conversationId, {
@@ -218,6 +238,7 @@ async function luu() {
 @import './bot-quyen.css';
 
 .bq-lua-chon-ds { display: flex; flex-direction: column; gap: 6px; }
+.bq-mac-dinh { display: flex; align-items: flex-start; gap: 5px; line-height: 1.5; color: var(--bq-mo); }
 .bq-lua-chon {
   display: flex; gap: 10px; align-items: flex-start; width: 100%; text-align: left; cursor: pointer;
   padding: 9px 12px; border: 1px solid var(--bq-vien); border-radius: 8px; background: transparent;

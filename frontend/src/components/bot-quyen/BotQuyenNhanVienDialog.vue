@@ -33,7 +33,7 @@
           label="Zalo uid"
           class="bq-mono-o"
           :readonly="uidChiDoc"
-          :hint="cheDo === 'sua' ? 'Không đổi được — Zalo khác thì thêm nhân viên mới.' : 'Uid Zalo của người này (lấy ở ngăn Thành viên nhóm).'"
+          :hint="cheDo === 'sua' ? 'Không đổi được — Zalo khác thì thêm nhân viên mới.' : mau?.khoaUid ? 'Lấy sẵn — uid theo nick ghi ở trên.' : 'Uid Zalo của người này (lấy ở ngăn Thành viên nhóm).'"
           persistent-hint
           maxlength="64"
         />
@@ -150,7 +150,7 @@ const tieuDe = computed(() => {
 
 /** "Đặt làm nhân viên" (từ ngăn thành viên) chọn trong 4 vai dùng bot — người công ty có nút riêng. */
 const dsVai = computed(() => {
-  const anCongTy = props.cheDo === 'tao' && !!props.mau?.khoaUid;
+  const anCongTy = props.cheDo === 'tao' && !!props.mau?.khoaUid && !props.mau?.choPhepCongTy;
   return VAI.filter((v) => !(anCongTy && v === 'cong_ty')).map((v) => ({ title: NHAN_VAI[v], value: v }));
 });
 const dsTrangThai = TRANG_THAI.map((t) => ({ title: NHAN_TRANG_THAI[t], value: t }));
@@ -182,7 +182,7 @@ watch(
     const nv = props.cheDo === 'sua' ? props.nhanVien : null;
     zaloUid.value = nv?.zaloUid ?? props.mau?.zaloUid ?? '';
     tenGoi.value = nv?.tenGoi ?? props.mau?.tenGoi ?? '';
-    vai.value = nv?.vai ?? props.mau?.vaiCoDinh ?? null;
+    vai.value = nv?.vai ?? props.mau?.vaiCoDinh ?? props.mau?.vai ?? null;
     trangThai.value = nv?.trangThai ?? 'hoat_dong';
     userId.value = nv?.userId ?? '';
     ghiChu.value = nv?.ghiChu ?? '';

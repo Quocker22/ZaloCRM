@@ -22,7 +22,7 @@
         <div class="bq-ngan-dau-chu">
           <div class="bq-dlg-tieu-de">Thành viên nhóm “{{ nhom ? tenNhomHienThi(nhom) : '' }}”</div>
           <div v-if="nhom" class="bq-dlg-phu">
-            Nick {{ tenNick(nhom.nick) }} · {{ nhom.chucNang ? NHAN_CHUC_NANG[nhom.chucNang] : 'chưa xếp loại' }}
+            Nick {{ tenNick(nhom.nick) }} · {{ nhanChucNangNhom(nhom).chu }}
           </div>
           <div v-if="nhom" class="bq-ngan-trang-thai">
             <span class="bq-bot" :class="`bq-bot--${botNhom.mau}`">
@@ -97,7 +97,8 @@ import { computed, ref, watch } from 'vue';
 import { layThanhVienNhom, type NhanVien, type NguoiDungCrm, type NhomView, type ThanhVien, type ThanhVienNhom } from '@/api/bot-quyen';
 import { useToast } from '@/composables/use-toast';
 import { useMobile } from '@/composables/use-mobile';
-import { NHAN_CHUC_NANG, trangThaiBotNhom } from '@/views/settings/bot-quyen-luat';
+import { trangThaiBotNhom } from '@/views/settings/bot-quyen-luat';
+import { nhanChucNangNhom } from '@/views/settings/bot-quyen-mac-dinh';
 import { tenNhomHienThi, tenNick } from '@/views/settings/bot-quyen-nhom';
 import {
   chipThanhVien, chuNguonThanhVien, canhBaoNguoiNgoai, tenThanhVien, goiYCongTy, mauTuThanhVien, type MauNhanVien,
@@ -117,10 +118,10 @@ const loiTai = ref('');
 const lamMoiLanCuoi = ref(false);
 let lanTai = 0;
 
-const botNhom = computed(() => trangThaiBotNhom(props.nhom?.chucNang ?? null));
+const botNhom = computed(() => trangThaiBotNhom(props.nhom?.chucNangHieuLuc ?? null));
 const nguon = computed(() => (ketQua.value ? chuNguonThanhVien(ketQua.value) : { chu: '', phu: null }));
 const canhBao = computed(() => (ketQua.value && props.nhom
-  ? canhBaoNguoiNgoai(ketQua.value.soNguoiNgoai, props.nhom.chucNang)
+  ? canhBaoNguoiNgoai(ketQua.value.soNguoiNgoai, props.nhom.chucNangHieuLuc)
   : null));
 
 async function tai(lamMoi: boolean) {

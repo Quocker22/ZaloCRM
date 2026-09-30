@@ -8,7 +8,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { defineComponent, h, inject, provide, type PropType } from 'vue';
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils';
-import type { NhanVien, NhatKy, NhomView, ThanhVienNhom } from '@/api/bot-quyen';
+import type { NhanVien, NhatKy, NhomView, ThanhVienNhom, TrangNguoiDaNhan } from '@/api/bot-quyen';
 
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn() }));
 vi.mock('@/composables/use-toast', () => ({ useToast: () => toast }));
@@ -22,11 +22,13 @@ vi.mock('@/api/bot-quyen', () => ({
   suaNhanVien: vi.fn(),
   layNhatKy: vi.fn(),
   layNguoiDungCrm: vi.fn(),
+  layNguoiDaNhan: vi.fn(),
+  docLaiThanhVienNhom: vi.fn(),
 }));
 
 import {
   layDanhSachNhom, layThanhVienNhom, luuChucNangNhom, boXepLoaiNhom,
-  layDanhSachNhanVien, themNhanVien, suaNhanVien, layNhatKy, layNguoiDungCrm,
+  layDanhSachNhanVien, themNhanVien, suaNhanVien, layNhatKy, layNguoiDungCrm, layNguoiDaNhan, docLaiThanhVienNhom,
 } from '@/api/bot-quyen';
 import BotQuyenPage from './BotQuyenPage.vue';
 
@@ -122,10 +124,19 @@ const VUETIFY_VO = {
 
 // ── Dữ liệu ──
 const nick = { id: 'nickHN', displayName: 'Nick HN', zaloUid: '900', status: 'connected' };
-const nhom = (them: Partial<NhomView>): NhomView => ({
-  conversationId: 'c', externalThreadId: 't', tenNhom: 'Nhóm', soThanhVien: 6, lastMessageAt: null, daAn: false, nick,
-  chucNang: null, tenDangKy: null, ghiChu: null, capNhatLuc: null, capNhatBoi: null, ...them,
-});
+const MD_CHUA_DOC = {
+  chucNang: null, lyDo: 'chua_doc', soThanhVien: 0, soNguoiNgoai: 0, soNickKhac: 0, soNguoiNghi: 0, nguoiNgoai: [],
+  docLuc: null, loiDoc: null, thuLuc: null,
+} as const;
+// Mặc định (docs/77 §8): không nêu thì "chưa đọc danh sách" — chức năng hiệu lực = chức năng tường minh.
+const nhom = (them: Partial<NhomView>): NhomView => {
+  const r = {
+    conversationId: 'c', externalThreadId: 't', tenNhom: 'Nhóm', soThanhVien: 6, lastMessageAt: null, daAn: false, nick,
+    chucNang: null, tenDangKy: null, ghiChu: null, capNhatLuc: null, capNhatBoi: null,
+    macDinh: { ...MD_CHUA_DOC, nguoiNgoai: [] as string[] }, ...them,
+  } as NhomView;
+  return { ...r, chucNangHieuLuc: them.chucNangHieuLuc ?? r.chucNang, laMacDinh: them.laMacDinh ?? !r.chucNang };
+};
 const DS_NHOM: NhomView[] = [
   nhom({ conversationId: 'c1', tenNhom: 'Nhóm mới lập' }),
   nhom({
@@ -134,7 +145,33 @@ const DS_NHOM: NhomView[] = [
   }),
   nhom({ conversationId: 'c3', tenNhom: 'Khách Minh Long', chucNang: 'khach', tenDangKy: '' }),
   nhom({ conversationId: 'c4', tenNhom: 'Nhóm cũ đã ẩn', daAn: true }),
+  // Mặc định theo thành viên (docs/77 §8)
+  nhom({
+    conversationId: 'c5', tenNhom: 'Kho Đông Anh', chucNangHieuLuc: 'sales', laMacDinh: true,
+    macDinh: { ...MD_CHUA_DOC, chucNang: 'sales', lyDo: 'toan_nhan_vien', soThanhVien: 4, nguoiNgoai: [] },
+  }),
+  nhom({
+    conversationId: 'c6', tenNhom: 'Công trình Minh Long', chucNangHieuLuc: 'khach', laMacDinh: true,
+    macDinh: { ...MD_CHUA_DOC, chucNang: 'khach', lyDo: 'co_nguoi_ngoai', soThanhVien: 5, soNguoiNgoai: 2, nguoiNgoai: ['a', 'b'] },
+  }),
 ];
+const CHO_GAN: TrangNguoiDaNhan = {
+  tong: 2, trang: 1, moiTrang: 30, gomLuc: '2026-09-30T08:00:00.000Z',
+  ungVien: [
+    {
+      zaloUid: '777', ten: 'Trần Hưng', luc: '2026-09-30T07:00:00.000Z', soNoi: 2, dangSaiBot: true,
+      tinCuoi: { noiDung: 'lên đơn cho khách A', loai: 'text', luc: '2026-09-30T07:00:00.000Z' },
+      noi: [
+        { conversationId: 'c5', loai: 'nhom', tenNhom: 'Kho Đông Anh', nick: { id: 'nickHN', ten: 'Nick HN' }, luc: null },
+        { conversationId: 'd1', loai: 'rieng', tenNhom: null, nick: { id: 'nickHN', ten: 'Nick HN' }, luc: null },
+      ],
+    },
+    {
+      zaloUid: '888', ten: 'Khách Đức', luc: '2026-09-30T06:00:00.000Z', soNoi: 1, dangSaiBot: false, tinCuoi: null,
+      noi: [{ conversationId: 'd2', loai: 'rieng', tenNhom: null, nick: { id: 'nickHCM', ten: 'Nick HCM' }, luc: null }],
+    },
+  ],
+};
 const THANH_VIEN_C2: ThanhVienNhom = {
   conversationId: 'c2', nguon: 'da_quet', nguonLuc: '2026-09-30T02:05:00.000Z', loiZalo: null, soNguoiNgoai: 2,
   thanhVien: [
@@ -168,6 +205,8 @@ beforeEach(() => {
   vi.mocked(layDanhSachNhanVien).mockResolvedValue([{ ...NV_QUYET }]);
   vi.mocked(layNhatKy).mockResolvedValue(NHAT_KY);
   vi.mocked(layNguoiDungCrm).mockResolvedValue([{ id: 'u1', fullName: 'Nguyễn A' }]);
+  vi.mocked(layNguoiDaNhan).mockResolvedValue(structuredClone(CHO_GAN));
+  vi.mocked(docLaiThanhVienNhom).mockResolvedValue(undefined);
 });
 
 function gan() {
@@ -260,14 +299,16 @@ describe('BotQuyenPage — tab Nhóm', () => {
     w.unmount();
   });
 
-  it('mỗi lựa chọn có câu hệ quả; "Bỏ xếp loại" không lý do ⇒ chặn', async () => {
+  it('mỗi lựa chọn có câu hệ quả; "Theo mặc định" (bỏ xếp tường minh) không lý do ⇒ chặn', async () => {
     const w = gan();
     await flushPromises();
     await nut(hang(w, 'c2'), 'Đổi').trigger('click');
     const hop = w.find('.bq-xep-loai');
     expect(hop.find('[data-gia-tri="admin"]').text()).toContain('Mọi người trong nhóm hỏi được mọi thứ');
     expect(hop.find('[data-gia-tri="kho"]').text()).toContain('thêm quyền kho (nhập, chuyển kho)');
-    expect(hop.find('[data-gia-tri="bo"]').text()).toContain('Bot sẽ im trong nhóm này.');
+    // docs/77 §8: bỏ xếp tường minh = về mặc định theo thành viên (nhóm này chưa đọc được danh sách ⇒ bot im).
+    expect(hop.find('[data-gia-tri="bo"]').text()).toContain('Theo mặc định (tự theo thành viên)');
+    expect(hop.find('[data-gia-tri="bo"]').text()).toContain('chưa có — chưa đọc được danh sách thành viên (bot im)');
     await hop.find('[data-gia-tri="bo"]').trigger('click');
     await w.find('.bq-xep-loai [data-nut="luu"]').trigger('click');
     await flushPromises();
@@ -329,6 +370,115 @@ describe('BotQuyenPage — tab Nhóm', () => {
     expect(w.find('.bq-nv-dialog').exists()).toBe(false);
     expect(w.find('li[data-uid="901"]').text()).toContain('Người công ty (không dùng bot)');
     expect(w.find('.bq-canh-bao').text()).toContain('Nhóm có 1 người ngoài');
+    w.unmount();
+  });
+});
+
+describe('BotQuyenPage — mặc định chức năng nhóm (docs/77 §8)', () => {
+  it('chip mặc định + lý do; cố định cho nhóm chủ chọn; chưa biết thành viên ⇒ "Chưa xếp loại" + nút Đọc lại', async () => {
+    const w = gan();
+    await flushPromises();
+    expect(hang(w, 'c5').find('[data-o="chuc-nang"]').text()).toBe('Nhóm nhân viên (mặc định)');
+    expect(hang(w, 'c5').find('[data-o="ly-do-mac-dinh"]').text()).toBe('toàn nhân viên (4 người)');
+    expect(hang(w, 'c5').find('.bq-bot').text()).toContain('Bot trả lời trong nhóm');
+    expect(hang(w, 'c6').find('[data-o="chuc-nang"]').text()).toBe('Khách (mặc định)');
+    expect(hang(w, 'c6').find('[data-o="ly-do-mac-dinh"]').text()).toBe('có 2 người ngoài');
+    expect(hang(w, 'c6').find('.bq-bot').text()).toContain('Nhóm có khách — bot im');
+    expect(hang(w, 'c2').text()).toContain('cố định');
+    expect(hang(w, 'c1').find('[data-o="ly-do-mac-dinh"]').text()).toBe('chưa đọc được danh sách thành viên');
+    // Chỉ đếm nhóm bot im vì không xếp + không có mặc định (c1).
+    expect(w.find('.bq-tom-tat').text()).toContain('1 nhóm chưa xếp loại');
+    await nut(hang(w, 'c1'), 'Đọc lại').trigger('click');
+    await flushPromises();
+    expect(docLaiThanhVienNhom).toHaveBeenCalledWith('c1');
+    expect(() => nut(hang(w, 'c5'), 'Đọc lại')).toThrow();
+    w.unmount();
+  });
+
+  it('nhóm theo mặc định: "Cố định" mở hộp chọn sẵn giá trị mặc định, Lưu không cần lý do', async () => {
+    const w = gan();
+    await flushPromises();
+    await nut(hang(w, 'c5'), 'Cố định').trigger('click');
+    const hop = w.find('.bq-xep-loai');
+    expect(hop.text()).toContain('Cố định chức năng nhóm');
+    expect(hop.find('[data-o="mac-dinh"]').text()).toContain('Nhóm nhân viên — toàn nhân viên (4 người)');
+    expect(hop.find('[data-gia-tri="sales"]').attributes('aria-checked')).toBe('true');
+    expect(hop.find('[data-gia-tri="bo"]').exists()).toBe(false);
+    await hop.find('[data-nut="luu"]').trigger('click');
+    await flushPromises();
+    expect(luuChucNangNhom).toHaveBeenCalledWith('c5', expect.objectContaining({ chucNang: 'sales' }));
+    w.unmount();
+  });
+
+  it('ngăn thành viên theo chức năng HIỆU LỰC: nhóm mặc định Khách có người ngoài ⇒ không cảnh báo', async () => {
+    vi.mocked(layThanhVienNhom).mockResolvedValue({ ...structuredClone(THANH_VIEN_C2), conversationId: 'c6' });
+    const w = gan();
+    await flushPromises();
+    await nut(hang(w, 'c6'), 'Thành viên').trigger('click');
+    await flushPromises();
+    expect(w.find('.bq-ngan').text()).toContain('Khách (mặc định)');
+    expect(w.find('.bq-canh-bao').exists()).toBe(false);
+    w.unmount();
+  });
+});
+
+describe('BotQuyenPage — Chờ gán: người đã nhắn cho shop (docs/77 §8)', () => {
+  async function moTab() {
+    const w = gan();
+    await flushPromises();
+    await nut(w, 'Nhân viên').trigger('click');
+    await flushPromises();
+    return w;
+  }
+
+  it('liệt kê người đã nhắn: tên, chip "đang sai bot", tin gần nhất, ở đâu (nick), vai chọn sẵn', async () => {
+    const w = await moTab();
+    expect(layNguoiDaNhan).toHaveBeenCalledWith(expect.objectContaining({ trang: 1, moiTrang: 30 }));
+    const cg = w.find('.bq-cho-gan');
+    expect(cg.text()).toContain('Chờ gán — người đã nhắn cho shop (2)');
+    const hung = cg.find('tr[data-uid="777"]');
+    expect(hung.text()).toContain('Trần Hưng');
+    expect(hung.text()).toContain('đang sai bot');
+    expect(hung.text()).toContain('lên đơn cho khách A');
+    expect(hung.text()).toContain('Nhóm “Kho Đông Anh” · nick Nick HN');
+    expect(hung.text()).toContain('Tin riêng · nick Nick HN');
+    expect(cg.find('tr[data-uid="888"]').text()).not.toContain('đang sai bot');
+    expect(cg.find('tr[data-uid="888"]').text()).toContain('Tin riêng · nick Nick HCM');
+    expect((hung.find('select').element as HTMLSelectElement).value).toBe('sales');
+    w.unmount();
+  });
+
+  it('chọn vai rồi Gán ⇒ hộp xác nhận điền sẵn (uid khoá, tên, vai) ⇒ tạo NV ⇒ tải lại cả hai danh sách', async () => {
+    vi.mocked(themNhanVien).mockResolvedValue({ ...NV_QUYET, id: 'n7', zaloUid: '777', tenGoi: 'Trần Hưng', vai: 'kho' });
+    const w = await moTab();
+    const hung = w.find('.bq-cho-gan tr[data-uid="777"]');
+    await hung.find('select').setValue('kho');
+    await nut(hung, 'Gán').trigger('click');
+    const hop = w.find('.bq-nv-dialog');
+    expect(hop.text()).toContain('Gán “Trần Hưng” làm nhân viên');
+    expect(hop.text()).toContain('uid theo nick Nick HN');
+    expect(hop.find('[data-o="zalo-uid"] input').attributes('readonly')).toBeDefined();
+    expect((hop.find('[data-o="zalo-uid"] input').element as HTMLInputElement).value).toBe('777');
+    expect((hop.find('[data-o="vai"] select').element as HTMLSelectElement).value).toBe('kho');
+    const soLanTai = vi.mocked(layNguoiDaNhan).mock.calls.length;
+    const soLanNv = vi.mocked(layDanhSachNhanVien).mock.calls.length;
+    await hop.find('[data-nut="luu"]').trigger('click');
+    await flushPromises();
+    expect(themNhanVien).toHaveBeenCalledWith(expect.objectContaining({ zaloUid: '777', tenGoi: 'Trần Hưng', vai: 'kho' }));
+    expect(vi.mocked(layNguoiDaNhan).mock.calls.length).toBeGreaterThan(soLanTai);
+    expect(vi.mocked(layDanhSachNhanVien).mock.calls.length).toBeGreaterThan(soLanNv);
+    w.unmount();
+  });
+
+  it('gán vai người công ty ⇒ cần lý do (như mọi chỗ khác)', async () => {
+    const w = await moTab();
+    const duc = w.find('.bq-cho-gan tr[data-uid="888"]');
+    await duc.find('select').setValue('cong_ty');
+    await nut(duc, 'Gán').trigger('click');
+    await w.find('.bq-nv-dialog [data-nut="luu"]').trigger('click');
+    await flushPromises();
+    expect(w.find('.bq-nv-dialog .bq-loi').text()).toContain('Cần ghi lý do');
+    expect(themNhanVien).not.toHaveBeenCalled();
     w.unmount();
   });
 });

@@ -414,6 +414,14 @@ export function attachZaloListener(ctx: ListenerContext): void {
 
   listener.on('connected', () => {
     logger.info(`[zalo:${accountId}] Listener connected`);
+    // Quyền bot (docs/77 §8): sự kiện thành viên nhóm lúc mất kết nối đã mất ⇒ mặc định chức năng nhóm của nick này
+    // tắt tới khi đọc lại danh sách (bot im thay vì dùng danh sách có thể đã cũ).
+    void (async () => {
+      const orgId = await resolveOrgId();
+      if (!orgId) return;
+      const { danhDauNickKetNoiLai } = await import('../bot-quyen/bot-quyen-danh-sach.js');
+      await danhDauNickKetNoiLai(orgId, accountId);
+    })().catch((err) => logger.warn(`[zalo:${accountId}] bot-quyen đánh dấu đọc lại danh sách nhóm lỗi:`, err));
   });
 
   // DEBUG 2026-05-22: catch-all log để verify ListenerEvents nào fire trong thực tế.
@@ -992,6 +1000,17 @@ export function attachZaloListener(ctx: ListenerContext): void {
           logger.warn(`[zalo:${accountId}] group_event refresh failed:`, err),
         );
       })();
+    }
+
+    // Quyền bot (docs/77 §8): thành viên đổi ⇒ mặc định chức năng nhóm tắt NGAY (bot im) rồi đọc lại danh sách.
+    if (groupId && typeof eventType === 'string') {
+      void (async () => {
+        const { SU_KIEN_DOI_THANH_VIEN, danhDauNhomDoiThanhVien } = await import('../bot-quyen/bot-quyen-danh-sach.js');
+        if (!SU_KIEN_DOI_THANH_VIEN.has(eventType)) return;
+        const orgId = await resolveOrgId();
+        if (!orgId) return;
+        await danhDauNhomDoiThanhVien(orgId, accountId, String(groupId));
+      })().catch((err) => logger.warn(`[zalo:${accountId}] bot-quyen đánh dấu nhóm đổi thành viên lỗi:`, err));
     }
 
     // CHÀO NHÓM (2026-08-07): bot vừa ĐƯỢC ADD vào nhóm → chào 1 lần. Trigger khi

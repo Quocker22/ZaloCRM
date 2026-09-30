@@ -108,11 +108,11 @@ describe('phiên bản cấu hình công khai (phien_ban)', () => {
     const ch = ghepCauHinhCongKhai(nhom, nv);
     expect(Object.keys(ch)).toEqual(['phien_ban', 'nhom', 'nhan_vien']);
     expect(ch.nhom).toEqual([
-      { conversation_id: 'c-1', external_thread_id: 'g1', nick_uid: null, chuc_nang: 'admin', ten_dang_ky: '' },
-      { conversation_id: 'c-2', external_thread_id: 'g2', nick_uid: 'nick-hn', chuc_nang: 'sales', ten_dang_ky: 'Sales HN' },
+      { conversation_id: 'c-1', external_thread_id: 'g1', nick_uid: null, chuc_nang: 'admin', ten_dang_ky: '', mac_dinh: false },
+      { conversation_id: 'c-2', external_thread_id: 'g2', nick_uid: 'nick-hn', chuc_nang: 'sales', ten_dang_ky: 'Sales HN', mac_dinh: false },
     ]);
     // Thứ tự khoá trong một phần tử là một phần hợp đồng (docs/77 §3.2 + vòng sửa 1).
-    expect(Object.keys(ch.nhom[0])).toEqual(['conversation_id', 'external_thread_id', 'nick_uid', 'chuc_nang', 'ten_dang_ky']);
+    expect(Object.keys(ch.nhom[0])).toEqual(['conversation_id', 'external_thread_id', 'nick_uid', 'chuc_nang', 'ten_dang_ky', 'mac_dinh']);
     expect(Object.keys(ch.nhan_vien[0])).toEqual(['zalo_uid', 'ten_goi', 'vai', 'trang_thai']);
     expect(ch.nhan_vien).toEqual([
       { zalo_uid: '100', ten_goi: 'Quyết', vai: 'admin', trang_thai: 'hoat_dong' },
@@ -136,7 +136,9 @@ describe('phiên bản cấu hình công khai (phien_ban)', () => {
     const rong = ghepCauHinhCongKhai([], []).phien_ban;
     const doiNick = ghepCauHinhCongKhai([{ ...nhom[0], nickUid: 'nick-hcm' }, nhom[1]], nv).phien_ban;
     const nickNull = ghepCauHinhCongKhai([{ ...nhom[0], nickUid: null }, nhom[1]], nv).phien_ban;
-    const tatCa = new Set([goc, doiVai, doiTrangThai, doiTen, boNhom, rong, doiNick, nickNull]);
-    expect(tatCa.size).toBe(8);
+    // docs/77 §8: cùng chức năng mà đổi nguồn (tường minh ↔ mặc định) cũng đổi phiên bản.
+    const thanhMacDinh = ghepCauHinhCongKhai([{ ...nhom[0], macDinh: true }, nhom[1]], nv).phien_ban;
+    const tatCa = new Set([goc, doiVai, doiTrangThai, doiTen, boNhom, rong, doiNick, nickNull, thanhMacDinh]);
+    expect(tatCa.size).toBe(9);
   });
 });

@@ -60,7 +60,7 @@
 .bq-dlg-tieu-de { font-size: 16px; font-weight: 700; line-height: 1.3; overflow-wrap: anywhere; }
 .bq-dlg-phu { font-size: 12.5px; color: var(--bq-mo); margin-top: 2px; overflow-wrap: anywhere; }
 .bq-dlg-than { display: flex; flex-direction: column; gap: 12px; }
-.bq-dlg-than > .v-alert { flex: none; } /* v-alert tự giãn trong cột flex */
+.bq-dlg-than > * { flex: none; } /* ô nhập / v-alert tự giãn trong cột flex (hộp toàn màn hình trên máy hẹp) */
 .bq-dlg-chan { padding: 10px 16px 14px; gap: 8px; flex-wrap: wrap; }
 
 /* ── Bảng: màn rộng là bảng, màn hẹp (≤ 700px) mỗi dòng thành một thẻ có nhãn cột ── */

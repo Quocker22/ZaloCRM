@@ -441,6 +441,9 @@ async function bootstrap() {
     // URL Zalo CDN hết hạn (nhóm im lặng lâu không có message để cập nhật thụ động).
     const { startGroupInfoSyncCron } = await import('./modules/zalo/group-info-sync-cron.js');
     startGroupInfoSyncCron();
+    // Quyền bot (docs/77 §8): đọc danh sách thành viên nhóm còn thiếu / lỗi mỗi 60 s (mặc định chức năng nhóm).
+    const { startBotQuyenDanhSachCron } = await import('./modules/bot-quyen/bot-quyen-danh-sach.js');
+    startBotQuyenDanhSachCron();
     // Community "Chiến dịch gửi hàng loạt" — tự động gửi 1 đợt/ngày cho schedule đã bật.
     const { startBulkCampaignCron } = await import('./modules/campaign/bulk-campaign-cron.js');
     startBulkCampaignCron();

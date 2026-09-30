@@ -1,7 +1,9 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!--
   Tab "Nhóm" của trang Quyền bot (docs/77 §3.3): mọi nhóm Zalo trong CRM + chức năng + bot đang làm gì
-  trong nhóm. Chưa xếp loại ⇒ nhãn ĐỎ "Bot đang im — chưa xếp loại". Lọc theo nick, ẩn nhóm đã ẩn (bật
+  trong nhóm. Nhóm không xếp thì theo MẶC ĐỊNH (docs/77 §8): toàn nhân viên ⇒ "Nhóm nhân viên (mặc định)", có người
+  ngoài ⇒ "Khách (mặc định)" — chip nói vì sao; chưa biết đủ thành viên ⇒ nhãn ĐỎ "Bot đang im — chưa xếp loại" + nút
+  "Đọc lại". Chủ xếp tường minh ⇒ chip "cố định" (hộp xếp loại có "Theo mặc định" để bỏ). Lọc theo nick, ẩn nhóm đã ẩn (bật
   "Hiện nhóm đã ẩn"), tìm theo tên. "Xếp loại"/"Đổi" mở hộp chọn chức năng; "Thành viên" mở ngăn thành viên.
   Danh sách nạp một lần rồi lọc tại chỗ (bot-quyen-nhom.ts).
 -->
@@ -29,6 +31,10 @@
       <v-btn variant="outlined" size="small" prepend-icon="mdi-refresh" :loading="dangTai" @click="tai">Làm mới</v-btn>
     </div>
 
+    <p class="bq-giai-thich bq-mo">
+      Nhóm không xếp thì tự theo thành viên: <b>toàn nhân viên</b> ⇒ Nhóm nhân viên (bot trả lời như nhân viên thường),
+      <b>có người ngoài</b> ⇒ Khách (bot im). Bấm “Cố định” để tự chọn.
+    </p>
     <p v-if="soChuaXepLoai > 0" class="bq-tom-tat">
       <v-icon size="16" icon="mdi-volume-off" />
       {{ soChuaXepLoai }} nhóm chưa xếp loại — bot đang im ở các nhóm này.
@@ -66,12 +72,19 @@
           </td>
           <td data-nhan="Nick"><span class="bq-nho">{{ tenNick(n.nick) }}</span></td>
           <td data-nhan="Chức năng">
-            <span v-if="n.chucNang" class="bq-chip bq-chip--nv">{{ NHAN_CHUC_NANG[n.chucNang] }}</span>
-            <span v-else class="bq-chip bq-chip--rong">Chưa xếp loại</span>
+            <div class="bq-cn">
+              <span class="bq-cn-dong">
+                <span class="bq-chip" :class="`bq-chip--${nhanChucNangNhom(n).mau}`" data-o="chuc-nang">{{ nhanChucNangNhom(n).chu }}</span>
+                <span v-if="nhanChucNangNhom(n).coDinh" class="bq-chip bq-chip--xam" title="Chủ đã chọn — không tự đổi theo thành viên">
+                  <v-icon size="12" icon="mdi-lock-outline" />cố định
+                </span>
+              </span>
+              <span v-if="nhanChucNangNhom(n).lyDo" class="bq-nho bq-mo" data-o="ly-do-mac-dinh">{{ nhanChucNangNhom(n).lyDo }}</span>
+            </div>
           </td>
           <td data-nhan="Bot">
-            <span class="bq-bot" :class="`bq-bot--${trangThaiBotNhom(n.chucNang).mau}`">
-              <v-icon size="14" :icon="trangThaiBotNhom(n.chucNang).bieuTuong" />{{ trangThaiBotNhom(n.chucNang).chu }}
+            <span class="bq-bot" :class="`bq-bot--${trangThaiBotNhom(n.chucNangHieuLuc).mau}`">
+              <v-icon size="14" :icon="trangThaiBotNhom(n.chucNangHieuLuc).bieuTuong" />{{ trangThaiBotNhom(n.chucNangHieuLuc).chu }}
             </span>
           </td>
           <td data-nhan="Cập nhật">
@@ -83,9 +96,17 @@
           </td>
           <td class="bq-cot-nut">
             <div class="bq-cac-nut">
-              <v-btn size="small" :variant="n.chucNang ? 'outlined' : 'flat'" :color="n.chucNang ? undefined : 'primary'" @click="moXepLoai(n)">
-                {{ n.chucNang ? 'Đổi' : 'Xếp loại' }}
+              <v-btn size="small" :variant="n.chucNangHieuLuc ? 'outlined' : 'flat'" :color="n.chucNangHieuLuc ? undefined : 'primary'" @click="moXepLoai(n)">
+                {{ n.chucNang ? 'Đổi' : n.chucNangHieuLuc ? 'Cố định' : 'Xếp loại' }}
               </v-btn>
+              <v-btn
+                v-if="!n.chucNang && !n.macDinh.chucNang"
+                size="small"
+                variant="text"
+                prepend-icon="mdi-account-sync-outline"
+                :loading="dangDocLai === n.conversationId"
+                @click="docLai(n)"
+              >Đọc lại</v-btn>
               <v-btn size="small" variant="text" prepend-icon="mdi-account-group-outline" @click="moThanhVien(n)">Thành viên</v-btn>
             </div>
           </td>
@@ -105,10 +126,11 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import { layDanhSachNhom, type NguoiDungCrm, type NhomView } from '@/api/bot-quyen';
+import { layDanhSachNhom, docLaiThanhVienNhom, type NguoiDungCrm, type NhomView } from '@/api/bot-quyen';
 import { useToast } from '@/composables/use-toast';
-import { NHAN_CHUC_NANG, trangThaiBotNhom } from '@/views/settings/bot-quyen-luat';
-import { locNhom, dsNick, tenNhomHienThi, tenDangKyPhu, tenNick, demChuaXepLoai } from '@/views/settings/bot-quyen-nhom';
+import { trangThaiBotNhom } from '@/views/settings/bot-quyen-luat';
+import { locNhom, dsNick, tenNhomHienThi, tenDangKyPhu, tenNick } from '@/views/settings/bot-quyen-nhom';
+import { nhanChucNangNhom, demBotIm } from '@/views/settings/bot-quyen-mac-dinh';
 import { loiApi } from '@/views/settings/bot-quyen-loi';
 import { dinhDangGioVN } from '@/views/settings/may-in-nhat-ky';
 import BotQuyenXepLoaiDialog from './BotQuyenXepLoaiDialog.vue';
@@ -127,7 +149,7 @@ const hienDaAn = ref(false);
 
 const dsNickChon = computed(() => [{ title: 'Tất cả nick', value: '' }, ...dsNick(ds.value).map((x) => ({ title: x.ten, value: x.id }))]);
 const hienThi = computed(() => locNhom(ds.value, { nickId: nickId.value || null, hienDaAn: hienDaAn.value, tuKhoa: tuKhoa.value ?? '' }));
-const soChuaXepLoai = computed(() => demChuaXepLoai(ds.value));
+const soChuaXepLoai = computed(() => demBotIm(ds.value));
 
 function gio(luc: string): string {
   return dinhDangGioVN(luc, { coNam: true }).slice(0, 16);
@@ -151,6 +173,22 @@ async function tai() {
     if (!l.daBao) toast.error(l.chu, 6000);
   } finally {
     if (lan === lanTai) dangTai.value = false;
+  }
+}
+
+// ── Đọc lại danh sách thành viên (nhóm chưa có mặc định) ──
+const dangDocLai = ref<string | null>(null);
+async function docLai(n: NhomView) {
+  dangDocLai.value = n.conversationId;
+  try {
+    await docLaiThanhVienNhom(n.conversationId);
+    toast.success(`Đang đọc lại thành viên nhóm “${tenNhomHienThi(n)}” — bấm Làm mới sau vài giây.`);
+    setTimeout(() => { void tai(); }, 4000);
+  } catch (e) {
+    const l = loiApi(e, 'Không yêu cầu đọc lại được');
+    if (!l.daBao) toast.error(l.chu, 6000);
+  } finally {
+    dangDocLai.value = null;
   }
 }
 
@@ -186,5 +224,8 @@ onMounted(tai);
 .bq-tom-tat {
   display: flex; align-items: center; gap: 6px; margin: 0 0 10px; font-size: 13px; font-weight: 600; color: var(--bq-do);
 }
+.bq-giai-thich { margin: 0 0 8px; font-size: 13px; line-height: 1.5; }
+.bq-cn { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.bq-cn-dong { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 .bq-ten-nhom { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-weight: 600; overflow-wrap: anywhere; }
 </style>

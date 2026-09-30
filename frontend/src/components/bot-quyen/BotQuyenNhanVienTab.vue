@@ -2,13 +2,15 @@
 <!--
   Tab "Nhân viên" của trang Quyền bot (docs/77 §3.3): ai là nhân viên với bot (theo Zalo uid), vai gì,
   đang hoạt động / khoá / đã nghỉ, gắn tài khoản CRM nào. Thêm / Sửa qua BotQuyenNhanVienDialog (lý do khi
-  hạ / khoá, 409 ADMIN_CUOI hiện nguyên câu backend). Không xoá cứng — cho nghỉ bằng trạng thái.
+  hạ / khoá, 409 ADMIN_CUOI hiện nguyên câu backend). Không xoá cứng — cho nghỉ bằng trạng thái. Bên dưới là "Chờ gán —
+  người đã nhắn cho shop" (BotQuyenChoGan, docs/77 §8): người đã gán không còn ở đó.
 -->
 <template>
   <section class="bq-goc" aria-label="Nhân viên của bot">
     <div class="bq-nv-dau">
       <p class="bq-nv-mo-ta bq-mo">
-        Bot nhận ra nhân viên theo <b>Zalo uid</b>. Cách nhanh nhất: tab <b>Nhóm</b> → <b>Thành viên</b> → “Đặt làm nhân viên”.
+        Bot nhận ra nhân viên theo <b>Zalo uid</b>. Cách nhanh nhất: chọn người trong “Chờ gán” bên dưới rồi bấm <b>Gán</b>
+        (hoặc tab <b>Nhóm</b> → <b>Thành viên</b> → “Đặt làm nhân viên”).
       </p>
       <div class="bq-cac-nut">
         <v-btn variant="outlined" size="small" prepend-icon="mdi-refresh" :loading="dangTai" @click="tai">Làm mới</v-btn>
@@ -77,12 +79,14 @@
       </tbody>
     </v-table>
 
+    <BotQuyenChoGan ref="choGan" :nguoi-dung-crm="nguoiDungCrm" @da-gan="tai" />
+
     <BotQuyenNhanVienDialog
       v-model="hop"
       :che-do="dangSua ? 'sua' : 'tao'"
       :nhan-vien="dangSua"
       :nguoi-dung-crm="nguoiDungCrm"
-      @da-luu="tai"
+      @da-luu="daLuu"
     />
   </section>
 </template>
@@ -95,6 +99,7 @@ import { nhanTrangThai, nhanVai } from '@/views/settings/bot-quyen-luat';
 import { loiApi } from '@/views/settings/bot-quyen-loi';
 import { dinhDangGioVN } from '@/views/settings/may-in-nhat-ky';
 import BotQuyenNhanVienDialog from './BotQuyenNhanVienDialog.vue';
+import BotQuyenChoGan from './BotQuyenChoGan.vue';
 
 defineProps<{ nguoiDungCrm: NguoiDungCrm[] }>();
 
@@ -136,6 +141,14 @@ async function saoChep(uid: string) {
   } catch {
     toast.error('Không sao chép được — chọn và sao chép tay.');
   }
+}
+
+const choGan = ref<InstanceType<typeof BotQuyenChoGan> | null>(null);
+
+/** Thêm tay / sửa xong ⇒ tải lại cả hai danh sách (người vừa thêm rời "Chờ gán"). */
+async function daLuu() {
+  await tai();
+  void choGan.value?.tai();
 }
 
 const hop = ref(false);

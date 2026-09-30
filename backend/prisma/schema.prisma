@@ -51,6 +51,7 @@ model Organization {
   botNhom                     BotNhom[]
   botNhanVien                 BotNhanVien[]
   botQuyenNhatKy              BotQuyenNhatKy[]
+  botNhomDanhSach             BotNhomDanhSach[]
   contacts                    Contact[]
   contactAccess               ContactAccess[]
   conversations               Conversation[]
@@ -826,6 +827,8 @@ model Conversation {
   telegramTopic TelegramTopicMap?
   // Quyền bot (docs/77 30/09) — chức năng nhóm với bot (chỉ threadType=group).
   botNhom       BotNhom?
+  // Quyền bot (docs/77 §8) — bản đọc danh sách thành viên để tính MẶC ĐỊNH chức năng nhóm.
+  botNhomDanhSach BotNhomDanhSach?
 
   @@unique([zaloAccountId, externalThreadId])
   @@index([orgId, zaloAccountId, isReplied, lastMessageAt])
@@ -4605,6 +4608,36 @@ model BotNhanVien {
   @@unique([orgId, zaloUid])
   @@index([orgId, vai, trangThai])
   @@map("bot_nhan_vien")
+}
+
+/// QUYỀN BOT (docs/77 §8, 30/09) — bản đọc DANH SÁCH THÀNH VIÊN của một hội thoại nhóm, chỉ để tính MẶC ĐỊNH
+/// chức năng nhóm (toàn nhân viên ⇒ sales, có người ngoài ⇒ khach). Đọc bằng getGroupInfo (bot-quyen-danh-sach.ts):
+/// lúc nick kết nối (lại), lúc Zalo báo thành viên vào/ra, và vòng quét 60 s cho dòng còn thiếu/lỗi.
+/// can_doc_lai = true ⇒ bản đang có có thể đã cũ ⇒ KHÔNG dùng để tính mặc định (bot im) tới khi đọc lại xong.
+model BotNhomDanhSach {
+  id             String    @id @default(uuid())
+  orgId          String    @map("org_id")
+  conversationId String    @unique @map("conversation_id")
+  /// Nick sở hữu hội thoại lúc tạo dòng (đánh dấu "cần đọc lại" theo nick khi nick kết nối lại). Không FK.
+  zaloAccountId  String    @map("zalo_account_id")
+  uids           String[]  @default([])
+  /// Zalo trả ĐỦ danh sách (không hasMoreMember, đủ totalMember).
+  dayDu          Boolean   @default(false) @map("day_du")
+  /// Lúc đọc thành công gần nhất.
+  docLuc         DateTime? @map("doc_luc")
+  canDocLai      Boolean   @default(true) @map("can_doc_lai")
+  /// Lúc bị đánh dấu cần đọc lại gần nhất — lần đọc BẮT ĐẦU trước mốc này không được gỡ cờ.
+  danhDauLuc     DateTime  @default(now()) @map("danh_dau_luc")
+  /// Lần thử đọc gần nhất (thành công hay lỗi) + lỗi gần nhất.
+  thuLuc         DateTime? @map("thu_luc")
+  loi            String?
+
+  org          Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([zaloAccountId])
+  @@map("bot_nhom_danh_sach")
 }
 
 /// QUYỀN BOT (docs/77) — nhật ký CHỈ THÊM của mọi thay đổi BotNhom/BotNhanVien: ai, lúc nào,

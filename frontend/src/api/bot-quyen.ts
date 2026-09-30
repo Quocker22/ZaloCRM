@@ -6,7 +6,9 @@
 //   GET    /bot-quyen/nhom                         ?zaloAccountId=  -> { nhom: NhomView[] }
 //   GET    /bot-quyen/nhom/:conversationId/thanh-vien ?lamMoi=1   -> ThanhVienNhom
 //   PUT    /bot-quyen/nhom/:conversationId         {chucNang, tenDangKy?, ghiChu?, lyDo?} -> { botNhom, doi }
-//   DELETE /bot-quyen/nhom/:conversationId         body {lyDo?}  -> { doi }
+//   DELETE /bot-quyen/nhom/:conversationId         body {lyDo?}  -> { doi }   (về MẶC ĐỊNH — docs/77 §8)
+//   POST   /bot-quyen/nhom/:conversationId/doc-lai  -> { ok }  (xếp hàng đọc lại danh sách thành viên)
+//   GET    /bot-quyen/nguoi-da-nhan                ?tuKhoa=&trang=&moiTrang=&lamMoi=1 -> TrangNguoiDaNhan
 //   GET    /bot-quyen/nhan-vien                    -> { nhanVien: NhanVien[] }
 //   POST   /bot-quyen/nhan-vien                    {zaloUid, tenGoi, vai, trangThai?, userId?, ghiChu?, lyDo?} -> 201 { nhanVien }
 //   PUT    /bot-quyen/nhan-vien/:id                {tenGoi?, vai?, trangThai?, userId?, ghiChu?, lyDo?} -> { nhanVien, doi }
@@ -29,6 +31,24 @@ export interface NickNhom {
   status: string;
 }
 
+/** Mặc định chức năng nhóm theo thành viên (docs/77 §8) — backend bot-quyen-mac-dinh.ts. */
+export type LyDoMacDinh = 'toan_nhan_vien' | 'co_nguoi_ngoai' | 'chua_doc' | 'thieu_danh_sach' | 'dang_doc_lai';
+export interface MacDinhNhom {
+  /** null = chưa có mặc định (danh sách chưa biết đủ) ⇒ bot im nếu không xếp tường minh. */
+  chucNang: 'sales' | 'khach' | null;
+  lyDo: LyDoMacDinh | string;
+  soThanhVien: number;
+  soNguoiNgoai: number;
+  soNickKhac: number;
+  soNguoiNghi: number;
+  /** ≤ 20 uid không phải nhân viên. */
+  nguoiNgoai: string[];
+  docLuc: string | null;
+  /** Lỗi lần đọc Zalo gần nhất (nếu có). */
+  loiDoc: string | null;
+  thuLuc: string | null;
+}
+
 export interface NhomView {
   conversationId: string;
   externalThreadId: string | null;
@@ -39,13 +59,44 @@ export interface NhomView {
   /** Hội thoại đã xoá mềm hoặc nick đã lưu trữ — mặc định ẩn khỏi bảng. */
   daAn: boolean;
   nick: NickNhom;
-  /** null = chưa xếp loại ⇒ bot im. */
+  /** Chủ xếp TƯỜNG MINH — null = không xếp (theo mặc định). */
   chucNang: ChucNangNhom | null;
   /** null khi chưa xếp loại. */
   tenDangKy: string | null;
   ghiChu: string | null;
   capNhatLuc: string | null;
   capNhatBoi: { id: string; fullName: string } | null;
+  macDinh: MacDinhNhom;
+  /** Chức năng bot đang dùng (tường minh, không thì mặc định). null = chưa xếp loại ⇒ bot im. */
+  chucNangHieuLuc: ChucNangNhom | null;
+  laMacDinh: boolean;
+}
+
+export interface NoiNhan {
+  conversationId: string;
+  loai: 'rieng' | 'nhom';
+  tenNhom: string | null;
+  nick: { id: string; ten: string };
+  luc: string | null;
+}
+
+export interface NguoiDaNhan {
+  zaloUid: string;
+  ten: string;
+  luc: string | null;
+  noi: NoiNhan[];
+  soNoi: number;
+  /** Đang được sai bot ở trang agent-operators — gần như chắc là nhân viên. */
+  dangSaiBot: boolean;
+  tinCuoi: { noiDung: string; loai: string; luc: string } | null;
+}
+
+export interface TrangNguoiDaNhan {
+  tong: number;
+  trang: number;
+  moiTrang: number;
+  ungVien: NguoiDaNhan[];
+  gomLuc: string;
 }
 
 export interface ThanhVien {
@@ -156,6 +207,22 @@ export async function boXepLoaiNhom(conversationId: string, lyDo?: string): Prom
     data: lyDo ? { lyDo } : {},
   });
   return { doi: data?.doi !== false };
+}
+
+export async function docLaiThanhVienNhom(conversationId: string): Promise<void> {
+  await api.post(`/bot-quyen/nhom/${encodeURIComponent(conversationId)}/doc-lai`, {}, CAU_HINH);
+}
+
+export async function layNguoiDaNhan(
+  tuy: { tuKhoa?: string; trang?: number; moiTrang?: number; lamMoi?: boolean } = {},
+): Promise<TrangNguoiDaNhan> {
+  const params: Record<string, string> = {};
+  if (tuy.tuKhoa?.trim()) params.tuKhoa = tuy.tuKhoa.trim();
+  if (tuy.trang) params.trang = String(tuy.trang);
+  if (tuy.moiTrang) params.moiTrang = String(tuy.moiTrang);
+  if (tuy.lamMoi) params.lamMoi = '1';
+  const { data } = await api.get('/bot-quyen/nguoi-da-nhan', { ...CAU_HINH, params });
+  return data;
 }
 
 export async function layDanhSachNhanVien(): Promise<NhanVien[]> {

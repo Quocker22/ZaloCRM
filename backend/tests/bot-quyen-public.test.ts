@@ -109,14 +109,15 @@ describeCanDb('bot-quyen — API công khai (x-api-key)', () => {
     expect(Object.keys(body)).toEqual(['phien_ban', 'nhom', 'nhan_vien']);
     expect(body.phien_ban).toMatch(/^[0-9a-f]{64}$/);
     expect(body.nhom).toEqual([
-      { conversation_id: 'test-bqp-c1', external_thread_id: 'ext-c1', nick_uid: 'test-bqp-uid-nick-a', chuc_nang: 'admin', ten_dang_ky: '' },
-      { conversation_id: 'test-bqp-c2', external_thread_id: 'ext-c2', nick_uid: 'test-bqp-uid-nick-a', chuc_nang: 'sales', ten_dang_ky: 'Sales HN' },
+      { conversation_id: 'test-bqp-c1', external_thread_id: 'ext-c1', nick_uid: 'test-bqp-uid-nick-a', chuc_nang: 'admin', ten_dang_ky: '', mac_dinh: false },
+      { conversation_id: 'test-bqp-c2', external_thread_id: 'ext-c2', nick_uid: 'test-bqp-uid-nick-a', chuc_nang: 'sales', ten_dang_ky: 'Sales HN', mac_dinh: false },
     ]);
     // Thứ tự khoá trong JSON trả về (hợp đồng): conversation_id, external_thread_id, nick_uid, chuc_nang, ten_dang_ky.
     expect(res.body.indexOf('"conversation_id"')).toBeLessThan(res.body.indexOf('"external_thread_id"'));
     expect(res.body.indexOf('"external_thread_id"')).toBeLessThan(res.body.indexOf('"nick_uid"'));
     expect(res.body.indexOf('"nick_uid"')).toBeLessThan(res.body.indexOf('"chuc_nang"'));
     expect(res.body.indexOf('"chuc_nang"')).toBeLessThan(res.body.indexOf('"ten_dang_ky"'));
+    expect(res.body.indexOf('"ten_dang_ky"')).toBeLessThan(res.body.indexOf('"mac_dinh"'));
     expect(body.nhan_vien).toEqual([
       { zalo_uid: '100', ten_goi: 'Quyết', vai: 'admin', trang_thai: 'hoat_dong' },
       { zalo_uid: '500', ten_goi: 'Lan', vai: 'cong_ty', trang_thai: 'nghi' },
@@ -127,7 +128,7 @@ describeCanDb('bot-quyen — API công khai (x-api-key)', () => {
   it('khoá org B chỉ thấy dữ liệu org B', async () => {
     const body = (await lay(KHOA_B)).json();
     expect(body.nhom).toEqual([
-      { conversation_id: 'test-bqp-cb', external_thread_id: 'ext-cb', nick_uid: 'test-bqp-uid-nick-b', chuc_nang: 'kho', ten_dang_ky: 'Kho B' },
+      { conversation_id: 'test-bqp-cb', external_thread_id: 'ext-cb', nick_uid: 'test-bqp-uid-nick-b', chuc_nang: 'kho', ten_dang_ky: 'Kho B', mac_dinh: false },
     ]);
     expect(body.nhan_vien).toEqual([
       { zalo_uid: '100', ten_goi: 'Người org B', vai: 'sales', trang_thai: 'hoat_dong' },

@@ -5,10 +5,18 @@ import type { NhomView } from '@/api/bot-quyen';
 import { locNhom, dsNick, tenNhomHienThi, tenDangKyPhu, tenDangKyMacDinh, tenNick, boDau, demChuaXepLoai } from './bot-quyen-nhom';
 
 const nick = (id: string, displayName: string | null) => ({ id, displayName, zaloUid: `uid-${id}`, status: 'connected' });
-const n = (them: Partial<NhomView>): NhomView => ({
-  conversationId: 'c', externalThreadId: 't', tenNhom: 'Nhóm', soThanhVien: 5, lastMessageAt: null, daAn: false,
-  nick: nick('a', 'Nick HN'), chucNang: null, tenDangKy: null, ghiChu: null, capNhatLuc: null, capNhatBoi: null, ...them,
-});
+const MD_CHUA_DOC = {
+  chucNang: null, lyDo: 'chua_doc', soThanhVien: 0, soNguoiNgoai: 0, soNickKhac: 0, soNguoiNghi: 0, nguoiNgoai: [],
+  docLuc: null, loiDoc: null, thuLuc: null,
+} as const;
+const n = (them: Partial<NhomView>): NhomView => {
+  const r = {
+    conversationId: 'c', externalThreadId: 't', tenNhom: 'Nhóm', soThanhVien: 5, lastMessageAt: null, daAn: false,
+    nick: nick('a', 'Nick HN'), chucNang: null, tenDangKy: null, ghiChu: null, capNhatLuc: null, capNhatBoi: null,
+    macDinh: { ...MD_CHUA_DOC, nguoiNgoai: [] as string[] }, ...them,
+  } as NhomView;
+  return { ...r, chucNangHieuLuc: them.chucNangHieuLuc ?? r.chucNang, laMacDinh: them.laMacDinh ?? !r.chucNang };
+};
 
 const DS: NhomView[] = [
   n({ conversationId: '1', tenNhom: 'Sales Hà Nội', nick: nick('a', 'Nick HN'), chucNang: 'sales', tenDangKy: 'Sales HN' }),

@@ -18,6 +18,7 @@ import {
   laHaChucNang, laHaVai, laHaTrangThai, laAdminHoatDong, laKhoaKhiTao,
   type ChucNangNhom, type VaiNv, type TrangThaiNv,
 } from './bot-quyen-luat.js';
+import { tinhMacDinhNhom, chucNangHieuLuc, type MacDinhNhom } from './bot-quyen-mac-dinh.js';
 
 export class LoiBotQuyen extends Error {
   constructor(public readonly status: number, public readonly code: string, message: string) {
@@ -123,11 +124,17 @@ export interface NhomView {
   /** Hội thoại đã ẩn trong CRM (xoá mềm / nick đã xoá) nhưng vẫn đang được xếp loại. */
   daAn: boolean;
   nick: { id: string; displayName: string | null; zaloUid: string | null; status: string };
+  /** Chủ xếp TƯỜNG MINH (dòng BotNhom) — null = không xếp (theo mặc định). */
   chucNang: ChucNangNhom | null;
   tenDangKy: string | null;
   ghiChu: string | null;
   capNhatLuc: Date | null;
   capNhatBoi: { id: string; fullName: string } | null;
+  /** Mặc định theo thành viên (docs/77 §8) — tính cả khi đã xếp tường minh (để trang nói "mặc định sẽ là…"). */
+  macDinh: MacDinhNhom & { loiDoc: string | null; thuLuc: Date | null };
+  /** Chức năng bot đang dùng: tường minh nếu có, không thì mặc định (null = chưa xếp loại ⇒ bot im). */
+  chucNangHieuLuc: ChucNangNhom | null;
+  laMacDinh: boolean;
 }
 
 /**
@@ -146,11 +153,22 @@ export async function danhSachNhom(orgId: string, loc: { zaloAccountId?: string 
       id: true, externalThreadId: true, groupName: true, groupMembersCount: true, lastMessageAt: true, deletedAt: true,
       zaloAccount: { select: { id: true, displayName: true, zaloUid: true, status: true, archivedAt: true } },
       botNhom: { select: { chucNang: true, tenDangKy: true, ghiChu: true, capNhatLuc: true, capNhatBoiId: true } },
+      botNhomDanhSach: { select: { uids: true, dayDu: true, canDocLai: true, docLuc: true, thuLuc: true, loi: true } },
     },
     orderBy: [{ lastMessageAt: { sort: 'desc', nulls: 'last' } }, { id: 'asc' }],
   });
-  const nguoi = await tenNguoi(orgId, rows.map((r) => r.botNhom?.capNhatBoiId));
-  return rows.map((r) => ({
+  const [nguoi, nhanVien, nicks] = await Promise.all([
+    tenNguoi(orgId, rows.map((r) => r.botNhom?.capNhatBoiId)),
+    prisma.botNhanVien.findMany({ where: { orgId }, select: { zaloUid: true, trangThai: true } }),
+    prisma.zaloAccount.findMany({ where: { orgId, zaloUid: { not: null } }, select: { zaloUid: true } }),
+  ]);
+  const trangThaiNv = new Map(nhanVien.map((n) => [n.zaloUid, n.trangThai]));
+  const nickCrm = new Set(nicks.map((n) => n.zaloUid!));
+  return rows.map((r) => {
+    const tuongMinh = r.botNhom && laChucNang(r.botNhom.chucNang) ? r.botNhom.chucNang : null;
+    const md = tinhMacDinhNhom(r.botNhomDanhSach, { nickUid: r.zaloAccount.zaloUid, trangThaiNv, nickCrm });
+    const hl = chucNangHieuLuc(tuongMinh, md);
+    return {
     conversationId: r.id,
     externalThreadId: r.externalThreadId,
     tenNhom: r.groupName,
@@ -158,12 +176,16 @@ export async function danhSachNhom(orgId: string, loc: { zaloAccountId?: string 
     lastMessageAt: r.lastMessageAt,
     daAn: r.deletedAt !== null || r.zaloAccount.archivedAt !== null,
     nick: { id: r.zaloAccount.id, displayName: r.zaloAccount.displayName, zaloUid: r.zaloAccount.zaloUid, status: r.zaloAccount.status },
-    chucNang: r.botNhom && laChucNang(r.botNhom.chucNang) ? r.botNhom.chucNang : null,
+    chucNang: tuongMinh,
     tenDangKy: r.botNhom?.tenDangKy ?? null,
     ghiChu: r.botNhom?.ghiChu ?? null,
     capNhatLuc: r.botNhom?.capNhatLuc ?? null,
     capNhatBoi: (r.botNhom?.capNhatBoiId && nguoi.get(r.botNhom.capNhatBoiId)) || null,
-  }));
+    macDinh: { ...md, loiDoc: r.botNhomDanhSach?.loi ?? null, thuLuc: r.botNhomDanhSach?.thuLuc ?? null },
+    chucNangHieuLuc: hl.chucNang as ChucNangNhom | null,
+    laMacDinh: hl.macDinh,
+    };
+  });
 }
 
 async function timNhomTrongOrg(tx: Tx, orgId: string, conversationId: string): Promise<void> {

@@ -8,7 +8,10 @@
 //   GET    /nhom                              ?zaloAccountId=  — mọi hội thoại nhóm + chức năng
 //   GET    /nhom/:conversationId/thanh-vien   ?lamMoi=1        — thành viên + nhãn NV / nick / người ngoài
 //   PUT    /nhom/:conversationId              {chucNang, tenDangKy?, ghiChu?, lyDo?}
-//   DELETE /nhom/:conversationId              {lyDo}           — bỏ xếp loại (bot im)
+//   DELETE /nhom/:conversationId              {lyDo}           — bỏ xếp tường minh ⇒ về MẶC ĐỊNH (docs/77 §8; không có
+//                                                               mặc định ⇒ chưa xếp loại, bot im)
+//   POST   /nhom/:conversationId/doc-lai                      — xếp hàng đọc lại danh sách thành viên (mặc định)
+//   GET    /nguoi-da-nhan                     ?tuKhoa=&trang=&moiTrang=&lamMoi=1 — người đã nhắn cho shop, chưa gán
 //   GET    /nhan-vien
 //   POST   /nhan-vien                         {zaloUid, tenGoi, vai, trangThai?, userId?, ghiChu?, lyDo?}
 //   PUT    /nhan-vien/:id                     {tenGoi?, vai?, trangThai?, userId?, ghiChu?, lyDo?}
@@ -23,6 +26,8 @@ import {
   danhSachNhanVien, themNhanVien, suaNhanVien, docNhatKy,
 } from './bot-quyen-service.js';
 import { layThanhVienNhom, docThanhVienZaloMacDinh, type DocThanhVienZalo } from './bot-quyen-thanh-vien.js';
+import { yeuCauDocLai } from './bot-quyen-danh-sach.js';
+import { danhSachNguoiDaNhan } from './bot-quyen-nguoi-da-nhan.js';
 
 export interface BotQuyenRoutesOpts {
   /** Đọc thành viên nhóm trực tiếp từ Zalo — mặc định qua zaloOps; test tiêm hàm giả. */
@@ -82,8 +87,32 @@ export async function registerBotQuyenRoutes(app: FastifyInstance, opts: BotQuye
 
   app.delete('/nhom/:conversationId', async (req: FastifyRequest<P<{ conversationId: string }>>, reply: FastifyReply) => {
     try {
-      return await boXepLoaiNhom(req.user!.orgId, req.user!.id, req.params.conversationId, req.body);
+      const kq = await boXepLoaiNhom(req.user!.orgId, req.user!.id, req.params.conversationId, req.body);
+      // Về mặc định ⇒ cần bản đọc danh sách tươi (nhóm chưa từng đọc / bản cũ lỗi).
+      if (kq.doi) await yeuCauDocLai(req.user!.orgId, req.params.conversationId).catch(() => false);
+      return kq;
     } catch (err) { return guiLoi(reply, err); }
+  });
+
+  app.post('/nhom/:conversationId/doc-lai', async (req: FastifyRequest<P<{ conversationId: string }>>, reply: FastifyReply) => {
+    const ok = await yeuCauDocLai(req.user!.orgId, req.params.conversationId);
+    if (!ok) return reply.code(404).send({ error: 'Không tìm thấy hội thoại nhóm này', code: 'KHONG_TIM_THAY_NHOM' });
+    return { ok: true };
+  });
+
+  // ── Người đã nhắn cho shop (chờ gán) ──────────────────────────────────────
+
+  app.get('/nguoi-da-nhan', async (
+    req: FastifyRequest<{ Querystring: { tuKhoa?: string; trang?: string; moiTrang?: string; lamMoi?: string } }>,
+  ) => {
+    const q = req.query;
+    const so = (x: string | undefined) => (x === undefined ? undefined : Number.parseInt(x, 10));
+    return danhSachNguoiDaNhan(req.user!.orgId, {
+      tuKhoa: typeof q.tuKhoa === 'string' ? q.tuKhoa.slice(0, 100) : undefined,
+      trang: so(q.trang),
+      moiTrang: so(q.moiTrang),
+      lamMoi: q.lamMoi === '1' || q.lamMoi === 'true',
+    });
   });
 
   // ── Nhân viên ─────────────────────────────────────────────────────────────

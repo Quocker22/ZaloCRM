@@ -48,6 +48,10 @@ export interface MauNhanVien {
   khoaUid?: boolean;
   /** "Là người công ty": vai cố định, không chọn. */
   vaiCoDinh?: Vai;
+  /** Vai chọn sẵn (vẫn đổi được) — "Chờ gán" (tab Nhân viên). */
+  vai?: Vai;
+  /** Cho chọn vai "người công ty" dù uid lấy sẵn (mặc định ẩn — ngăn thành viên có nút riêng). */
+  choPhepCongTy?: boolean;
   tieuDe?: string;
   /** Dòng phụ dưới tiêu đề. */
   nguon?: string;

@@ -10,9 +10,15 @@
 // `nick_uid` (vòng sửa 1): uid Zalo của CHÍNH nick CRM nhìn nhóm (ZaloAccount.zaloUid của hội thoại, null khi
 // nick chưa có uid). Bot nạp các uid này vào bảng nick_bot — tin của nick đó trong nhóm không bị coi là người
 // ngoài. Nhóm chuyển sang nick khác / nick đổi uid ⇒ phien_ban đổi.
+//
+// MẶC ĐỊNH (docs/77 §8, 30/09): `chuc_nang` là chức năng HIỆU LỰC — chủ xếp tường minh (BotNhom) nếu có, không thì
+// mặc định theo thành viên (toàn NV ⇒ sales, có người ngoài ⇒ khach — bot-quyen-mac-dinh.ts). `mac_dinh` = true khi
+// giá trị là mặc định. Nhóm không xếp mà chưa biết đủ/tươi danh sách thành viên ⇒ VẮNG (bot: bỏ xếp loại ⇒ im).
+// Mặc định tính lúc đọc (không lưu) ⇒ đổi NV / thành viên ⇒ payload đổi ⇒ phien_ban đổi ngay ở lần poll kế.
 import { createHash } from 'node:crypto';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { withTenant } from '../../shared/tenant/tenant-context.js';
+import { tinhMacDinhNhom, chucNangHieuLuc } from './bot-quyen-mac-dinh.js';
 
 export interface NhomCongKhai {
   conversation_id: string;
@@ -20,6 +26,8 @@ export interface NhomCongKhai {
   nick_uid: string | null;
   chuc_nang: string;
   ten_dang_ky: string;
+  /** true = chức năng MẶC ĐỊNH theo thành viên; false = chủ xếp tường minh. */
+  mac_dinh: boolean;
 }
 
 export interface NhanVienCongKhai {
@@ -53,18 +61,20 @@ function soSanh(a: string, b: string): number {
 export function ghepCauHinhCongKhai(
   nhom: ReadonlyArray<{
     conversationId: string; externalThreadId: string | null; nickUid: string | null; chucNang: string; tenDangKy: string;
+    macDinh?: boolean;
   }>,
   nhanVien: ReadonlyArray<{ zaloUid: string; tenGoi: string; vai: string; trangThai: string }>,
 ): CauHinhCongKhai {
   const n: NhomCongKhai[] = nhom
     .map((r) => ({
       // Thứ tự khoá = thứ tự trong JSON trả về (hợp đồng): conversation_id, external_thread_id, nick_uid,
-      // chuc_nang, ten_dang_ky. Băm dùng JSON chuẩn (khoá sắp xếp) nên thứ tự này không ảnh hưởng phien_ban.
+      // chuc_nang, ten_dang_ky, mac_dinh. Băm dùng JSON chuẩn (khoá sắp xếp) nên thứ tự này không ảnh hưởng phien_ban.
       conversation_id: r.conversationId,
       external_thread_id: r.externalThreadId,
       nick_uid: r.nickUid,
       chuc_nang: r.chucNang,
       ten_dang_ky: r.tenDangKy,
+      mac_dinh: r.macDinh === true,
     }))
     .sort((a, b) => soSanh(a.conversation_id, b.conversation_id));
   const v: NhanVienCongKhai[] = nhanVien
@@ -75,33 +85,45 @@ export function ghepCauHinhCongKhai(
 }
 
 /**
- * Đọc cấu hình của MỘT org. Chỉ nhóm ĐÃ xếp loại (có dòng BotNhom) — nhóm chưa xếp loại vắng mặt
- * và bot coi là im. Mọi NV (kể cả khoa/nghi — bot cần biết người nghỉ để im nhóm có họ).
+ * Đọc cấu hình của MỘT org. Nhóm: chủ đã xếp (BotNhom) + nhóm có MẶC ĐỊNH (bản đọc danh sách đủ, tươi). Nhóm không có
+ * cả hai vắng mặt ⇒ bot coi là im. Mọi NV (kể cả khoa/nghi — bot cần biết người nghỉ để im nhóm có họ).
+ * Ba truy vấn cố định (không N+1): hội thoại nhóm có BotNhom HOẶC bản đọc, NV, uid nick của org.
  */
 export async function docCauHinhCongKhai(orgId: string): Promise<CauHinhCongKhai> {
   return withTenant(orgId, async () => {
-    const [nhom, nhanVien] = await Promise.all([
-      prisma.botNhom.findMany({
-        where: { orgId },
+    const [convs, nhanVien, nicks] = await Promise.all([
+      prisma.conversation.findMany({
+        where: { orgId, threadType: 'group', OR: [{ botNhom: { isNot: null } }, { botNhomDanhSach: { isNot: null } }] },
         select: {
-          conversationId: true, chucNang: true, tenDangKy: true,
-          conversation: { select: { externalThreadId: true, zaloAccount: { select: { zaloUid: true } } } },
+          id: true, externalThreadId: true,
+          zaloAccount: { select: { zaloUid: true } },
+          botNhom: { select: { chucNang: true, tenDangKy: true } },
+          botNhomDanhSach: { select: { uids: true, dayDu: true, canDocLai: true, docLuc: true } },
         },
       }),
       prisma.botNhanVien.findMany({
         where: { orgId },
         select: { zaloUid: true, tenGoi: true, vai: true, trangThai: true },
       }),
+      prisma.zaloAccount.findMany({ where: { orgId, zaloUid: { not: null } }, select: { zaloUid: true } }),
     ]);
-    return ghepCauHinhCongKhai(
-      nhom.map((r) => ({
-        conversationId: r.conversationId,
-        externalThreadId: r.conversation.externalThreadId,
-        nickUid: r.conversation.zaloAccount.zaloUid,
-        chucNang: r.chucNang,
-        tenDangKy: r.tenDangKy,
-      })),
-      nhanVien,
-    );
+    const trangThaiNv = new Map(nhanVien.map((n) => [n.zaloUid, n.trangThai]));
+    const nickCrm = new Set(nicks.map((n) => n.zaloUid!).filter(Boolean));
+    const nhom = [];
+    for (const c of convs) {
+      const nickUid = c.zaloAccount.zaloUid;
+      const md = tinhMacDinhNhom(c.botNhomDanhSach, { nickUid, trangThaiNv, nickCrm });
+      const hl = chucNangHieuLuc(c.botNhom?.chucNang ?? null, md);
+      if (!hl.chucNang) continue;
+      nhom.push({
+        conversationId: c.id,
+        externalThreadId: c.externalThreadId,
+        nickUid,
+        chucNang: hl.chucNang,
+        tenDangKy: c.botNhom?.tenDangKy ?? '',
+        macDinh: hl.macDinh,
+      });
+    }
+    return ghepCauHinhCongKhai(nhom, nhanVien);
   });
 }
