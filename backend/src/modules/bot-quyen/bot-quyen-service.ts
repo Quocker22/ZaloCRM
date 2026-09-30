@@ -37,6 +37,8 @@ async function ghiNhanSauDoiNv(orgId: string): Promise<void> {
 const dangDanhTinh = new Map<string, Promise<void>>();
 const henDanhTinh = new Map<string, NodeJS.Timeout>();
 let treDanhTinhMs = 3000;
+// Trong vitest KHÔNG tự hẹn (vòng hẹn bắn giữa test khác ⇒ ghi nhật ký/đề xuất lạc) — test gọi chayDanhTinh trực tiếp.
+let tuDongHen = process.env.VITEST !== 'true';
 
 /** Chạy NGAY một vòng danh tính cho org: đọc Zalo (ngân sách) ⇒ nối ⇒ ghi nhận mặc định. Không bao giờ ném. */
 export async function chayDanhTinh(orgId: string): Promise<void> {
@@ -54,6 +56,7 @@ export async function chayDanhTinh(orgId: string): Promise<void> {
 
 /** Hẹn một vòng danh tính (gộp nhiều thay đổi liền nhau). */
 export function kichHoatDanhTinh(orgId: string): void {
+  if (!tuDongHen) return;
   const h = henDanhTinh.get(orgId);
   if (h) clearTimeout(h);
   const t = setTimeout(() => { henDanhTinh.delete(orgId); void chayDanhTinh(orgId); }, treDanhTinhMs);
@@ -62,8 +65,9 @@ export function kichHoatDanhTinh(orgId: string): void {
 }
 
 /** Chỉ cho test: độ trễ hẹn (âm ⇒ tắt hẹn), huỷ mọi hẹn đang chờ, chờ vòng đang chạy. */
-export async function _danhTinhChoTest(o: { treMs?: number } = {}): Promise<void> {
+export async function _danhTinhChoTest(o: { treMs?: number; tuDong?: boolean } = {}): Promise<void> {
   if (o.treMs !== undefined) treDanhTinhMs = o.treMs < 0 ? 2 ** 31 - 1 : o.treMs;
+  if (o.tuDong !== undefined) tuDongHen = o.tuDong;
   for (const t of henDanhTinh.values()) clearTimeout(t);
   henDanhTinh.clear();
   await Promise.all([...dangDanhTinh.values()].map((p) => p.catch(() => undefined)));

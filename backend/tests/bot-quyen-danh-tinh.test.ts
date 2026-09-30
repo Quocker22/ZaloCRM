@@ -59,3 +59,19 @@ describe('bot-quyen-danh-tinh (thuần)', () => {
     expect(b.gid('A', 'u')).toBe('G1');
   });
 });
+
+describe('vòng danh tính hẹn sau thay đổi NV', () => {
+  it('kichHoatDanhTinh: trong vitest mặc định KHÔNG tự hẹn (tránh vòng lạc ghi nhật ký giữa test khác)', async () => {
+    const svc = await import('../src/modules/bot-quyen/bot-quyen-service.js');
+    const dt = await import('../src/modules/bot-quyen/bot-quyen-danh-tinh.js');
+    let goi = 0;
+    dt._datZaloDanhTinhChoTest({
+      async thongTin() { goi++; return new Map(); },
+      async timSdt() { return null; },
+    });
+    svc.kichHoatDanhTinh('org-khong-co');
+    await svc._danhTinhChoTest();
+    expect(goi).toBe(0); // tắt trong vitest
+    dt._datZaloDanhTinhChoTest(null);
+  });
+});
