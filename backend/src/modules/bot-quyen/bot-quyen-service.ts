@@ -19,6 +19,13 @@ import {
   type ChucNangNhom, type VaiNv, type TrangThaiNv,
 } from './bot-quyen-luat.js';
 import { tinhMacDinhNhom, chucNangHieuLuc, type MacDinhNhom } from './bot-quyen-mac-dinh.js';
+import { ghiNhanDoiMacDinh, AI_TU_DONG } from './bot-quyen-danh-sach.js';
+import { logger } from '../../shared/utils/logger.js';
+
+/** Sau thay đổi NV: mặc định các nhóm có thể đổi ⇒ ghi nhật ký "tự động" (góp ý chủ (4)). Không làm hỏng thay đổi NV. */
+async function ghiNhanSauDoiNv(orgId: string): Promise<void> {
+  await ghiNhanDoiMacDinh(orgId).catch((err) => logger.warn('[bot-quyen] ghi nhận mặc định sau đổi NV lỗi:', err));
+}
 
 export class LoiBotQuyen extends Error {
   constructor(public readonly status: number, public readonly code: string, message: string) {
@@ -131,7 +138,7 @@ export interface NhomView {
   capNhatLuc: Date | null;
   capNhatBoi: { id: string; fullName: string } | null;
   /** Mặc định theo thành viên (docs/77 §8) — tính cả khi đã xếp tường minh (để trang nói "mặc định sẽ là…"). */
-  macDinh: MacDinhNhom & { loiDoc: string | null; thuLuc: Date | null };
+  macDinh: MacDinhNhom & { loiDoc: string | null; thuLuc: Date | null; thuLaiSau: Date | null; khongTra: boolean };
   /** Chức năng bot đang dùng: tường minh nếu có, không thì mặc định (null = chưa xếp loại ⇒ bot im). */
   chucNangHieuLuc: ChucNangNhom | null;
   laMacDinh: boolean;
@@ -153,7 +160,9 @@ export async function danhSachNhom(orgId: string, loc: { zaloAccountId?: string 
       id: true, externalThreadId: true, groupName: true, groupMembersCount: true, lastMessageAt: true, deletedAt: true,
       zaloAccount: { select: { id: true, displayName: true, zaloUid: true, status: true, archivedAt: true } },
       botNhom: { select: { chucNang: true, tenDangKy: true, ghiChu: true, capNhatLuc: true, capNhatBoiId: true } },
-      botNhomDanhSach: { select: { uids: true, dayDu: true, canDocLai: true, docLuc: true, thuLuc: true, loi: true } },
+      botNhomDanhSach: {
+        select: { uids: true, dayDu: true, canDocLai: true, docLuc: true, thuLuc: true, loi: true, thuLaiSau: true, khongTra: true },
+      },
     },
     orderBy: [{ lastMessageAt: { sort: 'desc', nulls: 'last' } }, { id: 'asc' }],
   });
@@ -164,9 +173,11 @@ export async function danhSachNhom(orgId: string, loc: { zaloAccountId?: string 
   ]);
   const trangThaiNv = new Map(nhanVien.map((n) => [n.zaloUid, n.trangThai]));
   const nickCrm = new Set(nicks.map((n) => n.zaloUid!));
+  const bayGio = new Date();
   return rows.map((r) => {
     const tuongMinh = r.botNhom && laChucNang(r.botNhom.chucNang) ? r.botNhom.chucNang : null;
-    const md = tinhMacDinhNhom(r.botNhomDanhSach, { nickUid: r.zaloAccount.zaloUid, trangThaiNv, nickCrm });
+    const daAn = r.deletedAt !== null || r.zaloAccount.archivedAt !== null;
+    const md = tinhMacDinhNhom(r.botNhomDanhSach, { nickUid: r.zaloAccount.zaloUid, trangThaiNv, nickCrm, bayGio, daAn });
     const hl = chucNangHieuLuc(tuongMinh, md);
     return {
     conversationId: r.id,
@@ -181,7 +192,10 @@ export async function danhSachNhom(orgId: string, loc: { zaloAccountId?: string 
     ghiChu: r.botNhom?.ghiChu ?? null,
     capNhatLuc: r.botNhom?.capNhatLuc ?? null,
     capNhatBoi: (r.botNhom?.capNhatBoiId && nguoi.get(r.botNhom.capNhatBoiId)) || null,
-    macDinh: { ...md, loiDoc: r.botNhomDanhSach?.loi ?? null, thuLuc: r.botNhomDanhSach?.thuLuc ?? null },
+    macDinh: {
+      ...md, loiDoc: r.botNhomDanhSach?.loi ?? null, thuLuc: r.botNhomDanhSach?.thuLuc ?? null,
+      thuLaiSau: r.botNhomDanhSach?.thuLaiSau ?? null, khongTra: r.botNhomDanhSach?.khongTra ?? false,
+    },
     chucNangHieuLuc: hl.chucNang as ChucNangNhom | null,
     laMacDinh: hl.macDinh,
     };
@@ -364,6 +378,7 @@ export async function themNhanVien(orgId: string, aiId: string, input: unknown):
     });
     return tao;
   });
+  await ghiNhanSauDoiNv(orgId);
   return (await nhanVienViews(orgId, [row]))[0];
 }
 
@@ -422,6 +437,7 @@ export async function suaNhanVien(
     await ghiNhatKy(tx, { orgId, aiId, doiTuong: 'nhan_vien', doiTuongId: cu.id, truoc, sau: anhNhanVien(row), lyDo });
     return { row, doi: true };
   });
+  if (ket.doi) await ghiNhanSauDoiNv(orgId);
   return { nhanVien: (await nhanVienViews(orgId, [ket.row]))[0], doi: ket.doi };
 }
 
@@ -432,6 +448,8 @@ export interface NhatKyView {
   luc: Date;
   aiId: string;
   ai: { id: string; fullName: string } | null;
+  /** Dòng do HỆ THỐNG ghi (mặc định nhóm tự đổi theo thành viên / NV) — ai_id = AI_TU_DONG. */
+  tuDong: boolean;
   doiTuong: string;
   doiTuongId: string;
   /** nhom: tên nhóm Zalo hiện tại · nhan_vien: tên gọi trong bản ghi (sau, hoặc trước nếu không có sau). */
@@ -462,6 +480,7 @@ export async function docNhatKy(orgId: string, limitRaw: unknown): Promise<NhatK
     luc: r.luc,
     aiId: r.aiId,
     ai: nguoi.get(r.aiId) ?? null,
+    tuDong: r.aiId === AI_TU_DONG,
     doiTuong: r.doiTuong,
     doiTuongId: r.doiTuongId,
     tenDoiTuong: r.doiTuong === 'nhom' ? (tenNhom.get(r.doiTuongId) ?? null) : (tenTrongAnh(r.sau) ?? tenTrongAnh(r.truoc)),

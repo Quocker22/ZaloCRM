@@ -6,6 +6,7 @@ import { moTaNoi, mauGan, tomTatTin } from './bot-quyen-cho-gan';
 
 const u = (them: Partial<NguoiDaNhan> = {}): NguoiDaNhan => ({
   zaloUid: '123', ten: 'Trần Hưng', luc: null, soNoi: 1, dangSaiBot: false, tinCuoi: null,
+  anTen: false, anTinCuoi: false, redacted: false,
   noi: [{ conversationId: 'g1', loai: 'nhom', tenNhom: 'Sales HN', nick: { id: 'n1', ten: 'LED HN' }, luc: null }], ...them,
 });
 
@@ -28,6 +29,7 @@ describe('tomTatTin', () => {
     expect(tomTatTin(u({ tinCuoi: { noiDung: '', loai: 'image', luc: '2026-09-30T08:00:00Z' } }))).toBe('[ảnh]');
     expect(tomTatTin(u({ tinCuoi: { noiDung: '', loai: 'sticker', luc: '2026-09-30T08:00:00Z' } }))).toBe('[sticker]');
     expect(tomTatTin(u())).toBe('—');
+    expect(tomTatTin(u({ anTinCuoi: true, redacted: true }))).toBe('▒▒▒ (nick Riêng tư)');
   });
 });
 
@@ -40,5 +42,13 @@ describe('mauGan', () => {
   });
   it('tên chưa rõ ⇒ để trống cho người gán điền', () => {
     expect(mauGan(u({ ten: '(chưa rõ tên)' }), 'sales').tenGoi).toBe('');
+  });
+});
+
+describe('nick Riêng tư (review P1-3)', () => {
+  it('tên bị che ⇒ hộp gán không điền tên che, tiêu đề dùng uid', () => {
+    const m = mauGan(u({ ten: '(ẩn — nick Riêng tư)', anTen: true, redacted: true }), 'sales');
+    expect(m.tenGoi).toBe('');
+    expect(m.tieuDe).toBe('Gán “123” làm nhân viên');
   });
 });

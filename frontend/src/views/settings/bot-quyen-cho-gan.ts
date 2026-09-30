@@ -20,15 +20,15 @@ const NHAN_LOAI_TIN: Readonly<Record<string, string>> = {
   image: '[ảnh]', sticker: '[sticker]', file: '[tệp]', voice: '[ghi âm]', video: '[video]', link: '[link]',
 };
 
-export function tomTatTin(u: Pick<NguoiDaNhan, 'tinCuoi'>): string {
+export function tomTatTin(u: Pick<NguoiDaNhan, 'tinCuoi'> & Partial<Pick<NguoiDaNhan, 'anTinCuoi'>>): string {
   const t = u.tinCuoi;
-  if (!t) return '—';
+  if (!t) return u.anTinCuoi ? '▒▒▒ (nick Riêng tư)' : '—';
   if (t.noiDung.trim()) return t.noiDung.trim();
   return NHAN_LOAI_TIN[t.loai] ?? `[${t.loai}]`;
 }
 
 export function mauGan(u: NguoiDaNhan, vai: VaiNhanVien): MauNhanVien {
-  const ten = u.ten === '(chưa rõ tên)' ? '' : u.ten.trim();
+  const ten = u.anTen || u.ten === '(chưa rõ tên)' ? '' : u.ten.trim();
   const noi = u.noi[0];
   return {
     zaloUid: u.zaloUid,

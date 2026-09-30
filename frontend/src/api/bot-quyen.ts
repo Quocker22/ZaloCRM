@@ -32,7 +32,12 @@ export interface NickNhom {
 }
 
 /** Mặc định chức năng nhóm theo thành viên (docs/77 §8) — backend bot-quyen-mac-dinh.ts. */
-export type LyDoMacDinh = 'toan_nhan_vien' | 'co_nguoi_ngoai' | 'chua_doc' | 'thieu_danh_sach' | 'dang_doc_lai';
+export type LyDoMacDinh =
+  | 'toan_nhan_vien' | 'co_nguoi_ngoai' | 'chua_doc' | 'thieu_danh_sach' | 'dang_doc_lai'
+  /** `sales` từ bản đọc quá 6 giờ ⇒ bot im tới lần đọc lại. */
+  | 'qua_cu'
+  /** Hội thoại đã ẩn / nick đã lưu trữ ⇒ không tính mặc định. */
+  | 'da_an';
 export interface MacDinhNhom {
   /** null = chưa có mặc định (danh sách chưa biết đủ) ⇒ bot im nếu không xếp tường minh. */
   chucNang: 'sales' | 'khach' | null;
@@ -47,6 +52,10 @@ export interface MacDinhNhom {
   /** Lỗi lần đọc Zalo gần nhất (nếu có). */
   loiDoc: string | null;
   thuLuc: string | null;
+  /** Lần đọc kế tiếp không sớm hơn (lùi sau lỗi / hết lượt trong ngày / gom lần nối lại). */
+  thuLaiSau: string | null;
+  /** Zalo không trả nhóm này ⇒ dừng đọc tới khi có người vào/ra hoặc nick nối lại. */
+  khongTra: boolean;
 }
 
 export interface NhomView {
@@ -89,6 +98,11 @@ export interface NguoiDaNhan {
   /** Đang được sai bot ở trang agent-operators — gần như chắc là nhân viên. */
   dangSaiBot: boolean;
   tinCuoi: { noiDung: string; loai: string; luc: string } | null;
+  /** Tên chỉ thấy ở nick Riêng tư người xem không được xem ⇒ `ten` là chữ che. */
+  anTen: boolean;
+  /** Không nơi nào người xem được xem nội dung ⇒ không có tin cuối. */
+  anTinCuoi: boolean;
+  redacted: boolean;
 }
 
 export interface TrangNguoiDaNhan {
@@ -138,6 +152,8 @@ export interface NhatKy {
   luc: string;
   aiId: string;
   ai: { id: string; fullName: string } | null;
+  /** Hệ thống ghi (mặc định nhóm tự đổi theo thành viên / nhân viên) — không có người làm. */
+  tuDong: boolean;
   doiTuong: 'nhom' | 'nhan_vien' | string;
   doiTuongId: string;
   tenDoiTuong: string | null;

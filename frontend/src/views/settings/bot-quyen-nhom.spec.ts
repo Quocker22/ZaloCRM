@@ -7,7 +7,7 @@ import { locNhom, dsNick, tenNhomHienThi, tenDangKyPhu, tenDangKyMacDinh, tenNic
 const nick = (id: string, displayName: string | null) => ({ id, displayName, zaloUid: `uid-${id}`, status: 'connected' });
 const MD_CHUA_DOC = {
   chucNang: null, lyDo: 'chua_doc', soThanhVien: 0, soNguoiNgoai: 0, soNickKhac: 0, soNguoiNghi: 0, nguoiNgoai: [],
-  docLuc: null, loiDoc: null, thuLuc: null,
+  docLuc: null, loiDoc: null, thuLuc: null, thuLaiSau: null, khongTra: false,
 } as const;
 const n = (them: Partial<NhomView>): NhomView => {
   const r = {

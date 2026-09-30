@@ -126,7 +126,7 @@ const VUETIFY_VO = {
 const nick = { id: 'nickHN', displayName: 'Nick HN', zaloUid: '900', status: 'connected' };
 const MD_CHUA_DOC = {
   chucNang: null, lyDo: 'chua_doc', soThanhVien: 0, soNguoiNgoai: 0, soNickKhac: 0, soNguoiNghi: 0, nguoiNgoai: [],
-  docLuc: null, loiDoc: null, thuLuc: null,
+  docLuc: null, loiDoc: null, thuLuc: null, thuLaiSau: null, khongTra: false,
 } as const;
 // Mặc định (docs/77 §8): không nêu thì "chưa đọc danh sách" — chức năng hiệu lực = chức năng tường minh.
 const nhom = (them: Partial<NhomView>): NhomView => {
@@ -160,6 +160,7 @@ const CHO_GAN: TrangNguoiDaNhan = {
   ungVien: [
     {
       zaloUid: '777', ten: 'Trần Hưng', luc: '2026-09-30T07:00:00.000Z', soNoi: 2, dangSaiBot: true,
+      anTen: false, anTinCuoi: false, redacted: false,
       tinCuoi: { noiDung: 'lên đơn cho khách A', loai: 'text', luc: '2026-09-30T07:00:00.000Z' },
       noi: [
         { conversationId: 'c5', loai: 'nhom', tenNhom: 'Kho Đông Anh', nick: { id: 'nickHN', ten: 'Nick HN' }, luc: null },
@@ -168,6 +169,7 @@ const CHO_GAN: TrangNguoiDaNhan = {
     },
     {
       zaloUid: '888', ten: 'Khách Đức', luc: '2026-09-30T06:00:00.000Z', soNoi: 1, dangSaiBot: false, tinCuoi: null,
+      anTen: false, anTinCuoi: false, redacted: false,
       noi: [{ conversationId: 'd2', loai: 'rieng', tenNhom: null, nick: { id: 'nickHCM', ten: 'Nick HCM' }, luc: null }],
     },
   ],
@@ -186,9 +188,13 @@ const NV_QUYET: NhanVien = {
   ghiChu: null, capNhatLuc: '2026-09-30T01:00:00.000Z', capNhatBoi: null,
 };
 const NHAT_KY: NhatKy[] = [{
-  id: 'k1', luc: '2026-09-30T03:00:00.000Z', aiId: 'u1', ai: { id: 'u1', fullName: 'Nguyễn A' }, doiTuong: 'nhom',
+  id: 'k1', luc: '2026-09-30T03:00:00.000Z', aiId: 'u1', ai: { id: 'u1', fullName: 'Nguyễn A' }, tuDong: false, doiTuong: 'nhom',
   doiTuongId: 'c2', tenDoiTuong: 'Sales HN', truoc: { chucNang: 'sales', tenDangKy: 'Sales HN', ghiChu: null },
   sau: { chucNang: 'admin', tenDangKy: 'Sales HN', ghiChu: null }, lyDo: 'nhóm quản lý',
+}, {
+  id: 'k2', luc: '2026-09-30T04:00:00.000Z', aiId: 'tu_dong', ai: null, tuDong: true, doiTuong: 'nhom',
+  doiTuongId: 'c3', tenDoiTuong: 'Kho HN', truoc: { chucNang: 'sales', macDinh: true },
+  sau: { chucNang: 'khach', macDinh: true }, lyDo: 'có người ngoài vào nhóm: Lạ Văn A',
 }];
 
 const loi409 = {
@@ -530,6 +536,34 @@ describe('BotQuyenPage — tab Nhật ký', () => {
     await nut(w, 'Nhật ký').trigger('click');
     await flushPromises();
     expect(w.text()).toContain('Nguyễn A đổi nhóm “Sales HN” từ Bán hàng sang Quản trị — lý do: nhóm quản lý');
+    w.unmount();
+  });
+  it('dòng mặc định TỰ ĐỔI: chip "Tự động" riêng, câu không có người làm (góp ý chủ (4))', async () => {
+    const w = gan();
+    await flushPromises();
+    await nut(w, 'Nhật ký').trigger('click');
+    await flushPromises();
+    const tu = w.find('.bq-nk[data-id="k2"]');
+    expect(tu.find('.bq-chip--tu-dong').text()).toBe('Tự động');
+    expect(tu.text()).toContain('Nhóm “Kho HN”: Nhóm nhân viên (mặc định) → Khách (mặc định) — có người ngoài vào nhóm: Lạ Văn A');
+    expect(w.find('.bq-nk[data-id="k1"] .bq-chip--tu-dong').exists()).toBe(false);
+    w.unmount();
+  });
+});
+
+describe('BotQuyenPage — Chờ gán: nick Riêng tư (review P1-3)', () => {
+  it('tên + tin bị che hiện chữ che, không điền tên vào hộp gán', async () => {
+    const trang = structuredClone(CHO_GAN);
+    Object.assign(trang.ungVien[1], { ten: '(ẩn — nick Riêng tư)', anTen: true, anTinCuoi: true, redacted: true });
+    vi.mocked(layNguoiDaNhan).mockResolvedValue(trang);
+    const w = gan();
+    await flushPromises();
+    await nut(w, 'Nhân viên').trigger('click');
+    await flushPromises();
+    const dong = w.find('.bq-cho-gan tr[data-uid="888"]');
+    expect(dong.text()).toContain('(ẩn — nick Riêng tư)');
+    expect(dong.text()).toContain('▒▒▒ (nick Riêng tư)');
+    expect(dong.find('.bq-ten--an').exists()).toBe(true);
     w.unmount();
   });
 });

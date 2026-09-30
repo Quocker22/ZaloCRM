@@ -7,6 +7,7 @@
 // Ví dụ: "Nguyễn A đổi nhóm “Sales HN” từ Bán hàng sang Quản trị — lý do: …".
 import type { NhatKy } from '@/api/bot-quyen';
 import { nhanChucNang, nhanTrangThai, nhanVai } from './bot-quyen-luat';
+import { NHAN_MAC_DINH } from './bot-quyen-mac-dinh';
 
 type Anh = Record<string, unknown> | null;
 
@@ -80,7 +81,20 @@ function cauNhanVien(ai: string, e: NhatKy, tenNguoiDung: (id: string) => string
   return khac.length ? `${ai} đổi ${nv}: ${khac.join('; ')}` : `${ai} lưu ${nv} (không đổi gì)`;
 }
 
+/** Dòng hệ thống ghi khi MẶC ĐỊNH nhóm tự đổi (backend ghiNhanDoiMacDinh): "Nhóm “X”: A (mặc định) → B (mặc định) — lý do". */
+function cauTuDong(e: NhatKy): string {
+  const ten = e.tenDoiTuong?.trim() || '(nhóm chưa có tên)';
+  const nhan = (a: Anh) => {
+    const cn = chuoi(a, 'chucNang');
+    return cn === 'sales' || cn === 'khach' ? `${NHAN_MAC_DINH[cn]} (mặc định)` : nhanChucNang(cn);
+  };
+  const than = `Nhóm “${ten}”: ${nhan(e.truoc)} → ${nhan(e.sau)}`;
+  const lyDo = e.lyDo?.trim();
+  return lyDo ? `${than} — ${lyDo}` : than;
+}
+
 export function cauNhatKy(e: NhatKy, tuy: { tenNguoiDung?: (id: string) => string | null } = {}): string {
+  if (e.tuDong) return cauTuDong(e);
   const ai = e.ai?.fullName?.trim() || 'Người dùng đã bị xoá';
   const than = e.doiTuong === 'nhom'
     ? cauNhom(ai, e)

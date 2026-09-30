@@ -6,7 +6,13 @@
 import type { ChucNangNhom, MacDinhNhom, NhomView } from '@/api/bot-quyen';
 import { NHAN_CHUC_NANG } from './bot-quyen-luat';
 
-const NHAN_MAC_DINH: Readonly<Record<'sales' | 'khach', string>> = { sales: 'Nhóm nhân viên', khach: 'Khách' };
+export const NHAN_MAC_DINH: Readonly<Record<'sales' | 'khach', string>> = { sales: 'Nhóm nhân viên', khach: 'Khách' };
+
+function gioPhut(iso: string): string {
+  return new Date(iso).toLocaleTimeString('vi-VN', {
+    hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Ho_Chi_Minh',
+  });
+}
 
 /** Vì sao mặc định là vậy / vì sao chưa có. */
 export function lyDoMacDinh(md: MacDinhNhom): string {
@@ -18,10 +24,17 @@ export function lyDoMacDinh(md: MacDinhNhom): string {
     ].filter(Boolean);
     return `có ${md.soNguoiNgoai} người ngoài${chiTiet.length ? ` (${chiTiet.join(', ')})` : ''}`;
   }
+  if (md.lyDo === 'da_an') return 'hội thoại đã ẩn / nick đã lưu trữ — không tính mặc định';
+  if (md.lyDo === 'qua_cu') return 'danh sách thành viên đã cũ hơn 6 giờ — chờ đọc lại';
+  if (md.khongTra) {
+    return 'Zalo không trả nhóm này (nick đã rời / nhóm giải tán?) — dừng đọc tới khi có người vào/ra hoặc nick nối lại';
+  }
   const goc = md.lyDo === 'thieu_danh_sach' ? 'Zalo chưa trả đủ danh sách thành viên'
     : md.lyDo === 'dang_doc_lai' ? 'thành viên vừa đổi — đang đọc lại danh sách'
       : 'chưa đọc được danh sách thành viên';
-  return md.loiDoc ? `${goc} (lỗi: ${md.loiDoc})` : goc;
+  const phu = [md.loiDoc ? `lỗi: ${md.loiDoc}` : '', md.loiDoc && md.thuLaiSau ? `thử lại lúc ${gioPhut(md.thuLaiSau)}` : '']
+    .filter(Boolean);
+  return phu.length ? `${goc} (${phu.join('; ')})` : goc;
 }
 
 export interface NhanChucNang {

@@ -53,7 +53,11 @@
           <td data-nhan="Tên Zalo">
             <div>
               <div class="bq-cg-ten">
-                <span class="bq-ten">{{ u.ten }}</span>
+                <span
+                  class="bq-ten"
+                  :class="{ 'bq-ten--an': u.anTen }"
+                  :title="u.anTen ? 'Chỉ nhắn ở nick Riêng tư — chủ nick mở khoá mới xem được tên' : undefined"
+                >{{ u.ten }}</span>
                 <span v-if="u.dangSaiBot" class="bq-chip bq-chip--xanh" title="Đang được sai bot ở trang Nhân viên sai bot — gần như chắc là nhân viên">
                   <v-icon size="12" icon="mdi-robot-outline" />đang sai bot
                 </span>
@@ -63,7 +67,7 @@
           </td>
           <td data-nhan="Tin gần nhất">
             <div>
-              <div class="bq-nho bq-cg-tin">{{ tomTatTin(u) }}</div>
+              <div class="bq-nho bq-cg-tin" :class="{ 'bq-mo': u.anTinCuoi }">{{ tomTatTin(u) }}</div>
               <div v-if="u.tinCuoi" class="bq-nho bq-mo">{{ gio(u.tinCuoi.luc) }}</div>
             </div>
           </td>
@@ -184,6 +188,7 @@ onMounted(() => { void tai(); });
 .bq-cg-mo-ta { margin: 0; font-size: 13px; line-height: 1.5; max-width: 720px; }
 .bq-cg-tim { max-width: 420px; margin-bottom: 8px; }
 .bq-cg-ten { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.bq-ten--an { color: var(--bq-mo); font-style: italic; font-weight: 400; }
 .bq-ten { font-weight: 600; overflow-wrap: anywhere; }
 .bq-cg-tin { max-width: 260px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
 .bq-cg-noi { display: flex; flex-direction: column; gap: 1px; max-width: 280px; overflow-wrap: anywhere; }

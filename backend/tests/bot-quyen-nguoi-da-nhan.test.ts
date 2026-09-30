@@ -2,11 +2,13 @@
 // Quyền bot — "Chờ gán — người đã nhắn cho shop" (docs/77 §8): gom theo uid, loại người đã gán / nick của org, đánh dấu
 // "đang sai bot" và xếp lên đầu, tìm không dấu, phân trang. Luật THUẦN — không cần DB.
 import { describe, it, expect } from 'vitest';
-import { gomTheoUid, locVaPhanTrang, boDau, type DongGom } from '../src/modules/bot-quyen/bot-quyen-nguoi-da-nhan.js';
+import {
+  gomTheoUid, locVaPhanTrang, boDau, tenHienThi, xemNoiTheo, TEN_AN, type DongGom,
+} from '../src/modules/bot-quyen/bot-quyen-nguoi-da-nhan.js';
 
 const d = (uid: string, cid: string, phut: number, them: Partial<DongGom> = {}): DongGom => ({
   uid, conversation_id: cid, loai: 'user', luc: new Date(Date.UTC(2026, 8, 30, 8, phut)), ten: null, ten_nhom: null,
-  nick_id: 'n1', nick_ten: 'LED HN', ...them,
+  nick_id: 'n1', nick_ten: 'LED HN', nick_rieng_tu: false, nick_chu: 'chu-n1', ...them,
 });
 
 describe('gomTheoUid', () => {
@@ -17,7 +19,7 @@ describe('gomTheoUid', () => {
       d('u1', 'g2', 3, { loai: 'group', ten: null, ten_nhom: 'Nhóm Kho' }),
     ]);
     expect(ds).toHaveLength(1);
-    expect(ds[0].ten).toBe('Tên mới');
+    expect(tenHienThi(ds[0], () => true)).toEqual({ ten: 'Tên mới', an: false });
     expect(ds[0].noi.map((n) => n.conversationId)).toEqual(['g1', 'g2', 'dm1']);
     expect(ds[0].noi[0]).toMatchObject({ loai: 'nhom', tenNhom: 'Nhóm Sales', nick: { id: 'n1', ten: 'LED HN' } });
     expect(ds[0].noi[2]).toMatchObject({ loai: 'rieng', tenNhom: null });
@@ -65,5 +67,41 @@ describe('locVaPhanTrang', () => {
   });
   it('boDau', () => {
     expect(boDau('  Đặng   Thị Ánh ')).toBe('dang thi anh');
+  });
+});
+
+describe('riêng tư (review P1-3) — nick privacyMode=main', () => {
+  const RT = { nick_id: 'n9', nick_ten: 'LED Sếp', nick_rieng_tu: true, nick_chu: 'sep' };
+  const ds = gomTheoUid([
+    d('u1', 'g-rt', 9, { loai: 'group', ten: 'Bí Mật', ...RT }),
+    d('u1', 'dm1', 1, { ten: 'Tên công khai' }),
+    d('u2', 'g-rt', 8, { loai: 'group', ten: 'Chỉ Ở Nick Sếp', ...RT }),
+  ]);
+  const co = (x: string[]) => new Set(x);
+  const nguoiKhac = xemNoiTheo({ viewerUserId: 'admin', orgId: 'o', privacyUnlocked: true });
+  const chuChuaMo = xemNoiTheo({ viewerUserId: 'sep', orgId: 'o', privacyUnlocked: false });
+  const chuDaMo = xemNoiTheo({ viewerUserId: 'sep', orgId: 'o', privacyUnlocked: true });
+
+  it('người xem không phải chủ nick (kể cả admin đã mở PIN của mình) ⇒ tên từ nick riêng tư không dùng; lấy nơi khác', () => {
+    const kq = locVaPhanTrang(ds, { loaiTru: co([]), dangSaiBot: co([]), xem: nguoiKhac });
+    const u1 = kq.ungVien.find((u) => u.zaloUid === 'u1')!;
+    const u2 = kq.ungVien.find((u) => u.zaloUid === 'u2')!;
+    expect(u1).toMatchObject({ ten: 'Tên công khai', anTen: false });
+    expect(u1.noiXemDuoc?.conversationId).toBe('dm1'); // tin cuối lấy ở nơi xem được, không ở nhóm riêng tư
+    expect(u2).toMatchObject({ ten: TEN_AN, anTen: true, noiXemDuoc: null });
+    expect(u2.noi[0]).toEqual({ conversationId: 'g-rt', loai: 'nhom', tenNhom: null, nick: { id: 'n9', ten: 'LED Sếp' }, luc: u2.noi[0].luc });
+    expect(Object.keys(u2.noi[0])).not.toContain('ten'); // không trả dữ liệu thô
+  });
+  it('chủ nick CHƯA mở khoá cũng bị che; đã mở khoá thì thấy', () => {
+    expect(locVaPhanTrang(ds, { loaiTru: co([]), dangSaiBot: co([]), xem: chuChuaMo }).ungVien.find((u) => u.zaloUid === 'u2'))
+      .toMatchObject({ ten: TEN_AN, anTen: true });
+    expect(locVaPhanTrang(ds, { loaiTru: co([]), dangSaiBot: co([]), xem: chuDaMo }).ungVien.find((u) => u.zaloUid === 'u2'))
+      .toMatchObject({ ten: 'Chỉ Ở Nick Sếp', anTen: false });
+  });
+  it('tìm theo tên bị che KHÔNG ra (không dò được tên); tìm theo uid vẫn ra', () => {
+    expect(locVaPhanTrang(ds, { loaiTru: co([]), dangSaiBot: co([]), xem: nguoiKhac, tuKhoa: 'nick sep' }).tong).toBe(0);
+    expect(locVaPhanTrang(ds, { loaiTru: co([]), dangSaiBot: co([]), xem: nguoiKhac, tuKhoa: 'bi mat' }).tong).toBe(0);
+    expect(locVaPhanTrang(ds, { loaiTru: co([]), dangSaiBot: co([]), xem: nguoiKhac, tuKhoa: 'u2' }).tong).toBe(1);
+    expect(locVaPhanTrang(ds, { loaiTru: co([]), dangSaiBot: co([]), xem: chuDaMo, tuKhoa: 'nick sep' }).tong).toBe(1);
   });
 });

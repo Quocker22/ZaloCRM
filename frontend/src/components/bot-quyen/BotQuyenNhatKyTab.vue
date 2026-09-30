@@ -1,7 +1,8 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!--
   Tab "Nhật ký" của trang Quyền bot (docs/77 §3.3): mọi thay đổi quyền bot, mới nhất trước — ai, lúc nào,
-  đổi gì (trước → sau), lý do. Mỗi dòng đọc thành MỘT câu (bot-quyen-nhat-ky.ts cauNhatKy).
+  đổi gì (trước → sau), lý do. Mỗi dòng đọc thành MỘT câu (bot-quyen-nhat-ky.ts cauNhatKy). Dòng HỆ THỐNG ghi khi mặc định
+  nhóm tự đổi (docs/77 §8) mang chip "Tự động".
 -->
 <template>
   <section class="bq-goc" aria-label="Nhật ký thay đổi quyền bot">
@@ -19,6 +20,11 @@
         <div class="bq-nk-phu">
           <time :datetime="e.luc">{{ gio(e.luc) }}</time>
           <span class="bq-chip bq-chip--xam">{{ e.doiTuong === 'nhom' ? 'Nhóm' : e.doiTuong === 'nhan_vien' ? 'Nhân viên' : e.doiTuong }}</span>
+          <span
+            v-if="e.tuDong"
+            class="bq-chip bq-chip--tu-dong"
+            title="Hệ thống tự ghi: mặc định của nhóm đổi theo thành viên / danh sách nhân viên (không ai bấm)"
+          >Tự động</span>
         </div>
         <div class="bq-nk-cau">{{ cauNhatKy(e, { tenNguoiDung }) }}</div>
       </li>
@@ -78,4 +84,5 @@ onMounted(tai);
 .bq-nk:last-child { border-bottom: 0; }
 .bq-nk-phu { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--bq-mo); margin-bottom: 3px; }
 .bq-nk-cau { font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.bq-chip--tu-dong { color: var(--bq-chinh); border-color: currentColor; border-style: dashed; background: transparent; }
 </style>

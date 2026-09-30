@@ -28,6 +28,7 @@ import {
 import { layThanhVienNhom, docThanhVienZaloMacDinh, type DocThanhVienZalo } from './bot-quyen-thanh-vien.js';
 import { yeuCauDocLai } from './bot-quyen-danh-sach.js';
 import { danhSachNguoiDaNhan } from './bot-quyen-nguoi-da-nhan.js';
+import { buildPrivacyContext } from '../privacy/redact.js';
 
 export interface BotQuyenRoutesOpts {
   /** Đọc thành viên nhóm trực tiếp từ Zalo — mặc định qua zaloOps; test tiêm hàm giả. */
@@ -102,12 +103,15 @@ export async function registerBotQuyenRoutes(app: FastifyInstance, opts: BotQuye
 
   // ── Người đã nhắn cho shop (chờ gán) ──────────────────────────────────────
 
-  app.get('/nguoi-da-nhan', async (
+  // Có tên + tin cuối của khách ⇒ nick Riêng tư che theo người xem (review P1-3); `contentClass` để privacy-leak-guard
+  // quét response này.
+  app.get('/nguoi-da-nhan', { config: { contentClass: 'mixed' } }, async (
     req: FastifyRequest<{ Querystring: { tuKhoa?: string; trang?: string; moiTrang?: string; lamMoi?: string } }>,
   ) => {
     const q = req.query;
     const so = (x: string | undefined) => (x === undefined ? undefined : Number.parseInt(x, 10));
     return danhSachNguoiDaNhan(req.user!.orgId, {
+      ctx: await buildPrivacyContext(req),
       tuKhoa: typeof q.tuKhoa === 'string' ? q.tuKhoa.slice(0, 100) : undefined,
       trang: so(q.trang),
       moiTrang: so(q.moiTrang),

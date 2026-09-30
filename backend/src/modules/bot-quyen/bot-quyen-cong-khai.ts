@@ -14,7 +14,9 @@
 // MẶC ĐỊNH (docs/77 §8, 30/09): `chuc_nang` là chức năng HIỆU LỰC — chủ xếp tường minh (BotNhom) nếu có, không thì
 // mặc định theo thành viên (toàn NV ⇒ sales, có người ngoài ⇒ khach — bot-quyen-mac-dinh.ts). `mac_dinh` = true khi
 // giá trị là mặc định. Nhóm không xếp mà chưa biết đủ/tươi danh sách thành viên ⇒ VẮNG (bot: bỏ xếp loại ⇒ im).
-// Mặc định tính lúc đọc (không lưu) ⇒ đổi NV / thành viên ⇒ payload đổi ⇒ phien_ban đổi ngay ở lần poll kế.
+// Mặc định tính lúc đọc (không lưu) ⇒ đổi NV / thành viên ⇒ payload đổi ⇒ phien_ban đổi ngay ở lần poll kế. `sales` mặc
+// định từ bản đọc quá TUOI_TOI_DA_SALES_MS (6 giờ) ⇒ vắng (bot im) — phien_ban đổi đúng lúc qua hạn.
+// Hội thoại đã xoá / nick đã lưu trữ: KHÔNG có mặc định (chủ xếp tường minh vẫn phát như trước).
 import { createHash } from 'node:crypto';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { withTenant } from '../../shared/tenant/tenant-context.js';
@@ -84,21 +86,59 @@ export function ghepCauHinhCongKhai(
   return { phien_ban, nhom: n, nhan_vien: v };
 }
 
+// ── Bộ nhớ đệm bản đọc danh sách (review P2-8) ─────────────────────────────
+//
+// Bot poll mỗi ~60 s. Nạp MỌI mảng uids của org mỗi lần là phí (hàng nghìn nhóm × vài chục uid). Giữ bản nạp theo org,
+// khoá = (số dòng, max sua_so) — `sua_so` do trigger DB tăng ở MỌI lần INSERT/UPDATE dòng (kể cả ghi tay), xoá dòng làm
+// đổi số dòng ⇒ khoá đổi ĐÚNG KHI dữ liệu đổi. Khoá tính từ CHÍNH các dòng vừa nạp (một câu lệnh = một snapshot) nên
+// không bao giờ ghép khoá mới với dữ liệu cũ. Mặc định vẫn TÍNH LẠI mỗi lần từ NV / nick / BotNhom tươi + đồng hồ ⇒
+// phien_ban vẫn đúng từng ô (chỉ bỏ được việc nạp uids).
+
+type DongDanhSach = { uids: string[]; dayDu: boolean; canDocLai: boolean; docLuc: Date | null };
+const boNho = new Map<string, { khoa: string; dong: Map<string, DongDanhSach> }>();
+let soLanNap = 0;
+
+/** Chỉ cho test: số lần đã NẠP uids từ DB (không tính lần dùng bộ nhớ đệm) + xoá bộ nhớ đệm. */
+export function _thongKeBoNho(xoa = false): number {
+  const n = soLanNap;
+  if (xoa) { boNho.clear(); soLanNap = 0; }
+  return n;
+}
+
+async function docDanhSachCoDem(orgId: string): Promise<Map<string, DongDanhSach>> {
+  const [dau] = await prisma.$queryRaw<Array<{ so: number; max: string }>>`
+    SELECT count(*)::int AS so, COALESCE(max(sua_so), 0)::text AS max FROM bot_nhom_danh_sach WHERE org_id = ${orgId}`;
+  const cu = boNho.get(orgId);
+  if (cu && cu.khoa === `${dau.so}:${dau.max}`) return cu.dong;
+  const rows = await prisma.botNhomDanhSach.findMany({
+    where: { orgId },
+    select: { conversationId: true, uids: true, dayDu: true, canDocLai: true, docLuc: true, suaSo: true },
+  });
+  soLanNap++;
+  let max = 0n;
+  const dong = new Map<string, DongDanhSach>();
+  for (const r of rows) {
+    if (r.suaSo > max) max = r.suaSo;
+    dong.set(r.conversationId, { uids: r.uids, dayDu: r.dayDu, canDocLai: r.canDocLai, docLuc: r.docLuc });
+  }
+  boNho.set(orgId, { khoa: `${rows.length}:${max.toString()}`, dong });
+  return dong;
+}
+
 /**
- * Đọc cấu hình của MỘT org. Nhóm: chủ đã xếp (BotNhom) + nhóm có MẶC ĐỊNH (bản đọc danh sách đủ, tươi). Nhóm không có
- * cả hai vắng mặt ⇒ bot coi là im. Mọi NV (kể cả khoa/nghi — bot cần biết người nghỉ để im nhóm có họ).
- * Ba truy vấn cố định (không N+1): hội thoại nhóm có BotNhom HOẶC bản đọc, NV, uid nick của org.
+ * Đọc cấu hình của MỘT org. Nhóm: chủ đã xếp (BotNhom) + nhóm có MẶC ĐỊNH (bản đọc đủ, tươi, `sales` chưa quá hạn tuổi;
+ * hội thoại chưa xoá, nick chưa lưu trữ). Nhóm không có cả hai vắng mặt ⇒ bot coi là im. Mọi NV (kể cả khoa/nghi — bot
+ * cần biết người nghỉ để im nhóm có họ). Truy vấn cố định (không N+1); uids qua bộ nhớ đệm.
  */
-export async function docCauHinhCongKhai(orgId: string): Promise<CauHinhCongKhai> {
+export async function docCauHinhCongKhai(orgId: string, bayGio: Date = new Date()): Promise<CauHinhCongKhai> {
   return withTenant(orgId, async () => {
-    const [convs, nhanVien, nicks] = await Promise.all([
+    const [convs, nhanVien, nicks, danhSach] = await Promise.all([
       prisma.conversation.findMany({
         where: { orgId, threadType: 'group', OR: [{ botNhom: { isNot: null } }, { botNhomDanhSach: { isNot: null } }] },
         select: {
-          id: true, externalThreadId: true,
-          zaloAccount: { select: { zaloUid: true } },
+          id: true, externalThreadId: true, deletedAt: true,
+          zaloAccount: { select: { zaloUid: true, archivedAt: true } },
           botNhom: { select: { chucNang: true, tenDangKy: true } },
-          botNhomDanhSach: { select: { uids: true, dayDu: true, canDocLai: true, docLuc: true } },
         },
       }),
       prisma.botNhanVien.findMany({
@@ -106,13 +146,15 @@ export async function docCauHinhCongKhai(orgId: string): Promise<CauHinhCongKhai
         select: { zaloUid: true, tenGoi: true, vai: true, trangThai: true },
       }),
       prisma.zaloAccount.findMany({ where: { orgId, zaloUid: { not: null } }, select: { zaloUid: true } }),
+      docDanhSachCoDem(orgId),
     ]);
     const trangThaiNv = new Map(nhanVien.map((n) => [n.zaloUid, n.trangThai]));
     const nickCrm = new Set(nicks.map((n) => n.zaloUid!).filter(Boolean));
     const nhom = [];
     for (const c of convs) {
       const nickUid = c.zaloAccount.zaloUid;
-      const md = tinhMacDinhNhom(c.botNhomDanhSach, { nickUid, trangThaiNv, nickCrm });
+      const daAn = c.deletedAt !== null || c.zaloAccount.archivedAt !== null;
+      const md = tinhMacDinhNhom(danhSach.get(c.id) ?? null, { nickUid, trangThaiNv, nickCrm, bayGio, daAn });
       const hl = chucNangHieuLuc(c.botNhom?.chucNang ?? null, md);
       if (!hl.chucNang) continue;
       nhom.push({

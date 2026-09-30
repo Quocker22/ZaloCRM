@@ -7,7 +7,7 @@ import { nhanChucNangNhom, lyDoMacDinh, cauMacDinh, heQuaVeMacDinh, demBotIm } f
 
 const md = (them: Partial<MacDinhNhom> = {}): MacDinhNhom => ({
   chucNang: 'sales', lyDo: 'toan_nhan_vien', soThanhVien: 4, soNguoiNgoai: 0, soNickKhac: 0, soNguoiNghi: 0,
-  nguoiNgoai: [], docLuc: '2026-09-30T08:00:00Z', loiDoc: null, thuLuc: null, ...them,
+  nguoiNgoai: [], docLuc: '2026-09-30T08:00:00Z', loiDoc: null, thuLuc: null, thuLaiSau: null, khongTra: false, ...them,
 });
 const khach = (them: Partial<MacDinhNhom> = {}) => md({ chucNang: 'khach', lyDo: 'co_nguoi_ngoai', soNguoiNgoai: 2, ...them });
 
@@ -22,6 +22,14 @@ describe('lyDoMacDinh', () => {
     expect(lyDoMacDinh(md({ chucNang: null, lyDo: 'thieu_danh_sach' }))).toBe('Zalo chưa trả đủ danh sách thành viên');
     expect(lyDoMacDinh(md({ chucNang: null, lyDo: 'dang_doc_lai' }))).toBe('thành viên vừa đổi — đang đọc lại danh sách');
     expect(lyDoMacDinh(md({ chucNang: null, lyDo: 'chua_doc', loiDoc: 'rate limit' }))).toBe('chưa đọc được danh sách thành viên (lỗi: rate limit)');
+  });
+  it('review 30/09: danh sách quá cũ (sales > 6 giờ) / hội thoại ẩn / Zalo không trả nhóm (dừng) / hẹn thử lại', () => {
+    expect(lyDoMacDinh(md({ chucNang: null, lyDo: 'qua_cu' }))).toBe('danh sách thành viên đã cũ hơn 6 giờ — chờ đọc lại');
+    expect(lyDoMacDinh(md({ chucNang: null, lyDo: 'da_an' }))).toBe('hội thoại đã ẩn / nick đã lưu trữ — không tính mặc định');
+    expect(lyDoMacDinh(md({ chucNang: null, lyDo: 'dang_doc_lai', khongTra: true, loiDoc: 'Zalo không trả' })))
+      .toBe('Zalo không trả nhóm này (nick đã rời / nhóm giải tán?) — dừng đọc tới khi có người vào/ra hoặc nick nối lại');
+    expect(lyDoMacDinh(md({ chucNang: null, lyDo: 'dang_doc_lai', loiDoc: 'rate limit', thuLaiSau: '2026-09-30T08:05:00Z' })))
+      .toMatch(/^thành viên vừa đổi — đang đọc lại danh sách \(lỗi: rate limit; thử lại lúc \d{2}:\d{2}\)$/);
   });
 });
 

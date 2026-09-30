@@ -5,7 +5,7 @@ import type { NhatKy } from '@/api/bot-quyen';
 import { cauNhatKy } from './bot-quyen-nhat-ky';
 
 const nk = (them: Partial<NhatKy>): NhatKy => ({
-  id: 'k1', luc: '2026-09-30T02:00:00.000Z', aiId: 'u1', ai: { id: 'u1', fullName: 'Nguyễn A' },
+  id: 'k1', luc: '2026-09-30T02:00:00.000Z', aiId: 'u1', ai: { id: 'u1', fullName: 'Nguyễn A' }, tuDong: false,
   doiTuong: 'nhom', doiTuongId: 'c1', tenDoiTuong: 'Sales HN', truoc: null, sau: null, lyDo: null, ...them,
 });
 const nhom = (chucNang: string, tenDangKy = '', ghiChu: string | null = null) => ({ chucNang, tenDangKy, ghiChu });
@@ -41,6 +41,22 @@ describe('cauNhatKy — nhóm', () => {
     expect(cauNhatKy(nk({ tenDoiTuong: null, ai: null, sau: nhom('sales', 'Kho HCM') }))).toBe(
       'Người dùng đã bị xoá xếp nhóm “Kho HCM” là Bán hàng',
     );
+  });
+});
+
+describe('cauNhatKy — mặc định TỰ ĐỔI (góp ý chủ (4))', () => {
+  it('sales → khach có lý do: câu không có người làm, nói rõ "(mặc định)"', () => {
+    expect(cauNhatKy(nk({
+      aiId: 'tu_dong', ai: null, tuDong: true,
+      truoc: { chucNang: 'sales', macDinh: true }, sau: { chucNang: 'khach', macDinh: true },
+      lyDo: 'có người ngoài vào nhóm: Lạ Văn A',
+    }))).toBe('Nhóm “Sales HN”: Nhóm nhân viên (mặc định) → Khách (mặc định) — có người ngoài vào nhóm: Lạ Văn A');
+  });
+  it('khach → sales', () => {
+    expect(cauNhatKy(nk({
+      aiId: 'tu_dong', ai: null, tuDong: true,
+      truoc: { chucNang: 'khach', macDinh: true }, sau: { chucNang: 'sales', macDinh: true }, lyDo: 'mọi thành viên đều là nhân viên',
+    }))).toBe('Nhóm “Sales HN”: Khách (mặc định) → Nhóm nhân viên (mặc định) — mọi thành viên đều là nhân viên');
   });
 });
 

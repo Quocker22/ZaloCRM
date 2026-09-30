@@ -4,9 +4,9 @@
 // Chủ xếp tường minh luôn thắng mặc định. Luật THUẦN — không cần DB.
 import { describe, it, expect } from 'vitest';
 import {
-  tinhMacDinhNhom, chucNangHieuLuc, type DanhSachDaDoc,
+  tinhMacDinhNhom, chucNangHieuLuc, cauDoiMacDinhTuDong, TUOI_TOI_DA_SALES_MS, type DanhSachDaDoc,
 } from '../src/modules/bot-quyen/bot-quyen-mac-dinh.js';
-import { phanTichNhom } from '../src/modules/bot-quyen/bot-quyen-danh-sach.js';
+import { phanTichNhom, lucThuLai, tranNganSach, TI_LE_NGAN_SACH } from '../src/modules/bot-quyen/bot-quyen-danh-sach.js';
 
 const NICK = 'uid-nick-hn';
 const NICK_KHAC = 'uid-nick-hcm';
@@ -123,5 +123,61 @@ describe('phanTichNhom — đọc kết quả getGroupInfo (theo lô)', () => {
   });
   it('rỗng ⇒ dayDu=false', () => {
     expect(phanTichNhom({ gridInfoMap: { g: { memVerList: [] } } }, 'g')).toEqual({ uids: [], dayDu: false });
+  });
+  it('THIẾU totalMember (hoặc không phải số) ⇒ không chắc đủ ⇒ dayDu=false (review P2-2)', () => {
+    expect(phanTichNhom({ gridInfoMap: { g: { memVerList: ['1_0', '2_0'], hasMoreMember: 0 } } }, 'g')?.dayDu).toBe(false);
+    expect(phanTichNhom({ gridInfoMap: { g: { memVerList: ['1_0'], totalMember: '1' } } }, 'g')?.dayDu).toBe(false);
+  });
+});
+
+describe('độ cũ tối đa của mặc định sales (review — góp ý chủ (3))', () => {
+  const docLuc = new Date('2026-09-30T00:00:00Z');
+  const bc = (bayGio: Date) => ({ ...boiCanh({ a: 'hoat_dong' }), bayGio });
+  it('sales từ bản đọc quá TUOI_TOI_DA_SALES_MS ⇒ mất mặc định (bot im), lý do qua_cu', () => {
+    const vua = new Date(docLuc.getTime() + TUOI_TOI_DA_SALES_MS);
+    const qua = new Date(docLuc.getTime() + TUOI_TOI_DA_SALES_MS + 1);
+    expect(tinhMacDinhNhom(ds([NICK, 'a'], { docLuc }), bc(vua)).chucNang).toBe('sales');
+    expect(tinhMacDinhNhom(ds([NICK, 'a'], { docLuc }), bc(qua))).toMatchObject({ chucNang: null, lyDo: 'qua_cu' });
+  });
+  it('khach cũ vẫn là khach (hướng an toàn — bot im phía NV)', () => {
+    const qua = new Date(docLuc.getTime() + 10 * TUOI_TOI_DA_SALES_MS);
+    expect(tinhMacDinhNhom(ds([NICK, 'x'], { docLuc }), bc(qua)).chucNang).toBe('khach');
+  });
+  it('không truyền bayGio ⇒ không xét độ cũ (tương thích)', () => {
+    expect(tinhMacDinhNhom(ds([NICK, 'a'], { docLuc: new Date(0) }), boiCanh({ a: 'hoat_dong' })).chucNang).toBe('sales');
+  });
+  it('sales mà docLuc null ⇒ coi như quá cũ khi có bayGio', () => {
+    expect(tinhMacDinhNhom(ds([NICK, 'a'], { docLuc: null }), bc(docLuc)).chucNang).toBeNull();
+  });
+});
+
+describe('lucThuLai — lùi thử lại khi đọc lỗi (review P1-2)', () => {
+  const t0 = new Date('2026-09-30T00:00:00Z');
+  const phut = (n: number) => (lucThuLai(n, t0).getTime() - t0.getTime()) / 60_000;
+  it('1 phút × 2^(n−1), tối đa 24 giờ', () => {
+    expect([1, 2, 3, 4].map(phut)).toEqual([1, 2, 4, 8]);
+    expect(phut(11)).toBe(1024);
+    expect(phut(12)).toBe(24 * 60);
+    expect(phut(60)).toBe(24 * 60);
+  });
+});
+
+describe('tranNganSach — ngân sách getGroupInfo/ngày/nick của tính năng này', () => {
+  it('≤ 40% trần group_read hằng ngày, ít nhất 1', () => {
+    expect(TI_LE_NGAN_SACH).toBe(0.4);
+    expect(tranNganSach(1000)).toBe(400);
+    expect(tranNganSach(1)).toBe(1);
+    expect(tranNganSach(0)).toBe(0);
+  });
+});
+
+describe('cauDoiMacDinhTuDong — câu nhật ký khi mặc định tự đổi (góp ý chủ (4))', () => {
+  it('sales → khach: nêu người ngoài (tối đa 3 tên + đếm)', () => {
+    expect(cauDoiMacDinhTuDong('khach', ['Lan', 'Hùng'], 2)).toBe('có người ngoài vào nhóm: Lan, Hùng');
+    expect(cauDoiMacDinhTuDong('khach', ['A', 'B', 'C'], 5)).toBe('có người ngoài vào nhóm: A, B, C (+2 người)');
+    expect(cauDoiMacDinhTuDong('khach', [], 2)).toBe('có 2 người không phải nhân viên trong nhóm');
+  });
+  it('khach → sales', () => {
+    expect(cauDoiMacDinhTuDong('sales', [], 0)).toBe('mọi thành viên đều là nhân viên');
   });
 });

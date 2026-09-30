@@ -1,6 +1,10 @@
 -- 30/09/2026: QUYỀN BOT — MẶC ĐỊNH chức năng nhóm (docs/77 §8). Chủ: "trong nhóm toàn nhân viên thì mặc định là nhóm
 -- nhân viên, có người không phải nhân viên thì mặc định nhóm khách". Bảng này giữ bản đọc danh sách thành viên của từng
 -- hội thoại nhóm (getGroupInfo) để tính mặc định; chủ xếp tường minh (bot_nhom) luôn thắng. Chỉ THÊM bảng.
+--
+-- lock_timeout (review P2-10): FK tới "conversations" (bảng nóng) cần khoá SHARE ROW EXCLUSIVE trên nó — chờ quá 5 s thì
+-- HỎNG (chạy lại lúc vắng) thay vì xếp hàng chặn mọi ghi tin nhắn phía sau. Bản này CHƯA lên server nào (nhánh chưa push).
+SET lock_timeout = '5s';
 
 -- CreateTable
 CREATE TABLE "bot_nhom_danh_sach" (

@@ -4631,6 +4631,16 @@ model BotNhomDanhSach {
   /// Lần thử đọc gần nhất (thành công hay lỗi) + lỗi gần nhất.
   thuLuc         DateTime? @map("thu_luc")
   loi            String?
+  /// Số lần đọc lỗi liên tiếp — lùi thời gian thử lại 1 phút × 2^(n−1), tối đa 24 giờ (review P1-2).
+  soLanLoi       Int       @default(0) @map("so_lan_loi")
+  /// Không đọc lại trước mốc này (lùi sau lỗi / hết lượt đọc trong ngày / gom lần nối lại). NULL = đọc được ngay.
+  thuLaiSau      DateTime? @map("thu_lai_sau")
+  /// Zalo không trả nhóm này (nick đã rời / nhóm giải tán) ⇒ KHÔNG thử lại tới khi có sự kiện thành viên / nối lại.
+  khongTra       Boolean   @default(false) @map("khong_tra")
+  /// Mặc định KHÁC NULL gần nhất đã thấy (sales|khach) — phát hiện mặc định tự đổi để ghi nhật ký "tự động".
+  macDinhCuoi    String?   @map("mac_dinh_cuoi")
+  /// Số tăng mỗi lần ghi dòng (trigger + sequence) — API công khai giữ bộ nhớ đệm uids theo (số dòng, max sua_so).
+  suaSo          BigInt    @default(0) @map("sua_so")
 
   org          Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
