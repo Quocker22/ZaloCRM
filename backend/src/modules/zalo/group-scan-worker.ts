@@ -194,8 +194,11 @@ async function scanOneGroup(
         const res = (await zaloOps.getGroupMembersInfo(zaloAccountId, missing)) as {
           profiles?: Record<string, { id?: string; displayName?: string; zaloName?: string; avatar?: string }>;
         };
-        for (const [uid, p] of Object.entries(res?.profiles ?? {})) {
-          if (!profiles.has(uid)) {
+        for (const [khoa, p] of Object.entries(res?.profiles ?? {})) {
+          // zca-js getGroupMembersInfo.ts:4-20: profiles[memberId] = { id, … }; zca-js gửi "<uid>_0" (:36) ⇒ uid lấy từ
+          // `id`, không có thì khoá bỏ đuôi phiên bản. globalId của endpoint này KHÔNG lưu (LIVE trả globalId của nick gọi).
+          const uid = String(p?.id ?? khoa).replace(/_\d+$/, '');
+          if (uid && !profiles.has(uid)) {
             profiles.set(uid, {
               uid,
               displayName: p.displayName ?? null,

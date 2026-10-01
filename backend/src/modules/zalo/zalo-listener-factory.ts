@@ -16,6 +16,7 @@ import { refreshGroupInfoNow } from './group-info-refresh.js';
 import { consumeIfExpected as consumeReactionEcho } from '../chat/reaction-echo-cache.js';
 import { emitChatMessage } from '../../shared/realtime/emit-chat.js';
 import { notifyNewInboundMessage } from '../push/push-service.js';
+import { uidHoiHoSoTinDen } from './uid-ho-so.js';
 
 // Map Zalo Reactions enum code → display emoji (cùng map với chat-operations-routes)
 const ZALO_REACTION_DISPLAY: Record<string, string> = {
@@ -254,6 +255,7 @@ export interface UserInfoCacheEntry {
   avatar: string;
   phone?: string;
   globalId: string;   // Zalo toàn cục, không đổi giữa các viewer account — khóa dedup chính
+  userId?: string;    // User.userId (zca-js models/User.ts:5) — uid hồ sơ Zalo trả, phải = uid hỏi
   username: string;   // Zalo handle (t_xxx) — cũng toàn cục, debug-friendly
   gender?: unknown;   // raw 0/1 (Đợt 1 capture — message-handler lưu về Contact)
   sdob?: unknown;     // ngày sinh chuỗi (DD/MM/YYYY | YYYY-MM-DD)
@@ -269,10 +271,10 @@ async function resolveZaloName(
   api: any,
   uid: string,
   cache: Map<string, UserInfoCacheEntry>,
-): Promise<{ zaloName: string; avatar: string; globalId: string; username: string; phone: string; gender: unknown; sdob: unknown; status: unknown; cover: unknown; lastActionTime: unknown; isExtensionAccount: unknown }> {
+): Promise<{ zaloName: string; avatar: string; globalId: string; username: string; phone: string; gender: unknown; sdob: unknown; status: unknown; cover: unknown; lastActionTime: unknown; isExtensionAccount: unknown; userId?: string }> {
   const cached = cache.get(uid);
   if (cached && Date.now() - cached.cachedAt < USER_INFO_CACHE_TTL_MS) {
-    return { zaloName: cached.zaloName, avatar: cached.avatar, globalId: cached.globalId, username: cached.username, phone: cached.phone ?? '', gender: cached.gender ?? null, sdob: cached.sdob ?? null, status: cached.status ?? null, cover: cached.cover ?? null, lastActionTime: cached.lastActionTime ?? null, isExtensionAccount: cached.isExtensionAccount ?? null };
+    return { zaloName: cached.zaloName, avatar: cached.avatar, globalId: cached.globalId, username: cached.username, phone: cached.phone ?? '', gender: cached.gender ?? null, sdob: cached.sdob ?? null, status: cached.status ?? null, cover: cached.cover ?? null, lastActionTime: cached.lastActionTime ?? null, isExtensionAccount: cached.isExtensionAccount ?? null, userId: cached.userId };
   }
 
   try {
@@ -290,6 +292,7 @@ async function resolveZaloName(
         avatar: profile.avatar || '',
         phone: profile.phoneNumber || '',
         globalId: String(profile.globalId || ''),
+        userId: profile.userId === undefined || profile.userId === null ? undefined : String(profile.userId),
         username: String(profile.username || ''),
         gender: profile.gender ?? null,
         sdob: profile.sdob ?? null,
@@ -300,12 +303,23 @@ async function resolveZaloName(
         cachedAt: Date.now(),
       };
       cache.set(uid, entry);
-      return { zaloName: entry.zaloName, avatar: entry.avatar, globalId: entry.globalId, username: entry.username, phone: entry.phone ?? '', gender: entry.gender ?? null, sdob: entry.sdob ?? null, status: entry.status ?? null, cover: entry.cover ?? null, lastActionTime: entry.lastActionTime ?? null, isExtensionAccount: entry.isExtensionAccount ?? null };
+      return { zaloName: entry.zaloName, avatar: entry.avatar, globalId: entry.globalId, username: entry.username, phone: entry.phone ?? '', gender: entry.gender ?? null, sdob: entry.sdob ?? null, status: entry.status ?? null, cover: entry.cover ?? null, lastActionTime: entry.lastActionTime ?? null, isExtensionAccount: entry.isExtensionAccount ?? null, userId: entry.userId };
     }
   } catch (err) {
     logger.warn(`[zalo] getUserInfo failed for ${uid}:`, err);
   }
   return { zaloName: '', avatar: '', globalId: '', username: '', phone: '', gender: null, sdob: null, status: null, cover: null, lastActionTime: null, isExtensionAccount: null };
+}
+
+/**
+ * Quyền bot (docs/77 zca-js-id.md): globalId mà resolveZaloName VỪA đọc (getUserInfo qua chính nick nhận) cho người nói trong
+ * NHÓM ⇒ bảng hệ thống bot_quyen_danh_tinh. Không gọi thêm Zalo; lỗi không ảnh hưởng xử lý tin.
+ */
+function ghiDanhTinhNgheDuoc(accountId: string, uid: string, info: { globalId: string; zaloName: string; userId?: string }): void {
+  if (!info.globalId) return;
+  void import('../bot-quyen/bot-quyen-danh-tinh.js')
+    .then((m) => m.ghiHoSoTuTinDen(accountId, uid, { globalId: info.globalId, zaloName: info.zaloName, userId: info.userId }))
+    .catch(() => undefined);
 }
 
 interface ResolvedGroup {
@@ -650,9 +664,11 @@ export function attachZaloListener(ctx: ListenerContext): void {
       let contactLastActionTime: unknown = null;
       let contactIsExtension: unknown = null;
       if (senderUid && api.getUserInfo) {
-        const resolveUid = message.isSelf ? (message.threadId || '') : senderUid;
+        // zca-js Message.ts: tin chính nick gửi trong NHÓM có threadId = MÃ NHÓM ⇒ không hỏi (uid-ho-so.ts).
+        const resolveUid = uidHoiHoSoTinDen(message) ?? '';
         if (resolveUid) {
           const userInfo = await resolveZaloName(api, resolveUid, userInfoCache);
+          if (isGroup && !message.isSelf) ghiDanhTinhNgheDuoc(accountId, resolveUid, userInfo);
           contactGlobalId = userInfo.globalId;
           contactUsername = userInfo.username;
           contactZaloDisplayName = userInfo.zaloName;
@@ -900,6 +916,7 @@ export function attachZaloListener(ctx: ListenerContext): void {
         if (api.getUserInfo) {
           if (!message.isSelf && senderUid) {
             const userInfo = await resolveZaloName(api, senderUid, userInfoCache);
+            if (threadType === 'group') ghiDanhTinhNgheDuoc(accountId, senderUid, userInfo);
             if (userInfo.zaloName) senderName = userInfo.zaloName;
             contactGlobalId = userInfo.globalId;
             contactUsername = userInfo.username;

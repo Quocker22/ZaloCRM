@@ -13,10 +13,9 @@ describe('bot-quyen-danh-tinh (thuần)', () => {
     expect(sachGlobalId(123)).toBe('123');
   });
 
-  it('bocThongTin: đọc được cả kết quả getGroupMembersInfo (profiles)', () => {
+  it('bocThongTin: KHÔNG đọc kết quả getGroupMembersInfo (profiles) — D1, chỉ changed_profiles của getUserInfo', () => {
     const m = bocThongTin({ profiles: { u1: { id: 'u1', globalId: 'G1', zaloName: 'A' } } }, ['u1', 'u2']);
-    expect(m.get('u1')).toEqual({ globalId: 'G1', ten: 'A', sdt: null });
-    expect(m.has('u2')).toBe(false);
+    expect(m.size).toBe(0);
   });
 
   it('bocThongTin: khoá "<uid>_0" hoặc "<uid>", uid vắng ⇒ không có trong Map', () => {
@@ -80,18 +79,19 @@ const G_QUOC = 'OGGI1EMNLJHERLBGHBHK365CEMQOG580';
 const hs = (globalId: string | null) => ({ globalId, ten: null });
 
 describe('rào D1 — globalId của chính nick gọi (THUẦN)', () => {
-  it('locLoHoSo: dạng LIVE (mọi thành viên mang globalId của nick gọi) ⇒ bỏ cả lô', () => {
+  it('locLoHoSo: dạng LIVE (mọi thành viên mang globalId của nick gọi) ⇒ bỏ từng uid (gid_cua_nick_goi), không hỏi lại', () => {
     const lo = [TM_TU_VT, HUNG_VT, QUOC_VT, CL_TU_VT];
     const kq = locLoHoSo(lo, new Map(lo.map((u) => [u, hs(G_VT)])), { uidNick: VT_SELF, gidNick: G_VT });
-    expect(kq.boLo).toBe(true);
     expect(kq.hoSo.size).toBe(0);
-    expect([...kq.bo.values()]).toEqual(['lo_trung_gid', 'lo_trung_gid', 'lo_trung_gid', 'lo_trung_gid']);
+    expect(kq.thuLai).toEqual([]);
+    expect([...kq.bo.values()]).toEqual(['gid_cua_nick_goi', 'gid_cua_nick_goi', 'gid_cua_nick_goi', 'gid_cua_nick_goi']);
   });
 
-  it('locLoHoSo: lô trùng một globalId mà KHÔNG biết globalId nick (> 1 uid) ⇒ vẫn bỏ cả lô; lô 1 uid ⇒ giữ', () => {
-    expect(locLoHoSo(['a', 'b'], new Map([['a', hs('G')], ['b', hs('G')]]), { uidNick: VT_SELF, gidNick: null }).boLo).toBe(true);
+  it('locLoHoSo: lô trùng một globalId mà KHÔNG biết globalId nick (> 1 uid) ⇒ hỏi lại riêng (P3-1); lô 1 uid ⇒ giữ', () => {
+    const hai = locLoHoSo(['a', 'b'], new Map([['a', hs('G')], ['b', hs('G')]]), { uidNick: VT_SELF, gidNick: null });
+    expect([hai.thuLai, hai.hoSo.size]).toEqual([['a', 'b'], 0]);
     const mot = locLoHoSo(['a'], new Map([['a', hs('G')]]), { uidNick: VT_SELF, gidNick: null });
-    expect([mot.boLo, mot.hoSo.get('a')?.globalId]).toEqual([false, 'G']);
+    expect([mot.thuLai, mot.hoSo.get('a')?.globalId]).toEqual([[], 'G']);
   });
 
   it('locLoHoSo: uid ≠ nick mang globalId của nick ⇒ bỏ RIÊNG uid đó; uid của chính nick giữ; người khác giữ', () => {
@@ -99,7 +99,7 @@ describe('rào D1 — globalId của chính nick gọi (THUẦN)', () => {
     const kq = locLoHoSo(lo, new Map([
       [VT_SELF, hs(G_VT)], [HUNG_VT, hs(G_HUNG)], [QUOC_VT, hs(G_QUOC)], [TM_TU_VT, hs(G_VT)],
     ]), { uidNick: VT_SELF, gidNick: null }); // globalId nick lấy từ lô (uid của chính nick có trong lô)
-    expect(kq.boLo).toBe(false);
+    expect(kq.thuLai).toEqual([]);
     expect([...kq.hoSo.keys()].sort()).toEqual([VT_SELF, HUNG_VT, QUOC_VT].sort());
     expect(Object.fromEntries(kq.bo)).toEqual({ [TM_TU_VT]: 'gid_cua_nick_goi' });
   });

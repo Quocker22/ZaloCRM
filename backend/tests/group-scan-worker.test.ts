@@ -303,3 +303,26 @@ describe('processGroupScan — missing scan', () => {
     expect(prismaMock.groupScan.update).not.toHaveBeenCalled();
   });
 });
+
+// ── zca-js getGroupMembersInfo (getGroupMembersInfo.ts:4-20, :36): profiles[memberId] = { id, … }; zca-js gửi "<uid>_0" ──
+describe('processGroupScan — hồ sơ bổ sung khoá theo `id` (docs/77 zca-js-id.md)', () => {
+  it('khoá "uid_0" ⇒ tên gắn đúng uid trơn; không lưu globalId của endpoint này', async () => {
+    prismaMock.groupScan.findUnique.mockResolvedValueOnce(scanRecord({ groupIds: ['gA'] }));
+    zaloOpsMock.getGroupInfo.mockResolvedValueOnce(groupInfo('gA', { memberIds: ['u1', 'u2'], currentMems: [] }));
+    zaloOpsMock.getGroupMembersInfo.mockReset().mockResolvedValue({
+      profiles: {
+        u1_0: { id: 'u1', displayName: 'Một', zaloName: 'Mot', globalId: 'G-CUA-NICK-GOI' },
+        u2_0: { displayName: 'Hai', globalId: 'G-CUA-NICK-GOI' },
+      },
+      unchangeds_profile: [],
+    });
+    await processGroupScan('scan-1');
+    const theoUid = Object.fromEntries(prismaMock.groupMember.upsert.mock.calls.map(
+      (c) => [c[0].where.zaloAccountId_groupId_memberUid.memberUid, c[0].update],
+    ));
+    expect(Object.keys(theoUid).sort()).toEqual(['u1', 'u2']);
+    expect(theoUid.u1.displayName).toBe('Một');
+    expect(theoUid.u2.displayName).toBe('Hai');
+    expect(JSON.stringify(prismaMock.groupMember.upsert.mock.calls)).not.toContain('G-CUA-NICK-GOI');
+  });
+});

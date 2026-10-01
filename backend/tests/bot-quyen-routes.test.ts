@@ -12,7 +12,7 @@ import { describeCanDb } from './helpers/can-db.js';
 import { prisma } from '../src/shared/database/prisma-client.js';
 import { config } from '../src/config/index.js';
 import { registerBotQuyenRoutes } from '../src/modules/bot-quyen/bot-quyen-routes.js';
-import type { DocThanhVienZalo } from '../src/modules/bot-quyen/bot-quyen-thanh-vien.js';
+import { _datThanhVienChoTest, type DocThanhVienZalo } from '../src/modules/bot-quyen/bot-quyen-thanh-vien.js';
 
 const ORG_A = 'test-bq-org-a';
 const ORG_B = 'test-bq-org-b';
@@ -131,6 +131,8 @@ describeCanDb('bot-quyen — API quản trị (JWT, owner/admin)', () => {
     await prisma.groupMember.deleteMany({ where: { orgId: { in: [ORG_A, ORG_B] } } });
     await prisma.message.deleteMany({ where: { conversationId: { in: [G1, G2, G3] } } });
     docZalo = async () => { throw new Error('không nên gọi Zalo trong ca này'); };
+    // P3-4: đệm thành viên (nick, nhóm) + ngân sách đọc nhóm là trạng thái tiến trình — mỗi ca bắt đầu sạch.
+    _datThanhVienChoTest({ tranNgay: async () => 1_000_000 });
   });
 
   // ── Quyền vào ──────────────────────────────────────────────────────────────

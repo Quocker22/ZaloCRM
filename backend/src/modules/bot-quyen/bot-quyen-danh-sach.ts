@@ -126,7 +126,7 @@ let dongHo: () => Date = () => new Date();
 let nghiCoDinh: number | null = null;
 let layTranNgay: (nick: string) => Promise<number> = tranNgayThat;
 /** Loại ngân sách ngày (bot-quyen-ngan-sach.ts) của việc đọc danh sách nhóm. */
-const NS_DOC_NHOM = 'ds_group_read';
+export const NS_DOC_NHOM = 'ds_group_read';
 const daCanhBao = new Map<string, string>();
 /** nick → mốc (ms) lượt đọc gần nhất (hoặc đã hẹn) do nối lại. */
 const docKetNoiLuc = new Map<string, number>();

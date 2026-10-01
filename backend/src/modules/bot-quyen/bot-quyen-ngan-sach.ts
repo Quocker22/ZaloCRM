@@ -106,15 +106,19 @@ export async function choNhip(nick: string, loai: string, burst: number, cuaSoMs
 }
 
 /**
- * Chỉ cho test: kho đếm (null = thật), hàm ngủ + đồng hồ của nhịp (null = thật). Xoá bộ đếm RAM + nhịp của các `loai`
- * (không nêu ⇒ xoá hết).
+ * Chỉ cho test: kho đếm (null = thật), hàm ngủ + đồng hồ của nhịp (null = thật). Xoá bộ đếm RAM của các `loai` và mốc
+ * nhịp của các `nhip` (không nêu ⇒ xoá hết). Hai tập TÁCH nhau (P3-2): loại ngân sách (vd `dt_query`) KHÔNG trùng tên loại
+ * nhịp (`query` — tên category của rate limiter); bản trước xoá nhịp theo `loai` ⇒ mốc `<nick>|query` sống qua mọi lần
+ * đặt lại ⇒ test sau chờ nhịp của test trước.
  */
 export function _datNganSachChoTest(o: {
-  kho?: KhoDem | null; ngu?: ((ms: number) => Promise<void>) | null; dongHo?: (() => number) | null; loai?: readonly string[];
+  kho?: KhoDem | null; ngu?: ((ms: number) => Promise<void>) | null; dongHo?: (() => number) | null;
+  loai?: readonly string[]; nhip?: readonly string[];
 } = {}): void {
   if (o.kho !== undefined) khoTest = o.kho;
   if (o.ngu !== undefined) ngu = o.ngu ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
   if (o.dongHo !== undefined) dongHo = o.dongHo ?? (() => Date.now());
   ram.xoa(o.loai);
-  for (const k of [...lanCuoi.keys()]) if (!o.loai || o.loai.some((l) => k.endsWith(`|${l}`))) lanCuoi.delete(k);
+  const nhip = o.nhip ?? (o.loai ? [] : null);
+  for (const k of [...lanCuoi.keys()]) if (!nhip || nhip.some((l) => k.endsWith(`|${l}`))) lanCuoi.delete(k);
 }

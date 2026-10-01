@@ -23,6 +23,8 @@
 import { prisma } from '../../shared/database/prisma-client.js';
 import { nhanVienTheoUid } from './bot-quyen-nhan-vien-uid.js';
 import { NGUON_HIEU_LUC } from './bot-quyen-nick-crm.js';
+import { daDungHomNay, ghiDung } from './bot-quyen-ngan-sach.js';
+import { NS_DOC_NHOM, tranNganSach } from './bot-quyen-danh-sach.js';
 
 export interface ThanhVienTho {
   zaloUid: string;
@@ -87,25 +89,82 @@ export function uidTuThongTinNhom(info: unknown, groupId: string): string[] {
   return [...new Set(raw.map((k) => String(k).split('_')[0]).filter(Boolean))];
 }
 
+/**
+ * Tên thành viên từ kết quả zca-js getGroupMembersInfo — `{ profiles: { [memberId]: GroupMemberProfile{ id, displayName,
+ * zaloName, … } } }` (getGroupMembersInfo.ts:4-20). uid = trường `id` (không có ⇒ khoá bỏ đuôi phiên bản "_0" mà zca-js
+ * thêm vào friend_pversion_map — :36). CHỈ lấy TÊN: globalId của endpoint này KHÔNG dùng (D1 — LIVE trả globalId của nick
+ * gọi). THUẦN.
+ */
+export function bocHoSoThanhVien(kq: unknown): Map<string, string> {
+  const ra = new Map<string, string>();
+  const p = (kq as { profiles?: Record<string, { id?: unknown; displayName?: unknown; zaloName?: unknown } | null> } | null)?.profiles;
+  if (!p || typeof p !== 'object') return ra;
+  for (const [k, h] of Object.entries(p)) {
+    if (!h) continue;
+    const uid = String(h.id ?? k).trim().replace(/_\d+$/, '');
+    const ten = String(h.displayName || h.zaloName || '').trim();
+    if (uid && ten && !ra.has(uid)) ra.set(uid, ten);
+  }
+  return ra;
+}
+
 /** Đường Zalo thật — như group-routes.ts `/members`. Import động: không kéo zalo-pool khi nạp module. */
 export const docThanhVienZaloMacDinh: DocThanhVienZalo = async (accountId, groupId) => {
   const { zaloOps } = await import('../../shared/zalo-operations.js');
   const uids = uidTuThongTinNhom(await zaloOps.getGroupInfo(accountId, groupId), groupId);
   if (uids.length === 0) return [];
 
-  type Prof = { id?: string; displayName?: string; zaloName?: string };
-  let profiles: Record<string, Prof> = {};
+  let ten = new Map<string, string>();
   try {
-    const prof = (await zaloOps.getGroupMembersInfo(accountId, uids)) as { profiles?: Record<string, Prof> } | null;
-    profiles = prof?.profiles ?? {};
+    ten = bocHoSoThanhVien(await zaloOps.getGroupMembersInfo(accountId, uids));
   } catch {
     // Tên là phụ — không có hồ sơ vẫn trả đủ uid (như group-scan-worker).
   }
-  return uids.map((uid) => {
-    const p = profiles[uid];
-    return { zaloUid: uid, ten: p?.displayName || p?.zaloName || uid };
-  });
+  return uids.map((uid) => ({ zaloUid: uid, ten: ten.get(uid) || uid }));
 };
+
+// ── P3-4: ngăn Thành viên đọc Zalo trong NGÂN SÁCH group_read của Quyền bot + đệm ngắn ─────────────────────────────
+/** Mỗi lần đọc Zalo của ngăn = getGroupInfo + getGroupMembersInfo (group_read). */
+export const LOI_GOI_MOI_LAN_DOC = 2;
+/** Đệm kết quả đọc Zalo theo (nick, nhóm) — mở lại ngăn / đánh dấu nick CRM rồi tải lại trong khoảng này không gọi Zalo. */
+export const DEM_THANH_VIEN_MS = 2 * 60_000;
+const demThanhVien = new Map<string, { luc: number; tho: ThanhVienTho[] }>();
+let layTranDocNhom: (nick: string) => Promise<number> = async (nick) => {
+  const { getEffectiveLimit } = await import('../zalo/sdk-limit-service.js');
+  return tranNganSach((await getEffectiveLimit(nick, 'group_read')).daily);
+};
+
+/** Chỉ cho test: trần ngân sách đọc nhóm/ngày (null = thật). Luôn xoá đệm. */
+export function _datThanhVienChoTest(o: { tranNgay?: ((nick: string) => Promise<number>) | null } = {}): void {
+  if (o.tranNgay !== undefined) {
+    layTranDocNhom = o.tranNgay ?? (async (nick) => {
+      const { getEffectiveLimit } = await import('../zalo/sdk-limit-service.js');
+      return tranNganSach((await getEffectiveLimit(nick, 'group_read')).daily);
+    });
+  }
+  demThanhVien.clear();
+}
+
+/**
+ * Đọc thành viên từ Zalo cho ngăn: đệm DEM_THANH_VIEN_MS (`lamMoi` bỏ qua đệm), mỗi lần gọi thật tính LOI_GOI_MOI_LAN_DOC
+ * lượt vào ngân sách `ds_group_read` của nick (chung với đọc danh sách nhóm — bot-quyen-danh-sach.ts). Hết ngân sách ⇒ ném
+ * (người gọi rơi về người đã nhắn). Trả kèm mốc đọc.
+ */
+async function docZaloCoNganSach(
+  docZalo: DocThanhVienZalo, nick: string, groupId: string, lamMoi: boolean, hetGioMs: number,
+): Promise<{ tho: ThanhVienTho[]; luc: Date }> {
+  const khoa = `${nick}|${groupId}`;
+  const dem = demThanhVien.get(khoa);
+  if (!lamMoi && dem && Date.now() - dem.luc < DEM_THANH_VIEN_MS) return { tho: dem.tho, luc: new Date(dem.luc) };
+  const tran = await layTranDocNhom(nick).catch(() => 1);
+  if (await daDungHomNay(nick, NS_DOC_NHOM) + LOI_GOI_MOI_LAN_DOC > tran) {
+    throw new Error('Đã dùng hết ngân sách đọc nhóm Zalo hôm nay của nick này');
+  }
+  for (let i = 0; i < LOI_GOI_MOI_LAN_DOC; i++) await ghiDung(nick, NS_DOC_NHOM);
+  const tho = await hetGio(docZalo(nick, groupId), hetGioMs);
+  if (tho.length > 0) demThanhVien.set(khoa, { luc: Date.now(), tho });
+  return { tho, luc: new Date() };
+}
 
 /** Chờ `p` tối đa `ms`; quá hạn ⇒ từ chối (lời gọi gốc vẫn chạy tiếp nền — như `/members`). */
 export function hetGio<T>(p: Promise<T>, ms: number): Promise<T> {
@@ -177,10 +236,12 @@ export async function layThanhVienNhom(
   if (!nguon) {
     try {
       if (!conv.externalThreadId) throw new Error('Hội thoại nhóm thiếu mã nhóm Zalo');
-      tho = await hetGio(opts.docZalo(conv.zaloAccountId, conv.externalThreadId), opts.hetGioMs ?? HET_GIO_ZALO_MS);
+      const doc = await docZaloCoNganSach(opts.docZalo, conv.zaloAccountId, conv.externalThreadId, !!opts.lamMoi,
+        opts.hetGioMs ?? HET_GIO_ZALO_MS);
+      tho = doc.tho;
       if (tho.length === 0) throw new Error('Zalo không trả danh sách thành viên');
       nguon = 'zalo';
-      nguonLuc = new Date();
+      nguonLuc = doc.luc;
     } catch (err) {
       loiZalo = err instanceof Error ? err.message : String(err);
       tho = await docNguoiDaNhan(conv.id);

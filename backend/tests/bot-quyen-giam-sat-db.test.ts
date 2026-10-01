@@ -195,7 +195,9 @@ describeCanDb('bot-quyen — lỗi giám sát LIVE (D1–D7)', () => {
     expect(g.hoi.find((x) => x.nick === VT)!.uids.sort()).toEqual([TM_TU_VT, HUNG_VT, QUOC_VT, CL_TU_VT].sort());
     const vt = await prisma.botQuyenDanhTinh.findMany({ where: { orgId: ORG, zaloAccountId: VT }, orderBy: { zaloUid: 'asc' } });
     expect(vt.filter((r) => r.globalId === G_VT).map((r) => r.zaloUid)).toEqual([VT_SELF]);
-    expect(vt.filter((r) => r.zaloUid !== VT_SELF).every((r) => r.globalId === null && r.loi === 'lo_trung_gid')).toBe(true);
+    // globalId của nick gọi trên uid khác ⇒ bỏ từng uid ngay (không tốn lời gọi hỏi lại — P3-1)
+    expect(vt.filter((r) => r.zaloUid !== VT_SELF).every((r) => r.globalId === null && r.loi === 'gid_cua_nick_goi')).toBe(true);
+    expect(g.hoi.filter((x) => x.nick === VT)).toHaveLength(1);
     const ban = await docBanDanhTinh(ORG);
     expect(ban.nhiem.has(G_VT)).toBe(false);
     await chayDanhTinh(ORG);

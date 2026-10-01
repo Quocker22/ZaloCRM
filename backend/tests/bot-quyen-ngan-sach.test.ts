@@ -87,6 +87,35 @@ describe('nhịp nửa-burst (D7)', () => {
   });
 });
 
+describe('đặt lại cho test (P3-2)', () => {
+  it('_datZaloDanhTinhChoTest xoá MỐC NHỊP query/friend_lookup (tên khác loại ngân sách dt_query/dt_sdt) ⇒ test sau không chờ nhịp test trước', async () => {
+    const { _datZaloDanhTinhChoTest } = await import('../src/modules/bot-quyen/bot-quyen-danh-tinh.js');
+    let bay = 5_000_000;
+    const ngu: number[] = [];
+    _datNganSachChoTest({ dongHo: () => bay, ngu: async (ms) => { ngu.push(ms); bay += ms; } });
+    await choNhip('nx', 'query', 30, 30_000);
+    await choNhip('nx', 'friend_lookup', 15, 30_000);
+    _datZaloDanhTinhChoTest(null);
+    await choNhip('nx', 'query', 30, 30_000);
+    await choNhip('nx', 'friend_lookup', 15, 30_000);
+    expect(ngu).toEqual([]);
+  });
+
+  it('_datNganSachChoTest({ loai }) KHÔNG xoá nhịp của loại khác; { nhip } chỉ xoá nhịp nêu tên', async () => {
+    let bay = 9_000_000;
+    const ngu: number[] = [];
+    _datNganSachChoTest({ dongHo: () => bay, ngu: async (ms) => { ngu.push(ms); bay += ms; } });
+    await choNhip('ny', 'query', 30, 30_000);
+    await choNhip('ny', 'group_read', 20, 30_000);
+    _datNganSachChoTest({ loai: ['ds_group_read'] });
+    await choNhip('ny', 'group_read', 20, 30_000);
+    expect(ngu).toEqual([3000]);
+    _datNganSachChoTest({ loai: [], nhip: ['query'] });
+    await choNhip('ny', 'query', 30, 30_000);
+    expect(ngu).toEqual([3000]);
+  });
+});
+
 describe('tenant-guard (D7)', () => {
   it('MỌI model Bot* có orgId trong schema nằm trong ORG_SCOPED_MODELS', () => {
     const schema = readFileSync(new URL('../prisma/schema.prisma', import.meta.url), 'utf8');
