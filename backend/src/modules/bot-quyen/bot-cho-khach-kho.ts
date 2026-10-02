@@ -408,8 +408,11 @@ async function xepVaLoc(
     const tapTd = tapToken(tieuDe.get(docCua.get(h.chunkId) ?? '') ?? '');
     const ndKd = boDau(nd);
     const matDo = Math.min(6, nd.split('\n').filter((d) => RE_DONG_TS.test(d) && !/^\s*page\s+\d+\s+of\s+\d+\s*$/i.test(d)).length);
-    const pb = phanBiet.filter((t) => tap.has(t)).reduce((n, t) => n + (tapTd.has(t) ? 1 : 3), 0);
-    return [h.chunkId, ttHoi.filter((co) => co.test(ndKd)).length * 10 + pb + matDo / 10];
+    // token đã có ở tiêu đề (mã SP) = 0 điểm: đoạn bìa/địa chỉ/đầu trang nào cũng lặp mã (dev 03/10 vòng 7: bốn đoạn như vậy đẩy
+    // "4.2. Module technical parameters" ra khỏi top 5). Mật độ dòng thông số nay tính đủ (0..6) — đoạn bảng thông số luôn có chỗ.
+    const pb = phanBiet.filter((t) => tap.has(t) && !tapTd.has(t)).length * 3;
+    const rac = /\b(?:company|address|dia chi|cong ty|tel|fax|email|website|contents|muc luc)\b|\bpage\s+\d+\s+of\s+\d+/.test(ndKd) ? 3 : 0;
+    return [h.chunkId, ttHoi.filter((co) => co.test(ndKd)).length * 10 + pb + matDo - rac];
   }));
   hits.sort((a, b) => ((diemTd.get(docCua.get(b.chunkId) ?? '') ?? 0) - (diemTd.get(docCua.get(a.chunkId) ?? '') ?? 0))
     || ((diemPb.get(b.chunkId) ?? 0) - (diemPb.get(a.chunkId) ?? 0)));

@@ -168,6 +168,23 @@ describeCanDb('tìm thông số trong kho tri thức CRM cho bot (DB)', () => {
     expect(kq.ket_qua.map((d) => d.tai_lieu_id)).toEqual(['kb-en']);
   });
 
+  it('dev vòng 7: câu chung có "3840HZ" ⇒ top 2 gồm CẢ đoạn refresh lẫn bảng thông số, không phải bìa/địa chỉ/đầu trang', async () => {
+    await prisma.knowledgeChunk.deleteMany({ where: { orgId: ORG_A } });
+    await prisma.knowledgeDocument.deleteMany({ where: { orgId: ORG_A } });
+    await napKho(ORG_A, 'kb-v7', 'LLR P3.076-V2.0 OP LUNG', [
+      'Company Address: 3rd Floor, Building 5\nP3.076-HG-104*52-13S-1516',
+      'Page 3 of 11\nP3.076-HG-104*52-13S-1516',
+      'Product Name: Outdoor Module P3.076\nP3.076-HG-104*52-13S-1516',
+      'Normal refresh rate: 960Hz\nHigh refresh rate: 1920Hz-3840Hz',
+      '4.2. Module technical parameters\nPixel spacing 3.076mm\nDimensions 320*160*18.5mm\nModule resolution 104*52\nInput voltage 5V\nModule power ≤30W',
+    ]);
+    const kq = await ketQua('cho-khach', KHOA_A, { truy_van: 'cho anh thông số P3.076 out ốp lưng 3840HZ (tấm)', so_doan: 2,
+      san_pham: { ten: 'P3.076 out ốp lưng 3840HZ (tấm)', ma: null, neo: [['p3'], ['076']] } });
+    const chu = kq.map((d) => d.noi_dung).join('\n');
+    expect(chu).toContain('3840Hz');
+    expect(chu).toContain('Pixel spacing 3.076mm');
+  });
+
   it('cách ly org: khoá B không thấy tài liệu của A; loại trừ của B không ảnh hưởng A', async () => {
     await loaiTru(ORG_B, 'kb-p3076');
     expect((await ketQua('cho-khach', KHOA_A, CAU))[0].tai_lieu_id).toBe('kb-p3076');
