@@ -938,8 +938,9 @@ model Message {
   @@index([automationTaskId, sentAt])
   @@index([sentVia, conversationId])
   // ⚠️ Chỉ mục RIÊNG PHẦN dựng bằng SQL tay (CREATE INDEX CONCURRENTLY … WHERE …) — Prisma schema KHÔNG diễn tả được, nên
-  // KHÔNG khai ở đây. `prisma migrate dev` sẽ coi chúng là lệch và sinh `DROP INDEX` trong migration mới: XOÁ các dòng đó
-  // trước khi commit (test tests/migration-chi-muc-concurrently.test.ts đỏ nếu còn). Chỉ dùng `migrate deploy` trên staging/prod.
+  // KHÔNG khai ở đây. Đo 02/10 trên Prisma 7.5 (`migrate diff` DB đã deploy → schema): Prisma BỎ QUA chỉ mục có WHERE, không
+  // sinh DROP — nhưng không gì bảo đảm ở bản sau. Nếu `prisma migrate dev` sinh `DROP INDEX` cho các tên dưới đây thì XOÁ
+  // dòng đó trước khi commit (test tests/migration-chi-muc-concurrently.test.ts đỏ nếu còn). Staging/prod chỉ `migrate deploy`.
   //   messages_zalo_msg_id_lien_ket_idx, messages_sender_uid_idx — 20260930210100_messages_idx_lien_ket (+ scripts/bot-quyen-idx-lien-ket.sql)
   //   messages_client_echo_id_idx — 20261002090600_messages_idx_client_echo (+ scripts/ban-do-tin-idx-client-echo.sql)
   @@map("messages")
