@@ -33,8 +33,12 @@ const ANH = {
     { id: 'in_sau_chot', ten: 'In sau chốt', pha: 'chot', kieu: 'ban_sao', dich_goc: 'nhom_goc', nhay_cam: [] },
     { id: 'the_don', ten: 'Thẻ đơn', pha: 'len_don', kieu: 'khoa', dich_goc: 'nhom_goc', nhay_cam: ['gia'] },
   ],
-  dem: [{ composer: 'xuat_hoa_don_tool', dich_kieu: 'nhom_goc', ket_qua: 'da_gui', so: 12 }],
+  dem: [{
+    khoa_canh: 'xuat_hoa_don_tool→nhom_goc|goc', composer: 'xuat_hoa_don_tool', dich_kieu: 'nhom_goc', luat_id: null,
+    ket_qua: 'da_gui', cua_so: '7d', so: 12,
+  }],
 };
+const KHOA_BOT_A = 'test-btb-khoa-bot-a';
 
 async function donDep() {
   await prisma.botQuyenNhatKy.deleteMany({ where: { orgId: { in: ORGS } } });
@@ -155,6 +159,62 @@ describeCanDb('bot-thong-bao — luật thông báo + bản đồ tin (DB)', () 
     expect(doc.json().banDo.dem).toEqual(ANH.dem);
   });
 
+  it('hợp đồng ảnh chụp (Codex v1 #7): POST → GET quản trị giữ ĐỦ dan_toi/nguon_cau/khi_nao/vi_du/ghi_chu, nguồn giả, số đếm theo cạnh', async () => {
+    const day = {
+      phien_ban: 'a1b2c3d4e5f60718',
+      pha: [{ id: 'chot', ten: 'Chốt' }], dich: ['nhom_goc', 'g_kho'], // bot gửi kèm — CRM bỏ qua (không lưu)
+      composer: [
+        {
+          id: 'xuat_hoa_don_tool', ten: 'Xuất hoá đơn', pha: 'xuat_hd', kieu: 'ban_sao', de_xuat: false, dich_goc: ['nhom_goc'],
+          nhay_cam: ['tien'], khi_nao: 'Sau khi xuất HĐ', vi_du: 'Em đã xuất S17440', nguon_cau: 'cong_cu/don_hang.py:2340',
+          ghi_chu: 'Chữ do mã', dan_toi: [['in_sau_chot', 'nghiep_vu']],
+        },
+        {
+          id: 'in_sau_chot', ten: 'In sau chốt', pha: 'in', kieu: 'ban_sao', de_xuat: true, dich_goc: ['nhom_goc'], nhay_cam: [],
+          khi_nao: 'Sau lệnh in', vi_du: 'Em đã phát lệnh in', nguon_cau: 'cong_cu_tools.py:422', ghi_chu: '',
+          dan_toi: [{ den: 'xuat_hoa_don_tool', kieu: 'hoi_lai', vi_sao: 'NV hỏi lại' }],
+        },
+      ],
+      nguon: [{ id: 'nguon_may_in', ten: 'Máy in (sự kiện CRM)', pha: 'in', mo_ta: 'Bảng sự kiện in', dan_toi: [['in_sau_chot', 'su_kien']] }],
+      dem: [
+        { khoa_canh: 'xuat_hoa_don_tool→nhom_goc|goc', composer: 'xuat_hoa_don_tool', dich_kieu: 'nhom_goc', luat_id: null, ket_qua: 'da_gui', cua_so: '24h', so: 4 },
+        { khoa_canh: 'xuat_hoa_don_tool→nhom_goc|goc', composer: 'xuat_hoa_don_tool', dich_kieu: 'nhom_goc', luat_id: null, ket_qua: 'da_gui', cua_so: '7d', so: 31 },
+        { khoa_canh: 'in_sau_chot→g_kho|luat-1', composer: 'in_sau_chot', dich_kieu: 'g_kho', luat_id: 'luat-1', ket_qua: 'bong', cua_so: '24h', so: 7 },
+        { khoa_canh: 'chua_khai→nhom_goc|goc', composer: 'chua_khai', dich_kieu: 'nhom_goc', luat_id: null, ket_qua: 'chan_tam_im', cua_so: '7d', so: 1 },
+      ],
+    };
+    const r = await guiAnh(KHOA_A, day);
+    expect(r.statusCode, r.body).toBe(200);
+    const bd = (await goi('GET', '/ban-do-tin', OWNER)).json().banDo;
+    expect(bd.phienBan).toBe(day.phien_ban);
+    expect(bd.composer).toEqual([
+      { ...day.composer[0], dan_toi: [{ den: 'in_sau_chot', kieu: 'nghiep_vu' }] },
+      { ...day.composer[1], ghi_chu: null },
+    ]);
+    expect(bd.nguon).toEqual([{ ...day.nguon[0], dan_toi: [{ den: 'in_sau_chot', kieu: 'su_kien' }] }]);
+    expect(bd.dem).toEqual(day.dem);
+    expect(bd).not.toHaveProperty('pha');
+    // Số đếm không khoá cạnh / không cửa sổ ⇒ 400, giữ bản cũ.
+    const sai = await guiAnh(KHOA_A, { ...day, phien_ban: 'sai', dem: [{ so: 12 }] });
+    expect([sai.statusCode, sai.json().code]).toEqual([400, 'ANH_CHUP_KHONG_HOP_LE']);
+    expect((await goi('GET', '/ban-do-tin', OWNER)).json().banDo.phienBan).toBe(day.phien_ban);
+  });
+
+  it('khoá RIÊNG của bot cho ảnh chụp (bot_ban_do_tin_api_key): có khoá riêng ⇒ khoá công khai bị 403 khi POST ảnh chụp; khoá riêng POST + GET luật được; org không có khoá riêng giữ như cũ', async () => {
+    await prisma.appSetting.create({ data: { orgId: ORG_A, settingKey: 'bot_ban_do_tin_api_key', valuePlain: KHOA_BOT_A } });
+    try {
+      const congKhai = await guiAnh(KHOA_A);
+      expect([congKhai.statusCode, congKhai.json().code]).toEqual([403, 'CAN_KHOA_RIENG_BOT']);
+      expect(await prisma.botBanDoTin.count({ where: { orgId: ORG_A } })).toBe(0);
+      expect((await guiAnh(KHOA_BOT_A)).statusCode).toBe(200);
+      expect((await docLuat(KHOA_BOT_A)).luat).toEqual([]);
+      expect((await docLuat(KHOA_A)).luat).toEqual([]); // GET luật vẫn nhận khoá công khai
+      expect((await guiAnh(KHOA_B)).statusCode).toBe(200); // org B chưa đặt khoá riêng
+    } finally {
+      await prisma.appSetting.deleteMany({ where: { orgId: ORG_A, settingKey: 'bot_ban_do_tin_api_key' } });
+    }
+  });
+
   it('ảnh chụp quá 1 MB ⇒ 413', async () => {
     const lon = { ...ANH, dem: Array.from({ length: 4000 }, (_, i) => ({ composer: 'x'.repeat(128), dich_kieu: 'y'.repeat(128), so: i })) };
     expect((await guiAnh(KHOA_A, lon)).statusCode).toBe(413);
@@ -271,6 +331,35 @@ describeCanDb('bot-thong-bao — luật thông báo + bản đồ tin (DB)', () 
     expect(ad.json().canhBao).toEqual(c.canh_bao);
   });
 
+  it('Codex v1 #1: composer BỊ BỎ khỏi ảnh chụp (không có trong sổ dính) ⇒ GET NGAY SAU bỏ mọi đích của luật đó + cảnh báo (fail closed)', async () => {
+    await guiAnh(KHOA_A);
+    const t = await goi('POST', '/luat-thong-bao', OWNER, {
+      loai: 'in_sau_chot', cheDo: 'bat', dich: [{ kieu: 'chuc_nang', gia_tri: 'kho' }, { kieu: 'chuc_nang', gia_tri: 'khach' }],
+    });
+    expect(t.statusCode, t.body).toBe(201);
+    expect((await docLuat(KHOA_A)).luat[0].dich).toHaveLength(2);
+    const bo = await guiAnh(KHOA_A, { ...ANH, phien_ban: 'bo', composer: ANH.composer.filter((c) => c.id !== 'in_sau_chot') });
+    expect(bo.statusCode, bo.body).toBe(200);
+    const g = await docLuat(KHOA_A);
+    expect(g.luat).toEqual([expect.objectContaining({ loai: 'in_sau_chot', dich: [] })]);
+    expect(g.canh_bao).toEqual([expect.stringMatching(/^in_sau_chot: .*không có trong danh mục/)]);
+    expect((await goi('GET', '/luat-thong-bao', OWNER)).json().canhBao).toEqual(g.canh_bao);
+  });
+
+  it('Codex v1 #1 (tái hiện): nhãn nhạy cảm DÍNH rồi bỏ composer khỏi ảnh chụp ⇒ GET vẫn bỏ đích nhóm khách (hợp sổ dính), giữ đích nội bộ', async () => {
+    await guiAnh(KHOA_A);
+    await goi('POST', '/luat-thong-bao', OWNER, {
+      loai: 'in_sau_chot', cheDo: 'bat', dich: [{ kieu: 'chuc_nang', gia_tri: 'kho' }, { kieu: 'chuc_nang', gia_tri: 'khach' }],
+    });
+    await guiAnh(KHOA_A, { ...ANH, phien_ban: 'gia', composer: ANH.composer.map((c) => (c.id === 'in_sau_chot' ? { ...c, nhay_cam: ['gia'] } : c)) });
+    expect((await docLuat(KHOA_A)).luat[0].dich).toEqual([{ kieu: 'chuc_nang', gia_tri: 'kho' }]);
+    // Cùng khoá API: bỏ in_sau_chot ra khỏi ảnh chụp (được chấp nhận) — bản cũ phát lại đích khách ở GET kế tiếp.
+    expect((await guiAnh(KHOA_A, { ...ANH, phien_ban: 'bo', composer: ANH.composer.filter((c) => c.id !== 'in_sau_chot') })).statusCode).toBe(200);
+    const g = await docLuat(KHOA_A);
+    expect(g.luat[0].dich).toEqual([{ kieu: 'chuc_nang', gia_tri: 'kho' }]);
+    expect(g.canh_bao.some((x) => x.includes('khach'))).toBe(true);
+  });
+
   it('cách ly org: org B không thấy / không sửa / không xoá luật org A; khoá B chỉ đọc luật B', async () => {
     await guiAnh(KHOA_A);
     await guiAnh(KHOA_B);
@@ -319,7 +408,7 @@ describeCanDb('bot-thong-bao — luật thông báo + bản đồ tin (DB)', () 
   it('nhật ký ảnh chụp: ai = khoá API; chỉ ghi khi DANH MỤC đổi (số đếm đổi không ghi); lần bị từ chối cũng ghi', async () => {
     const khoa = await prisma.appSetting.findFirstOrThrow({ where: { orgId: ORG_A, settingKey: 'public_api_key' } });
     await guiAnh(KHOA_A);
-    await guiAnh(KHOA_A, { ...ANH, dem: [{ composer: 'in_sau_chot', so: 3 }] });
+    await guiAnh(KHOA_A, { ...ANH, dem: [{ ...ANH.dem[0], so: 3 }] });
     await guiAnh(KHOA_A, { ...ANH, phien_ban: 'dm-2', composer: [...ANH.composer, { id: 'moi', kieu: 'thuan' }] });
     await guiAnh(KHOA_A, { ...ANH, phien_ban: 'gia', composer: ANH.composer.map((c) => ({ ...c, nhay_cam: [] })) });
     const nk = await prisma.botQuyenNhatKy.findMany({ where: { orgId: ORG_A, doiTuong: 'ban_do_tin' }, orderBy: { luc: 'asc' } });

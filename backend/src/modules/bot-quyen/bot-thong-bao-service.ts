@@ -11,7 +11,8 @@ import type { Prisma } from '@prisma/client';
 import { prisma, tenantTransaction } from '../../shared/database/prisma-client.js';
 import { withTenant } from '../../shared/tenant/tenant-context.js';
 import {
-  LoiLuatThongBao, docLuatVao, docAnhChup, danhMucTuAnh, kiemTheoDanhMuc, ghepLuatCongKhai, LUAT_CHU_CHON_02_10, kiemNhayCamDinh,
+  LoiLuatThongBao, docLuatVao, docAnhChup, danhMucTuAnh, danhMucHop, kiemTheoDanhMuc, ghepLuatCongKhai, LUAT_CHU_CHON_02_10,
+  kiemNhayCamDinh,
   type ComposerAnh,
   type Dich, type LuatBotDoc, type CheDo,
 } from './bot-thong-bao-luat.js';
@@ -78,9 +79,10 @@ async function ghiNhatKy(tx: Tx, d: { orgId: string; aiId: string; id: string; t
   });
 }
 
+/** Metadata kiểm cứng = ảnh chụp hiện tại ∪ sổ dính (Codex v1 #1). null = chưa có ảnh chụp ⇒ 409 khi ghi. */
 async function danhMucTrong(tx: Tx, orgId: string) {
-  const a = await tx.botBanDoTin.findUnique({ where: { orgId }, select: { composer: true } });
-  return a ? danhMucTuAnh(a.composer) : null;
+  const a = await tx.botBanDoTin.findUnique({ where: { orgId }, select: { composer: true, composerDinh: true } });
+  return a ? danhMucHop(a.composer, a.composerDinh) : null;
 }
 
 async function uidNvTrong(tx: Tx, orgId: string, dich: Dich[]): Promise<Set<string>> {
@@ -104,14 +106,14 @@ export async function danhSachLuat(orgId: string): Promise<{
 }> {
   const [rows, a] = await Promise.all([
     prisma.botLuatThongBao.findMany({ where: { orgId }, orderBy: [{ loai: 'asc' }] }),
-    prisma.botBanDoTin.findUnique({ where: { orgId }, select: { phienBan: true, luc: true, composer: true } }),
+    prisma.botBanDoTin.findUnique({ where: { orgId }, select: { phienBan: true, luc: true, composer: true, composerDinh: true } }),
   ]);
-  const { canh_bao } = ghepLuatCongKhai(rows, a ? danhMucTuAnh(a.composer) : null);
+  const { canh_bao } = ghepLuatCongKhai(rows, a ? danhMucHop(a.composer, a.composerDinh) : null);
   return { luat: rows.map(view), banDo: a ? { phienBan: a.phienBan, luc: a.luc } : null, canhBao: canh_bao };
 }
 
 export async function docBanDo(orgId: string) {
-  return prisma.botBanDoTin.findUnique({ where: { orgId }, select: { phienBan: true, composer: true, dem: true, luc: true } });
+  return prisma.botBanDoTin.findUnique({ where: { orgId }, select: { phienBan: true, composer: true, nguon: true, dem: true, luc: true } });
 }
 
 // ── Ghi (admin) ─────────────────────────────────────────────────────────────
@@ -221,9 +223,9 @@ export async function docLuatChoBot(orgId: string): Promise<LuatBotDoc> {
         where: { orgId },
         select: { loai: true, dich: true, cheDo: true, dieuKien: true, gomGiay: true, lich: true, phienBan: true },
       }),
-      prisma.botBanDoTin.findUnique({ where: { orgId }, select: { composer: true } }),
+      prisma.botBanDoTin.findUnique({ where: { orgId }, select: { composer: true, composerDinh: true } }),
     ]);
-    return ghepLuatCongKhai(rows, a ? danhMucTuAnh(a.composer) : null);
+    return ghepLuatCongKhai(rows, a ? danhMucHop(a.composer, a.composerDinh) : null);
   });
 }
 
@@ -260,6 +262,7 @@ export async function luuAnhChup(
       const data = {
         phienBan: a.phien_ban,
         composer: a.composer as unknown as Prisma.InputJsonValue,
+        nguon: a.nguon as unknown as Prisma.InputJsonValue,
         dem: a.dem as unknown as Prisma.InputJsonValue,
         composerDinh: dinh as unknown as Prisma.InputJsonValue,
       };
@@ -311,8 +314,8 @@ export async function gieoLuatChuChon(orgId: string, o: { aiId: string; cheDo?: 
   const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { id: true } });
   if (!org) throw new LoiLuatThongBao(404, 'KHONG_TIM_THAY', `Không có tổ chức ${orgId}`);
   return withTenant(orgId, async () => {
-    const anhChup = await prisma.botBanDoTin.findUnique({ where: { orgId }, select: { composer: true } });
-    const danhMuc = anhChup ? danhMucTuAnh(anhChup.composer) : null;
+    const anhChup = await prisma.botBanDoTin.findUnique({ where: { orgId }, select: { composer: true, composerDinh: true } });
+    const danhMuc = anhChup ? danhMucHop(anhChup.composer, anhChup.composerDinh) : null;
     for (const l of LUAT_CHU_CHON_02_10) kiemTheoDanhMuc(l.loai, l.dich, danhMuc, new Set());
     const ra: KetQuaGieo[] = [];
     for (const l of LUAT_CHU_CHON_02_10) {

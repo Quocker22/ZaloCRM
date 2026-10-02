@@ -6,8 +6,10 @@
 //   • composer `kieu = khoa` (🔒, ví dụ thẻ đơn có mã chốt) không định tuyến được ⇒ 400;
 //   • `nhom_goc` không bao giờ là đích: nơi gốc luôn ngầm định, bản sao gửi lại nơi gốc = gửi đôi ⇒ 400;
 //   • nhóm KHÁCH không nhận composer có dữ liệu nhạy cảm (giá/SĐT/tiền/lãi — `nhay_cam` khác rỗng) ⇒ 400.
-// Đọc công khai cho bot (`ghepLuatCongKhai`) áp lại đúng các luật này với ảnh chụp hiện tại (ảnh chụp có thể đổi SAU khi
-// luật được lưu) — đích vi phạm bị bỏ và nêu trong `canh_bao`; bot vẫn tự rào lần nữa.
+// Đọc công khai cho bot (`ghepLuatCongKhai`) áp lại đúng các luật này với HỢP của ảnh chụp hiện tại và sổ nhạy cảm dính
+// (`danhMucHop` — Codex v1 #1: bỏ composer khỏi ảnh chụp không được làm mất nhãn) — đích vi phạm bị bỏ và nêu trong
+// `canh_bao`; composer không có trong cả hai ⇒ bỏ MỌI đích (fail closed). Bot vẫn tự rào lần nữa.
+// Hình dạng ảnh chụp = hợp đồng docs/78 hop-dong-ban-do-tin.md (Codex v1 #7) — đổi ở đây thì đổi cả tài liệu đó.
 import { createHash } from 'node:crypto';
 import { CHUC_NANG_NHOM, laChucNang } from './bot-quyen-luat.js';
 import { jsonChuan } from './bot-quyen-cong-khai.js';
@@ -27,21 +29,67 @@ export interface Dich {
   gia_tri: string | null;
 }
 
+/** Kiểu cạnh `dan_toi` — đúng `KIEU_LIEN_KET` của bot (lednelia_donhang/thong_bao/danh_muc.py). */
+export const KIEU_CANH = ['nghiep_vu', 'hoi_lai', 'su_kien', 'chan'] as const;
+export type KieuCanh = (typeof KIEU_CANH)[number];
+
+export interface CanhDanToi {
+  /** id composer hoặc id nguồn giả (`nguon[]`) trong CÙNG ảnh chụp. */
+  den: string;
+  kieu: KieuCanh;
+  vi_sao?: string;
+}
+
 export interface ComposerAnh {
   id: string;
   ten: string | null;
   pha: string | null;
   kieu: KieuComposer;
-  dich_goc: string | null;
+  de_xuat: boolean;
+  dich_goc: string[];
   nhay_cam: string[];
-  mo_ta_khi_nao: string | null;
+  khi_nao: string | null;
   vi_du: string | null;
+  nguon_cau: string | null;
+  ghi_chu: string | null;
+  dan_toi: CanhDanToi[];
+  /** Chỉ trong `danhMucHop`: composer không còn trong ảnh chụp hiện tại, metadata lấy từ sổ dính. */
+  chi_trong_so_dinh?: boolean;
+}
+
+/** Nguồn giả (máy in, Odoo, lịch…) — chỉ để vẽ cạnh vào composer. */
+export interface NguonAnh {
+  id: string;
+  ten: string | null;
+  pha: string | null;
+  mo_ta: string | null;
+  dan_toi: CanhDanToi[];
+}
+
+export const KET_QUA_DEM = ['da_gui', 'chan_tam_im', 'loi', 'bong', 'chua_ro'] as const;
+export const CUA_SO_DEM = ['24h', '7d'] as const;
+
+/** Một dòng số đếm theo CẠNH (bot tin_gui_so): khoá cạnh = `<composer>→<dich_kieu>|<luat_id|goc>`. */
+export interface DemCanh {
+  khoa_canh: string;
+  composer: string;
+  dich_kieu: string;
+  luat_id: string | null;
+  ket_qua: (typeof KET_QUA_DEM)[number];
+  cua_so: (typeof CUA_SO_DEM)[number];
+  so: number;
 }
 
 export interface AnhChup {
   phien_ban: string;
   composer: ComposerAnh[];
-  dem: Array<Record<string, string | number | null>>;
+  nguon: NguonAnh[];
+  dem: DemCanh[];
+}
+
+/** Khoá cạnh của số đếm — `goc` = gửi ở nơi gốc (không qua luật). */
+export function khoaCanh(composer: string, dichKieu: string, luatId: string | null): string {
+  return `${composer}→${dichKieu}|${luatId ?? 'goc'}`;
 }
 
 /** Lỗi kiểm — routes đổi thành HTTP (cùng hình {error, code} như LoiBotQuyen). */
@@ -56,6 +104,8 @@ const sai = (code: string, msg: string): LoiLuatThongBao => new LoiLuatThongBao(
 
 export const TRAN = {
   composer: 300,
+  nguon: 50,
+  danToi: 60,
   dem: 5000,
   dich: 20,
   jsonNho: 4096,
@@ -78,7 +128,68 @@ function chuTuyChon(x: unknown, ten: string, dai: number): string | null {
 
 // ── Ảnh chụp bản đồ tin (bot → CRM) ─────────────────────────────────────────
 
-/** Kiểm + chuẩn hoá ảnh chụp bot gửi. Chỉ giữ trường đã biết (không lưu nội dung tin). */
+const TRUONG_DEM = ['khoa_canh', 'composer', 'dich_kieu', 'luat_id', 'ket_qua', 'cua_so', 'so'] as const;
+
+function docDanToi(x: unknown, chu: string): CanhDanToi[] {
+  if (x === undefined || x === null) return [];
+  if (!Array.isArray(x) || x.length > TRAN.danToi) {
+    throw sai('ANH_CHUP_KHONG_HOP_LE', `${chu}: dan_toi phải là mảng ≤ ${TRAN.danToi} cạnh`);
+  }
+  const ra = new Map<string, CanhDanToi>();
+  for (const e of x) {
+    // Hai dạng: {den, kieu, vi_sao?} (hợp đồng) hoặc cặp [den, kieu] (xuat_json của bot 02/10).
+    const o = Array.isArray(e) ? { den: e[0], kieu: e[1], ...(e.length > 2 ? { la: true } : {}) } : e;
+    if (!laObj(o) || 'la' in o) throw sai('ANH_CHUP_KHONG_HOP_LE', `${chu}: mỗi cạnh dan_toi là {den, kieu} hoặc [den, kieu]`);
+    if (typeof o.den !== 'string' || !RE_ID.test(o.den)) throw sai('ANH_CHUP_KHONG_HOP_LE', `${chu}: dan_toi.den không hợp lệ`);
+    if (typeof o.kieu !== 'string' || !(KIEU_CANH as readonly string[]).includes(o.kieu)) {
+      throw sai('ANH_CHUP_KHONG_HOP_LE', `${chu}: dan_toi.kieu phải là ${KIEU_CANH.join('|')}`);
+    }
+    const viSao = chuTuyChon(o.vi_sao, 'vi_sao', 500);
+    ra.set(`${o.den}|${o.kieu}`, { den: o.den, kieu: o.kieu as KieuCanh, ...(viSao ? { vi_sao: viSao } : {}) });
+  }
+  return [...ra.values()];
+}
+
+function docDichGoc(x: unknown, chu: string): string[] {
+  if (x === undefined || x === null) return [];
+  const mang = typeof x === 'string' ? [x] : x;
+  if (!Array.isArray(mang) || mang.length > TRAN.dich || mang.some((d) => typeof d !== 'string' || !RE_NHAN.test(d))) {
+    throw sai('ANH_CHUP_KHONG_HOP_LE', `${chu}: dich_goc phải là mảng mã đích (a-z_)`);
+  }
+  return [...new Set(mang as string[])];
+}
+
+function docDem(d: unknown, i: number): DemCanh {
+  if (!laObj(d)) throw sai('ANH_CHUP_KHONG_HOP_LE', `dem[${i}] phải là object`);
+  for (const k of Object.keys(d)) {
+    if (!(TRUONG_DEM as readonly string[]).includes(k)) throw sai('ANH_CHUP_KHONG_HOP_LE', `dem[${i}]: trường lạ ${k.slice(0, 40)}`);
+  }
+  if (typeof d.composer !== 'string' || !RE_ID.test(d.composer)) throw sai('ANH_CHUP_KHONG_HOP_LE', `dem[${i}].composer không hợp lệ`);
+  if (typeof d.dich_kieu !== 'string' || !RE_NHAN.test(d.dich_kieu)) throw sai('ANH_CHUP_KHONG_HOP_LE', `dem[${i}].dich_kieu không hợp lệ`);
+  if (d.luat_id !== null && (typeof d.luat_id !== 'string' || !d.luat_id || d.luat_id.length > 64)) {
+    throw sai('ANH_CHUP_KHONG_HOP_LE', `dem[${i}].luat_id phải là chuỗi ≤ 64 hoặc null`);
+  }
+  if (typeof d.ket_qua !== 'string' || !(KET_QUA_DEM as readonly string[]).includes(d.ket_qua)) {
+    throw sai('ANH_CHUP_KHONG_HOP_LE', `dem[${i}].ket_qua phải là ${KET_QUA_DEM.join('|')}`);
+  }
+  if (typeof d.cua_so !== 'string' || !(CUA_SO_DEM as readonly string[]).includes(d.cua_so)) {
+    throw sai('ANH_CHUP_KHONG_HOP_LE', `dem[${i}].cua_so phải là ${CUA_SO_DEM.join('|')}`);
+  }
+  if (typeof d.so !== 'number' || !Number.isInteger(d.so) || d.so < 0) throw sai('ANH_CHUP_KHONG_HOP_LE', `dem[${i}].so (số nguyên ≥ 0) bắt buộc`);
+  const luatId = d.luat_id as string | null;
+  if (d.khoa_canh !== khoaCanh(d.composer, d.dich_kieu, luatId)) {
+    throw sai('ANH_CHUP_KHONG_HOP_LE', `dem[${i}].khoa_canh phải là "${khoaCanh(d.composer, d.dich_kieu, luatId)}"`);
+  }
+  return {
+    khoa_canh: d.khoa_canh as string, composer: d.composer, dich_kieu: d.dich_kieu, luat_id: luatId,
+    ket_qua: d.ket_qua as DemCanh['ket_qua'], cua_so: d.cua_so as DemCanh['cua_so'], so: d.so,
+  };
+}
+
+/**
+ * Kiểm + chuẩn hoá ảnh chụp bot gửi theo hợp đồng (docs/78 hop-dong-ban-do-tin.md). Chỉ giữ trường đã biết (không lưu nội
+ * dung tin thật — `vi_du` là câu MẪU do bot khai). `pha`/`dich` ở gốc (bảng tên pha/đích của bot) được nhận và BỎ QUA.
+ */
 export function docAnhChup(body: unknown): AnhChup {
   if (!laObj(body)) throw sai('ANH_CHUP_KHONG_HOP_LE', 'Thân yêu cầu phải là object');
   const pb = body.phien_ban;
@@ -101,43 +212,93 @@ export function docAnhChup(body: unknown): AnhChup {
     if (!Array.isArray(nc) || nc.length > TRAN.nhayCam || nc.some((x) => typeof x !== 'string' || !RE_NHAN.test(x))) {
       throw sai('ANH_CHUP_KHONG_HOP_LE', `composer ${c.id}: nhay_cam phải là mảng nhãn (a-z_)`);
     }
+    if (c.de_xuat !== undefined && c.de_xuat !== null && typeof c.de_xuat !== 'boolean') {
+      throw sai('ANH_CHUP_KHONG_HOP_LE', `composer ${c.id}: de_xuat phải là true/false`);
+    }
     return {
       id: c.id,
       ten: chuTuyChon(c.ten, 'ten', 200),
       pha: chuTuyChon(c.pha, 'pha', 64),
       kieu: c.kieu as KieuComposer,
-      dich_goc: chuTuyChon(c.dich_goc, 'dich_goc', 64),
+      de_xuat: c.de_xuat === true,
+      dich_goc: docDichGoc(c.dich_goc, `composer ${c.id}`),
       nhay_cam: [...new Set(nc as string[])].sort(),
-      mo_ta_khi_nao: chuTuyChon(c.mo_ta_khi_nao, 'mo_ta_khi_nao', 2000),
-      vi_du: chuTuyChon(c.vi_du, 'vi_du', 2000),
+      khi_nao: chuTuyChon(c.khi_nao, 'khi_nao', 2000) || null,
+      vi_du: chuTuyChon(c.vi_du, 'vi_du', 4000) || null,
+      nguon_cau: chuTuyChon(c.nguon_cau, 'nguon_cau', 1000) || null,
+      ghi_chu: chuTuyChon(c.ghi_chu, 'ghi_chu', 4000) || null,
+      dan_toi: docDanToi(c.dan_toi, `composer ${c.id}`),
     };
   });
+  const nguonVao = body.nguon ?? [];
+  if (!Array.isArray(nguonVao) || nguonVao.length > TRAN.nguon) throw sai('ANH_CHUP_KHONG_HOP_LE', `nguon phải là mảng ≤ ${TRAN.nguon}`);
+  const nguon = nguonVao.map((n, i): NguonAnh => {
+    if (!laObj(n) || typeof n.id !== 'string' || !RE_ID.test(n.id)) throw sai('ANH_CHUP_KHONG_HOP_LE', `nguon[${i}].id không hợp lệ`);
+    if (daCo.has(n.id)) throw sai('ANH_CHUP_KHONG_HOP_LE', `nguon ${n.id} trùng id composer/nguồn khác`);
+    daCo.add(n.id);
+    return {
+      id: n.id, ten: chuTuyChon(n.ten, 'ten', 200), pha: chuTuyChon(n.pha, 'pha', 64), mo_ta: chuTuyChon(n.mo_ta, 'mo_ta', 2000),
+      dan_toi: docDanToi(n.dan_toi, `nguon ${n.id}`),
+    };
+  });
+  // Mọi cạnh phải trỏ tới khối có trong CÙNG ảnh chụp (bản đồ không có đường cụt).
+  for (const k of [...composer, ...nguon]) {
+    for (const e of k.dan_toi) {
+      if (!daCo.has(e.den)) throw sai('ANH_CHUP_KHONG_HOP_LE', `${k.id}: dan_toi tới "${e.den}" không có trong ảnh chụp`);
+    }
+  }
   const demVao = body.dem ?? [];
   if (!Array.isArray(demVao) || demVao.length > TRAN.dem) throw sai('ANH_CHUP_KHONG_HOP_LE', `dem phải là mảng ≤ ${TRAN.dem}`);
+  const daDem = new Set<string>();
   const dem = demVao.map((d, i) => {
-    if (!laObj(d)) throw sai('ANH_CHUP_KHONG_HOP_LE', `dem[${i}] phải là object`);
-    const khoa = Object.keys(d);
-    if (khoa.length > 12) throw sai('ANH_CHUP_KHONG_HOP_LE', `dem[${i}] quá nhiều trường`);
-    const ra: Record<string, string | number | null> = {};
-    for (const k of khoa) {
-      if (!RE_NHAN.test(k)) throw sai('ANH_CHUP_KHONG_HOP_LE', `dem[${i}]: tên trường ${k.slice(0, 40)} không hợp lệ`);
-      const v = d[k];
-      if (v === null) ra[k] = null;
-      else if (typeof v === 'string' && v.length <= 128) ra[k] = v;
-      else if (typeof v === 'number' && Number.isInteger(v) && v >= 0) ra[k] = v;
-      else throw sai('ANH_CHUP_KHONG_HOP_LE', `dem[${i}].${k}: chỉ nhận chuỗi ≤ 128, số nguyên ≥ 0 hoặc null`);
-    }
-    if (typeof ra.so !== 'number') throw sai('ANH_CHUP_KHONG_HOP_LE', `dem[${i}].so (số nguyên ≥ 0) bắt buộc`);
-    return ra;
+    const r = docDem(d, i);
+    const k = `${r.khoa_canh}|${r.ket_qua}|${r.cua_so}`;
+    if (daDem.has(k)) throw sai('ANH_CHUP_KHONG_HOP_LE', `dem[${i}] trùng (khoa_canh, ket_qua, cua_so)`);
+    daDem.add(k);
+    return r;
   });
-  return { phien_ban: pb.trim(), composer, dem };
+  return { phien_ban: pb.trim(), composer, nguon, dem };
 }
 
 /** Danh mục composer từ cột jsonb đã lưu (đã qua `docAnhChup` lúc lưu). */
 export function danhMucTuAnh(composer: unknown): Map<string, ComposerAnh> {
   const m = new Map<string, ComposerAnh>();
   if (!Array.isArray(composer)) return m;
-  for (const c of composer) if (laObj(c) && typeof c.id === 'string') m.set(c.id, c as unknown as ComposerAnh);
+  for (const c of composer) {
+    if (!laObj(c) || typeof c.id !== 'string') continue;
+    const nc = Array.isArray(c.nhay_cam) ? c.nhay_cam.filter((x): x is string => typeof x === 'string') : [];
+    m.set(c.id, { ...(c as unknown as ComposerAnh), nhay_cam: nc });
+  }
+  return m;
+}
+
+/**
+ * HỢP ảnh chụp hiện tại với sổ dính (Codex v1 #1) — metadata dùng để KIỂM CỨNG (ghi luật lẫn phát luật cho bot):
+ *   • composer hiện tại: nhãn nhạy cảm = nhãn hiện tại ∪ nhãn trong sổ; khoá nếu sổ đã từng khoá;
+ *   • composer KHÔNG còn trong ảnh chụp nhưng có trong sổ: vẫn có mặt (`chi_trong_so_dinh`) với nhãn/khoá của sổ;
+ *   • không có ở cả hai: vắng mặt ⇒ người dùng metadata phải coi là KHÔNG an toàn (fail closed).
+ * null = chưa từng có ảnh chụp lẫn sổ.
+ * Giới hạn đã biết: ảnh chụp ĐẦU TIÊN được tin (sổ rỗng) — xem hop-dong-ban-do-tin.md §An toàn (khoá riêng của bot).
+ */
+export function danhMucHop(composer: unknown, dinh: unknown): Map<string, ComposerAnh> | null {
+  if (composer == null && (dinh == null || (laObj(dinh) && Object.keys(dinh).length === 0))) return null;
+  const m = danhMucTuAnh(composer);
+  if (laObj(dinh)) {
+    for (const [id, v] of Object.entries(dinh)) {
+      if (!laObj(v)) continue;
+      const nhan = Array.isArray(v.nhay_cam) ? v.nhay_cam.filter((x): x is string => typeof x === 'string') : [];
+      const khoa = v.khoa === true;
+      const c = m.get(id);
+      if (c) {
+        m.set(id, { ...c, nhay_cam: [...new Set([...c.nhay_cam, ...nhan])].sort(), kieu: khoa ? 'khoa' : c.kieu });
+      } else {
+        m.set(id, {
+          id, ten: null, pha: null, kieu: khoa ? 'khoa' : 'ban_sao', de_xuat: false, dich_goc: [], nhay_cam: [...new Set(nhan)].sort(),
+          khi_nao: null, vi_du: null, nguon_cau: null, ghi_chu: null, dan_toi: [], chi_trong_so_dinh: true,
+        });
+      }
+    }
+  }
   return m;
 }
 
@@ -279,7 +440,7 @@ export function kiemTheoDanhMuc(
     );
   }
   const c = danhMuc.get(loai);
-  if (!c) throw sai('COMPOSER_LA', `Không có loại tin "${loai}" trong danh mục bot gửi lên`);
+  if (!c || c.chi_trong_so_dinh) throw sai('COMPOSER_LA', `Không có loại tin "${loai}" trong danh mục bot gửi lên`);
   if (c.kieu === 'khoa') {
     throw sai('COMPOSER_KHOA', `Tin "${c.ten ?? c.id}" chỉ gửi ở nơi gốc (🔒) — không định tuyến được`);
   }
@@ -314,9 +475,9 @@ export interface LuatBotDoc {
 }
 
 /**
- * Dòng DB → payload bot. Áp lại luật cứng với ảnh chụp HIỆN TẠI: `nhom_goc` (SQL tay) / nhóm khách + nhạy cảm ⇒ bỏ đích;
- * composer khoá ⇒ bỏ cả luật. Composer không còn trong danh mục: giữ (bot tự bỏ loại nó không biết). Không có ảnh chụp ⇒
- * chỉ bỏ `nhom_goc`.
+ * Dòng DB → payload bot. Áp lại luật cứng với `danhMuc` = HỢP ảnh chụp hiện tại + sổ dính (`danhMucHop`, Codex v1 #1):
+ * `nhom_goc` (SQL tay) / nhóm khách + nhạy cảm ⇒ bỏ đích; composer khoá ⇒ bỏ cả luật; composer KHÔNG có trong danh mục
+ * (hay chưa có ảnh chụp nào) ⇒ bỏ MỌI đích (fail closed — không biết nhãn thì không phát), luật vẫn trả với `dich: []`.
  */
 export function ghepLuatCongKhai(
   rows: ReadonlyArray<{
@@ -333,13 +494,17 @@ export function ghepLuatCongKhai(
       continue;
     }
     const dich: Dich[] = [];
-    for (const d of Array.isArray(r.dich) ? r.dich : []) {
+    const vao = Array.isArray(r.dich) ? r.dich : [];
+    if (!c && vao.length > 0) {
+      canh_bao.push(`${r.loai}: loại tin không có trong danh mục bot gửi lên (cả sổ nhạy cảm) — bỏ mọi đích (${vao.length})`);
+    }
+    for (const d of c ? vao : []) {
       if (!laObj(d) || d.kieu === 'nhom_goc' || !(KIEU_DICH as readonly string[]).includes(String(d.kieu))) {
         canh_bao.push(`${r.loai}: bỏ đích không hợp lệ ${JSON.stringify(d).slice(0, 80)}`);
         continue;
       }
       const dd: Dich = { kieu: d.kieu as KieuDich, gia_tri: typeof d.gia_tri === 'string' ? d.gia_tri : null };
-      const ly = c ? lyDoCam(c, dd) : null;
+      const ly = lyDoCam(c!, dd);
       if (ly) {
         canh_bao.push(`${r.loai}: bỏ đích ${dd.kieu}:${dd.gia_tri ?? ''} — ${ly}`);
         continue;

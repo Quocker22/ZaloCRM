@@ -4891,7 +4891,11 @@ model BotBanDoTin {
   id       String   @id @default(uuid())
   orgId    String   @unique @map("org_id")
   phienBan String   @map("phien_ban")
+  /// Danh mục composer theo hợp đồng docs/78 hop-dong-ban-do-tin.md (id, kieu, nhay_cam, dan_toi, khi_nao, vi_du, nguon_cau…).
   composer Json
+  /// Nguồn giả (máy in, Odoo, lịch) — chỉ để vẽ cạnh `dan_toi` vào composer.
+  nguon    Json     @default("[]")
+  /// Số đếm theo CẠNH {khoa_canh, composer, dich_kieu, luat_id, ket_qua, cua_so: 24h|7d, so}.
   dem      Json
   /// Sổ nhạy cảm DÍNH theo id composer {id: {nhay_cam: [...], khoa: bool}} — hợp của MỌI ảnh chụp đã nhận (tự rà P1-5).
   /// Ảnh chụp mới không gỡ được nhãn / mở khoá composer đã có trong sổ (409) — kể cả bỏ composer ra rồi thêm lại.
