@@ -15,7 +15,7 @@
         <div><SoTron :so="l.so" :loai="l.loai" /></div>
         <div><b>{{ ten(l.tu) }}</b><small>{{ ma(l.tu) }}</small></div>
         <div><b>{{ ten(l.den) }}</b><small>{{ ma(l.den) }}</small></div>
-        <div><MauNet :loai="l.loai" /><span>{{ l.vi_sao || KIEU_DUONG_THEO_ID[l.loai].ten }}</span><small v-if="l.dem" style="margin-left: auto">{{ l.dem.d7.da_gui + l.dem.d7.bong }}</small></div>
+        <div><MauNet :loai="l.loai" /><span>{{ l.vi_sao || KIEU_DUONG_THEO_ID[l.loai].ten }}</span><small v-if="l.dem" style="margin-left: auto" :title="`7 ngày: ${l.dem.d7.da_gui} đã gửi · ${l.dem.d7.bong} chạy bóng · ${l.dem.d7.chua_ro} chưa rõ · ${l.dem.d7.chan_tam_im} bị chặn`">{{ l.dem.d7.da_gui }}{{ l.dem.d7.bong ? ` · ${l.dem.d7.bong} bóng` : '' }}</small></div>
       </div>
     </div>
   </section>

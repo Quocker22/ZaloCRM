@@ -82,6 +82,7 @@ describe('BanDoTinPage — máy tính', () => {
     expect(w.find('[data-khoi="crm_su_kien_in@crm_bot"] [data-soan]').exists()).toBe(false);
     const so = w.find('[data-khoi="the_xem_truoc@nhom_goc"] [data-dem-khoi]');
     expect(so.text()).toMatch(/^\d+\/24h$/);
+    expect(so.find('[data-dem-bong]').exists()).toBe(false);
     expect(so.attributes('title')).toMatch(/^24 giờ: .* — 7 ngày: /);
     await bamKhoi(w, 'xuat_hoa_don_tool@nhom_goc');
     expect(panel(w).find('[data-goi-y]').text()).toBe('💡 Ứng viên: thêm nhóm Kế toán.');
@@ -129,6 +130,9 @@ describe('BanDoTinPage — máy tính', () => {
     expect(client.suaLuat).toHaveBeenCalledWith('luat-1', { phienBan: 1, cheDo: 'bong' });
     expect(w.find('[data-khoi="xuat_hoa_don_tool@g_ketoan"]').text()).toContain('Bóng');
     await panel(w).find('[data-hoan-lai]').trigger('click');
+    await flushPromises();
+    expect(client.xoaLuat).not.toHaveBeenCalled(); // hỏi trước
+    await w.find('[data-xac-nhan] [data-dong-y]').trigger('click');
     await flushPromises();
     expect(client.xoaLuat).toHaveBeenCalledWith('luat-1');
     expect(w.find('[data-khoi="xuat_hoa_don_tool@g_ketoan"]').exists()).toBe(false);
@@ -206,7 +210,7 @@ describe('BanDoTinPage — máy tính', () => {
 
   it('bot chưa gửi ảnh chụp ⇒ trạng thái trống rõ ràng, không vẽ sơ đồ', async () => {
     const { w } = await mo(1440, '', { trong: true });
-    expect(w.find('[data-chua-co-ban-do]').text()).toContain('Bot chưa gửi danh mục — bản đồ sẽ hiện sau khi bot dev chạy bản mới');
+    expect(w.find('[data-chua-co-ban-do]').text()).toContain('Bot chưa gửi danh mục — bản đồ sẽ hiện khi bot cập nhật bản mới');
     expect(w.find('.bdt-khoi').exists()).toBe(false);
   });
 
@@ -236,6 +240,145 @@ describe('BanDoTinPage — máy tính', () => {
   });
 });
 
+describe('BanDoTinPage — tự rà vòng 2', () => {
+  it('link sâu trỏ tới khối không còn trong danh mục ⇒ bỏ chọn, xoá hash, báo "Khối không còn trong danh mục"', async () => {
+    const { w } = await mo(1440, '#khoi=da_bo_khoi_nay@nhom_goc');
+    expect(location.hash).toBe('');
+    expect(w.find('[data-chon-mat]').text()).toBe('Khối không còn trong danh mục');
+    expect(panel(w).text()).toContain('Bấm vào sơ đồ để bắt đầu');
+    await bamKhoi(w, 'the_xem_truoc@nhom_goc');
+    expect(w.find('[data-chon-mat]').exists()).toBe(false);
+  });
+
+  it('liên kết cũ (#lien-ket=) và đích ẩn (#dich=) cũng bị bỏ + báo đúng loại', async () => {
+    let r = await mo(1440, '#lien-ket=a@nhom_goc~b@nhom_goc');
+    expect(location.hash).toBe('');
+    expect(r.w.find('[data-chon-mat]').text()).toBe('Liên kết không còn trong danh mục');
+    r.w.unmount(); w = null;
+    r = await mo(1440, '#dich=n_khac');
+    expect(location.hash).toBe('');
+    expect(r.w.find('[data-chon-mat]').text()).toBe('Đích không còn trong danh mục');
+  });
+
+  it('khối bản sao đang xem biến mất sau "Hoàn lại như mã" ⇒ panel về trống + báo, không lơ lửng', async () => {
+    const { w } = await mo();
+    await bamKhoi(w, 'xuat_hoa_don_tool@g_ketoan');
+    await panel(w).find('[data-hoan-lai]').trigger('click');
+    await w.find('[data-xac-nhan] [data-dong-y]').trigger('click');
+    await flushPromises();
+    expect(panel(w).text()).toContain('Bấm vào sơ đồ để bắt đầu');
+    expect(location.hash).toBe('');
+    expect(w.find('[data-chon-mat]').text()).toBe('Khối không còn trong danh mục');
+  });
+
+  it('link sâu hợp lệ ⇒ cuộn khối đích vào khung (SPEC §7)', async () => {
+    const cuon = vi.fn();
+    const goc = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = cuon;
+    try {
+      await mo(1440, '#khoi=the_xem_truoc@nhom_goc');
+      expect(cuon).toHaveBeenCalled();
+      expect((cuon.mock.contexts.at(-1) as HTMLElement).getAttribute('data-khoi')).toBe('the_xem_truoc@nhom_goc');
+    } finally { Element.prototype.scrollIntoView = goc; }
+  });
+
+  it('"Hoàn lại như mã": huỷ trong hộp xác nhận ⇒ không xoá; Esc đóng hộp mà KHÔNG bỏ chọn khối', async () => {
+    const { w, client } = await mo();
+    await bamKhoi(w, 'xuat_hoa_don_tool@nhom_goc');
+    await panel(w).find('[data-hoan-lai]').trigger('click');
+    const hop = w.find('[data-xac-nhan]');
+    expect(hop.attributes('role')).toBe('alertdialog');
+    expect(hop.text()).toMatch(/Hoàn lại như mã/);
+    expect(hop.element.contains(document.activeElement)).toBe(true);
+    await hop.find('[data-huy]').trigger('click');
+    expect(w.find('[data-xac-nhan]').exists()).toBe(false);
+    await panel(w).find('[data-hoan-lai]').trigger('click');
+    w.find('[data-xac-nhan]').element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    await flushPromises();
+    expect(w.find('[data-xac-nhan]').exists()).toBe(false);
+    expect(location.hash).toBe('#khoi=xuat_hoa_don_tool@nhom_goc');
+    expect(client.xoaLuat).not.toHaveBeenCalled();
+  });
+
+  it('chuyển sang Bật ⇒ hỏi trước, nói "24 giờ qua sẽ gửi N tin" nếu biết; đồng ý ⇒ PUT cheDo bat', async () => {
+    const { w, client } = await mo();
+    await bamKhoi(w, 'in_sau_chot@nhom_goc');
+    const n = panel(w).find('[data-neu-bat] b').text();
+    await panel(w).findAll('.bdt-che-do button').find((b) => b.text() === 'Bật')!.trigger('click');
+    expect(client.suaLuat).not.toHaveBeenCalled();
+    expect(w.find('[data-xac-nhan]').text()).toContain(`24 giờ qua sẽ gửi ${n} tin`);
+    await w.find('[data-xac-nhan] [data-dong-y]').trigger('click');
+    await flushPromises();
+    expect(client.suaLuat).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ cheDo: 'bat' }));
+  });
+
+  it('chưa có luật ⇒ nút Bật khoá kèm lý do (luật mới bắt đầu ở chạy bóng)', async () => {
+    const { w, client } = await mo();
+    await bamKhoi(w, 'da_chot@nhom_goc');
+    const bat = panel(w).findAll('.bdt-che-do button').find((b) => b.text() === 'Bật')!;
+    expect((bat.element as HTMLButtonElement).disabled).toBe(true);
+    expect(bat.attributes('title')).toMatch(/luật mới bắt đầu ở Chạy bóng/);
+    expect(client.taoLuat).not.toHaveBeenCalled();
+  });
+
+  it('lưu được nhưng tải lại hỏng ⇒ "Đã lưu; tải lại lỗi", KHÔNG báo lỗi lưu', async () => {
+    const { w, client } = await mo();
+    vi.mocked(client.layLuat).mockRejectedValue(new LoiBanDoTin('Mất mạng', 0, null));
+    await bamKhoi(w, 'xuat_hoa_don_tool@nhom_goc');
+    await panel(w).find('[data-dich-dong="g_admin"] input').setValue(true);
+    await flushPromises();
+    expect(client.suaLuat).toHaveBeenCalled();
+    expect(panel(w).find('[data-loi-luu]').exists()).toBe(false);
+    expect(panel(w).find('[data-tin-luu]').text()).toMatch(/^Đã lưu; tải lại lỗi/);
+  });
+
+  it('khối có chạy bóng: số chính = đã gửi thật, bóng tách riêng; panel có "chưa rõ"', async () => {
+    const { w } = await mo();
+    const so = w.find('[data-khoi="in_sau_chot@g_kho"] [data-dem-khoi]');
+    expect(so.find('[data-dem-gui]').text()).toBe('0');
+    expect(so.find('[data-dem-bong]').text()).toMatch(/^\d+ bóng$/);
+    expect(so.attributes('title')).toMatch(/chạy bóng/);
+    await bamKhoi(w, 'the_xem_truoc@nhom_goc');
+    expect(panel(w).find('[data-cua-so="h24"]').text()).toMatch(/chưa rõ/);
+  });
+
+  it('bong số focus được bằng phím (tabindex + aria-label), Enter chọn liên kết', async () => {
+    const { w } = await mo();
+    await bamKhoi(w, 'the_xem_truoc@nhom_goc');
+    const b = w.find('.bdt-bong');
+    expect(b.attributes('tabindex')).toBe('0');
+    expect(b.attributes('aria-label')).toMatch(/^Liên kết \d+: .+ → .+/);
+    await b.trigger('keydown', { key: 'Enter' });
+    await flushPromises();
+    expect(location.hash).toMatch(/^#lien-ket=/);
+  });
+
+  it('hộp hướng dẫn: không hứa "đổi đích tự do" cho tin ✎; giữ focus trong hộp, Esc trả focus về nút mở', async () => {
+    const { w } = await mo();
+    const nut = w.findAll('button').find((b) => b.text().includes('Hướng dẫn sử dụng'))!;
+    (nut.element as HTMLElement).focus();
+    await nut.trigger('click');
+    await flushPromises();
+    const hop = w.find('.bdt-hop');
+    expect(hop.text()).not.toMatch(/✎ cho THÊM bản sao.*đổi đích tự do/);
+    expect(hop.text()).toContain('nơi gốc luôn nhận');
+    expect(hop.text()).toContain('Mỗi loại tin một luật; tick cập nhật luật đó');
+    expect(hop.text()).toContain('khi đích không phải Admin');
+    expect(hop.element.contains(document.activeElement)).toBe(true);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await flushPromises();
+    expect(w.find('.bdt-hop').exists()).toBe(false);
+    expect(document.activeElement).toBe(nut.element);
+  });
+
+  it('khối CRM tự động không có đầu vào ⇒ "Kích hoạt bởi sự kiện/lịch của CRM" (không phải "tin NV gõ")', async () => {
+    const { w } = await mo();
+    await bamKhoi(w, 'crm_lich_hen_nhac@crm_sale');
+    expect(panel(w).text()).toContain('Kích hoạt bởi sự kiện/lịch của CRM');
+    expect(panel(w).text()).not.toContain('tin NV gõ');
+  });
+});
+
 describe('BanDoTinPage — điện thoại', () => {
   it('< 768 ⇒ cổng mở trên máy tính; bản rút gọn = Theo pha, tab Sơ đồ khoá; chọn thẻ ⇒ bottom sheet + #khoi=', async () => {
     const { w } = await mo(390);
@@ -245,9 +388,16 @@ describe('BanDoTinPage — điện thoại', () => {
     await flushPromises();
     expect(w.find('[data-tab="so_do"]').classes()).toContain('khoa');
     expect(w.find('[data-tab="theo_pha"]').attributes('aria-selected')).toBe('true');
+    (w.find('[data-the]').element as HTMLElement).focus(); // trình duyệt focus nút khi bấm; jsdom thì không
     await w.find('[data-the]').trigger('click');
     await flushPromises();
     expect(w.find('.bdt-panel.sheet').exists()).toBe(true);
     expect(location.hash).toMatch(/^#khoi=/);
+    // bottom sheet: focus vào sheet, Esc đóng và trả focus về thẻ đã mở
+    expect(w.find('.bdt-panel.sheet').element.contains(document.activeElement)).toBe(true);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await flushPromises();
+    expect(w.find('.bdt-panel.sheet').exists()).toBe(false);
+    expect(document.activeElement).toBe(w.find('[data-the]').element);
   });
 });

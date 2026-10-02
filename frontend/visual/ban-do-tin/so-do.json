@@ -7,16 +7,66 @@
         38
       ],
       "khoi_bo_goc": "8px",
+      "khoi_ten_px_thuc": 9,
+      "dem_khoi_px_thuc": [
+        9,
+        9
+      ],
+      "tag_px_thuc": 6.38,
       "tieu_de_pha": [
         150,
         26
       ],
+      "dau_khung": {
+        "cao": 85,
+        "h2_px": 15,
+        "goi_y": {
+          "px": 12,
+          "nen": "rgba(0, 0, 0, 0)",
+          "cat_chu": false,
+          "hien": true
+        },
+        "nut_hang_2": true
+      },
       "panel_rong": 368,
+      "panel_bo_goc": "20px",
       "thanh_tab_cao": 42,
+      "tab_px": 13,
       "o_tim": [
         320,
-        36
+        36,
+        14
       ],
+      "duong": {
+        "nghiep_vu": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "chan": {
+          "rong": 1.44,
+          "dash": "2.25 3"
+        },
+        "hoi_lai": {
+          "rong": 2.16,
+          "dash": "1.125 4.5"
+        },
+        "su_kien": {
+          "rong": 1.68,
+          "dash": "6.75 3.75"
+        },
+        "ban_sao": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "crm": {
+          "rong": 1.92,
+          "dash": "liền"
+        }
+      },
+      "do_duc": {
+        "lop_nen": 0.35,
+        "khoi_mo": null
+      },
       "ban_do": [
         1914,
         1696
@@ -29,16 +79,66 @@
         38
       ],
       "khoi_bo_goc": "8px",
+      "khoi_ten_px_thuc": 9,
+      "dem_khoi_px_thuc": [
+        9,
+        9
+      ],
+      "tag_px_thuc": 6.38,
       "tieu_de_pha": [
         150,
         26
       ],
+      "dau_khung": {
+        "cao": 85,
+        "h2_px": 15,
+        "goi_y": {
+          "px": 12,
+          "nen": "rgba(0, 0, 0, 0)",
+          "cat_chu": false,
+          "hien": true
+        },
+        "nut_hang_2": true
+      },
       "panel_rong": 368,
+      "panel_bo_goc": "20px",
       "thanh_tab_cao": 42,
+      "tab_px": 13,
       "o_tim": [
         320,
-        36
+        36,
+        14
       ],
+      "duong": {
+        "nghiep_vu": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "chan": {
+          "rong": 1.44,
+          "dash": "2.25 3"
+        },
+        "hoi_lai": {
+          "rong": 2.16,
+          "dash": "1.125 4.5"
+        },
+        "su_kien": {
+          "rong": 1.68,
+          "dash": "6.75 3.75"
+        },
+        "ban_sao": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "crm": {
+          "rong": 1.92,
+          "dash": "liền"
+        }
+      },
+      "do_duc": {
+        "lop_nen": 0.06,
+        "khoi_mo": 0.14
+      },
       "ban_do": [
         1914,
         1696
@@ -51,16 +151,66 @@
         38
       ],
       "khoi_bo_goc": "8px",
+      "khoi_ten_px_thuc": 9,
+      "dem_khoi_px_thuc": [
+        9,
+        9
+      ],
+      "tag_px_thuc": 6.38,
       "tieu_de_pha": [
         150,
         26
       ],
+      "dau_khung": {
+        "cao": 85,
+        "h2_px": 15,
+        "goi_y": {
+          "px": 12,
+          "nen": "rgba(0, 0, 0, 0)",
+          "cat_chu": false,
+          "hien": true
+        },
+        "nut_hang_2": true
+      },
       "panel_rong": 368,
+      "panel_bo_goc": "20px",
       "thanh_tab_cao": 42,
+      "tab_px": 13,
       "o_tim": [
         320,
-        36
+        36,
+        14
       ],
+      "duong": {
+        "nghiep_vu": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "chan": {
+          "rong": 1.44,
+          "dash": "2.25 3"
+        },
+        "hoi_lai": {
+          "rong": 2.16,
+          "dash": "1.125 4.5"
+        },
+        "su_kien": {
+          "rong": 1.68,
+          "dash": "6.75 3.75"
+        },
+        "ban_sao": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "crm": {
+          "rong": 1.92,
+          "dash": "liền"
+        }
+      },
+      "do_duc": {
+        "lop_nen": 0.06,
+        "khoi_mo": 0.14
+      },
       "ban_do": [
         1914,
         1696
@@ -73,16 +223,66 @@
         38
       ],
       "khoi_bo_goc": "8px",
+      "khoi_ten_px_thuc": 9,
+      "dem_khoi_px_thuc": [
+        9,
+        9
+      ],
+      "tag_px_thuc": 6.38,
       "tieu_de_pha": [
         150,
         26
       ],
+      "dau_khung": {
+        "cao": 85,
+        "h2_px": 15,
+        "goi_y": {
+          "px": 12,
+          "nen": "rgba(0, 0, 0, 0)",
+          "cat_chu": false,
+          "hien": true
+        },
+        "nut_hang_2": true
+      },
       "panel_rong": 368,
+      "panel_bo_goc": "20px",
       "thanh_tab_cao": 42,
+      "tab_px": 13,
       "o_tim": [
         320,
-        36
+        36,
+        14
       ],
+      "duong": {
+        "nghiep_vu": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "chan": {
+          "rong": 1.44,
+          "dash": "2.25 3"
+        },
+        "hoi_lai": {
+          "rong": 2.16,
+          "dash": "1.125 4.5"
+        },
+        "su_kien": {
+          "rong": 1.68,
+          "dash": "6.75 3.75"
+        },
+        "ban_sao": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "crm": {
+          "rong": 1.92,
+          "dash": "liền"
+        }
+      },
+      "do_duc": {
+        "lop_nen": 0.1,
+        "khoi_mo": 0.4
+      },
       "ban_do": [
         1914,
         1696
@@ -95,16 +295,66 @@
         38
       ],
       "khoi_bo_goc": "8px",
+      "khoi_ten_px_thuc": 9,
+      "dem_khoi_px_thuc": [
+        9,
+        9
+      ],
+      "tag_px_thuc": 6.38,
       "tieu_de_pha": [
         150,
         26
       ],
+      "dau_khung": {
+        "cao": 85,
+        "h2_px": 15,
+        "goi_y": {
+          "px": 12,
+          "nen": "rgba(0, 0, 0, 0)",
+          "cat_chu": false,
+          "hien": true
+        },
+        "nut_hang_2": true
+      },
       "panel_rong": 368,
+      "panel_bo_goc": "20px",
       "thanh_tab_cao": 42,
+      "tab_px": 13,
       "o_tim": [
         320,
-        36
+        36,
+        14
       ],
+      "duong": {
+        "nghiep_vu": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "chan": {
+          "rong": 1.44,
+          "dash": "2.25 3"
+        },
+        "hoi_lai": {
+          "rong": 2.16,
+          "dash": "1.125 4.5"
+        },
+        "su_kien": {
+          "rong": 1.68,
+          "dash": "6.75 3.75"
+        },
+        "ban_sao": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "crm": {
+          "rong": 1.92,
+          "dash": "liền"
+        }
+      },
+      "do_duc": {
+        "lop_nen": 0.06,
+        "khoi_mo": 0.14
+      },
       "ban_do": [
         1914,
         1696
@@ -117,16 +367,66 @@
         38
       ],
       "khoi_bo_goc": "8px",
+      "khoi_ten_px_thuc": 9,
+      "dem_khoi_px_thuc": [
+        9,
+        9
+      ],
+      "tag_px_thuc": 6.38,
       "tieu_de_pha": [
         150,
         26
       ],
+      "dau_khung": {
+        "cao": 85,
+        "h2_px": 15,
+        "goi_y": {
+          "px": 12,
+          "nen": "rgba(0, 0, 0, 0)",
+          "cat_chu": false,
+          "hien": true
+        },
+        "nut_hang_2": true
+      },
       "panel_rong": 368,
+      "panel_bo_goc": "20px",
       "thanh_tab_cao": 42,
+      "tab_px": 13,
       "o_tim": [
         320,
-        36
+        36,
+        14
       ],
+      "duong": {
+        "nghiep_vu": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "chan": {
+          "rong": 1.44,
+          "dash": "2.25 3"
+        },
+        "hoi_lai": {
+          "rong": 2.16,
+          "dash": "1.125 4.5"
+        },
+        "su_kien": {
+          "rong": 1.68,
+          "dash": "6.75 3.75"
+        },
+        "ban_sao": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "crm": {
+          "rong": 1.92,
+          "dash": "liền"
+        }
+      },
+      "do_duc": {
+        "lop_nen": 0.06,
+        "khoi_mo": 0.14
+      },
       "ban_do": [
         1914,
         1696
@@ -139,16 +439,66 @@
         38
       ],
       "khoi_bo_goc": "8px",
+      "khoi_ten_px_thuc": 9,
+      "dem_khoi_px_thuc": [
+        9,
+        9
+      ],
+      "tag_px_thuc": 6.38,
       "tieu_de_pha": [
         150,
         26
       ],
+      "dau_khung": {
+        "cao": 85,
+        "h2_px": 15,
+        "goi_y": {
+          "px": 12,
+          "nen": "rgba(0, 0, 0, 0)",
+          "cat_chu": false,
+          "hien": true
+        },
+        "nut_hang_2": true
+      },
       "panel_rong": 368,
+      "panel_bo_goc": "20px",
       "thanh_tab_cao": 42,
+      "tab_px": 13,
       "o_tim": [
         320,
-        36
+        36,
+        14
       ],
+      "duong": {
+        "nghiep_vu": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "chan": {
+          "rong": 1.44,
+          "dash": "2.25 3"
+        },
+        "hoi_lai": {
+          "rong": 2.16,
+          "dash": "1.125 4.5"
+        },
+        "su_kien": {
+          "rong": 1.68,
+          "dash": "6.75 3.75"
+        },
+        "ban_sao": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "crm": {
+          "rong": 1.92,
+          "dash": "liền"
+        }
+      },
+      "do_duc": {
+        "lop_nen": 0.06,
+        "khoi_mo": 0.14
+      },
       "ban_do": [
         1914,
         1696
@@ -161,16 +511,66 @@
         38
       ],
       "khoi_bo_goc": "8px",
+      "khoi_ten_px_thuc": 9,
+      "dem_khoi_px_thuc": [
+        9,
+        9
+      ],
+      "tag_px_thuc": 6.38,
       "tieu_de_pha": [
         150,
         26
       ],
+      "dau_khung": {
+        "cao": 85,
+        "h2_px": 15,
+        "goi_y": {
+          "px": 12,
+          "nen": "rgba(0, 0, 0, 0)",
+          "cat_chu": false,
+          "hien": true
+        },
+        "nut_hang_2": true
+      },
       "panel_rong": 368,
+      "panel_bo_goc": "20px",
       "thanh_tab_cao": 42,
+      "tab_px": 13,
       "o_tim": [
         320,
-        36
+        36,
+        14
       ],
+      "duong": {
+        "nghiep_vu": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "chan": {
+          "rong": 1.44,
+          "dash": "2.25 3"
+        },
+        "hoi_lai": {
+          "rong": 2.16,
+          "dash": "1.125 4.5"
+        },
+        "su_kien": {
+          "rong": 1.68,
+          "dash": "6.75 3.75"
+        },
+        "ban_sao": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "crm": {
+          "rong": 1.92,
+          "dash": "liền"
+        }
+      },
+      "do_duc": {
+        "lop_nen": 0.06,
+        "khoi_mo": 0.14
+      },
       "ban_do": [
         1914,
         1696
@@ -180,16 +580,63 @@
       "zoom": 0.75,
       "khoi": null,
       "khoi_bo_goc": null,
+      "khoi_ten_px_thuc": null,
+      "dem_khoi_px_thuc": null,
+      "tag_px_thuc": null,
       "tieu_de_pha": [
         150,
         26
       ],
+      "dau_khung": {
+        "cao": 85,
+        "h2_px": 15,
+        "goi_y": {
+          "px": 12,
+          "nen": "rgba(0, 0, 0, 0)",
+          "cat_chu": false,
+          "hien": true
+        },
+        "nut_hang_2": true
+      },
       "panel_rong": 368,
+      "panel_bo_goc": "20px",
       "thanh_tab_cao": 42,
+      "tab_px": 13,
       "o_tim": [
         320,
-        36
+        36,
+        14
       ],
+      "duong": {
+        "nghiep_vu": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "chan": {
+          "rong": 1.44,
+          "dash": "2.25 3"
+        },
+        "su_kien": {
+          "rong": 1.68,
+          "dash": "6.75 3.75"
+        },
+        "hoi_lai": {
+          "rong": 2.16,
+          "dash": "1.125 4.5"
+        },
+        "ban_sao": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "crm": {
+          "rong": 1.92,
+          "dash": "liền"
+        }
+      },
+      "do_duc": {
+        "lop_nen": 0.35,
+        "khoi_mo": null
+      },
       "ban_do": [
         1914,
         416
@@ -202,16 +649,66 @@
         38
       ],
       "khoi_bo_goc": "8px",
+      "khoi_ten_px_thuc": 9,
+      "dem_khoi_px_thuc": [
+        9,
+        null
+      ],
+      "tag_px_thuc": 6.38,
       "tieu_de_pha": [
         150,
         26
       ],
+      "dau_khung": {
+        "cao": 85,
+        "h2_px": 15,
+        "goi_y": {
+          "px": 12,
+          "nen": "rgba(0, 0, 0, 0)",
+          "cat_chu": false,
+          "hien": true
+        },
+        "nut_hang_2": true
+      },
       "panel_rong": 368,
+      "panel_bo_goc": "20px",
       "thanh_tab_cao": 42,
+      "tab_px": 13,
       "o_tim": [
         320,
-        36
+        36,
+        14
       ],
+      "duong": {
+        "nghiep_vu": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "chan": {
+          "rong": 1.44,
+          "dash": "2.25 3"
+        },
+        "hoi_lai": {
+          "rong": 2.16,
+          "dash": "1.125 4.5"
+        },
+        "su_kien": {
+          "rong": 1.68,
+          "dash": "6.75 3.75"
+        },
+        "ban_sao": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "crm": {
+          "rong": 1.92,
+          "dash": "liền"
+        }
+      },
+      "do_duc": {
+        "lop_nen": 0.35,
+        "khoi_mo": null
+      },
       "ban_do": [
         1914,
         1370
@@ -224,16 +721,66 @@
         38
       ],
       "khoi_bo_goc": "8px",
+      "khoi_ten_px_thuc": 10.8,
+      "dem_khoi_px_thuc": [
+        10.8,
+        10.8
+      ],
+      "tag_px_thuc": 7.65,
       "tieu_de_pha": [
         150,
         26
       ],
+      "dau_khung": {
+        "cao": 85,
+        "h2_px": 15,
+        "goi_y": {
+          "px": 12,
+          "nen": "rgba(0, 0, 0, 0)",
+          "cat_chu": false,
+          "hien": true
+        },
+        "nut_hang_2": true
+      },
       "panel_rong": 368,
+      "panel_bo_goc": "20px",
       "thanh_tab_cao": 42,
+      "tab_px": 12.999999999999998,
       "o_tim": [
         320,
-        36
+        36,
+        14
       ],
+      "duong": {
+        "nghiep_vu": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "chan": {
+          "rong": 1.44,
+          "dash": "2.25 3"
+        },
+        "hoi_lai": {
+          "rong": 2.16,
+          "dash": "1.125 4.5"
+        },
+        "su_kien": {
+          "rong": 1.68,
+          "dash": "6.75 3.75"
+        },
+        "ban_sao": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "crm": {
+          "rong": 1.92,
+          "dash": "liền"
+        }
+      },
+      "do_duc": {
+        "lop_nen": 0.35,
+        "khoi_mo": null
+      },
       "ban_do": [
         1914,
         1696
@@ -246,16 +793,66 @@
         38
       ],
       "khoi_bo_goc": "8px",
+      "khoi_ten_px_thuc": 6,
+      "dem_khoi_px_thuc": [
+        6,
+        6
+      ],
+      "tag_px_thuc": 4.25,
       "tieu_de_pha": [
         150,
         26
       ],
+      "dau_khung": {
+        "cao": 85,
+        "h2_px": 15,
+        "goi_y": {
+          "px": 12,
+          "nen": "rgba(0, 0, 0, 0)",
+          "cat_chu": false,
+          "hien": true
+        },
+        "nut_hang_2": true
+      },
       "panel_rong": 368,
+      "panel_bo_goc": "20px",
       "thanh_tab_cao": 42,
+      "tab_px": 13,
       "o_tim": [
         320,
-        36
+        36,
+        14
       ],
+      "duong": {
+        "nghiep_vu": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "chan": {
+          "rong": 1.44,
+          "dash": "2.25 3"
+        },
+        "hoi_lai": {
+          "rong": 2.16,
+          "dash": "1.125 4.5"
+        },
+        "su_kien": {
+          "rong": 1.68,
+          "dash": "6.75 3.75"
+        },
+        "ban_sao": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "crm": {
+          "rong": 1.92,
+          "dash": "liền"
+        }
+      },
+      "do_duc": {
+        "lop_nen": 0.35,
+        "khoi_mo": null
+      },
       "ban_do": [
         1914,
         1696
@@ -268,16 +865,66 @@
         38
       ],
       "khoi_bo_goc": "8px",
+      "khoi_ten_px_thuc": 9,
+      "dem_khoi_px_thuc": [
+        9,
+        9
+      ],
+      "tag_px_thuc": 6.38,
       "tieu_de_pha": [
         150,
         26
       ],
+      "dau_khung": {
+        "cao": 85,
+        "h2_px": 15,
+        "goi_y": {
+          "px": 12,
+          "nen": "rgba(0, 0, 0, 0)",
+          "cat_chu": false,
+          "hien": true
+        },
+        "nut_hang_2": true
+      },
       "panel_rong": 368,
+      "panel_bo_goc": "20px",
       "thanh_tab_cao": 42,
+      "tab_px": 13,
       "o_tim": [
         320,
-        36
+        36,
+        14
       ],
+      "duong": {
+        "nghiep_vu": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "chan": {
+          "rong": 1.44,
+          "dash": "2.25 3"
+        },
+        "hoi_lai": {
+          "rong": 2.16,
+          "dash": "1.125 4.5"
+        },
+        "su_kien": {
+          "rong": 1.68,
+          "dash": "6.75 3.75"
+        },
+        "ban_sao": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "crm": {
+          "rong": 1.92,
+          "dash": "liền"
+        }
+      },
+      "do_duc": {
+        "lop_nen": 0.35,
+        "khoi_mo": null
+      },
       "ban_do": [
         1914,
         1696
@@ -290,16 +937,66 @@
         38
       ],
       "khoi_bo_goc": "8px",
+      "khoi_ten_px_thuc": 9,
+      "dem_khoi_px_thuc": [
+        9,
+        9
+      ],
+      "tag_px_thuc": 6.38,
       "tieu_de_pha": [
         150,
         26
       ],
+      "dau_khung": {
+        "cao": 85,
+        "h2_px": 15,
+        "goi_y": {
+          "px": 12,
+          "nen": "rgba(0, 0, 0, 0)",
+          "cat_chu": false,
+          "hien": true
+        },
+        "nut_hang_2": true
+      },
       "panel_rong": 368,
+      "panel_bo_goc": "20px",
       "thanh_tab_cao": 42,
+      "tab_px": 13,
       "o_tim": [
         320,
-        36
+        36,
+        14
       ],
+      "duong": {
+        "nghiep_vu": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "chan": {
+          "rong": 1.44,
+          "dash": "2.25 3"
+        },
+        "hoi_lai": {
+          "rong": 2.16,
+          "dash": "1.125 4.5"
+        },
+        "su_kien": {
+          "rong": 1.68,
+          "dash": "6.75 3.75"
+        },
+        "ban_sao": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "crm": {
+          "rong": 1.92,
+          "dash": "liền"
+        }
+      },
+      "do_duc": {
+        "lop_nen": 0.35,
+        "khoi_mo": null
+      },
       "ban_do": [
         1914,
         1696
@@ -312,16 +1009,66 @@
         38
       ],
       "khoi_bo_goc": "8px",
+      "khoi_ten_px_thuc": 9,
+      "dem_khoi_px_thuc": [
+        9,
+        9
+      ],
+      "tag_px_thuc": 6.38,
       "tieu_de_pha": [
         155,
         26
       ],
+      "dau_khung": {
+        "cao": 85,
+        "h2_px": 15,
+        "goi_y": {
+          "px": 12,
+          "nen": "rgba(0, 0, 0, 0)",
+          "cat_chu": false,
+          "hien": true
+        },
+        "nut_hang_2": true
+      },
       "panel_rong": 368,
+      "panel_bo_goc": "20px",
       "thanh_tab_cao": 42,
+      "tab_px": 13,
       "o_tim": [
         320,
-        36
+        36,
+        14
       ],
+      "duong": {
+        "nghiep_vu": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "chan": {
+          "rong": 1.44,
+          "dash": "2.25 3"
+        },
+        "hoi_lai": {
+          "rong": 2.16,
+          "dash": "1.125 4.5"
+        },
+        "su_kien": {
+          "rong": 1.68,
+          "dash": "6.75 3.75"
+        },
+        "ban_sao": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "crm": {
+          "rong": 1.92,
+          "dash": "liền"
+        }
+      },
+      "do_duc": {
+        "lop_nen": 0.06,
+        "khoi_mo": 0.14
+      },
       "ban_do": [
         1996,
         1696
@@ -334,16 +1081,66 @@
         38
       ],
       "khoi_bo_goc": "8px",
+      "khoi_ten_px_thuc": 9,
+      "dem_khoi_px_thuc": [
+        9,
+        9
+      ],
+      "tag_px_thuc": 6.38,
       "tieu_de_pha": [
         155,
         26
       ],
+      "dau_khung": {
+        "cao": 85,
+        "h2_px": 15,
+        "goi_y": {
+          "px": 12,
+          "nen": "rgba(0, 0, 0, 0)",
+          "cat_chu": false,
+          "hien": true
+        },
+        "nut_hang_2": true
+      },
       "panel_rong": 368,
+      "panel_bo_goc": "20px",
       "thanh_tab_cao": 42,
+      "tab_px": 13,
       "o_tim": [
         320,
-        36
+        36,
+        14
       ],
+      "duong": {
+        "nghiep_vu": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "chan": {
+          "rong": 1.44,
+          "dash": "2.25 3"
+        },
+        "hoi_lai": {
+          "rong": 2.16,
+          "dash": "1.125 4.5"
+        },
+        "su_kien": {
+          "rong": 1.68,
+          "dash": "6.75 3.75"
+        },
+        "ban_sao": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "crm": {
+          "rong": 1.92,
+          "dash": "liền"
+        }
+      },
+      "do_duc": {
+        "lop_nen": 0.35,
+        "khoi_mo": null
+      },
       "ban_do": [
         1996,
         1696
@@ -353,39 +1150,75 @@
       "zoom": 1,
       "khoi": null,
       "khoi_bo_goc": null,
+      "khoi_ten_px_thuc": null,
+      "dem_khoi_px_thuc": null,
+      "tag_px_thuc": null,
       "tieu_de_pha": null,
+      "dau_khung": null,
       "panel_rong": 368,
+      "panel_bo_goc": "20px",
       "thanh_tab_cao": 42,
+      "tab_px": 13,
       "o_tim": [
         320,
-        36
+        36,
+        14
       ],
+      "duong": {},
+      "do_duc": {
+        "lop_nen": null,
+        "khoi_mo": null
+      },
       "ban_do": null
     },
     "18-desktop-light-tab-lien-ket": {
       "zoom": 1,
       "khoi": null,
       "khoi_bo_goc": null,
+      "khoi_ten_px_thuc": null,
+      "dem_khoi_px_thuc": null,
+      "tag_px_thuc": null,
       "tieu_de_pha": null,
+      "dau_khung": null,
       "panel_rong": 368,
+      "panel_bo_goc": "20px",
       "thanh_tab_cao": 42,
+      "tab_px": 13,
       "o_tim": [
         320,
-        36
+        36,
+        14
       ],
+      "duong": {},
+      "do_duc": {
+        "lop_nen": null,
+        "khoi_mo": null
+      },
       "ban_do": null
     },
     "19-desktop-light-tab-ghi-chu": {
       "zoom": 1,
       "khoi": null,
       "khoi_bo_goc": null,
+      "khoi_ten_px_thuc": null,
+      "dem_khoi_px_thuc": null,
+      "tag_px_thuc": null,
       "tieu_de_pha": null,
+      "dau_khung": null,
       "panel_rong": 368,
+      "panel_bo_goc": "20px",
       "thanh_tab_cao": 42,
+      "tab_px": 13,
       "o_tim": [
         320,
-        36
+        36,
+        14
       ],
+      "duong": {},
+      "do_duc": {
+        "lop_nen": null,
+        "khoi_mo": null
+      },
       "ban_do": null
     },
     "20-desktop-dark-default": {
@@ -395,16 +1228,66 @@
         38
       ],
       "khoi_bo_goc": "8px",
+      "khoi_ten_px_thuc": 9,
+      "dem_khoi_px_thuc": [
+        9,
+        9
+      ],
+      "tag_px_thuc": 6.38,
       "tieu_de_pha": [
         150,
         26
       ],
+      "dau_khung": {
+        "cao": 85,
+        "h2_px": 15,
+        "goi_y": {
+          "px": 12,
+          "nen": "rgba(0, 0, 0, 0)",
+          "cat_chu": false,
+          "hien": true
+        },
+        "nut_hang_2": true
+      },
       "panel_rong": 368,
+      "panel_bo_goc": "20px",
       "thanh_tab_cao": 42,
+      "tab_px": 13,
       "o_tim": [
         320,
-        36
+        36,
+        14
       ],
+      "duong": {
+        "nghiep_vu": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "chan": {
+          "rong": 1.44,
+          "dash": "2.25 3"
+        },
+        "hoi_lai": {
+          "rong": 2.16,
+          "dash": "1.125 4.5"
+        },
+        "su_kien": {
+          "rong": 1.68,
+          "dash": "6.75 3.75"
+        },
+        "ban_sao": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "crm": {
+          "rong": 1.92,
+          "dash": "liền"
+        }
+      },
+      "do_duc": {
+        "lop_nen": 0.35,
+        "khoi_mo": null
+      },
       "ban_do": [
         1914,
         1696
@@ -417,16 +1300,66 @@
         38
       ],
       "khoi_bo_goc": "8px",
+      "khoi_ten_px_thuc": 9,
+      "dem_khoi_px_thuc": [
+        9,
+        9
+      ],
+      "tag_px_thuc": 6.38,
       "tieu_de_pha": [
         150,
         26
       ],
+      "dau_khung": {
+        "cao": 85,
+        "h2_px": 15,
+        "goi_y": {
+          "px": 12,
+          "nen": "rgba(0, 0, 0, 0)",
+          "cat_chu": false,
+          "hien": true
+        },
+        "nut_hang_2": true
+      },
       "panel_rong": 368,
+      "panel_bo_goc": "20px",
       "thanh_tab_cao": 42,
+      "tab_px": 13,
       "o_tim": [
         320,
-        36
+        36,
+        14
       ],
+      "duong": {
+        "nghiep_vu": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "chan": {
+          "rong": 1.44,
+          "dash": "2.25 3"
+        },
+        "hoi_lai": {
+          "rong": 2.16,
+          "dash": "1.125 4.5"
+        },
+        "su_kien": {
+          "rong": 1.68,
+          "dash": "6.75 3.75"
+        },
+        "ban_sao": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "crm": {
+          "rong": 1.92,
+          "dash": "liền"
+        }
+      },
+      "do_duc": {
+        "lop_nen": 0.06,
+        "khoi_mo": 0.14
+      },
       "ban_do": [
         1914,
         1696
@@ -436,78 +1369,150 @@
       "zoom": 1,
       "khoi": null,
       "khoi_bo_goc": null,
+      "khoi_ten_px_thuc": null,
+      "dem_khoi_px_thuc": null,
+      "tag_px_thuc": null,
       "tieu_de_pha": null,
+      "dau_khung": null,
       "panel_rong": null,
+      "panel_bo_goc": null,
       "thanh_tab_cao": 42,
+      "tab_px": 13,
       "o_tim": [
-        155,
-        36
+        314,
+        36,
+        16
       ],
+      "duong": {},
+      "do_duc": {
+        "lop_nen": null,
+        "khoi_mo": null
+      },
       "ban_do": null
     },
     "23-mobile-dark-compact": {
       "zoom": 1,
       "khoi": null,
       "khoi_bo_goc": null,
+      "khoi_ten_px_thuc": null,
+      "dem_khoi_px_thuc": null,
+      "tag_px_thuc": null,
       "tieu_de_pha": null,
+      "dau_khung": null,
       "panel_rong": null,
+      "panel_bo_goc": null,
       "thanh_tab_cao": 42,
+      "tab_px": 13,
       "o_tim": [
-        155,
-        36
+        314,
+        36,
+        16
       ],
+      "duong": {},
+      "do_duc": {
+        "lop_nen": null,
+        "khoi_mo": null
+      },
       "ban_do": null
     },
     "24-mobile-dark-bottom-sheet": {
       "zoom": 1,
       "khoi": null,
       "khoi_bo_goc": null,
+      "khoi_ten_px_thuc": null,
+      "dem_khoi_px_thuc": null,
+      "tag_px_thuc": null,
       "tieu_de_pha": null,
+      "dau_khung": null,
       "panel_rong": 390,
+      "panel_bo_goc": "20px 20px 0px 0px",
       "thanh_tab_cao": 42,
+      "tab_px": 13,
       "o_tim": [
-        155,
-        36
+        314,
+        36,
+        16
       ],
+      "duong": {},
+      "do_duc": {
+        "lop_nen": null,
+        "khoi_mo": null
+      },
       "ban_do": null
     },
     "25-mobile-light-gate": {
       "zoom": 1,
       "khoi": null,
       "khoi_bo_goc": null,
+      "khoi_ten_px_thuc": null,
+      "dem_khoi_px_thuc": null,
+      "tag_px_thuc": null,
       "tieu_de_pha": null,
+      "dau_khung": null,
       "panel_rong": null,
+      "panel_bo_goc": null,
       "thanh_tab_cao": 42,
+      "tab_px": 13,
       "o_tim": [
-        155,
-        36
+        314,
+        36,
+        16
       ],
+      "duong": {},
+      "do_duc": {
+        "lop_nen": null,
+        "khoi_mo": null
+      },
       "ban_do": null
     },
     "26-mobile-light-compact": {
       "zoom": 1,
       "khoi": null,
       "khoi_bo_goc": null,
+      "khoi_ten_px_thuc": null,
+      "dem_khoi_px_thuc": null,
+      "tag_px_thuc": null,
       "tieu_de_pha": null,
+      "dau_khung": null,
       "panel_rong": null,
+      "panel_bo_goc": null,
       "thanh_tab_cao": 42,
+      "tab_px": 13,
       "o_tim": [
-        155,
-        36
+        314,
+        36,
+        16
       ],
+      "duong": {},
+      "do_duc": {
+        "lop_nen": null,
+        "khoi_mo": null
+      },
       "ban_do": null
     },
     "27-mobile-light-bottom-sheet": {
       "zoom": 1,
       "khoi": null,
       "khoi_bo_goc": null,
+      "khoi_ten_px_thuc": null,
+      "dem_khoi_px_thuc": null,
+      "tag_px_thuc": null,
       "tieu_de_pha": null,
+      "dau_khung": null,
       "panel_rong": 390,
+      "panel_bo_goc": "20px 20px 0px 0px",
       "thanh_tab_cao": 42,
+      "tab_px": 13,
       "o_tim": [
-        155,
-        36
+        314,
+        36,
+        16
       ],
+      "duong": {},
+      "do_duc": {
+        "lop_nen": null,
+        "khoi_mo": null
+      },
       "ban_do": null
     },
     "28-desktop-light-cuon-dinh": {
@@ -517,16 +1522,66 @@
         38
       ],
       "khoi_bo_goc": "8px",
+      "khoi_ten_px_thuc": 9,
+      "dem_khoi_px_thuc": [
+        9,
+        9
+      ],
+      "tag_px_thuc": 6.38,
       "tieu_de_pha": [
         150,
         26
       ],
+      "dau_khung": {
+        "cao": 85,
+        "h2_px": 15,
+        "goi_y": {
+          "px": 12,
+          "nen": "rgba(0, 0, 0, 0)",
+          "cat_chu": false,
+          "hien": true
+        },
+        "nut_hang_2": true
+      },
       "panel_rong": 368,
+      "panel_bo_goc": "20px",
       "thanh_tab_cao": 42,
+      "tab_px": 13,
       "o_tim": [
         320,
-        36
+        36,
+        14
       ],
+      "duong": {
+        "nghiep_vu": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "chan": {
+          "rong": 1.44,
+          "dash": "2.25 3"
+        },
+        "hoi_lai": {
+          "rong": 2.16,
+          "dash": "1.125 4.5"
+        },
+        "su_kien": {
+          "rong": 1.68,
+          "dash": "6.75 3.75"
+        },
+        "ban_sao": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "crm": {
+          "rong": 1.92,
+          "dash": "liền"
+        }
+      },
+      "do_duc": {
+        "lop_nen": 0.35,
+        "khoi_mo": null
+      },
       "ban_do": [
         1914,
         1696
@@ -539,16 +1594,66 @@
         38
       ],
       "khoi_bo_goc": "8px",
+      "khoi_ten_px_thuc": 6.26,
+      "dem_khoi_px_thuc": [
+        6.26,
+        6.26
+      ],
+      "tag_px_thuc": 4.43,
       "tieu_de_pha": [
         150,
         26
       ],
+      "dau_khung": {
+        "cao": 85,
+        "h2_px": 14.99747804557162,
+        "goi_y": {
+          "px": 12,
+          "nen": "rgba(0, 0, 0, 0)",
+          "cat_chu": false,
+          "hien": true
+        },
+        "nut_hang_2": true
+      },
       "panel_rong": 368,
+      "panel_bo_goc": "20px",
       "thanh_tab_cao": 42,
+      "tab_px": 13.002928535674627,
       "o_tim": [
         320,
-        36
+        36,
+        14
       ],
+      "duong": {
+        "nghiep_vu": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "chan": {
+          "rong": 1.44,
+          "dash": "2.25 3"
+        },
+        "hoi_lai": {
+          "rong": 2.16,
+          "dash": "1.125 4.5"
+        },
+        "su_kien": {
+          "rong": 1.68,
+          "dash": "6.75 3.75"
+        },
+        "ban_sao": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "crm": {
+          "rong": 1.92,
+          "dash": "liền"
+        }
+      },
+      "do_duc": {
+        "lop_nen": 0.35,
+        "khoi_mo": null
+      },
       "ban_do": [
         1914,
         1696
@@ -561,16 +1666,66 @@
         38
       ],
       "khoi_bo_goc": "8px",
+      "khoi_ten_px_thuc": 9,
+      "dem_khoi_px_thuc": [
+        9,
+        9
+      ],
+      "tag_px_thuc": 6.38,
       "tieu_de_pha": [
         150,
         26
       ],
+      "dau_khung": {
+        "cao": 85,
+        "h2_px": 15,
+        "goi_y": {
+          "px": 12,
+          "nen": "rgba(0, 0, 0, 0)",
+          "cat_chu": false,
+          "hien": true
+        },
+        "nut_hang_2": true
+      },
       "panel_rong": 368,
+      "panel_bo_goc": "20px",
       "thanh_tab_cao": 42,
+      "tab_px": 13,
       "o_tim": [
         320,
-        36
+        36,
+        14
       ],
+      "duong": {
+        "nghiep_vu": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "chan": {
+          "rong": 1.44,
+          "dash": "2.25 3"
+        },
+        "hoi_lai": {
+          "rong": 2.16,
+          "dash": "1.125 4.5"
+        },
+        "su_kien": {
+          "rong": 1.68,
+          "dash": "6.75 3.75"
+        },
+        "ban_sao": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "crm": {
+          "rong": 1.92,
+          "dash": "liền"
+        }
+      },
+      "do_duc": {
+        "lop_nen": 0.06,
+        "khoi_mo": 0.14
+      },
       "ban_do": [
         1914,
         1696
@@ -583,16 +1738,66 @@
         38
       ],
       "khoi_bo_goc": "8px",
+      "khoi_ten_px_thuc": 9,
+      "dem_khoi_px_thuc": [
+        9,
+        9
+      ],
+      "tag_px_thuc": 6.38,
       "tieu_de_pha": [
         150,
         26
       ],
+      "dau_khung": {
+        "cao": 85,
+        "h2_px": 15,
+        "goi_y": {
+          "px": 12,
+          "nen": "rgba(0, 0, 0, 0)",
+          "cat_chu": false,
+          "hien": true
+        },
+        "nut_hang_2": true
+      },
       "panel_rong": 368,
+      "panel_bo_goc": "20px",
       "thanh_tab_cao": 42,
+      "tab_px": 13,
       "o_tim": [
         320,
-        36
+        36,
+        14
       ],
+      "duong": {
+        "nghiep_vu": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "chan": {
+          "rong": 1.44,
+          "dash": "2.25 3"
+        },
+        "hoi_lai": {
+          "rong": 2.16,
+          "dash": "1.125 4.5"
+        },
+        "su_kien": {
+          "rong": 1.68,
+          "dash": "6.75 3.75"
+        },
+        "ban_sao": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "crm": {
+          "rong": 1.92,
+          "dash": "liền"
+        }
+      },
+      "do_duc": {
+        "lop_nen": 0.06,
+        "khoi_mo": 0.14
+      },
       "ban_do": [
         1914,
         1696
@@ -602,10 +1807,21 @@
       "zoom": 1,
       "khoi": null,
       "khoi_bo_goc": null,
+      "khoi_ten_px_thuc": null,
+      "dem_khoi_px_thuc": null,
+      "tag_px_thuc": null,
       "tieu_de_pha": null,
+      "dau_khung": null,
       "panel_rong": null,
+      "panel_bo_goc": null,
       "thanh_tab_cao": 42,
+      "tab_px": 13,
       "o_tim": null,
+      "duong": {},
+      "do_duc": {
+        "lop_nen": null,
+        "khoi_mo": null
+      },
       "ban_do": null
     },
     "33-desktop-dark-cuon-dinh": {
@@ -615,16 +1831,282 @@
         38
       ],
       "khoi_bo_goc": "8px",
+      "khoi_ten_px_thuc": 9,
+      "dem_khoi_px_thuc": [
+        9,
+        9
+      ],
+      "tag_px_thuc": 6.38,
       "tieu_de_pha": [
         150,
         26
       ],
+      "dau_khung": {
+        "cao": 85,
+        "h2_px": 15,
+        "goi_y": {
+          "px": 12,
+          "nen": "rgba(0, 0, 0, 0)",
+          "cat_chu": false,
+          "hien": true
+        },
+        "nut_hang_2": true
+      },
       "panel_rong": 368,
+      "panel_bo_goc": "20px",
       "thanh_tab_cao": 42,
+      "tab_px": 13,
       "o_tim": [
         320,
-        36
+        36,
+        14
       ],
+      "duong": {
+        "nghiep_vu": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "chan": {
+          "rong": 1.44,
+          "dash": "2.25 3"
+        },
+        "hoi_lai": {
+          "rong": 2.16,
+          "dash": "1.125 4.5"
+        },
+        "su_kien": {
+          "rong": 1.68,
+          "dash": "6.75 3.75"
+        },
+        "ban_sao": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "crm": {
+          "rong": 1.92,
+          "dash": "liền"
+        }
+      },
+      "do_duc": {
+        "lop_nen": 0.35,
+        "khoi_mo": null
+      },
+      "ban_do": [
+        1914,
+        1696
+      ]
+    },
+    "34-desktop-light-xac-nhan-bat": {
+      "zoom": 0.75,
+      "khoi": [
+        150,
+        38
+      ],
+      "khoi_bo_goc": "8px",
+      "khoi_ten_px_thuc": 9,
+      "dem_khoi_px_thuc": [
+        9,
+        9
+      ],
+      "tag_px_thuc": 6.38,
+      "tieu_de_pha": [
+        150,
+        26
+      ],
+      "dau_khung": {
+        "cao": 85,
+        "h2_px": 15,
+        "goi_y": {
+          "px": 12,
+          "nen": "rgba(0, 0, 0, 0)",
+          "cat_chu": false,
+          "hien": true
+        },
+        "nut_hang_2": true
+      },
+      "panel_rong": 368,
+      "panel_bo_goc": "20px",
+      "thanh_tab_cao": 42,
+      "tab_px": 13,
+      "o_tim": [
+        320,
+        36,
+        14
+      ],
+      "duong": {
+        "nghiep_vu": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "chan": {
+          "rong": 1.44,
+          "dash": "2.25 3"
+        },
+        "hoi_lai": {
+          "rong": 2.16,
+          "dash": "1.125 4.5"
+        },
+        "su_kien": {
+          "rong": 1.68,
+          "dash": "6.75 3.75"
+        },
+        "ban_sao": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "crm": {
+          "rong": 1.92,
+          "dash": "liền"
+        }
+      },
+      "do_duc": {
+        "lop_nen": 0.06,
+        "khoi_mo": 0.14
+      },
+      "ban_do": [
+        1914,
+        1696
+      ]
+    },
+    "35-desktop-light-link-cu": {
+      "zoom": 0.75,
+      "khoi": [
+        150,
+        38
+      ],
+      "khoi_bo_goc": "8px",
+      "khoi_ten_px_thuc": 9,
+      "dem_khoi_px_thuc": [
+        9,
+        9
+      ],
+      "tag_px_thuc": 6.38,
+      "tieu_de_pha": [
+        150,
+        26
+      ],
+      "dau_khung": {
+        "cao": 85,
+        "h2_px": 15,
+        "goi_y": {
+          "px": 12,
+          "nen": "rgba(0, 0, 0, 0)",
+          "cat_chu": false,
+          "hien": true
+        },
+        "nut_hang_2": true
+      },
+      "panel_rong": 368,
+      "panel_bo_goc": "20px",
+      "thanh_tab_cao": 42,
+      "tab_px": 13,
+      "o_tim": [
+        320,
+        36,
+        14
+      ],
+      "duong": {
+        "nghiep_vu": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "chan": {
+          "rong": 1.44,
+          "dash": "2.25 3"
+        },
+        "hoi_lai": {
+          "rong": 2.16,
+          "dash": "1.125 4.5"
+        },
+        "su_kien": {
+          "rong": 1.68,
+          "dash": "6.75 3.75"
+        },
+        "ban_sao": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "crm": {
+          "rong": 1.92,
+          "dash": "liền"
+        }
+      },
+      "do_duc": {
+        "lop_nen": 0.35,
+        "khoi_mo": null
+      },
+      "ban_do": [
+        1914,
+        1696
+      ]
+    },
+    "36-desktop-light-link-sau-cuon": {
+      "zoom": 0.75,
+      "khoi": [
+        150,
+        38
+      ],
+      "khoi_bo_goc": "8px",
+      "khoi_ten_px_thuc": 9,
+      "dem_khoi_px_thuc": [
+        9,
+        9
+      ],
+      "tag_px_thuc": 6.38,
+      "tieu_de_pha": [
+        150,
+        26
+      ],
+      "dau_khung": {
+        "cao": 85,
+        "h2_px": 15,
+        "goi_y": {
+          "px": 12,
+          "nen": "rgba(0, 0, 0, 0)",
+          "cat_chu": false,
+          "hien": true
+        },
+        "nut_hang_2": true
+      },
+      "panel_rong": 368,
+      "panel_bo_goc": "20px",
+      "thanh_tab_cao": 42,
+      "tab_px": 13,
+      "o_tim": [
+        320,
+        36,
+        14
+      ],
+      "duong": {
+        "nghiep_vu": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "chan": {
+          "rong": 1.44,
+          "dash": "2.25 3"
+        },
+        "hoi_lai": {
+          "rong": 2.16,
+          "dash": "1.125 4.5"
+        },
+        "su_kien": {
+          "rong": 1.68,
+          "dash": "6.75 3.75"
+        },
+        "ban_sao": {
+          "rong": 1.92,
+          "dash": "liền"
+        },
+        "crm": {
+          "rong": 1.92,
+          "dash": "liền"
+        }
+      },
+      "do_duc": {
+        "lop_nen": 0.06,
+        "khoi_mo": 0.14
+      },
       "ban_do": [
         1914,
         1696
@@ -634,12 +2116,12 @@
   "thoi_gian": {
     "bam_khoi_ms": {
       "js": {
-        "lon_nhat": 16.3,
+        "lon_nhat": 18.7,
         "trung_vi": 2.2
       },
       "den_khung_ke": {
-        "lon_nhat": 36.2,
-        "trung_vi": 8.3
+        "lon_nhat": 78.7,
+        "trung_vi": 8.8
       },
       "url": "http://localhost:5291/visual/ban-do-tin/xem.html"
     }

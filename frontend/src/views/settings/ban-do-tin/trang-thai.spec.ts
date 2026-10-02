@@ -3,9 +3,9 @@
 import { describe, it, expect } from 'vitest';
 import { anhChupMau } from './client-mau';
 import { dungMoHinh } from './mo-hinh';
-import { doDucDuongNen, doDucDuongNoi, doDucKhoi, tinhTrangThai } from './trang-thai';
+import { chonHopLe, doDucDuongNen, doDucDuongNoi, doDucKhoi, nhanChonMat, tinhTrangThai } from './trang-thai';
 import { docHash, vietHash } from './hash';
-import { dichKhoa, dsDichPanel, kiemDich } from './luat';
+import { dichKhoa, dsDichPanel, kiemCheDo, kiemDich } from './luat';
 import { boDau, timKiem } from './tim';
 import { dungBoCuc } from './bo-cuc';
 import { dinhTuyen } from './dinh-tuyen';
@@ -89,7 +89,7 @@ describe('kiểm luật (tương đương rào server)', () => {
     expect(kiemDich(c('in_xong'), 'g_khach')?.canh).toMatch(/công khai/);
   });
   it('sales + doanh số ⇒ báo từng người; kho + giá ⇒ bản che giá', () => {
-    expect(kiemDich(c('bao_cao_soan_tin'), 'g_sales')?.canh).toMatch(/từng người/);
+    expect(kiemDich(c('bao_cao_soan_tin'), 'g_sales')?.canh).toMatch(/không phải Admin/);
     expect(kiemDich(c('xuat_hoa_don_tool'), 'g_kho')?.canh).toMatch(/che giá/);
     expect(kiemDich(c('in_xong'), 'g_kho')).toBeNull();
   });
@@ -143,5 +143,48 @@ describe('hiệu năng (60 composer × 15 đích)', () => {
       max = Math.max(max, performance.now() - t);
     }
     expect(max).toBeLessThan(50);
+  });
+});
+
+describe('tự rà vòng 2: link sâu cũ trỏ tới id không còn trong danh mục', () => {
+  it('chonHopLe: khối/pha/đích/liên kết có trong mô hình ⇒ true; id lạ ⇒ false', () => {
+    expect(chonHopLe(mh, { kieu: 'khoi', id: 'the_xem_truoc@nhom_goc' })).toBe(true);
+    expect(chonHopLe(mh, { kieu: 'khoi', id: 'da_bo_khoi_danh_muc@nhom_goc' })).toBe(false);
+    expect(chonHopLe(mh, { kieu: 'pha', id: 'chot' })).toBe(true);
+    expect(chonHopLe(mh, { kieu: 'pha', id: 'pha_cu' })).toBe(false);
+    expect(chonHopLe(mh, { kieu: 'hang', id: 'g_kho' })).toBe(true);
+    // hàng "Nguồn khác" ẩn khi trống ⇒ link #dich=n_khac không còn hàng để chọn
+    expect(chonHopLe(mh, { kieu: 'hang', id: 'n_khac' })).toBe(false);
+    expect(chonHopLe(mh, { kieu: 'hang', id: 'khong_co' })).toBe(false);
+    expect(chonHopLe(mh, { kieu: 'lien_ket', id: mh.lienKet[0].id })).toBe(true);
+    expect(chonHopLe(mh, { kieu: 'lien_ket', id: 'a@nhom_goc~b@nhom_goc' })).toBe(false);
+    expect(chonHopLe(mh, { kieu: 'loai', id: 'ban_sao' })).toBe(true);
+  });
+
+  it('nhanChonMat: câu ngắn theo loại lựa chọn', () => {
+    expect(nhanChonMat('khoi')).toBe('Khối không còn trong danh mục');
+    expect(nhanChonMat('lien_ket')).toBe('Liên kết không còn trong danh mục');
+    expect(nhanChonMat('pha')).toBe('Pha không còn trong danh mục');
+    expect(nhanChonMat('hang')).toBe('Đích không còn trong danh mục');
+  });
+});
+
+describe('tự rà vòng 2: chế độ bản sao — luật mới bắt đầu ở chạy bóng, không nhảy thẳng sang Bật', () => {
+  const luat = (dich: MaDich[]) => ({ id: 'l', loai: 'da_chot', dich, dich_tho: [], che_do: 'bong' as const, phien_ban: 1 });
+  it('chưa có luật ⇒ không bật được; tắt/chạy bóng được', () => {
+    expect(kiemCheDo(undefined, 'bat')).toMatch(/luật mới bắt đầu ở Chạy bóng/);
+    expect(kiemCheDo(undefined, 'bong')).toBeNull();
+    expect(kiemCheDo(undefined, 'tat')).toBeNull();
+  });
+  it('luật không có đích bản sao ⇒ không bật được; có ⇒ được', () => {
+    expect(kiemCheDo(luat([]), 'bat')).toMatch(/chưa có đích bản sao/i);
+    expect(kiemCheDo(luat(['g_kho']), 'bat')).toBeNull();
+  });
+});
+
+describe('tự rà vòng 2: lời giải thích Sales khớp hành vi bot', () => {
+  it('g_sales + doanh số/lãi ⇒ nói đúng: bot chặn doanh số toàn công ty khi đích không phải Admin', () => {
+    expect(kiemDich(c('bao_cao_soan_tin'), 'g_sales')?.canh).toMatch(
+      /^Tin có [^:]+: bot chặn doanh số toàn công ty khi đích không phải Admin — nhóm Sales không nhận phần đó\.$/);
   });
 });

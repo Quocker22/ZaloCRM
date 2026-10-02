@@ -29,11 +29,25 @@ describe('mô hình bản đồ từ ảnh chụp mẫu (đi qua hợp đồng �
   it('bổ sung 02/10: số trên khối GỐC (24h + 7d, từ dòng đếm luat_id=null) và khối bản sao bóng', () => {
     const mh = dungMoHinh(anhChupMau());
     const goc = soTrenKhoi(mh.demKhoi['the_xem_truoc@nhom_goc'])!;
-    expect(goc.h24).toBeGreaterThan(0);
-    expect(goc.d7).toBeGreaterThanOrEqual(goc.h24);
+    expect(goc.gui24).toBeGreaterThan(0);
+    expect(goc.gui7).toBeGreaterThanOrEqual(goc.gui24);
     expect(goc.chu).toMatch(/^24 giờ: \d+ đã gửi.* — 7 ngày: \d+ đã gửi/);
-    expect(soTrenKhoi(mh.demKhoi['in_sau_chot@g_kho'])!.chu).toMatch(/chạy bóng/);
+    const bong = soTrenKhoi(mh.demKhoi['in_sau_chot@g_kho'])!;
+    expect(bong.chu).toMatch(/chạy bóng/);
+    expect(bong.gui24).toBe(0);
+    expect(bong.bong24).toBeGreaterThan(0);
     expect(soTrenKhoi(undefined)).toBeNull();
+  });
+
+  it('tự rà vòng 2: số CHÍNH trên khối = tin gửi THẬT (da_gui); bóng tách riêng; chú thích kể cả chưa rõ + bị chặn', () => {
+    const so = (da_gui: number, bong: number, chua_ro: number, chan_tam_im: number, loi = 0, bo = 0) => ({ da_gui, bong, chua_ro, chan_tam_im, loi, bo });
+    const r = soTrenKhoi({ canh_id: 'gui:x@nhom_goc', h24: so(17, 5, 2, 1), d7: so(120, 30, 4, 3, 1, 2) })!;
+    expect(r).toEqual({
+      gui24: 17, bong24: 5, gui7: 120, bong7: 30,
+      chu: '24 giờ: 17 đã gửi · 5 chạy bóng · 2 chưa rõ · 1 bị chặn — 7 ngày: 120 đã gửi · 30 chạy bóng · 4 chưa rõ · 3 bị chặn · 1 lỗi · 2 bỏ (rỗng)',
+    });
+    // chỉ có bóng ⇒ số chính 0, không cộng bóng vào
+    expect(soTrenKhoi({ canh_id: 'gui:y', h24: so(0, 6, 0, 0), d7: so(0, 40, 0, 0) })).toMatchObject({ gui24: 0, bong24: 6 });
   });
 
   it('hai luật chủ chọn 02/10 sinh khối bản sao Kế toán / Kho + đường "Bản sao theo luật"; luật bóng gắn nhãn Bóng', () => {

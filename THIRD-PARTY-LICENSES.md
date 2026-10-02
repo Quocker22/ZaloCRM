@@ -71,3 +71,12 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+---
+
+## 3. Inter (font chữ trang "Bản đồ tin")
+
+**Repository:** https://github.com/rsms/inter (bản đóng gói `@fontsource-variable/inter` 5.3.0)
+**License:** SIL Open Font License 1.1
+**Used in ZaloCRM:** `frontend/src/assets/fonts/inter/*.woff2` (bộ chữ latin, latin-ext, vietnamese) — tự phục vụ cho
+trang Cài đặt › Hệ thống › Bản đồ tin (CSP `font-src 'self'`). Toàn văn giấy phép: `frontend/src/assets/fonts/inter/OFL.txt`.

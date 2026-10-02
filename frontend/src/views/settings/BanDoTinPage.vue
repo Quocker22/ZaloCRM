@@ -37,10 +37,14 @@
         </button>
       </div>
 
+      <p v-if="s.chonMat.value" class="bdt-chon-mat" role="status">
+        <span data-chon-mat>{{ s.chonMat.value }}</span>
+        <button type="button" aria-label="Đóng thông báo" @click="s.chonMat.value = null"><X :size="13" /></button>
+      </p>
       <p v-if="s.loi.value" class="bdt-chan" role="alert">Không tải được bản đồ: {{ s.loi.value }}</p>
       <div v-else-if="s.chuaCoBanDo.value" class="bdt-cong bdt-trong" data-chua-co-ban-do>
         <div class="o-ico"><MapIcon :size="24" /></div>
-        <h2>Bot chưa gửi danh mục — bản đồ sẽ hiện sau khi bot dev chạy bản mới</h2>
+        <h2>Bot chưa gửi danh mục — bản đồ sẽ hiện khi bot cập nhật bản mới</h2>
         <p>Bot đẩy danh mục loại tin (kèm số đếm) lên CRM mỗi lần đồng bộ. Chưa có ảnh chụp nào cho tổ chức này nên chưa vẽ
           được bản đồ, và chưa tạo/sửa được luật thông báo (CRM cần danh mục để kiểm luật cứng).</p>
         <p v-if="s.soLuatKhiTrong.value" class="bdt-nho">Đang có {{ s.soLuatKhiTrong.value }} luật thông báo đã lưu — bot nhận chúng ở chế độ an toàn (không đích) cho tới khi có danh mục.</p>
@@ -76,12 +80,13 @@
     </div>
 
     <HopHuongDan v-if="s.hopHuongDan.value" @dong="s.hopHuongDan.value = false" />
+    <HopXacNhan v-if="s.xacNhan.value" :h="s.xacNhan.value" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { Layers, LayoutGrid, Link as LinkIcon, Lock, Map as MapIcon, Maximize, Minimize, MonitorSmartphone, Moon, RefreshCw, Send, StickyNote, Sun } from 'lucide-vue-next';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { Layers, LayoutGrid, Link as LinkIcon, Lock, Map as MapIcon, Maximize, Minimize, MonitorSmartphone, Moon, RefreshCw, Send, StickyNote, Sun, X } from 'lucide-vue-next';
 import '@/components/ban-do-tin/ban-do-tin.css';
 import SoDoBanDo from '@/components/ban-do-tin/SoDoBanDo.vue';
 import PanelChiTiet from '@/components/ban-do-tin/PanelChiTiet.vue';
@@ -89,11 +94,13 @@ import TabTheoPha from '@/components/ban-do-tin/TabTheoPha.vue';
 import TabLienKet from '@/components/ban-do-tin/TabLienKet.vue';
 import TabGhiChu from '@/components/ban-do-tin/TabGhiChu.vue';
 import HopHuongDan from '@/components/ban-do-tin/HopHuongDan.vue';
+import HopXacNhan from '@/components/ban-do-tin/HopXacNhan.vue';
 import OTimKiem from '@/components/ban-do-tin/OTimKiem.vue';
 import { taoClientBanDoTin, type BanDoTinClient } from '@/api/ban-do-tin';
 import { cungCapBanDoTin, taoBanDoTin, type TabBanDo } from './ban-do-tin/use-ban-do-tin';
 import { cheDoManHinh, type CheDoManHinh } from './ban-do-tin/bo-cuc';
 import { docHash, vietHash } from './ban-do-tin/hash';
+import type { LuaChon } from './ban-do-tin/trang-thai';
 
 const props = defineProps<{ client?: BanDoTinClient }>();
 const s = taoBanDoTin(props.client ?? taoClientBanDoTin());
@@ -141,11 +148,23 @@ watch(s.toanManHinh, (v) => { document.body.style.overflow = v ? 'hidden' : ''; 
 
 // ── hash ↔ lựa chọn ──
 const goc = ref<HTMLElement | null>(null);
-function apHash() {
+const xoaHash = () => history.replaceState(history.state, '', `${location.pathname}${location.search}`);
+/** Link sâu: id không còn trong danh mục ⇒ datChon trả false (store báo chonMat) ⇒ xoá hash. Hợp lệ ⇒ cuộn khối vào khung. */
+async function apHash() {
   const c = docHash(location.hash);
   if (!c) { if (!location.hash) s.datChon(null); return; }
-  s.datChon(c);
+  if (!s.datChon(c)) { if (location.hash) xoaHash(); return; }
   if (s.tab.value !== 'so_do' && !soDoKhoa.value && c.kieu !== 'khoi') s.tab.value = 'so_do';
+  await nextTick();
+  cuonToi(c);
+}
+/** SPEC §7 "mở URL có hash ⇒ tự cuộn tới": khối (hoặc điểm đi của liên kết) vào giữa vùng xem. */
+function cuonToi(c: LuaChon) {
+  const id = c.kieu === 'khoi' ? c.id : c.kieu === 'lien_ket' ? s.mh.value?.lienKetTheoId[c.id]?.tu : null;
+  if (!id || !goc.value) return;
+  const el = [...goc.value.querySelectorAll<HTMLElement>('[data-khoi]')].find((x) => x.getAttribute('data-khoi') === id)
+    ?? [...goc.value.querySelectorAll<HTMLElement>('[data-the]')].find((x) => x.getAttribute('data-the') === id);
+  el?.scrollIntoView?.({ block: 'center', inline: 'center' });
 }
 watch(s.chon, (c) => {
   const h = vietHash(c);
@@ -153,10 +172,11 @@ watch(s.chon, (c) => {
   history.replaceState(history.state, '', `${location.pathname}${location.search}${h}`);
 });
 
-// ── Esc đóng từng lớp: hộp thoại → bỏ chọn → toàn màn hình ──
+// ── Esc đóng từng lớp: hộp xác nhận / hộp thoại → bỏ chọn → toàn màn hình ──
 function phimEsc(e: KeyboardEvent) {
   if (e.key !== 'Escape' || e.defaultPrevented) return;
-  if (s.hopHuongDan.value) s.hopHuongDan.value = false;
+  if (s.xacNhan.value) s.xacNhan.value.tra(false);
+  else if (s.hopHuongDan.value) s.hopHuongDan.value = false;
   else if (s.chon.value) s.datChon(null);
   else if (s.toanManHinh.value) s.toanManHinh.value = false;
   else return;

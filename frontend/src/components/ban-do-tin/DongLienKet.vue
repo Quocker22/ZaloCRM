@@ -9,7 +9,7 @@
   >
     <SoTron :so="l.so" :loai="l.loai" />
     <span style="min-width: 0">
-      <span class="d1"><ArrowRight v-if="huong === 'ra'" :size="13" />{{ ten }} <small>{{ ma }}</small><small v-if="l.dem">· {{ l.dem.d7.bong ? `${l.dem.d7.bong} bóng` : `${l.dem.d7.da_gui} tin` }}/7 ngày{{ l.dem.d7.chan_tam_im ? ` · chặn ${l.dem.d7.chan_tam_im}` : '' }}</small></span>
+      <span class="d1"><ArrowRight v-if="huong === 'ra'" :size="13" />{{ ten }} <small>{{ ma }}</small><small v-if="l.dem">· {{ l.dem.d7.da_gui }} tin{{ l.dem.d7.bong ? ` + ${l.dem.d7.bong} bóng` : '' }}/7 ngày{{ l.dem.d7.chua_ro ? ` · chưa rõ ${l.dem.d7.chua_ro}` : '' }}{{ l.dem.d7.chan_tam_im ? ` · chặn ${l.dem.d7.chan_tam_im}` : '' }}</small></span>
       <span class="d2"><MauNet :loai="l.loai" />{{ l.vi_sao || KIEU_DUONG_THEO_ID[l.loai].ten }}</span>
     </span>
   </button>

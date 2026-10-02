@@ -3,7 +3,7 @@
 // Thuần, không đụng DOM — test ở mo-hinh.spec.ts.
 import { HANG, HANG_AN_KHI_TRONG, NHOM_HANG, PHA } from './cau-hinh';
 import type {
-  AnhChupBanDo, CheDo, Composer, DemCanh, Khoi, LienKet, LoaiLienKet, Luat, MaDich, MaHang, MoHinh, NhomHang, NutPhu, TagKhoi,
+  AnhChupBanDo, CheDo, Composer, DemCanh, Khoi, LienKet, LoaiLienKet, Luat, MaDich, MaHang, MoHinh, NhomHang, NutPhu, SoDem, TagKhoi,
 } from './kieu';
 
 export const idKhoi = (nguon: string, hang: string): string => `${nguon}@${hang}`;
@@ -118,11 +118,22 @@ export function dungMoHinh(anh: AnhChupBanDo): MoHinh {
   return { pha: PHA, nhom, hang: HANG, khoi, khoiTheoId, lienKet, lienKetTheoId, vao, ra, composer, nutPhu, demKhoi };
 }
 
-/** Số hiện TRÊN khối (bổ sung 02/10 — khối gốc cũng có số): 24h/7d = đã gửi + chạy bóng; `chu` = chú thích di chuột. */
-export function soTrenKhoi(d: DemCanh | undefined): { h24: number; d7: number; chu: string } | null {
+/**
+ * Số hiện TRÊN khối (bổ sung 02/10 — khối gốc cũng có số; tự rà vòng 2): số CHÍNH = tin gửi THẬT (`da_gui`); tin chạy bóng
+ * (ghi sổ, chưa gửi) đứng RIÊNG — cộng hai thứ vào một số là nói quá số tin NV thật sự nhận. `chu` = chú thích di chuột,
+ * kể cả chưa rõ (bot chưa đối soát được echo) / bị chặn / lỗi / bỏ.
+ */
+export function soTrenKhoi(d: DemCanh | undefined): { gui24: number; bong24: number; gui7: number; bong7: number; chu: string } | null {
   if (!d) return null;
-  const mot = (x: DemCanh['h24']) => `${x.da_gui} đã gửi${x.bong ? ` · ${x.bong} chạy bóng` : ''}${x.chan_tam_im ? ` · ${x.chan_tam_im} bị chặn` : ''}${x.loi ? ` · ${x.loi} lỗi` : ''}`;
-  return { h24: d.h24.da_gui + d.h24.bong, d7: d.d7.da_gui + d.d7.bong, chu: `24 giờ: ${mot(d.h24)} — 7 ngày: ${mot(d.d7)}` };
+  const mot = (x: SoDem) => [
+    `${x.da_gui} đã gửi`,
+    x.bong ? `${x.bong} chạy bóng` : '',
+    x.chua_ro ? `${x.chua_ro} chưa rõ` : '',
+    x.chan_tam_im ? `${x.chan_tam_im} bị chặn` : '',
+    x.loi ? `${x.loi} lỗi` : '',
+    x.bo ? `${x.bo} bỏ (rỗng)` : '',
+  ].filter(Boolean).join(' · ');
+  return { gui24: d.h24.da_gui, bong24: d.h24.bong, gui7: d.d7.da_gui, bong7: d.d7.bong, chu: `24 giờ: ${mot(d.h24)} — 7 ngày: ${mot(d.d7)}` };
 }
 
 /** Tổng số liên kết theo loại — số ở chú giải. */

@@ -70,7 +70,9 @@
           @mouseenter="s.tro.value = k.id" @mouseleave="s.tro.value = null"
         >
           <span class="ten">{{ k.ten }}<span v-if="k.soan" class="bdt-tag" :class="LOP_SOAN[k.soan]" :data-soan="k.soan">{{ TEN_SOAN[k.soan] }}</span><span v-for="t in k.tags.slice(0, 2)" :key="t" class="bdt-tag" :class="LOP_TAG[t]">{{ t }}</span></span>
-          <span v-if="soKhoi[k.id]" class="bdt-dem-khoi" :title="soKhoi[k.id]!.chu" data-dem-khoi>{{ soKhoi[k.id]!.h24 }}<small>/24h</small></span>
+          <span v-if="soKhoi[k.id]" class="bdt-dem-khoi" :title="soKhoi[k.id]!.chu" data-dem-khoi>
+            <span class="gui"><b data-dem-gui>{{ soKhoi[k.id]!.gui24 }}</b>/24h</span><span v-if="soKhoi[k.id]!.bong24" class="bong" data-dem-bong>{{ soKhoi[k.id]!.bong24 }} bóng</span>
+          </span>
           <span v-if="kq.badge[k.id]" class="bdt-badge" :class="kq.badge[k.id].kieu">{{ kq.badge[k.id].chu }}</span>
         </button>
         <button
@@ -90,8 +92,9 @@
             <g
               v-for="l in dsNoi" :key="l.id" class="bdt-bong" :data-bong="l.so"
               :class="{ mo: kq.troDong && kq.troDong !== l.id, to: kq.troDong === l.id }"
-              role="button" :aria-label="`Liên kết ${l.so}`"
-              @click.stop="chonLienKet(l.id)"
+              role="button" tabindex="0" :aria-label="`Liên kết ${l.so}: ${tenKhoi(l.tu)} → ${tenKhoi(l.den)}`"
+              @click.stop="chonLienKet(l.id)" @keydown.enter.space.prevent.stop="chonLienKet(l.id)"
+              @focus="troDuong(l.id)" @blur="troDuong(null)"
             >
               <circle :cx="duong[l.id].bong.x" :cy="duong[l.id].bong.y" r="8" :style="{ fill: `var(--bdt-lk-${l.loai})` }" />
               <text :x="duong[l.id].bong.x" :y="duong[l.id].bong.y" :style="{ fill: `var(--bdt-lkc-${l.loai})` }">{{ l.so }}</text>
@@ -166,7 +169,7 @@ const khoiHien = computed(() => mh.value.khoi.filter((k) => bc.value.khoi[k.id])
 const dsCoDuong = computed(() => mh.value.lienKet.filter((l) => duong.value[l.id]));
 const dsNoi = computed(() => mh.value.lienKet.filter((l) => kq.value.noi.has(l.id) && duong.value[l.id]));
 const tenKhoi = (id: string) => mh.value.khoiTheoId[id]?.ten ?? id;
-/** số 24h/7d trên khối — gồm khối GỐC (dòng đếm `luat_id=null`, hợp đồng bổ sung 02/10) */
+/** số trên khối: đã gửi THẬT 24h (+ "N bóng" riêng) — gồm khối GỐC (dòng đếm `luat_id=null`, hợp đồng bổ sung 02/10) */
 const soKhoi = computed(() => Object.fromEntries(Object.entries(mh.value.demKhoi).map(([id, d]) => [id, soTrenKhoi(d)])));
 const chanKhung = computed(() => {
   const a = s.anh.value;

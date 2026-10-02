@@ -66,24 +66,54 @@ const CANH = [
   ['31-desktop-light-crm-tu-dong', MAY, 'light', '#khoi=crm_lich_hen_nhac@crm_sale', null],
   ['32-desktop-light-chua-co-ban-do', MAY, 'light', '?trong=1', null],
   ['33-desktop-dark-cuon-dinh', MAY, 'dark', '', async (p) => { await p.evaluate(() => { const v = document.querySelector('.bdt-vung-xem'); v.scrollLeft = 520; v.scrollTop = 380; }); }],
+  // ── tự rà vòng 2 ──
+  ['34-desktop-light-xac-nhan-bat', MAY, 'light', '#khoi=in_sau_chot@nhom_goc', async (p) => { await p.locator('.bdt-che-do button', { hasText: 'Bật' }).click(); }],
+  ['35-desktop-light-link-cu', MAY, 'light', '#khoi=khoi_da_bo@nhom_goc', null],
+  ['36-desktop-light-link-sau-cuon', MAY, 'light', '#khoi=bc_ha_bao_chu@g_admin', null],
 ];
 
-/** Số đo DOM so với SPEC §3/§6 (toạ độ gốc — chia cho zoom). */
+/** Số đo DOM so với SPEC §2–§6 (toạ độ gốc — chia cho zoom; cỡ chữ "px_thuc" = cỡ CSS × zoom, tức cỡ người dùng thấy). */
 async function doHinh(p) {
   return p.evaluate(() => {
     const q = (s) => document.querySelector(s);
     const r = (el) => el ? el.getBoundingClientRect() : null;
+    const cs = (el) => el ? getComputedStyle(el) : null;
     const z = parseFloat(getComputedStyle(q('.bdt-ban-do') ?? document.body).zoom || '1') || 1;
     const k = r(q('.bdt-khoi')); const ph = r(q('.bdt-pha')); const pa = r(q('[data-panel]')); const tab = r(q('.bdt-tabs'));
     const tim = r(q('.bdt-tim input')); const kh = q('.bdt-khoi');
+    const goiY = q('.bdt-goi-y'); const nutHang = q('.bdt-nut-hang'); const dau = q('.bdt-dau-khung');
+    const dem = q('.bdt-dem-khoi .gui'); const demBong = q('.bdt-dem-khoi .bong'); const tag = q('.bdt-khoi .bdt-tag');
+    const px = (el) => el ? +(parseFloat(cs(el).fontSize) * z).toFixed(2) : null;
+    // nét đường theo loại: lấy nét đầu tiên của mỗi loại ở lớp NỀN
+    const duong = {};
+    for (const n of document.querySelectorAll('.bdt-lop-nen .net')) {
+      const m = /--bdt-lk-([a-z_]+)/.exec(n.getAttribute('style') || '');
+      if (!m || duong[m[1]]) continue;
+      const c = cs(n);
+      duong[m[1]] = { rong: +parseFloat(c.strokeWidth).toFixed(2), dash: c.strokeDasharray === 'none' ? 'liền' : c.strokeDasharray.replace(/px/g, '').replace(/,/g, '') };
+    }
+    const lopNen = q('.bdt-lop-nen');
+    const khoiMo = q('.bdt-khoi.mo-chon') ?? q('.bdt-khoi.mo-tro');
     return {
       zoom: +z.toFixed(3),
       khoi: k ? [+(k.width / z).toFixed(1), +(k.height / z).toFixed(1)] : null,
-      khoi_bo_goc: kh ? getComputedStyle(kh).borderRadius : null,
+      khoi_bo_goc: kh ? cs(kh).borderRadius : null,
+      khoi_ten_px_thuc: px(q('.bdt-khoi .ten')),
+      dem_khoi_px_thuc: dem ? [px(dem), demBong ? px(demBong) : null] : null,
+      tag_px_thuc: px(tag),
       tieu_de_pha: ph ? [+(ph.width / z).toFixed(1), +(ph.height / z).toFixed(1)] : null,
+      dau_khung: dau ? {
+        cao: Math.round(r(dau).height), h2_px: px(q('.bdt-dau-khung h2')) / z,
+        goi_y: goiY ? { px: parseFloat(cs(goiY).fontSize), nen: cs(goiY).backgroundColor, cat_chu: goiY.scrollWidth > goiY.clientWidth + 1, hien: cs(goiY).display !== 'none' } : null,
+        nut_hang_2: goiY && nutHang ? r(nutHang).top > r(goiY).bottom - 1 : null,
+      } : null,
       panel_rong: pa ? Math.round(pa.width) : null,
+      panel_bo_goc: pa ? cs(q('[data-panel]')).borderRadius : null,
       thanh_tab_cao: tab ? Math.round(tab.height) : null,
-      o_tim: tim ? [Math.round(tim.width), Math.round(tim.height)] : null,
+      tab_px: px(q('.bdt-tab')) / z,
+      o_tim: tim ? [Math.round(tim.width), Math.round(tim.height), parseFloat(cs(q('.bdt-tim input')).fontSize)] : null,
+      duong,
+      do_duc: { lop_nen: lopNen ? +cs(lopNen).opacity : null, khoi_mo: khoiMo ? +cs(khoiMo).opacity : null },
       ban_do: q('.bdt-ban-do') ? [q('.bdt-ban-do').offsetWidth, q('.bdt-ban-do').offsetHeight] : null,
     };
   });
@@ -132,7 +162,14 @@ await trinh.close();
 // ── Báo cáo cạnh nhau ──
 const coThamChieu = existsSync(THAM_CHIEU);
 const tc = coThamChieu ? new Set(await readdir(THAM_CHIEU)) : new Set();
-const SPEC = { khoi: '150 × 38, bo 8', tieu_de_pha: 'cao 26, rộng = cột', panel_rong: '368 (khổ 1440)', thanh_tab_cao: '42', o_tim: '320 × 36' };
+const SPEC = {
+  khoi: '150 × 38', khoi_bo_goc: 'bo 8', khoi_ten_px_thuc: '12 × zoom (ref 0.751 ⇒ 9.0)', dem_khoi_px_thuc: '≥ 9 (tự rà vòng 2)', tag_px_thuc: '8.5 × zoom (ref ⇒ 6.4)',
+  tieu_de_pha: 'cao 26, rộng = cột', dau_khung: 'h2 15/700 · gợi ý 12 muted, nền trong, đủ câu; nút ở hàng 2', panel_rong: '368 (khổ 1440)', panel_bo_goc: '20',
+  thanh_tab_cao: '42', tab_px: '13', o_tim: '320 × 36, chữ 14',
+  duong: 'nghiep_vu/ban_sao/crm 1.92 liền · su_kien 1.68 "6.75 3.75" · chan 1.44 "2.25 3" · hoi_lai 2.16 "1.125 4.5"',
+  do_duc: 'nghỉ: nền 0.35 · chọn: nền 0.06, khối khác 0.14 · rê: nền 0.10, khối khác 0.4',
+};
+const TRANG_DO = ['01-desktop-light-default', '02-desktop-light-selected', '04-desktop-light-block-hover', '26-mobile-light-compact'];
 const hang = CANH.filter(([id]) => existsSync(join(OUT, `${id}.png`))).map(([id]) => {
   const m = doDuoc[id] ?? {};
   const ref = tc.has(`${id}.png`) ? pathToFileURL(join(THAM_CHIEU, `${id}.png`)).href : null;
@@ -146,10 +183,10 @@ body{font:14px/1.5 Inter,system-ui,sans-serif;margin:24px;color:#101113;backgrou
 section{background:#fff;border:1px solid #e7e7ea;border-radius:14px;padding:12px 16px;margin:0 0 18px}h2{font-size:14px;margin:0 0 8px}
 .hai{display:grid;grid-template-columns:1fr 1fr;gap:12px}figure{margin:0}figcaption{font-size:12px;color:#5f6470;margin-bottom:4px}
 img{width:100%;border:1px solid #e7e7ea;border-radius:8px}pre{font-size:11px;background:#f6f6f7;padding:6px 8px;border-radius:6px;white-space:pre-wrap}
-table{border-collapse:collapse}td,th{border:1px solid #e7e7ea;padding:4px 8px;font-size:12.5px;text-align:left}.thieu{color:#e8590c}
+table{border-collapse:collapse;background:#fff}td,th{border:1px solid #e7e7ea;padding:4px 8px;font-size:12px;text-align:left;vertical-align:top}code{font-size:11px;word-break:break-word}.thieu{color:#e8590c}
 </style></head><body><h1>So ảnh: Bản đồ tin ↔ tham chiếu go.noti.vn (1440×900 / 390×844)</h1>
 <p>Bố cục/hình học phải khớp; nội dung khác (dữ liệu của mình: 9 pha × 18 hàng thay vì 6 × 19). Ảnh tham chiếu chỉ để so nội bộ, không đưa vào sản phẩm.</p>
-<table><tr><th>số đo</th><th>SPEC</th><th>đo ở 01 (gốc, chia zoom)</th></tr>${Object.entries(SPEC).map(([k, v]) => `<tr><td>${k}</td><td>${v}</td><td>${JSON.stringify(doDuoc['01-desktop-light-default']?.[k] ?? '—')}</td></tr>`).join('')}
+<table><tr><th>số đo</th><th>SPEC</th>${TRANG_DO.map((t) => `<th>đo ở ${t.slice(0, 2)}</th>`).join('')}</tr>${Object.entries(SPEC).map(([k, v]) => `<tr><td>${k}</td><td>${v}</td>${TRANG_DO.map((t) => `<td><code>${JSON.stringify(doDuoc[t]?.[k] ?? '—')}</code></td>`).join('')}</tr>`).join('')}
 <tr><td>bấm khối → khung kế tiếp</td><td>≤ 50 ms</td><td>${JSON.stringify(thoiGian.bam_khoi_ms ?? '—')}</td></tr></table>
 ${hang}</body></html>`;
 await writeFile(join(DAY, 'so-sanh.html'), html);

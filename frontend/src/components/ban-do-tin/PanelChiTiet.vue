@@ -6,7 +6,10 @@
   CRM (canhBao), số 7 ngày, nhận từ / đẩy sang, và link sang Quyền bot › Nhật ký. Khối CRM tự động: chỉ xem.
 -->
 <template>
-  <aside class="bdt-panel" :class="{ sheet }" aria-label="Chi tiết" data-panel>
+  <aside
+    ref="vo" class="bdt-panel" :class="{ sheet }" aria-label="Chi tiết" data-panel
+    :role="sheet ? 'dialog' : undefined" :aria-modal="sheet ? 'true' : undefined"
+  >
     <div v-if="sheet" class="tay-cam" />
 
     <!-- ── Trống ── -->
@@ -65,7 +68,7 @@
             <details v-if="comp.ghi_chu" class="bdt-bien-the"><summary>Biến thể &amp; ghi chú</summary><p class="bdt-nho">{{ comp.ghi_chu }}</p></details>
           </section>
           <section v-if="comp.nguon_cau"><h4 class="bdt-h4">Nguồn câu</h4><span class="bdt-code">{{ comp.nguon_cau }}</span></section>
-          <p v-if="comp.goi_y" class="bdt-goi-y" data-goi-y>💡 {{ comp.goi_y }}</p>
+          <p v-if="comp.goi_y" class="bdt-goi-y-panel" data-goi-y>💡 {{ comp.goi_y }}</p>
 
           <section data-dich>
             <h4 class="bdt-h4">Đích <span class="dem">{{ dichDangGui.length }}</span></h4>
@@ -109,7 +112,7 @@
             <div class="bdt-che-do" role="group" aria-label="Chế độ">
               <button
                 v-for="c in CHE_DO" :key="c.id" type="button" :class="c.id" :aria-pressed="!!luat && cheDo === c.id"
-                :disabled="s.dangLuu.value" @click="doiCheDo(c.id)"
+                :disabled="s.dangLuu.value || !!kiemCheDo(luat, c.id)" :title="kiemCheDo(luat, c.id) ?? undefined" @click="doiCheDo(c.id)"
               >{{ c.ten }}</button>
             </div>
             <p v-if="!luat" class="bdt-nho" style="margin-top: 6px" data-chua-luat>Chưa có luật — tin chạy đúng như mã. Tick một đích để tạo luật
@@ -121,7 +124,7 @@
             </p>
             <div class="bdt-hai-nut" style="margin-top: 10px">
               <button type="button" class="bdt-nut" disabled title="Chưa có — CRM chưa mở API gửi thử"><Send :size="13" />Gửi thử</button>
-              <button v-if="luat" type="button" class="bdt-nut" :disabled="s.dangLuu.value" data-hoan-lai @click="s.hoanLai(comp.id)"><RotateCcw :size="13" />Hoàn lại như mã</button>
+              <button v-if="luat" type="button" class="bdt-nut" :disabled="s.dangLuu.value" data-hoan-lai @click="hoanLai"><RotateCcw :size="13" />Hoàn lại như mã</button>
             </div>
           </section>
 
@@ -129,8 +132,9 @@
             <template v-for="cs in CUA_SO" :key="cs.id">
               <h4 class="bdt-h4">{{ cs.ten }}{{ khoi.ban_sao ? ' — bản sao này' : ' — nơi gốc' }}</h4>
               <div class="bdt-so" :data-cua-so="cs.id">
-                <span><b>{{ demKhoi[cs.id].da_gui }}</b> đã gửi</span><span><b>{{ demKhoi[cs.id].chan_tam_im }}</b> bị chặn</span>
-                <span><b>{{ demKhoi[cs.id].bong }}</b> chạy bóng</span><span v-if="demKhoi[cs.id].loi"><b>{{ demKhoi[cs.id].loi }}</b> lỗi</span>
+                <span><b>{{ demKhoi[cs.id].da_gui }}</b> đã gửi</span><span><b>{{ demKhoi[cs.id].bong }}</b> chạy bóng</span>
+                <span><b>{{ demKhoi[cs.id].chua_ro }}</b> chưa rõ</span><span><b>{{ demKhoi[cs.id].chan_tam_im }}</b> bị chặn</span>
+                <span v-if="demKhoi[cs.id].loi"><b>{{ demKhoi[cs.id].loi }}</b> lỗi</span>
                 <span v-if="demKhoi[cs.id].bo"><b>{{ demKhoi[cs.id].bo }}</b> bỏ (rỗng)</span>
               </div>
             </template>
@@ -163,7 +167,7 @@
         <section>
           <h4 class="bdt-h4">Nhận từ <span class="dem">{{ vao.length }}</span></h4>
           <DongLienKet v-for="l in vao" :key="l.id" :l="l" huong="vao" />
-          <p v-if="!vao.length" class="bdt-nho">Không có — tin này bắt đầu từ tin NV gõ.</p>
+          <p v-if="!vao.length" class="bdt-nho">{{ nut?.crm ? 'Kích hoạt bởi sự kiện/lịch của CRM.' : nut ? 'Không có — nguồn sự kiện ngoài bot.' : 'Không có — tin này bắt đầu từ tin NV gõ.' }}</p>
         </section>
         <section>
           <h4 class="bdt-h4">Đẩy sang <span class="dem">{{ ra.length }}</span></h4>
@@ -196,7 +200,7 @@
         <section><h4 class="bdt-h4">Điểm đến</h4><DongLienKet :l="lk" huong="ra" /></section>
         <section><h4 class="bdt-h4">Vì sao nối</h4><p class="bdt-chu">{{ lk.vi_sao || KIEU_DUONG_THEO_ID[lk.loai].mo_ta }}</p></section>
         <section v-if="lk.dem"><h4 class="bdt-h4">7 ngày qua (qua luật)</h4>
-          <div class="bdt-so"><span><b>{{ lk.dem.d7.da_gui }}</b> đã gửi</span><span><b>{{ lk.dem.d7.chan_tam_im }}</b> bị chặn</span><span><b>{{ lk.dem.d7.bong }}</b> bóng</span></div></section>
+          <div class="bdt-so"><span><b>{{ lk.dem.d7.da_gui }}</b> đã gửi</span><span><b>{{ lk.dem.d7.bong }}</b> bóng</span><span><b>{{ lk.dem.d7.chua_ro }}</b> chưa rõ</span><span><b>{{ lk.dem.d7.chan_tam_im }}</b> bị chặn</span></div></section>
         <div class="bdt-hai-nut">
           <button type="button" class="bdt-nut" :disabled="lk.so <= 1" @click="nhayLk(-1)">‹ Liên kết trước</button>
           <button type="button" class="bdt-nut" :disabled="lk.so >= mh.lienKet.length" @click="nhayLk(1)">Liên kết sau ›</button>
@@ -235,7 +239,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, getCurrentInstance, ref, watch } from 'vue';
+import { computed, getCurrentInstance, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { Bot, Download, Link, Lock, RotateCcw, Send, X } from 'lucide-vue-next';
 import DongLienKet from './DongLienKet.vue';
 import IconBdt from './IconBdt.vue';
@@ -244,14 +248,20 @@ import SoTron from './SoTron.vue';
 import type { NvDich } from '@/api/ban-do-tin';
 import { KIEU_DUONG, KIEU_DUONG_THEO_ID, LOP_SOAN, LOP_TAG, MO_TA_SOAN, TEN_SOAN, tenNhayCam } from '@/views/settings/ban-do-tin/cau-hinh';
 import { bong24hCuaLuat } from '@/views/settings/ban-do-tin/chuyen-doi';
-import { dichKhoa, dsDichPanel, kiemDich } from '@/views/settings/ban-do-tin/luat';
+import { dichKhoa, dsDichPanel, kiemCheDo, kiemDich } from '@/views/settings/ban-do-tin/luat';
+import { bayFocus } from '@/views/settings/ban-do-tin/bay-focus';
 import { demTheoLoai, dichHieuLuc } from '@/views/settings/ban-do-tin/mo-hinh';
 import { dungBanDoTin } from '@/views/settings/ban-do-tin/use-ban-do-tin';
 import type { CheDo, MaDich, MaPha } from '@/views/settings/ban-do-tin/kieu';
 import type { MucCrmApi } from '@/views/settings/ban-do-tin/hop-dong';
 
-defineProps<{ sheet?: boolean }>();
+const props = defineProps<{ sheet?: boolean }>();
 const s = dungBanDoTin();
+// bottom sheet (< 1024): bẫy focus trong sheet; đóng (Esc / ✕) ⇒ focus về thẻ/khối đã mở
+const vo = ref<HTMLElement | null>(null);
+let goBay: (() => void) | null = null;
+onMounted(() => { if (props.sheet && vo.value) goBay = bayFocus(vo.value, { dau: vo.value.querySelector<HTMLElement>('.bdt-dong-x') }); });
+onBeforeUnmount(() => goBay?.());
 const mh = computed(() => s.mh.value!);
 const chon = computed(() => s.chon.value);
 const CUA_SO: { id: 'h24' | 'd7'; ten: string }[] = [{ id: 'h24', ten: '24 giờ qua' }, { id: 'd7', ten: '7 ngày qua' }];
@@ -300,7 +310,31 @@ async function doiDich(d: MaDich, el: HTMLInputElement) {
   // lưu hỏng ⇒ ô về đúng trạng thái đã lưu (Vue không vá lại vì :checked không đổi)
   el.checked = dichDangGui.value.includes(d);
 }
-function doiCheDo(c: CheDo) { if (comp.value && (!luat.value || c !== cheDo.value)) s.doiCheDo(comp.value.id, c); }
+async function doiCheDo(c: CheDo) {
+  const cp = comp.value;
+  if (!cp || (luat.value && c === cheDo.value) || kiemCheDo(luat.value, c)) return;
+  if (c === 'bat') {
+    const ok = await s.hoiXacNhan({
+      tieuDe: `Bật gửi bản sao "${cp.ten}"?`,
+      noiDung: bong24h.value.co
+        ? `Bot sẽ GỬI THẬT tới ${banSaoLuat.value.length} đích bản sao. Theo số chạy bóng, 24 giờ qua sẽ gửi ${bong24h.value.so} tin.`
+        : `Bot sẽ GỬI THẬT tới ${banSaoLuat.value.length} đích bản sao. Chưa có số chạy bóng 24 giờ để ước lượng.`,
+      nut: 'Bật',
+    });
+    if (!ok) return;
+  }
+  s.doiCheDo(cp.id, c);
+}
+async function hoanLai() {
+  const cp = comp.value;
+  if (!cp || !luat.value) return;
+  const ok = await s.hoiXacNhan({
+    tieuDe: 'Hoàn lại như mã?',
+    noiDung: `Xoá luật của "${cp.ten}": bỏ ${banSaoLuat.value.length} đích bản sao, tin chỉ còn gửi nơi gốc như mã.`,
+    nut: 'Hoàn lại như mã',
+  });
+  if (ok) await s.hoanLai(cp.id);
+}
 
 // ── đích NV ──
 const dsNv = ref<NvDich[] | null>(null);

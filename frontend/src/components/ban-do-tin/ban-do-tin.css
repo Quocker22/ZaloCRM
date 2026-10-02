@@ -1,7 +1,18 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* ban-do-tin.css — giao diện trang "Bản đồ tin". Số đo theo docs/78 tham-chieu-noti/SPEC.md + tokens.json (viết lại,
    không chép mã). Mọi lớp nằm dưới .bdt để không rò ra trang khác. */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+/* Inter TỰ PHỤC VỤ (src/assets/fonts/inter, OFL 1.1, @fontsource-variable/inter 5.3.0 — chỉ 3 bộ chữ latin / latin-ext /
+   vietnamese, tải theo unicode-range). Không @import Google Fonts: CSP của CRM (backend security-headers.ts) chỉ cho
+   style-src 'self' 'unsafe-inline' và font-src 'self' data: ⇒ ở chế độ enforce, fonts.googleapis.com / gstatic bị chặn. */
+@font-face { font-family: 'Inter BDT'; font-style: normal; font-display: swap; font-weight: 100 900;
+  src: url('@/assets/fonts/inter/inter-vietnamese-wght-normal.woff2') format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB; }
+@font-face { font-family: 'Inter BDT'; font-style: normal; font-display: swap; font-weight: 100 900;
+  src: url('@/assets/fonts/inter/inter-latin-ext-wght-normal.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: 'Inter BDT'; font-style: normal; font-display: swap; font-weight: 100 900;
+  src: url('@/assets/fonts/inter/inter-latin-wght-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
 
 .bdt {
   --bdt-bg: #ffffff;
@@ -21,6 +32,8 @@
   --bdt-danger-bg: #fbeee5;
   --bdt-coin: #f0a202;
   --bdt-coin-bg: #fff6e3;
+  /* chữ màu "coin" (nhãn Bóng, chip Dữ liệu mẫu, cảnh báo): #f0a202 trên nền sáng chỉ ~2:1 ⇒ chữ dùng tông đậm 5.6:1 */
+  --bdt-coin-chu: #8a5800;
   --bdt-glass-bg: #ffffff8c;
   --bdt-glass-border: #ffffff59;
   --bdt-glass-shadow: 0 8px 32px #1011161f, inset 0 1px 0 #ffffff80;
@@ -37,16 +50,18 @@
   --bdt-lk-hoi_lai: var(--bdt-brand);
   --bdt-lk-chan: #5f6470;
   --bdt-lk-crm: var(--bdt-success);
-  --bdt-lkc-nghiep_vu: #ffffff;
-  --bdt-lkc-ban_sao: #ffffff;
+  /* chữ trên bong số / ô số tròn ≥ 4.5:1 (giữ màu nền = màu đường): brand 4.8 · accent 7.2 · success 5.7 với chữ tối;
+     brand-600 4.9 · xám 5.9 với chữ trắng (đo bằng công thức WCAG, tự rà vòng 2) */
+  --bdt-lkc-nghiep_vu: #101113;
+  --bdt-lkc-ban_sao: #101113;
   --bdt-lkc-su_kien: #ffffff;
-  --bdt-lkc-hoi_lai: #ffffff;
+  --bdt-lkc-hoi_lai: #101113;
   --bdt-lkc-chan: #ffffff;
-  --bdt-lkc-crm: #ffffff;
+  --bdt-lkc-crm: #101113;
   --bdt-ease: cubic-bezier(0.4, 0, 0.2, 1);
   --bdt-t: 200ms var(--bdt-ease);
 
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Inter BDT', Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Plus Jakarta Sans', Roboto, sans-serif;
   color: var(--bdt-text);
   background: var(--bdt-bg);
   -webkit-font-smoothing: antialiased;
@@ -65,6 +80,7 @@
   --bdt-danger-bg: #e8590c29;
   --bdt-coin: #fbbf24;
   --bdt-coin-bg: #f0a20229;
+  --bdt-coin-chu: #fbbf24;
   --bdt-glass-bg: #18181c73;
   --bdt-glass-border: #ffffff1a;
   --bdt-glass-shadow: 0 8px 32px #0006, inset 0 1px 0 #ffffff14;
@@ -88,7 +104,7 @@
 .bdt-tab[aria-selected='true'] { background: var(--bdt-surface); color: var(--bdt-text); box-shadow: var(--bdt-soft-sm); }
 .bdt-tab .dem { font-size: 10px; font-weight: 600; color: var(--bdt-muted); margin-left: 4px; }
 .bdt-tab.khoa { opacity: 0.7; }
-.bdt-chip-mau { height: 32px; padding: 0 12px; border-radius: 9999px; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; background: var(--bdt-coin-bg); color: var(--bdt-coin); white-space: nowrap; }
+.bdt-chip-mau { height: 32px; padding: 0 12px; border-radius: 9999px; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; background: var(--bdt-coin-bg); color: var(--bdt-coin-chu); white-space: nowrap; }
 .bdt-chip-mau i { width: 6px; height: 6px; border-radius: 9999px; background: currentColor; display: inline-block; }
 .bdt-gian { flex: 1; min-width: 0; }
 .bdt-nut-tron { width: 32px; height: 32px; border-radius: 9999px; border: 1px solid var(--bdt-border); background: var(--bdt-surface); display: inline-grid; place-items: center; color: var(--bdt-muted); flex: none; }
@@ -124,8 +140,9 @@
 .bdt-dau-khung { min-height: 52px; padding: 10px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; border-bottom: 1px solid var(--bdt-border); }
 .bdt-dau-khung h2 { font-size: 15px; font-weight: 700; margin: 0; white-space: nowrap; display: flex; align-items: center; gap: 8px; }
 .bdt-dau-khung .logo { width: 22px; height: 22px; border-radius: 6px; background: var(--bdt-grad); color: #fff; display: inline-grid; place-items: center; }
-.bdt-goi-y { font-size: 12px; color: var(--bdt-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
-.bdt-nut-hang { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+/* Như tham chiếu: hàng 1 = tên + gợi ý (chữ trơn, muted, đủ câu); hàng 2 = các nút, dạt phải. */
+.bdt-goi-y { font-size: 12px; line-height: 16px; color: var(--bdt-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1 1 0; }
+.bdt-nut-hang { display: flex; align-items: center; gap: 8px; margin-left: auto; flex: 1 0 100%; justify-content: flex-end; flex-wrap: wrap; }
 .bdt-nut { height: 32px; padding: 0 12px; display: inline-flex; align-items: center; gap: 6px; border-radius: 9999px; border: 1px solid var(--bdt-border); background: var(--bdt-surface); color: var(--bdt-muted); font-size: 12px; font-weight: 600; line-height: 16px; white-space: nowrap; transition: background var(--bdt-t), color var(--bdt-t), border-color var(--bdt-t); }
 .bdt-nut:hover:not(:disabled) { color: var(--bdt-text); background: var(--bdt-bg-subtle); }
 .bdt-nut:disabled { opacity: 0.5; }
@@ -204,7 +221,7 @@
 .bdt-tag.t-tat { background: var(--bdt-bg-subtle); color: var(--bdt-muted); }
 .bdt-tag.t-ban-sao { background: color-mix(in srgb, var(--bdt-accent) 16%, transparent); color: var(--bdt-accent); }
 .bdt-tag.t-moi { background: var(--bdt-text); color: var(--bdt-surface); }
-.bdt-tag.t-bong { background: var(--bdt-coin-bg); color: var(--bdt-coin); }
+.bdt-tag.t-bong { background: var(--bdt-coin-bg); color: var(--bdt-coin-chu); }
 .bdt-tag.t-nguon { background: color-mix(in srgb, var(--bdt-brand-600) 14%, transparent); color: var(--bdt-brand-600); }
 .bdt-tag.t-crm { background: var(--bdt-success-bg); color: var(--bdt-success); }
 /* ai soạn (hợp đồng bổ sung 02/10): viền, nền trong — tách khỏi nhãn trạng thái nền đặc */
@@ -213,10 +230,13 @@
 .bdt-tag.s-model { color: var(--bdt-brand); }
 .bdt-tag.s-mau { color: var(--bdt-accent); }
 .bdt-tag.s-anh { color: var(--bdt-success); }
-/* số 24h trên khối (khối gốc lẫn bản sao) */
-.bdt-dem-khoi { flex: none; margin-left: auto; padding-left: 4px; font-size: 10px; font-weight: 700; line-height: 12px; color: var(--bdt-text); font-variant-numeric: tabular-nums; }
-.bdt-dem-khoi small { font-size: 7.5px; font-weight: 600; color: var(--bdt-muted); }
-.bdt-goi-y { font-size: 12px; line-height: 17px; border-radius: 8px; padding: 7px 10px; margin-top: 8px; background: var(--bdt-coin-bg); color: var(--bdt-text); }
+/* số trên khối (khối gốc lẫn bản sao): cột phải, 12px ⇒ ≥ 9px ở zoom mặc định 0.75 (tự rà vòng 2: bản trước 7.5px ⇒ 5.6px).
+   Dòng 1 = đã gửi THẬT "17/24h"; dòng 2 (nếu có) = "5 bóng" màu coin — không cộng bóng vào số chính. */
+.bdt-dem-khoi { flex: none; margin-left: auto; padding-left: 6px; display: flex; flex-direction: column; align-items: flex-end; gap: 0; font-size: 12px; line-height: 14px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bdt-dem-khoi .gui { font-weight: 600; color: var(--bdt-muted); }
+.bdt-dem-khoi .gui b { font-weight: 700; color: var(--bdt-text); }
+.bdt-dem-khoi .bong { font-weight: 600; color: var(--bdt-coin-chu); }
+.bdt-goi-y-panel { font-size: 12px; line-height: 17px; border-radius: 8px; padding: 7px 10px; margin-top: 8px; background: var(--bdt-coin-bg); color: var(--bdt-text); }
 .bdt-badge { position: absolute; top: -8px; right: 6px; font-size: 8px; font-weight: 600; line-height: 10px; padding: 1px 6px; border-radius: 5px; white-space: nowrap; pointer-events: none; }
 .bdt-badge.xem { background: var(--bdt-brand); color: #fff; }
 .bdt-badge.vao { background: var(--bdt-text); color: var(--bdt-surface); }
@@ -232,8 +252,10 @@
 /* Bong số */
 .bdt-bong { cursor: pointer; pointer-events: all; transition: opacity var(--bdt-t), transform var(--bdt-t); transform-box: fill-box; transform-origin: center; }
 .bdt-bong circle { stroke: var(--bdt-surface); stroke-width: 1.8; }
-.bdt-bong text { font-size: 9px; font-weight: 800; text-anchor: middle; dominant-baseline: central; font-family: Inter, system-ui, sans-serif; }
+.bdt-bong text { font-size: 9px; font-weight: 800; text-anchor: middle; dominant-baseline: central; font-family: 'Inter BDT', Inter, system-ui, sans-serif; }
 .bdt-bong.mo { opacity: 0.3; }
+.bdt-bong:focus { outline: none; }
+.bdt-bong:focus-visible circle { stroke: var(--bdt-text); stroke-width: 2.5; }
 .bdt-bong.to { transform: scale(1.3); }
 
 /* ── Panel phải ───────────────────────────────────────────── */
@@ -260,7 +282,7 @@
 .bdt-h4 .dem { min-width: 20px; height: 18px; padding: 0 6px; border-radius: 9999px; background: var(--bdt-bg-subtle); color: var(--bdt-text); font-size: 10.5px; display: inline-grid; place-items: center; letter-spacing: 0; }
 .bdt-chu { font-size: 13px; line-height: 20px; }
 .bdt-nho { font-size: 12px; line-height: 17px; color: var(--bdt-muted); }
-.bdt-code { font-family: ui-monospace, Menlo, monospace; font-size: 11px; background: var(--bdt-bg-subtle); border-radius: 5px; padding: 1px 5px; word-break: break-all; }
+.bdt-code { font-family: ui-monospace, Menlo, monospace; font-size: 11px; background: var(--bdt-bg-subtle); border-radius: 5px; padding: 1px 5px; overflow-wrap: anywhere; word-break: normal; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
 .bdt-zalo-dau { font-size: 11px; color: var(--bdt-muted); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
 .bdt-zalo-dau .av { width: 20px; height: 20px; border-radius: 9999px; background: var(--bdt-grad); color: #fff; display: grid; place-items: center; }
 .bdt-zalo { background: var(--bdt-zalo); border: 1px solid var(--bdt-zalo-border); border-radius: 14px 14px 14px 4px; padding: 9px 12px; font-size: 13px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
@@ -271,14 +293,14 @@
 .bdt-dich .ten { font-weight: 600; display: flex; gap: 6px; align-items: center; }
 .bdt-dich .vi-sao { font-size: 11.5px; color: var(--bdt-muted); margin-top: 2px; }
 .bdt-canh, .bdt-chan, .bdt-khoa-ly-do { font-size: 12px; line-height: 17px; border-radius: 8px; padding: 7px 10px; margin-top: 4px; }
-.bdt-canh { background: var(--bdt-coin-bg); color: color-mix(in srgb, var(--bdt-coin) 70%, var(--bdt-text)); }
+.bdt-canh { background: var(--bdt-coin-bg); color: var(--bdt-coin-chu); }
 .bdt-chan { background: var(--bdt-danger-bg); color: var(--bdt-danger); }
 .bdt-khoa-ly-do { background: var(--bdt-bg-subtle); color: var(--bdt-muted); display: flex; gap: 6px; }
 .bdt-che-do { display: inline-flex; padding: 3px; gap: 2px; border-radius: 9999px; background: var(--bdt-bg-subtle); border: 1px solid var(--bdt-border); }
 .bdt-che-do button { height: 28px; padding: 0 12px; border-radius: 9999px; font-size: 12px; font-weight: 600; color: var(--bdt-muted); }
 .bdt-che-do button[aria-pressed='true'] { background: var(--bdt-surface); color: var(--bdt-text); box-shadow: var(--bdt-soft-sm); }
 .bdt-che-do button[aria-pressed='true'].bat { color: var(--bdt-success); }
-.bdt-che-do button[aria-pressed='true'].bong { color: var(--bdt-coin); }
+.bdt-che-do button[aria-pressed='true'].bong { color: var(--bdt-coin-chu); }
 .bdt-che-do button[aria-pressed='true'].tat { color: var(--bdt-danger); }
 .bdt-so { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12.5px; }
 .bdt-so b { font-size: 15px; }
@@ -384,7 +406,10 @@
 .bdt-dt .bdt-tabs { width: 100%; }
 .bdt-dt .bdt-tab { flex: 1; justify-content: center; padding: 6px 6px; white-space: nowrap; gap: 4px; }
 .bdt-dt .bdt-tab .lucide:not(.lucide-lock) { display: none; }
-.bdt-dt .bdt-tim { flex: 1; width: auto; }
+/* Điện thoại (như tham chiếu ảnh 26): hàng 1 = tab; hàng 2 = ô tìm GIÃN ĐỦ hàng + nút tròn bên phải. */
+.bdt-dt .bdt-gian { display: none; }
+.bdt-dt .bdt-tim { order: 2; flex: 1 1 0; width: auto; min-width: 0; }
+.bdt-dt .bdt-nut-tron { order: 3; width: 36px; height: 36px; }
 .bdt-dt .bdt-tim input { font-size: 16px; }
 .bdt-dt .bdt-tim-ds { width: 100%; }
 .bdt-dt .bdt-the-luoi, .bdt-dt .bdt-tp-hai, .bdt-dt .bdt-gc-luoi { grid-template-columns: 1fr; }
@@ -416,3 +441,11 @@
 .bdt-bao p { margin: 2px 0; }
 .bdt-bao ul { margin: 2px 0; padding-left: 18px; }
 a.bdt-nut { text-decoration: none; }
+
+/* Hộp xác nhận (Hoàn lại như mã, chuyển sang Bật) + thông báo link sâu cũ (tự rà vòng 2) */
+.bdt-hop-xn { width: min(420px, calc(100vw - 32px)); border-radius: 20px; background: var(--bdt-surface); box-shadow: var(--bdt-soft-lg); padding: 20px; color: var(--bdt-text); }
+.bdt-hop-xn h2 { font-size: 16px; font-weight: 700; line-height: 22px; margin: 0 0 8px; }
+.bdt-hop-xn p { font-size: 13px; line-height: 20px; color: var(--bdt-muted); margin: 0 0 16px; }
+.bdt-hop-xn .bdt-hai-nut { justify-content: flex-end; }
+.bdt-chon-mat { display: flex; align-items: center; gap: 8px; width: fit-content; max-width: 100%; margin: 0 0 12px; padding: 6px 8px 6px 12px; border-radius: 9999px; background: var(--bdt-coin-bg); color: var(--bdt-coin-chu); font-size: 12.5px; font-weight: 600; }
+.bdt-chon-mat button { width: 22px; height: 22px; border-radius: 9999px; display: grid; place-items: center; color: inherit; }

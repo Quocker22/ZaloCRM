@@ -10,7 +10,7 @@ import { dungMoHinh } from './mo-hinh';
 import { doiHangTrongDich, dungAnhChup } from './chuyen-doi';
 import { cotGian, dungBoCuc, kepZoom, rongMuonToanManHinh } from './bo-cuc';
 import { dinhTuyen } from './dinh-tuyen';
-import { tinhTrangThai, type LuaChon } from './trang-thai';
+import { chonHopLe, nhanChonMat, tinhTrangThai, type LuaChon } from './trang-thai';
 import type { AnhChupBanDo, CheDo, MaDich } from './kieu';
 import type { DichLuatApi } from './hop-dong';
 
@@ -35,6 +35,8 @@ export function taoBanDoTin(client: BanDoTinClient) {
   const khung = reactive({ rong: 1000, cao: 700 });
 
   const chon = shallowRef<LuaChon | null>(null);
+  /** câu ngắn khi lựa chọn (link sâu cũ / khối vừa biến mất sau tải lại) không còn trong danh mục */
+  const chonMat = ref<string | null>(null);
   const tro = ref<string | null>(null);
   const troDong = ref<string | null>(null);
 
@@ -42,6 +44,12 @@ export function taoBanDoTin(client: BanDoTinClient) {
   const zoomVua = ref(1);
   const tab = ref<TabBanDo>('so_do');
   const hopHuongDan = ref(false);
+  /** hộp xác nhận đang mở (Hoàn lại như mã, chuyển sang Bật) — `tra` nhận true/false */
+  const xacNhan = shallowRef<{ tieuDe: string; noiDung: string; nut: string; tra: (ok: boolean) => void } | null>(null);
+  function hoiXacNhan(h: { tieuDe: string; noiDung: string; nut: string }): Promise<boolean> {
+    xacNhan.value?.tra(false);
+    return new Promise((tra) => { xacNhan.value = { ...h, tra: (ok) => { xacNhan.value = null; tra(ok); } }; });
+  }
   const theme = ref<'light' | 'dark'>('light');
 
   const mh = computed(() => (anh.value ? dungMoHinh(anh.value) : null));
@@ -76,15 +84,26 @@ export function taoBanDoTin(client: BanDoTinClient) {
     });
   }
 
+  /** Sau mỗi lần nạp: lựa chọn đang xem không còn trong mô hình (vd khối bản sao vừa bị xoá luật) ⇒ bỏ chọn + báo. */
+  function kiemChonSauNap() {
+    const c = chon.value;
+    if (c && mh.value && !chonHopLe(mh.value, c)) { chon.value = null; troDong.value = null; chonMat.value = nhanChonMat(c.kieu); }
+  }
+  async function nap() { await napAnh(); kiemChonSauNap(); }
+
   async function tai() {
     dangTai.value = true;
     loi.value = null;
-    try { await napAnh(); } catch (e) { loi.value = loiTuApi(e).message; } finally { dangTai.value = false; }
+    try { await nap(); } catch (e) { loi.value = loiTuApi(e).message; } finally { dangTai.value = false; }
   }
 
-  function datChon(c: LuaChon | null) {
-    chon.value = c;
+  /** Đặt lựa chọn; id không có trong mô hình hiện tại ⇒ bỏ chọn, báo `chonMat`, trả false. */
+  function datChon(c: LuaChon | null): boolean {
     troDong.value = null;
+    if (c && mh.value && !chonHopLe(mh.value, c)) { chon.value = null; chonMat.value = nhanChonMat(c.kieu); return false; }
+    chonMat.value = null;
+    chon.value = c;
+    return true;
   }
 
   function doiThuGon(id: string) {
@@ -103,25 +122,37 @@ export function taoBanDoTin(client: BanDoTinClient) {
   const luatCua = (loai: string) => anh.value?.luat.find((l) => l.loai === loai);
 
   /**
-   * Một lần ghi luật: có luật ⇒ PUT (kèm phienBan đang xem); chưa có ⇒ POST (CRM mặc định chạy bóng). Lỗi ⇒ câu server
-   * nguyên văn; 409 (luật vừa bị sửa / vừa có người tạo) ⇒ tải lại để lần sau ghi đúng phiên bản. Luôn tải lại sau ghi.
+   * Một lần ghi luật: có luật ⇒ PUT (kèm phienBan đang xem); chưa có ⇒ POST — luật MỚI luôn bắt đầu ở chạy bóng (CRM mặc
+   * định; không gửi `bat` khi tạo, xem luat.kiemCheDo). Lỗi ghi ⇒ câu server nguyên văn; 409 (luật vừa bị sửa / vừa có người
+   * tạo) ⇒ tải lại để lần sau ghi đúng phiên bản. Ghi XONG mà tải lại hỏng ⇒ báo "Đã lưu; tải lại lỗi" (không phải lỗi lưu).
    */
   async function ghiLuat(loai: string, thay: { dich?: DichLuatApi[]; cheDo?: CheDo }) {
     dangLuu.value = true;
     loiLuu.value = null;
     tinLuu.value = null;
+    const cu = luatCua(loai);
     try {
-      const cu = luatCua(loai);
       if (cu) await client.suaLuat(cu.id, { phienBan: cu.phien_ban, ...thay });
-      else await client.taoLuat({ loai, dich: thay.dich ?? [], ...(thay.cheDo ? { cheDo: thay.cheDo } : {}) });
-      await napAnh();
-      if (!cu) tinLuu.value = thay.cheDo ? null : 'Đã tạo luật ở chế độ CHẠY BÓNG — bot ghi sổ, chưa gửi. Xem số 24 giờ rồi bấm Bật.';
+      else await client.taoLuat({ loai, dich: thay.dich ?? [], ...(thay.cheDo === 'tat' ? { cheDo: 'tat' as const } : {}) });
     } catch (e) {
       const l = loiTuApi(e);
       loiLuu.value = { chu: l.message, code: l.code, loai };
       if (l.status === 409) {
-        try { await napAnh(); tinLuu.value = 'Đã tải lại luật mới nhất — kiểm lại rồi sửa tiếp.'; } catch { /* giữ lỗi gốc */ }
+        try { await nap(); tinLuu.value = 'Đã tải lại luật mới nhất — kiểm lại rồi sửa tiếp.'; } catch { /* giữ lỗi gốc */ }
       }
+      dangLuu.value = false;
+      return;
+    }
+    await taiLaiSauGhi(cu || thay.cheDo === 'tat' ? null : 'Đã tạo luật ở chế độ CHẠY BÓNG — bot ghi sổ, chưa gửi. Xem số 24 giờ rồi bấm Bật.');
+  }
+
+  /** Tải lại sau một lần ghi ĐÃ thành công. */
+  async function taiLaiSauGhi(tin: string | null) {
+    try {
+      await nap();
+      tinLuu.value = tin;
+    } catch (e) {
+      tinLuu.value = `Đã lưu; tải lại lỗi (${loiTuApi(e).message}) — bấm Tải lại để xem bản mới.`;
     } finally { dangLuu.value = false; }
   }
 
@@ -139,14 +170,18 @@ export function taoBanDoTin(client: BanDoTinClient) {
     dangLuu.value = true;
     loiLuu.value = null;
     tinLuu.value = null;
-    try { await client.xoaLuat(cu.id); await napAnh(); } catch (e) {
-      loiLuu.value = { chu: loiTuApi(e).message, code: loiTuApi(e).code, loai };
-    } finally { dangLuu.value = false; }
+    try { await client.xoaLuat(cu.id); } catch (e) {
+      const l = loiTuApi(e);
+      loiLuu.value = { chu: l.message, code: l.code, loai };
+      dangLuu.value = false;
+      return;
+    }
+    await taiLaiSauGhi(null);
   }
 
   return {
-    client, anh, loi, dangTai, chuaCoBanDo, soLuatKhiTrong, dangLuu, loiLuu, tinLuu, thuGon, toanManHinh, khung, chon, tro, troDong, zoom, zoomVua, tab,
-    hopHuongDan, theme, mh, boCuc, duong, kq, tai, datChon, doiThuGon, tatCaThuGon, thuGonTatCa, datZoom, luatCua, doiDich, datDich, doiCheDo, hoanLai,
+    client, anh, loi, dangTai, chuaCoBanDo, soLuatKhiTrong, dangLuu, loiLuu, tinLuu, thuGon, toanManHinh, khung, chon, chonMat, tro, troDong, zoom, zoomVua, tab,
+    hopHuongDan, xacNhan, hoiXacNhan, theme, mh, boCuc, duong, kq, tai, datChon, doiThuGon, tatCaThuGon, thuGonTatCa, datZoom, luatCua, doiDich, datDich, doiCheDo, hoanLai,
   };
 }
 

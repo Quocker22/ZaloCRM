@@ -188,29 +188,29 @@ export function luatMau(): LuatApi[] {
   return [l('luat-1', 'xuat_hoa_don_tool', 'ke_toan', 'bat'), l('luat-2', 'in_sau_chot', 'kho', 'bong')];
 }
 
-/** Lớp CRM tự động mẫu — cùng hình GET /bot-quyen/ban-do-tin/crm-tu-dong. */
+/** Lớp CRM tự động mẫu — cùng hình GET /bot-quyen/ban-do-tin/crm-tu-dong (nguon_ma như backend bot-crm-tu-dong.ts). */
 export function crmMau(): MucCrmApi[] {
   const m = (x: Partial<MucCrmApi> & Pick<MucCrmApi, 'id' | 'ten' | 'pha' | 'loai_dich' | 'khi_nao'>): MucCrmApi => ({
-    bat: true, ly_do_tat: null, nguon_ma: 'backend/src/…', chinh_o: null, dich: [], ghi_chu: null, dan_toi: [], ...x,
+    bat: true, ly_do_tat: null, nguon_ma: '', chinh_o: null, dich: [], ghi_chu: null, dan_toi: [], ...x,
   });
   return [
-    m({ id: 'crm_khach_can_ho_tro', ten: 'Báo người trực: khách cần hỗ trợ', pha: 'hoi', loai_dich: 'nguoi_truc',
+    m({ id: 'crm_khach_can_ho_tro', nguon_ma: 'backend/src/modules/ai/agent/noi-zalo/bao-nhan-vien.ts (baoNhanVien) · dich-bao.ts (layDichBao)', ten: 'Báo người trực: khách cần hỗ trợ', pha: 'hoi', loai_dich: 'nguoi_truc',
       khi_nao: 'Bot tư vấn KHÁCH gặp ảnh/voice/file, khách bực, hoặc xin gặp sale — tối đa một tin mỗi hội thoại mỗi 10 phút.',
       chinh_o: '/settings/crm/agent-notify', dich: [{ ten: 'Nhóm trực khách', loai: 'nhom', bat: true }] }),
-    m({ id: 'crm_bot_su_co', ten: 'Báo kỹ thuật: bot gặp sự cố', pha: 'he_thong', loai_dich: 'nguoi_truc',
+    m({ id: 'crm_bot_su_co', nguon_ma: 'backend/src/modules/ai/agent/noi-zalo/bao-nhan-vien.ts (baoNhanVien) · dich-bao.ts (layDichBao)', ten: 'Báo kỹ thuật: bot gặp sự cố', pha: 'he_thong', loai_dich: 'nguoi_truc',
       khi_nao: 'Bot tư vấn KHÁCH bí không trả lời được, lỗi sau khi gọi tool, hoặc khách vượt giới hạn tin.',
       chinh_o: '/settings/crm/agent-notify', dich: [{ ten: 'Nhóm trực khách', loai: 'nhom', bat: true }] }),
-    m({ id: 'crm_lich_hen_nhac', ten: 'Nhắc sale cập nhật kết quả hẹn', pha: 'bao_cao', loai_dich: 'sale_phu_trach',
+    m({ id: 'crm_lich_hen_nhac', nguon_ma: 'backend/src/modules/contacts/appointment-reminder.ts (sendActionPrompts, cron 5 phút)', ten: 'Nhắc sale cập nhật kết quả hẹn', pha: 'bao_cao', loai_dich: 'sale_phu_trach',
       khi_nao: 'Sau giờ hẹn 1 / 4 / 10 giờ mà lịch còn "đã hẹn"/"quá hạn" — tối đa 3 lần.', bat: false,
       ly_do_tat: 'Chưa bật "Nhắc lịch hẹn qua Zalo" của tổ chức', chinh_o: '/settings/crm/appointments',
       dich: [{ ten: 'Sale phụ trách lịch hẹn — tin riêng từ nick hệ thống', loai: 'ca_nhan', bat: false }] }),
-    m({ id: 'crm_chao_nhom', ten: 'Chào nhóm mới', pha: 'he_thong', loai_dich: 'nhom_zalo',
+    m({ id: 'crm_chao_nhom', nguon_ma: 'backend/src/modules/ai/agent/noi-zalo/chao-nhom.ts (chaoNhomKhiThem)', ten: 'Chào nhóm mới', pha: 'he_thong', loai_dich: 'nhom_zalo',
       khi_nao: 'Khi một nick của tổ chức vừa được thêm vào nhóm Zalo — chào một lần duy nhất.',
       dich: [{ ten: 'Nhóm vừa thêm nick', loai: 'nhom', bat: true }], ghi_chu: 'Không có công tắc tổ chức.' }),
-    m({ id: 'crm_day_tin', ten: 'Thông báo đẩy: khách nhắn', pha: 'hoi', loai_dich: 'ung_dung',
+    m({ id: 'crm_day_tin', nguon_ma: 'backend/src/modules/push/push-service.ts (notifyNewInboundMessage)', ten: 'Thông báo đẩy: khách nhắn', pha: 'hoi', loai_dich: 'ung_dung',
       khi_nao: 'Mỗi tin khách nhắn vào ⇒ đẩy thông báo tới điện thoại NV được xem hội thoại đó.',
       dich: [{ ten: 'App điện thoại của NV', loai: 'ung_dung', bat: true }] }),
-    m({ id: 'crm_su_kien_in', ten: 'Sự kiện & sự cố máy in', pha: 'in', loai_dich: 'bot',
+    m({ id: 'crm_su_kien_in', nguon_ma: 'backend/src/modules/ai/may-in/su-kien-in.ts (ghiSuCoIn) + trigger print_jobs_su_kien_*', ten: 'Sự kiện & sự cố máy in', pha: 'in', loai_dich: 'bot',
       khi_nao: 'Lệnh in đổi trạng thái / máy báo sự cố ⇒ CRM GHI SỔ; bot đọc sổ rồi báo theo luật của bot.',
       chinh_o: '/settings/crm/print-agents', dich: [{ ten: 'Bot đọc sổ (2 máy in)', loai: 'bot', bat: true }],
       dan_toi: [{ den: 'nguon_may_in', vi_sao: 'CRM ghi sổ sự kiện in ⇒ bot đọc thành nguồn "Máy in"' }] }),

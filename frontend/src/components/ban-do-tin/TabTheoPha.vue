@@ -40,7 +40,7 @@
             <span class="kenh">{{ mh.hang[k.hang].ten }}{{ k.ban_sao ? ' · bản sao' : '' }}</span>
             <span class="ten" style="display: block">{{ k.ten }}<span v-if="k.soan" class="bdt-tag" :class="LOP_SOAN[k.soan]">{{ TEN_SOAN[k.soan] }}</span><span v-for="t in k.tags.slice(0, 2)" :key="t" class="bdt-tag" :class="LOP_TAG[t]">{{ t }}</span></span>
             <span class="mt">{{ moTa(k.nguon_id) }}</span>
-            <span class="cuoi"><span>Nhận {{ mh.vao[k.id].length }}</span><span>Đẩy {{ mh.ra[k.id].length }}</span><span v-if="soTrenKhoi(mh.demKhoi[k.id])" :title="soTrenKhoi(mh.demKhoi[k.id])!.chu">24h {{ soTrenKhoi(mh.demKhoi[k.id])!.h24 }} · 7 ngày {{ soTrenKhoi(mh.demKhoi[k.id])!.d7 }}</span></span>
+            <span class="cuoi"><span>Nhận {{ mh.vao[k.id].length }}</span><span>Đẩy {{ mh.ra[k.id].length }}</span><span v-if="soTrenKhoi(mh.demKhoi[k.id])" :title="soTrenKhoi(mh.demKhoi[k.id])!.chu">24h {{ soTrenKhoi(mh.demKhoi[k.id])!.gui24 }}{{ soTrenKhoi(mh.demKhoi[k.id])!.bong24 ? ` (+${soTrenKhoi(mh.demKhoi[k.id])!.bong24} bóng)` : '' }} · 7 ngày {{ soTrenKhoi(mh.demKhoi[k.id])!.gui7 }}</span></span>
           </span>
         </button>
       </div>

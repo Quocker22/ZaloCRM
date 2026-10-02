@@ -108,3 +108,20 @@ export function doDucKhoi(kq: KetQuaTrangThai, id: string): { opacity: number; x
   if (kq.che === 'nghi' || kq.khoiSang.has(id)) return { opacity: 1, xam: false };
   return kq.che === 'tro' ? { opacity: DO_DUC.tro.khoiKhac, xam: false } : { opacity: DO_DUC.chon.khoiKhac, xam: true };
 }
+
+/**
+ * Lựa chọn còn trỏ được vào mô hình hiện tại? Link sâu chép từ bản danh mục cũ (khối đã bỏ, liên kết đã đổi, hàng ẩn vì
+ * trống) không được để panel lơ lửng — trang bỏ chọn, xoá hash và báo một câu (nhanChonMat).
+ */
+export function chonHopLe(mh: MoHinh, c: LuaChon): boolean {
+  switch (c.kieu) {
+    case 'khoi': return !!mh.khoiTheoId[c.id];
+    case 'pha': return mh.pha.some((p) => p.id === c.id);
+    case 'hang': return mh.nhom.some((g) => (g.hang as string[]).includes(c.id));
+    case 'lien_ket': return !!mh.lienKetTheoId[c.id];
+    case 'loai': return true;
+  }
+}
+
+const TEN_KIEU_CHON: Record<LuaChon['kieu'], string> = { khoi: 'Khối', pha: 'Pha', hang: 'Đích', lien_ket: 'Liên kết', loai: 'Loại liên kết' };
+export const nhanChonMat = (kieu: LuaChon['kieu']): string => `${TEN_KIEU_CHON[kieu]} không còn trong danh mục`;
