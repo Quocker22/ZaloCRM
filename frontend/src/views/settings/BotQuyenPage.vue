@@ -3,7 +3,7 @@
   BotQuyenPage — Cài đặt › Hệ thống › "Quyền bot" (docs/77 §3.3, 30/09).
   Nơi DUY NHẤT quyết bot trả lời nhóm Zalo nào (chức năng nhóm) và ai là nhân viên, vai gì. Bot đọc cấu
   hình qua bridge mỗi ~60 s ⇒ thay đổi có hiệu lực trên bot trong khoảng 1 phút. Backend chỉ cho owner/admin.
-  Ba tab: Nhóm / Nhân viên / Nhật ký — mỗi tab là một component trong components/bot-quyen/, nạp dữ liệu
+  Bốn tab: Nhóm / Nhân viên / Cho khách (docs/79 T5 — tài liệu RAG + mô tả SP khách được thấy) / Nhật ký — mỗi tab là một component trong components/bot-quyen/, nạp dữ liệu
   khi được mở (v-if) để luôn thấy bản mới nhất sau khi sửa ở tab khác.
 -->
 <template>
@@ -29,12 +29,14 @@
       <v-tabs v-model="tab" class="bq-tabs" color="primary" density="comfortable" show-arrows>
         <v-tab value="nhom">Nhóm</v-tab>
         <v-tab value="nhan-vien">Nhân viên</v-tab>
+        <v-tab value="cho-khach">Cho khách</v-tab>
         <v-tab value="nhat-ky">Nhật ký</v-tab>
       </v-tabs>
       <v-divider class="mb-4" />
 
       <BotQuyenNhomTab v-if="tab === 'nhom'" :nguoi-dung-crm="nguoiDungCrm" />
       <BotQuyenNhanVienTab v-else-if="tab === 'nhan-vien'" :nguoi-dung-crm="nguoiDungCrm" />
+      <BotQuyenChoKhachTab v-else-if="tab === 'cho-khach'" />
       <BotQuyenNhatKyTab v-else :nguoi-dung-crm="nguoiDungCrm" />
     </div>
   </v-theme-provider>
@@ -46,10 +48,11 @@ import { layNguoiDungCrm, type NguoiDungCrm } from '@/api/bot-quyen';
 import BotQuyenNhomTab from '@/components/bot-quyen/BotQuyenNhomTab.vue';
 import BotQuyenNhanVienTab from '@/components/bot-quyen/BotQuyenNhanVienTab.vue';
 import BotQuyenNhatKyTab from '@/components/bot-quyen/BotQuyenNhatKyTab.vue';
+import BotQuyenChoKhachTab from '@/components/bot-quyen/BotQuyenChoKhachTab.vue';
 
-type Tab = 'nhom' | 'nhan-vien' | 'nhat-ky';
+type Tab = 'nhom' | 'nhan-vien' | 'cho-khach' | 'nhat-ky';
 // `?tab=nhat-ky` — trang Bản đồ tin link thẳng sang Nhật ký (luật thông báo + ảnh chụp ghi ở đây).
-const TABS: Tab[] = ['nhom', 'nhan-vien', 'nhat-ky'];
+const TABS: Tab[] = ['nhom', 'nhan-vien', 'cho-khach', 'nhat-ky'];
 const tabUrl = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('tab') : null;
 const tab = ref<Tab>(TABS.includes(tabUrl as Tab) ? (tabUrl as Tab) : 'nhom');
 const nguoiDungCrm = ref<NguoiDungCrm[]>([]);

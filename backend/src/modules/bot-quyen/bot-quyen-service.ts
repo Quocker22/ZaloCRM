@@ -879,7 +879,9 @@ export async function docNhatKy(orgId: string, limitRaw: unknown): Promise<NhatK
     where: { orgId, id: { in: idNick } }, select: { id: true, displayName: true },
   })).map((n) => [n.id, n.displayName]));
   const tenTrongAnh = (x: Prisma.JsonValue): string | null => {
-    if (x && typeof x === 'object' && !Array.isArray(x) && typeof x.tenGoi === 'string') return x.tenGoi;
+    if (!x || typeof x !== 'object' || Array.isArray(x)) return null;
+    // nhan_vien: tenGoi · tai_lieu_cho_khach: tieuDe · mo_ta_duyet: ten (docs/79 T5).
+    for (const k of ['tenGoi', 'tieuDe', 'ten'] as const) if (typeof x[k] === 'string') return x[k] as string;
     return null;
   };
   return rows.map((r) => ({

@@ -32,6 +32,12 @@ vi.mock('@/api/bot-quyen', () => ({
   goNickCrm: vi.fn(),
 }));
 
+// Tab "Cho khách" (docs/79 T5) — có test riêng ở BotQuyenChoKhach.dom.spec.ts; ở đây chỉ chặn import axios thật.
+vi.mock('@/api/bot-cho-khach', () => ({
+  layTaiLieuChoKhach: vi.fn(), duyetTaiLieuChoKhach: vi.fn(), boDuyetTaiLieuChoKhach: vi.fn(),
+  layMoTaChoKhach: vi.fn(), duyetMoTaChoKhach: vi.fn(), boDuyetMoTaChoKhach: vi.fn(),
+}));
+
 import {
   layDanhSachNhom, layThanhVienNhom, luuChucNangNhom, boXepLoaiNhom,
   layDanhSachNhanVien, themNhanVien, suaNhanVien, layNhatKy, layNguoiDungCrm, layNguoiDaNhan, docLaiThanhVienNhom,

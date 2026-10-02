@@ -186,6 +186,33 @@ function cauBanDoTin(ai: string, e: NhatKy): string {
   return `${ai} cập nhật bản đồ tin ${chuoi(e.sau, 'phienBan') ?? ''}${so}${phan.length ? ` — ${phan.join('; ')}` : ''}`;
 }
 
+/** Cho khách (docs/79 T5): tài liệu RAG khách xem được — truoc/sau = {tieuDe, choKhach}. */
+function cauTaiLieuChoKhach(ai: string, e: NhatKy): string {
+  const ten = `tài liệu “${e.tenDoiTuong?.trim() || e.doiTuongId}”`;
+  return e.sau?.choKhach === true ? `${ai} cho khách xem ${ten}` : `${ai} bỏ cho khách xem ${ten}`;
+}
+
+/** Mô tả SP duyệt cho khách — truoc/sau = {ten, moTaBam}; sau null = bỏ duyệt. Hiện 8 ký tự đầu của băm làm "bản". */
+function cauMoTaDuyet(ai: string, e: NhatKy): string {
+  const ten = `mô tả sản phẩm “${e.tenDoiTuong?.trim() || e.doiTuongId}”`;
+  const ban = (a: Anh) => (chuoi(a, 'moTaBam') ?? '').slice(0, 8) || '?';
+  if (!e.sau) return `${ai} bỏ duyệt ${ten}`;
+  if (!e.truoc) return `${ai} duyệt ${ten} cho khách (bản ${ban(e.sau)})`;
+  return `${ai} duyệt lại ${ten} cho khách (bản ${ban(e.truoc)} → ${ban(e.sau)})`;
+}
+
+/** Danh mục bot gửi (khoá API): sau = {phienBan, soTaiLieu, soSanPham, themTaiLieu, boTaiLieu, soMoTaDoi}. */
+function cauDanhMucChoKhach(ai: string, e: NhatKy): string {
+  const s = e.sau ?? {};
+  const ds = (k: string) => (Array.isArray(s[k]) ? (s[k] as unknown[]).map(String) : []);
+  const phan: string[] = [];
+  if (ds('themTaiLieu').length) phan.push(`thêm tài liệu ${ds('themTaiLieu').join(', ')}`);
+  if (ds('boTaiLieu').length) phan.push(`bỏ tài liệu ${ds('boTaiLieu').join(', ')}`);
+  if (typeof s.soMoTaDoi === 'number' && s.soMoTaDoi > 0) phan.push(`${s.soMoTaDoi} mô tả đổi`);
+  const so = typeof s.soTaiLieu === 'number' ? `: ${s.soTaiLieu} tài liệu, ${String(s.soSanPham ?? 0)} sản phẩm` : '';
+  return `${ai} gửi danh mục cho khách ${chuoi(s, 'phienBan') ?? ''}${so}${phan.length ? ` — ${phan.join('; ')}` : ''}`;
+}
+
 /** Ai thực hiện: user CRM, hoặc tác nhân máy ghi trong ai_id (`api_key:<id>` = bot qua khoá API, `cli:<script>`). */
 function tenAi(e: NhatKy): string {
   if (e.aiId.startsWith('api_key:')) return 'Bot (khoá API)';
@@ -202,7 +229,10 @@ export function cauNhatKy(e: NhatKy, tuy: { tenNguoiDung?: (id: string) => strin
       ? cauNhanVien(ai, e, tuy.tenNguoiDung ?? (() => null))
       : e.doiTuong === 'nick_crm' ? cauNickCrm(ai, e)
         : e.doiTuong === 'luat_thong_bao' ? cauLuatThongBao(ai, e)
-          : e.doiTuong === 'ban_do_tin' ? cauBanDoTin(ai, e) : `${ai} thay đổi ${e.doiTuong}`;
+          : e.doiTuong === 'ban_do_tin' ? cauBanDoTin(ai, e)
+            : e.doiTuong === 'tai_lieu_cho_khach' ? cauTaiLieuChoKhach(ai, e)
+              : e.doiTuong === 'mo_ta_duyet' ? cauMoTaDuyet(ai, e)
+                : e.doiTuong === 'danh_muc_cho_khach' ? cauDanhMucChoKhach(ai, e) : `${ai} thay đổi ${e.doiTuong}`;
   const lyDo = e.lyDo?.trim();
   return lyDo ? `${than} — lý do: ${lyDo}` : than;
 }

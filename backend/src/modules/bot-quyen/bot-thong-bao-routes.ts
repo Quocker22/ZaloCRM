@@ -89,7 +89,7 @@ export async function xacThucKhoa(request: FastifyRequest, reply: FastifyReply) 
 }
 
 /** POST ảnh chụp: org đã có khoá riêng của bot ⇒ chỉ nhận khoá đó. */
-async function canKhoaRiengNeuCo(request: FastifyRequest, reply: FastifyReply) {
+export async function canKhoaRiengNeuCo(request: FastifyRequest, reply: FastifyReply) {
   const r = request as YeuCauCoKhoa;
   if (r.khoaRieng) return;
   const co = await prisma.appSetting.findFirst({ where: { orgId: r.orgId!, settingKey: KHOA_RIENG_BOT }, select: { id: true } });

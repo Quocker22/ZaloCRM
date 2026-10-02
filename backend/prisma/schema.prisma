@@ -60,6 +60,9 @@ model Organization {
   // Thông báo chủ động (docs/78 02/10) — luật đích theo composer + ảnh chụp bản đồ tin bot đẩy lên.
   botLuatThongBao             BotLuatThongBao[]
   botBanDoTin                 BotBanDoTin?
+  botChoKhachDanhMuc          BotChoKhachDanhMuc?
+  botTaiLieuChoKhach          BotTaiLieuChoKhach[]
+  botMoTaDuyet                BotMoTaDuyet[]
   contacts                    Contact[]
   contactAccess               ContactAccess[]
   conversations               Conversation[]
@@ -4919,4 +4922,53 @@ model BotBanDoTin {
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@map("bot_ban_do_tin")
+}
+
+/// CHO KHÁCH (docs/79 T5) — danh mục MỚI NHẤT bot đẩy lên (POST /api/public/cho-khach/danh-muc): tài liệu kho tri thức (RAG)
+/// + mô tả bán hàng (`description_sale`) của SP kèm băm. Một dòng mỗi org. Hợp đồng: docs/may-in/HOP-DONG-CHO-KHACH.md.
+model BotChoKhachDanhMuc {
+  id       String   @id @default(uuid())
+  orgId    String   @unique @map("org_id")
+  phienBan String   @map("phien_ban")
+  /// [{id, tieu_de, loai, nguon, so_doan, cap_nhat_luc, mau_noi_dung}] — đã chuẩn hoá (bot-cho-khach-hop-dong.ts).
+  taiLieu  Json     @map("tai_lieu")
+  /// [{product_id, ma, ten, mo_ta_ban, mo_ta_bam}] — mo_ta_bam CRM đã tự tính lại và khớp.
+  sanPham  Json     @map("san_pham")
+  luc      DateTime @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("bot_cho_khach_danh_muc")
+}
+
+/// Tài liệu RAG được đánh dấu "khách xem được" (docs/79 T5). Không có dòng = KHÔNG cho khách (mặc định đóng).
+model BotTaiLieuChoKhach {
+  id        String   @id @default(uuid())
+  orgId     String   @map("org_id")
+  /// kb_documents.id bên DB bot.
+  taiLieuId String   @map("tai_lieu_id")
+  /// User CRM duyệt. Không FK — sống lâu hơn tài khoản.
+  duyetBoi  String   @map("duyet_boi")
+  luc       DateTime @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, taiLieuId])
+  @@map("bot_tai_lieu_cho_khach")
+}
+
+/// Mô tả SP đã duyệt cho khách (docs/79 T5, K2) — duyệt gắn với ĐÚNG băm `moTaBam`: mô tả đổi (băm khác) ⇒ hết hiệu lực.
+model BotMoTaDuyet {
+  id        String   @id @default(uuid())
+  orgId     String   @map("org_id")
+  /// id product.template trên Odoo (nơi description_sale sống).
+  productId Int      @map("product_id")
+  moTaBam   String   @map("mo_ta_bam")
+  duyetBoi  String   @map("duyet_boi")
+  luc       DateTime @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, productId])
+  @@map("bot_mo_ta_duyet")
 }

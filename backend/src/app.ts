@@ -360,6 +360,9 @@ async function bootstrap() {
   // Xưng hô người Zalo (docs/79 T1): bot hỏi anh/chị theo giới NV đã khoá tay (x-api-key, như doi-soat-echo).
   const { botNguoiZaloPublicRoutes } = await import('./modules/bot-quyen/bot-nguoi-zalo-routes.js');
   await app.register(botNguoiZaloPublicRoutes);
+  // Cho khách (docs/79 T5): bot đẩy danh mục tài liệu RAG + mô tả SP, đọc duyệt (x-api-key, khoá riêng nếu đã đặt).
+  const { botChoKhachPublicRoutes } = await import('./modules/bot-quyen/bot-cho-khach-routes.js');
+  await app.register(botChoKhachPublicRoutes);
   // Gợi ý @khách / #sản-phẩm cho ô chat.
   await app.register(goiYRoutes);
   await app.register(webhookSettingsRoutes);

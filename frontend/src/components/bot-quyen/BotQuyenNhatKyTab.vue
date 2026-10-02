@@ -19,7 +19,7 @@
       <li v-for="e in dsSap" :key="e.id" class="bq-nk" :data-id="e.id">
         <div class="bq-nk-phu">
           <time :datetime="e.luc">{{ gio(e.luc) }}</time>
-          <span class="bq-chip bq-chip--xam">{{ e.doiTuong === 'nhom' ? 'Nhóm' : e.doiTuong === 'nhan_vien' ? 'Nhân viên' : e.doiTuong }}</span>
+          <span class="bq-chip bq-chip--xam">{{ NHAN_DOI_TUONG[e.doiTuong] ?? e.doiTuong }}</span>
           <span
             v-if="e.tuDong"
             class="bq-chip bq-chip--tu-dong"
@@ -43,6 +43,10 @@ import { dinhDangGioVN } from '@/views/settings/may-in-nhat-ky';
 const props = defineProps<{ nguoiDungCrm: NguoiDungCrm[] }>();
 
 const GIOI_HAN = 200;
+const NHAN_DOI_TUONG: Record<string, string> = {
+  nhom: 'Nhóm', nhan_vien: 'Nhân viên', nick_crm: 'Nick CRM', luat_thong_bao: 'Luật thông báo', ban_do_tin: 'Bản đồ tin',
+  tai_lieu_cho_khach: 'Cho khách · tài liệu', mo_ta_duyet: 'Cho khách · mô tả', danh_muc_cho_khach: 'Cho khách · danh mục',
+};
 const toast = useToast();
 const ds = ref<NhatKy[]>([]);
 const dangTai = ref(false);
