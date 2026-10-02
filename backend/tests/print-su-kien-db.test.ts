@@ -9,10 +9,10 @@ import { it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { describeCanDb } from './helpers/can-db.js';
 import { prisma } from '../src/shared/database/prisma-client.js';
 import {
-  themJobIn, chayMotLuotIn, donJobMoCoi, MAX_LAN_THU, MS_JOB_MO_COI,
+  themJobIn, chayMotLuotIn, donJobMoCoi, MAX_LAN_THU, MS_JOB_MO_COI, TRANG_THAI_JOB,
   type PrismaHangDoiIn, type ClientMayIn, type DepsChayLuot,
 } from '../src/modules/ai/may-in/hang-doi-in.js';
-import { capNhatJobCoSuKien, ghiSuCoIn, type PrismaSuKienIn } from '../src/modules/ai/may-in/su-kien-in.js';
+import { capNhatJobCoSuKien, ghiSuCoIn, donSuKienDaNhan, type PrismaSuKienIn } from '../src/modules/ai/may-in/su-kien-in.js';
 import { capNhatJobTreThat } from '../src/modules/ai/may-in/agent-ws.js';
 import { huyLenhIn, boTheoDoi, type PrismaHangDoiHuy } from '../src/modules/ai/may-in/huy-lenh-in.js';
 import { LoiIpp, LoiKhongRo } from '../src/modules/ai/may-in/ipp-client.js';
@@ -310,5 +310,31 @@ describeCanDb('print_su_kien / print_su_co — sự kiện in bền (DB)', () =>
     expect(cho).toHaveBeenCalledWith(200);
     const hong = { ...gia, printSuCo: { create: async () => { throw new Error('chết'); } } };
     expect(await ghiSuCoIn({ maSuCo: 'het_giay', orgId: ORG }, { prisma: hong, cho })).toBe('khong_luu');
+  });
+
+  it('TRANG_THAI_JOB (TypeScript) == danh sách CHECK print_su_kien_sang_trang_thai_check trên DB', async () => {
+    const r = (await prisma.$queryRaw`
+      SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conname = 'print_su_kien_sang_trang_thai_check'`) as Array<{ d: string }>;
+    expect(r).toHaveLength(1);
+    const trenDb = [...r[0].d.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).sort();
+    expect(trenDb).toEqual([...TRANG_THAI_JOB].sort());
+  });
+
+  it('dọn 30 ngày: chỉ xoá dòng BOT ĐÃ NHẬN và cũ hơn 30 ngày (print_su_kien + print_su_co); chưa nhận thì giữ', async () => {
+    const cu = new Date(Date.now() - 31 * 24 * 3600 * 1000);
+    const moi = new Date();
+    const id = await taoJob();
+    await prisma.printSuKien.createMany({ data: [
+      { orgId: ORG, jobId: id, sangTrangThai: 'da_in', luc: cu, botNhanLuc: cu },       // xoá
+      { orgId: ORG, jobId: id, sangTrangThai: 'loi', luc: cu, botNhanLuc: null },       // giữ — bot chưa nhận
+      { orgId: ORG, jobId: id, sangTrangThai: 'da_gui', luc: moi, botNhanLuc: moi },    // giữ — mới
+    ] });
+    await prisma.printSuCo.createMany({ data: [
+      { orgId: ORG, maSuCo: 'het_giay', nhomSuCo: 'het_giay', luc: cu, botNhanLuc: cu }, // xoá
+      { orgId: ORG, maSuCo: 'ket_giay', nhomSuCo: 'ket_giay', luc: cu, botNhanLuc: null }, // giữ
+    ] });
+    expect(await donSuKienDaNhan(30)).toEqual({ suKien: 1, suCo: 1 });
+    expect((await prisma.printSuKien.findMany({ where: { jobId: id } })).map((e) => e.sangTrangThai).sort()).toEqual(['cho_in', 'da_gui', 'loi']);
+    expect((await prisma.printSuCo.findMany({ where: { orgId: ORG } })).map((e) => e.maSuCo)).toEqual(['ket_giay']);
   });
 });

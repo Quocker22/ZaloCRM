@@ -25,7 +25,7 @@ import {
 import { modelCuaReport } from './ten-file-in.js';
 import { ghiNhatKy, donNhatKyCu, SO_NGAY_GIU_NHAT_KY } from './nhat-ky.js';
 import { donNhatKyAppCu } from './nhat-ky-app.js';
-import { ghiSuCoIn } from './su-kien-in.js';
+import { ghiSuCoIn, donSuKienDaNhan } from './su-kien-in.js';
 
 let task: ReturnType<typeof cron.schedule> | null = null;
 let dangChay = false;
@@ -247,6 +247,10 @@ export function startMayInCron(): void {
       });
       void donNhatKyAppCu(SO_NGAY_GIU_NHAT_KY).then((n) => {
         if (n > 0) logger.info({ n }, '[may-in] đã dọn nhật ký app máy in cũ hơn 30 ngày');
+      });
+      // Sự kiện in / sự cố bền (docs/78 C1): chỉ dòng bot ĐÃ nhận.
+      void donSuKienDaNhan(SO_NGAY_GIU_NHAT_KY).then((n) => {
+        if (n.suKien + n.suCo > 0) logger.info(n, '[may-in] đã dọn print_su_kien/print_su_co bot đã nhận, cũ hơn 30 ngày');
       });
     }
   });

@@ -26,7 +26,12 @@ export const MAX_LAN_THU = 5;
  * một job `khong_ro` — KHÔNG khẳng định gì về giấy. Cả hai là trạng thái KẾT THÚC: cron không
  * bao giờ nhặt (DIEU_KIEN_NHAT_JOB) và không bao giờ ghi đè (mọi lần ghi có điều kiện, §8.3).
  */
-export type TrangThaiJob = 'cho_in' | 'dang_gui' | 'da_gui' | 'da_in' | 'khong_ro' | 'loi' | 'da_huy' | 'bo_qua';
+/**
+ * Mọi trạng thái print_jobs. PHẢI khớp CHECK `print_su_kien_sang_trang_thai_check` (migration 20261002090000) — thêm
+ * trạng thái mới = thêm migration nới CHECK cùng lúc; test print-su-kien-db.test.ts so hai danh sách trên DB thật.
+ */
+export const TRANG_THAI_JOB = ['cho_in', 'dang_gui', 'da_gui', 'da_in', 'khong_ro', 'loi', 'da_huy', 'bo_qua'] as const;
+export type TrangThaiJob = (typeof TRANG_THAI_JOB)[number];
 
 export interface JobIn {
   id: string;

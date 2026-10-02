@@ -237,3 +237,25 @@ export async function ghiSuCoIn(sc: SuCoIn, deps: DepsSuCoIn = {}): Promise<KetQ
   }
   return 'khong_luu';
 }
+
+// ── Dọn ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Giữ print_su_kien / print_su_co `soNgay` ngày (cùng nhịp donNhatKyCu ở cron.ts, 1 lần/ngày). CHỈ xoá dòng bot ĐÃ NHẬN
+ * (`bot_nhan_luc` khác null) — dòng bot chưa nhận (bot ngừng chạy lâu) giữ lại để khi chạy lại bot vẫn thấy. Lỗi thì nuốt.
+ */
+export async function donSuKienDaNhan(
+  soNgay = 30,
+  deps: { bayGio?: Date } = {},
+): Promise<{ suKien: number; suCo: number }> {
+  try {
+    const { prisma } = await import('../../../shared/database/prisma-client.js');
+    const moc = new Date((deps.bayGio ?? new Date()).getTime() - soNgay * 24 * 3600 * 1000);
+    const where = { botNhanLuc: { not: null }, luc: { lt: moc } };
+    const [a, b] = await Promise.all([prisma.printSuKien.deleteMany({ where }), prisma.printSuCo.deleteMany({ where })]);
+    return { suKien: a.count, suCo: b.count };
+  } catch (err) {
+    logger.warn({ err: err instanceof Error ? err.message : String(err) }, '[may-in] không dọn được print_su_kien/print_su_co cũ');
+    return { suKien: 0, suCo: 0 };
+  }
+}
