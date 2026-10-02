@@ -11,6 +11,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { describeCanDb } from './helpers/can-db.js';
 import { prisma } from '../src/shared/database/prisma-client.js';
 import { botChoKhachPublicRoutes } from '../src/modules/bot-quyen/bot-cho-khach-routes.js';
+import { timChoKhach } from '../src/modules/bot-quyen/bot-cho-khach-kho.js';
 
 const ORG_A = 'test-bct-org-a';
 const ORG_B = 'test-bct-org-b';
@@ -144,6 +145,27 @@ describeCanDb('tìm thông số trong kho tri thức CRM cho bot (DB)', () => {
       san_pham: { ten: 'P3.076 out ốp lưng 3840HZ (tấm)', ma: null, neo: [['p3'], ['076']] } });
     expect(kq[0].tai_lieu_id).toBe('kb-oplung');
     expect(kq[0].noi_dung).toContain('Refresh rate: 1920Hz-3840Hz');
+  });
+
+  it('Codex v3: hỏi "tần số quét" ⇒ đoạn refresh lên đầu dù các đoạn khác nhiều dòng số hơn', async () => {
+    await prisma.knowledgeChunk.deleteMany({ where: { orgId: ORG_A } });
+    await prisma.knowledgeDocument.deleteMany({ where: { orgId: ORG_A } });
+    const khac = Array.from({ length: 5 }, (_, i) => `Điện áp: 5V\nKích thước: 320x160mm\nCông suất: ${30 + i}W`);
+    await napKho(ORG_A, 'kb-ts', 'LLR P3.076 OP LUNG', [...khac, 'Refresh rate: 3840Hz']);
+    const kq = await ketQua('cho-khach', KHOA_A, { truy_van: 'tần số quét P3.076', so_doan: 3,
+      san_pham: { ten: 'P3.076', ma: null, neo: [['p3'], ['076']] } });
+    expect(kq[0].noi_dung).toBe('Refresh rate: 3840Hz');
+  });
+
+  it('Codex v3: câu không trùng chữ nào với tài liệu (Việt ↔ Anh), không neo ⇒ vẫn cho vector xét', async () => {
+    await prisma.knowledgeChunk.deleteMany({ where: { orgId: ORG_A } });
+    await prisma.knowledgeDocument.deleteMany({ where: { orgId: ORG_A } });
+    await napKho(ORG_A, 'kb-en', 'Power supply installation', ['Connect the brown wire to the live terminal.']);
+    let goi = 0;
+    const deps = { embed: async () => { goi++; return [[1, 0, 0]]; }, cfg: { provider: 't', model: 't' } } as never;
+    const kq = await timChoKhach(ORG_A, { truy_van: 'cách đấu nối nguồn' }, deps);
+    expect(goi).toBe(1);
+    expect(kq.ket_qua.map((d) => d.tai_lieu_id)).toEqual(['kb-en']);
   });
 
   it('cách ly org: khoá B không thấy tài liệu của A; loại trừ của B không ảnh hưởng A', async () => {

@@ -101,6 +101,23 @@ describe('nenLoaiTru — chỉ tín hiệu MẠNH (đề xuất nhầm 23/29 dat
   });
 });
 
+describe('Codex v3 — bảng cắt giữa đoạn, cột "Giá trị", "Nội bộ:"', () => {
+  it('bảng không có hàng tiêu đề (tiêu đề Giá/Tồn ở đoạn trước) ⇒ bỏ ô số trơn, giữ ô có đơn vị', () => {
+    const s = lamSachChoKhach('| P3.076 | 3840Hz | 120 | 30 |\n| P4 | 1920Hz | 150 | 12 |');
+    expect(s).toContain('3840Hz');
+    expect(s).not.toMatch(/\b120\b|\b30\b|\b150\b|\b12\b/);
+  });
+  it('bảng thông số "Thông số | Giá trị" giữ nguyên cột Giá trị', () => {
+    expect(lamSachChoKhach('| Thông số | Giá trị |\n|---|---|\n| Điện áp | 5V |\n| Tần số quét | 3840Hz |'))
+      .toBe('| Thông số | Giá trị |\n| Điện áp | 5V |\n| Tần số quét | 3840Hz |');
+  });
+  it('"Nội bộ:" / "Nội bộ —" ⇒ đề xuất loại trừ; "mạng nội bộ" thì không', () => {
+    expect(nenLoaiTru('Nội bộ: chỉ dành nhân viên', ['P3.076', 'Điện áp: 5V'])).toEqual(['chữ “nội bộ”']);
+    expect(nenLoaiTru('Hướng dẫn', ['Nội bộ — không gửi khách'])).toEqual(['chữ “nội bộ”']);
+    expect(nenLoaiTru('A6', ['Kết nối mạng nội bộ'])).toEqual([]);
+  });
+});
+
 describe('docYeuCauTim — thân POST /api/public/cho-khach/tim', () => {
   it('mặc định so_doan 3; cắt khoảng trắng', () => {
     expect(docYeuCauTim({ truy_van: '  thông số P10 ' })).toEqual({ truyVan: 'thông số P10', soDoan: 3, sanPham: null });

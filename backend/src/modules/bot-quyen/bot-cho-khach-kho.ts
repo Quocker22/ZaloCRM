@@ -67,7 +67,10 @@ const RE_LINK = /\b(?:https?:\/\/|www\.)|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|v
 const RE_EMAIL = /[\w.+-]+@[\w-]+\.[\w.-]+/;
 const RE_TON = /\b(?:ton(?:\s*kho)?|so luong ton|sl ton|hang ton|con hang|con lai|stock|in stock|inventory)\s*[:=]?\s*\d|\bcon\s*\d[\d.,]*\s*(?:tam|cai|cuon|bo|chiec|met|m|hop|thung|module)\b/;
 /** Tiêu đề cột bảng mang giá/tồn ⇒ bỏ CẢ CỘT (dòng hàng chỉ là số trơn, không tự lộ nghĩa). */
-const RE_COT_BAN = /\b(?:gia|don gia|thanh tien|price|cost|ton|ton kho|sl ton|stock|inventory|con hang|so luong|sl|chiet khau|ck)\b/;
+// "giá trị" (cột Giá trị của bảng thông số) KHÔNG phải tiền; "số lượng"/"SL" trơn hay là "Số lượng LED" — chỉ "SL tồn" mới tính (Codex v3 P2).
+const RE_COT_BAN = /\b(?:gia(?! tri)|don gia|thanh tien|price|cost|ton|ton kho|sl ton|so luong ton|stock|inventory|con hang|chiet khau|ck)\b/;
+/** Ô chỉ có số trơn (không đơn vị) — trong bảng KHÔNG thấy hàng tiêu đề thì không biết là giá, tồn hay thông số ⇒ bỏ. */
+const RE_O_SO_TRON = /^[\d.,\s]+$/;
 const RE_LIEN_HE = /\b(?:lien he|hotline|zalo|goi ngay|inbox|nhan tin|san hang|san so luong|co san hang)\b/;
 
 /** Dòng KHÔNG được tới bot: giá/tiền, SĐT, đường dẫn, email, số tồn, liên hệ mua bán. */
@@ -99,6 +102,17 @@ function boCotBan(dong: string[]): string[] {
     while (j < dong.length && (laDongBang(dong[j]) || laDongKe(dong[j]))) j++;
     const khoi = dong.slice(i, j);
     const dau = oBang(khoi[0]);
+    // Hàng đầu có ô số trơn ⇒ không phải hàng tiêu đề (bảng bị cắt giữa hai đoạn — tiêu đề "Giá | Tồn" ở đoạn trước, Codex v3 P1)
+    // ⇒ bỏ MỌI ô số trơn ở mọi hàng của khối; ô có đơn vị ("3840Hz", "5V") giữ.
+    if (dau.cells.some((c) => c && RE_O_SO_TRON.test(c))) {
+      for (const d of khoi) {
+        if (laDongKe(d)) continue;
+        const giu = oBang(d).cells.filter((c) => !RE_O_SO_TRON.test(c));
+        if (giu.some((c) => c)) ra.push(dau.tach === '|' ? `| ${giu.join(' | ')} |` : giu.join('\t'));
+      }
+      i = j;
+      continue;
+    }
     const bo = new Set(dau.cells.map((c, k) => (RE_COT_BAN.test(boDau(c)) ? k : -1)).filter((k) => k >= 0));
     for (const d of khoi) {
       if (laDongKe(d)) continue;
@@ -158,7 +172,9 @@ export function nenLoaiTru(tieuDe: string, doan: readonly string[]): string[] {
   const k = ` ${boDau(`${tieuDe}\n${doan.join('\n')}`).replace(/[^a-z0-9]+/g, ' ')} `;
   // "nội bộ" đứng một mình KHÔNG tính: datasheet viết "playback nội bộ", "mạng nội bộ", "bảng tin nội bộ" (staging 02/10 khuya)
   for (const [c, hien] of CHU_NOI_BO) if (c !== 'noi bo' && k.includes(` ${c} `)) ra.push(`chữ “${hien}”`);
-  if (/\b(tai lieu|thong tin|gia|bang gia) noi bo\b|\bnoi bo\s*(?:[-:—]|khong gui|khong chia se)/.test(k)) ra.push('chữ “nội bộ”');
+  // so trên chuỗi CÒN dấu câu (k đã xoá ":" "—" — Codex v3 P2: "Nội bộ:" không bao giờ khớp)
+  const coDau = boDau(`${tieuDe}\n${doan.join('\n')}`);
+  if (/\b(tai lieu|thong tin|gia|bang gia) noi bo\b|\bnoi bo\s*(?:[-:—–]|khong gui|khong chia se)/.test(coDau)) ra.push('chữ “nội bộ”');
   const dong = doan.join('\n').split('\n').filter((d) => d.trim());
   const ban = dong.filter((d) => dongCoGia(d) || RE_TON.test(boDau(d))).length;
   const tieuDeBan = /\b(gia|ton)\b/.test(boDau(tieuDe));
@@ -381,11 +397,19 @@ async function xepVaLoc(
     return [id, tuCau.filter((t) => tap.has(t)).length];
   }));
   const RE_DONG_TS = /\d\s*(?:hz|mm|cm|m|v|w|a|nits?|cd|lm|kg|g|k|%|ma|°c|inch|")(?![a-z])|\bip\s?\d|:\s*\S*\d|\d\s*[x*×]\s*\d|\d\/\d/i;
+  // Codex v3 P2: mật độ dòng số không được thắng ĐỘ LIÊN QUAN — (a) thuộc tính câu hỏi nhắc ("tần số quét" ⇒ refresh/Hz) có trong
+  // đoạn: ×10; (b) token phân biệt KHÔNG nằm ở tiêu đề (vd "3840hz" — mã SP thì đoạn đầu trang nào cũng lặp): ×3, nằm ở tiêu đề: ×1;
+  // (c) mật độ dòng thông số chỉ phá hoà.
+  const cauKd = boDau(cauTim);
+  const ttHoi = THUOC_TINH_TIM.filter(([hoi]) => hoi.test(cauKd)).map(([, co]) => co);
   const diemPb = new Map(hits.map((h) => {
     const nd = goc.get(h.chunkId) ?? h.content;
     const tap = tapToken(nd);
+    const tapTd = tapToken(tieuDe.get(docCua.get(h.chunkId) ?? '') ?? '');
+    const ndKd = boDau(nd);
     const matDo = Math.min(6, nd.split('\n').filter((d) => RE_DONG_TS.test(d) && !/^\s*page\s+\d+\s+of\s+\d+\s*$/i.test(d)).length);
-    return [h.chunkId, phanBiet.filter((t) => tap.has(t)).length + matDo];
+    const pb = phanBiet.filter((t) => tap.has(t)).reduce((n, t) => n + (tapTd.has(t) ? 1 : 3), 0);
+    return [h.chunkId, ttHoi.filter((co) => co.test(ndKd)).length * 10 + pb + matDo / 10];
   }));
   hits.sort((a, b) => ((diemTd.get(docCua.get(b.chunkId) ?? '') ?? 0) - (diemTd.get(docCua.get(a.chunkId) ?? '') ?? 0))
     || ((diemPb.get(b.chunkId) ?? 0) - (diemPb.get(a.chunkId) ?? 0)));
@@ -409,6 +433,22 @@ const CHON_DOAN_NHE = { id: true, documentId: true, ord: true, content: true } a
 const TRAN_UNG_VIEN_KHONG_NEO = 300;
 
 /** Từ quá chung không dùng để chọn ứng viên khi không có neo. */
+/** Thuộc tính câu hỏi (đã bỏ dấu) ⇒ dấu hiệu trong đoạn (Việt + Anh của datasheet). */
+const THUOC_TINH_TIM: Array<[RegExp, RegExp]> = [
+  [/tan so quet|tan so lam tuoi|refresh/, /refresh|\d\s*hz\b|tan so quet/],
+  [/dien ap|nguon vao|volt/, /voltage|dien ap|\d\s*v\b|input/],
+  [/cong suat|watt/, /power|cong suat|\d\s*w\b/],
+  [/kich thuoc|size|dai rong/, /dimension|size|kich thuoc|\d\s*mm\b|\d\s*[x*]\s*\d/],
+  [/do sang|nits|brightness/, /brightness|do sang|nits?\b|cd\/m/],
+  [/chong nuoc|\bip\b/, /\bip\s?\d{2}|protection|chong nuoc/],
+  [/buoc diem|pixel pitch|khoang cach diem/, /pixel (?:pitch|spacing)|buoc diem|\d\s*mm\b/],
+  [/do phan giai|resolution/, /resolution|do phan giai|\d\s*[x*]\s*\d/],
+  [/trong luong|can nang|weight/, /weight|trong luong|\d\s*kg\b/],
+  [/bao hanh|warranty/, /warranty|bao hanh/],
+  [/goc nhin|viewing/, /viewing angle|goc nhin/],
+  [/scan|quet/, /scan|\d\s*\/\s*\d+\s*(?:scan|quet)|drive mode/],
+];
+
 const TU_CHUNG_TIM = new Set(['thong', 'so', 'ky', 'thuat', 'cho', 'anh', 'chi', 'em', 'cua', 'la', 'bao', 'nhieu', 'gi', 'nao',
   'co', 'khong', 'va', 'voi', 'the', 'led', 'module']);
 
@@ -438,6 +478,9 @@ async function timTrong(orgId: string, yc: YeuCauTim, loaiTru: ReadonlySet<strin
     }).filter((x) => x.d > 0);
     diem.sort((a, b) => b.d - a.d);
     ung = diem.slice(0, TRAN_UNG_VIEN_KHONG_NEO).map((x) => x.r);
+    // Không trùng chữ nào (câu Việt, tài liệu Anh: "cách đấu nối nguồn" ↔ "Connect the brown wire…" — Codex v3 P2) ⇒ cho vector
+    // xét MỌI đoạn (đường chậm ~4–5 s, chỉ khi không có ứng viên chữ).
+    if (ung.length === 0) ung = hop;
   }
   if (ung.length === 0) return [];
   const vec = new Map((await prisma.knowledgeChunk.findMany({
