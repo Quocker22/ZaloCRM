@@ -370,11 +370,25 @@ async function xepVaLoc(
   }
   const docCua = new Map(ung.map((r) => [r.id, r.documentId]));
   const phanBiet = [...tapToken(cauTim)].filter((t) => t.length >= 2 && /\d/.test(t));
-  const diemPb = new Map(hits.map((h) => {
-    const tap = tapToken(`${tieuDe.get(docCua.get(h.chunkId) ?? '') ?? ''}\n${h.content}`);
-    return [h.chunkId, phanBiet.filter((t) => tap.has(t)).length];
+  // Thứ hạng (dev 02/10 khuya: đoạn ĐẦU TRANG PDF "Page 3 of 14 / P3.076-R-104*52-13S-1516" thắng đoạn "refresh ≥3840Hz" vì
+  // chứa mã; tài liệu "dẻo" thắng "OP LUNG"):
+  //   1. tài liệu có tiêu đề trùng nhiều từ câu hỏi hơn (kể cả chữ: "op lung", "outdoor") lên trước;
+  //   2. trong đó: token phân biệt nằm trong NỘI DUNG đoạn + mật độ dòng thông số (dòng có số kèm đơn vị/nhãn) — đoạn đầu trang chỉ
+  //      lặp mã, không có thông số.
+  const tuCau = [...tapToken(cauTim)].filter((t) => t.length >= 2 && !TU_CHUNG_TIM.has(t));
+  const diemTd = new Map([...new Set(docCua.values())].map((id) => {
+    const tap = tapToken(tieuDe.get(id) ?? '');
+    return [id, tuCau.filter((t) => tap.has(t)).length];
   }));
-  hits.sort((a, b) => (diemPb.get(b.chunkId) ?? 0) - (diemPb.get(a.chunkId) ?? 0));
+  const RE_DONG_TS = /\d\s*(?:hz|mm|cm|m|v|w|a|nits?|cd|lm|kg|g|k|%|ma|°c|inch|")(?![a-z])|\bip\s?\d|:\s*\S*\d|\d\s*[x*×]\s*\d|\d\/\d/i;
+  const diemPb = new Map(hits.map((h) => {
+    const nd = goc.get(h.chunkId) ?? h.content;
+    const tap = tapToken(nd);
+    const matDo = Math.min(6, nd.split('\n').filter((d) => RE_DONG_TS.test(d) && !/^\s*page\s+\d+\s+of\s+\d+\s*$/i.test(d)).length);
+    return [h.chunkId, phanBiet.filter((t) => tap.has(t)).length + matDo];
+  }));
+  hits.sort((a, b) => ((diemTd.get(docCua.get(b.chunkId) ?? '') ?? 0) - (diemTd.get(docCua.get(a.chunkId) ?? '') ?? 0))
+    || ((diemPb.get(b.chunkId) ?? 0) - (diemPb.get(a.chunkId) ?? 0)));
   const daCo = new Set<string>();
   const ra: Array<{ tieuDe: string; noiDung: string; id: string; diem: number }> = [];
   for (const h of hits) {

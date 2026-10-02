@@ -134,6 +134,18 @@ describeCanDb('tìm thông số trong kho tri thức CRM cho bot (DB)', () => {
     expect(JSON.stringify(kq)).not.toMatch(/900k/);
   });
 
+  it('thứ hạng (dev 02/10 khuya): tiêu đề trùng nhiều từ câu hỏi ("OP LUNG") thắng biến thể khác; đoạn thông số thắng đoạn đầu trang', async () => {
+    await prisma.knowledgeChunk.deleteMany({ where: { orgId: ORG_A } });
+    await prisma.knowledgeDocument.deleteMany({ where: { orgId: ORG_A } });
+    await napKho(ORG_A, 'kb-deo', 'LLR- P3.076 outdoor dẻo-3840hz', ['Page 3 of 14\nP3.076-R-104*52-13S-1516', 'Refresh rate: 3840Hz\nKích thước: 320x160mm']);
+    await napKho(ORG_A, 'kb-oplung', 'LLR P3.076-V2.0 OP LUNG', ['Page 1 of 12\nP3.076-HG-104x52-13S-1516',
+      'Pixel pitch: 3.076mm\nRefresh rate: 1920Hz-3840Hz\nScan: 1/13\nInput: 5V DC']);
+    const kq = await ketQua('cho-khach', KHOA_A, { truy_van: 'thông số P3.076 out ốp lưng 3840HZ (tấm)', so_doan: 2,
+      san_pham: { ten: 'P3.076 out ốp lưng 3840HZ (tấm)', ma: null, neo: [['p3'], ['076']] } });
+    expect(kq[0].tai_lieu_id).toBe('kb-oplung');
+    expect(kq[0].noi_dung).toContain('Refresh rate: 1920Hz-3840Hz');
+  });
+
   it('cách ly org: khoá B không thấy tài liệu của A; loại trừ của B không ảnh hưởng A', async () => {
     await loaiTru(ORG_B, 'kb-p3076');
     expect((await ketQua('cho-khach', KHOA_A, CAU))[0].tai_lieu_id).toBe('kb-p3076');
