@@ -113,10 +113,10 @@ describe('phiên bản cấu hình công khai (phien_ban)', () => {
     ]);
     // Thứ tự khoá trong một phần tử là một phần hợp đồng (docs/77 §3.2 + vòng sửa 1).
     expect(Object.keys(ch.nhom[0])).toEqual(['conversation_id', 'external_thread_id', 'nick_uid', 'chuc_nang', 'ten_dang_ky', 'mac_dinh']);
-    expect(Object.keys(ch.nhan_vien[0])).toEqual(['zalo_uid', 'ten_goi', 'vai', 'trang_thai', 'uids']);
+    expect(Object.keys(ch.nhan_vien[0])).toEqual(['zalo_uid', 'ten_goi', 'vai', 'trang_thai', 'goi', 'uids']);
     expect(ch.nhan_vien).toEqual([
-      { zalo_uid: '100', ten_goi: 'Quyết', vai: 'admin', trang_thai: 'hoat_dong', uids: [{ nick_uid: null, uid: '100', nguon: 'chu_chon' }] },
-      { zalo_uid: '900', ten_goi: 'Hùng', vai: 'kho', trang_thai: 'hoat_dong', uids: [{ nick_uid: null, uid: '900', nguon: 'chu_chon' }] },
+      { zalo_uid: '100', ten_goi: 'Quyết', vai: 'admin', trang_thai: 'hoat_dong', goi: null, uids: [{ nick_uid: null, uid: '100', nguon: 'chu_chon' }] },
+      { zalo_uid: '900', ten_goi: 'Hùng', vai: 'kho', trang_thai: 'hoat_dong', goi: null, uids: [{ nick_uid: null, uid: '900', nguon: 'chu_chon' }] },
     ]);
     expect(ch.phien_ban).toMatch(/^[0-9a-f]{64}$/);
   });
@@ -154,7 +154,7 @@ describe('phiên bản cấu hình công khai (phien_ban)', () => {
     };
     const ch = ghepCauHinhCongKhai([], [hung]);
     expect(ch.nhan_vien).toEqual([{
-      zalo_uid: '3395858500519725514', ten_goi: 'Trần Hưng', vai: 'admin', trang_thai: 'hoat_dong',
+      zalo_uid: '3395858500519725514', ten_goi: 'Trần Hưng', vai: 'admin', trang_thai: 'hoat_dong', goi: null,
       uids: [
         // uid chính LUÔN chu_chon (dù dòng bảng uid ghi gì)
         { nick_uid: '632106073555356463', uid: '3395858500519725514', nguon: 'chu_chon' },

@@ -357,6 +357,9 @@ async function bootstrap() {
   // Thông báo chủ động (docs/78 C2): bot đọc luật + đẩy ảnh chụp bản đồ tin (x-api-key).
   const { botThongBaoPublicRoutes } = await import('./modules/bot-quyen/bot-thong-bao-routes.js');
   await app.register(botThongBaoPublicRoutes);
+  // Xưng hô người Zalo (docs/79 T1): bot hỏi anh/chị theo giới NV đã khoá tay (x-api-key, như doi-soat-echo).
+  const { botNguoiZaloPublicRoutes } = await import('./modules/bot-quyen/bot-nguoi-zalo-routes.js');
+  await app.register(botNguoiZaloPublicRoutes);
   // Gợi ý @khách / #sản-phẩm cho ô chat.
   await app.register(goiYRoutes);
   await app.register(webhookSettingsRoutes);

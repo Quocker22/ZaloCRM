@@ -29,6 +29,10 @@
 // KHÔNG BAO GIỜ chuyển danh tính giữa actor dựa trên nó.
 // `nick_crm` = [{nick_uid, uid, nick_ten}] — nick CRM KHÁC của org nhìn từ nick `nick_uid` (bảng bot_nick_crm_uid): bot
 // thêm vào nick_bot (không phải người ngoài, không phải nhân viên), sắp theo uid. phien_ban băm cả ba mảng.
+//
+// XƯNG HÔ (docs/79 T1, 02/10): `nhan_vien[].goi` = 'anh' | 'chi' | null — ô "Gọi là" người giữ trang Quyền bot ĐÃ CHỌN
+// (BotNhanVien.goi). LUÔN có khoá (null = chưa chọn ⇒ bot gọi "anh/chị" như cũ). Gợi ý từ giới tính Zalo KHÔNG bao giờ vào
+// payload. Đổi `goi` ⇒ phien_ban đổi. (Bản thêm ô này làm phien_ban của MỌI org đổi một lần lúc lên — bot áp lại, vô hại.)
 import { createHash } from 'node:crypto';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { withTenant } from '../../shared/tenant/tenant-context.js';
@@ -78,6 +82,8 @@ export interface NhanVienCongKhai {
   ten_goi: string;
   vai: string;
   trang_thai: string;
+  /** Xưng hô đã chọn trên trang Quyền bot: anh | chi | null (chưa chọn). docs/79 T1. */
+  goi: 'anh' | 'chi' | null;
   /** Mọi uid của người này (mỗi nick một uid), kể cả `zalo_uid`. */
   uids: UidCongKhai[];
 }
@@ -110,7 +116,7 @@ export function ghepCauHinhCongKhai(
     macDinh?: boolean;
   }>,
   nhanVien: ReadonlyArray<{
-    zaloUid: string; tenGoi: string; vai: string; trangThai: string;
+    zaloUid: string; tenGoi: string; vai: string; trangThai: string; goi?: string | null;
     uids?: ReadonlyArray<{ zaloUid: string; nickUid: string | null; nguon?: string }>;
   }>,
   nickCrm: ReadonlyArray<{ nickUid: string | null; zaloUid: string; nickTen: string }> = [],
@@ -137,7 +143,9 @@ export function ghepCauHinhCongKhai(
       }
       if (!theoUid.has(r.zaloUid)) theoUid.set(r.zaloUid, { nick_uid: null, uid: r.zaloUid, nguon: 'chu_chon' });
       const uids = [...theoUid.values()].sort((a, b) => soSanh(a.uid, b.uid));
-      return { zalo_uid: r.zaloUid, ten_goi: r.tenGoi, vai: r.vai, trang_thai: r.trangThai, uids };
+      // goi lạ (không anh/chi) ⇒ null: bot chỉ nhận đúng hai giá trị (DB còn CHECK chặn lần hai).
+      const goi: NhanVienCongKhai['goi'] = r.goi === 'anh' || r.goi === 'chi' ? r.goi : null;
+      return { zalo_uid: r.zaloUid, ten_goi: r.tenGoi, vai: r.vai, trang_thai: r.trangThai, goi, uids };
     })
     .sort((a, b) => soSanh(a.zalo_uid, b.zalo_uid));
   const k: NickCrmCongKhai[] = nickCrm
@@ -205,7 +213,7 @@ export async function docCauHinhCongKhai(orgId: string, bayGio: Date = new Date(
       prisma.botNhanVien.findMany({
         where: { orgId },
         select: {
-          zaloUid: true, tenGoi: true, vai: true, trangThai: true,
+          zaloUid: true, tenGoi: true, vai: true, trangThai: true, goi: true,
           uids: { select: { zaloUid: true, zaloAccountId: true, nguon: true } },
         },
       }),
@@ -242,7 +250,7 @@ export async function docCauHinhCongKhai(orgId: string, bayGio: Date = new Date(
       });
     }
     return ghepCauHinhCongKhai(nhom, nhanVien.map((n) => ({
-      zaloUid: n.zaloUid, tenGoi: n.tenGoi, vai: n.vai, trangThai: n.trangThai,
+      zaloUid: n.zaloUid, tenGoi: n.tenGoi, vai: n.vai, trangThai: n.trangThai, goi: n.goi,
       uids: n.uids.map((u) => ({
         zaloUid: u.zaloUid, nickUid: (u.zaloAccountId && uidNick.get(u.zaloAccountId)) || null, nguon: u.nguon,
       })),

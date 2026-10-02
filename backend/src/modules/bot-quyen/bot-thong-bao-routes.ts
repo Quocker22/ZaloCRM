@@ -74,7 +74,7 @@ export const KHOA_RIENG_BOT = 'bot_ban_do_tin_api_key';
 type YeuCauCoKhoa = FastifyRequest & { orgId?: string; apiKeyId?: string; khoaRieng?: boolean };
 
 /** Xác thực x-api-key: khoá chung `public_api_key` hoặc khoá riêng của bot. Gắn orgId, apiKeyId, khoaRieng. */
-async function xacThucKhoa(request: FastifyRequest, reply: FastifyReply) {
+export async function xacThucKhoa(request: FastifyRequest, reply: FastifyReply) {
   const apiKey = request.headers['x-api-key'];
   if (typeof apiKey !== 'string' || !apiKey) return reply.status(401).send({ error: 'API key required' });
   const setting = await prisma.appSetting.findFirst({

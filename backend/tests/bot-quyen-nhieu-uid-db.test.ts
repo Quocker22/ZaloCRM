@@ -159,7 +159,7 @@ describeCanDb('bot-quyen — một nhân viên nhiều uid (mỗi nick một uid
     // Payload cho bot: CHỈ uid chủ chọn.
     let cfg = await docCauHinhCongKhai(ORG);
     expect(cfg.nhan_vien).toEqual([{
-      zalo_uid: HUNG_CL, ten_goi: 'Trần Hưng', vai: 'admin', trang_thai: 'hoat_dong',
+      zalo_uid: HUNG_CL, ten_goi: 'Trần Hưng', vai: 'admin', trang_thai: 'hoat_dong', goi: null,
       uids: [{ nick_uid: CL_UID, uid: HUNG_CL, nguon: 'chu_chon' }],
     }]);
     // "Chờ gán": dòng gộp của Hưng biến mất (đã là NV dưới HUNG_CL).

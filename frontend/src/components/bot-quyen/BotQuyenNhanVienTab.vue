@@ -4,6 +4,8 @@
   đang hoạt động / khoá / đã nghỉ, gắn tài khoản CRM nào. Thêm / Sửa qua BotQuyenNhanVienDialog (lý do khi
   hạ / khoá, 409 ADMIN_CUOI hiện nguyên câu backend). Không xoá cứng — cho nghỉ bằng trạng thái. Bên dưới là "Chờ gán —
   người đã nhắn cho shop" (BotQuyenChoGan, docs/77 §8): người đã gán không còn ở đó.
+  Cột "Gọi là" (docs/79 T1): bot gọi người này là Anh / Chị (trống ⇒ "anh/chị"). Chọn là lưu ngay. CRM chỉ GỢI Ý từ giới
+  tính Zalo (chip + "Dùng"); "Áp gợi ý đã xác nhận" áp một lần cho mọi dòng CHƯA chọn có gợi ý từ giới tính NV đã sửa tay.
 -->
 <template>
   <section class="bq-goc" aria-label="Nhân viên của bot">
@@ -16,6 +18,17 @@
       </p>
       <div class="bq-cac-nut">
         <v-btn variant="outlined" size="small" prepend-icon="mdi-refresh" :loading="dangTai" @click="tai">Làm mới</v-btn>
+        <v-btn
+          v-if="dsApHangLoat.length > 0"
+          variant="tonal"
+          color="primary"
+          size="small"
+          prepend-icon="mdi-account-check-outline"
+          data-nut="ap-goi-y-hang-loat"
+          title="Đặt “Gọi là” theo giới tính NV đã xác nhận trên CRM — chỉ cho người chưa chọn"
+          :loading="dangApHangLoat"
+          @click="apGoiYHangLoat"
+        >Áp gợi ý đã xác nhận ({{ dsApHangLoat.length }})</v-btn>
         <v-btn color="primary" variant="flat" size="small" prepend-icon="mdi-plus" @click="moThem">Thêm nhân viên</v-btn>
       </div>
     </div>
@@ -38,6 +51,7 @@
       <thead>
         <tr>
           <th>Tên gọi</th>
+          <th>Gọi là</th>
           <th>Zalo uid</th>
           <th>Vai</th>
           <th>Trạng thái</th>
@@ -50,6 +64,37 @@
       <tbody>
         <tr v-for="nv in ds" :key="nv.id" :data-id="nv.id">
           <td data-nhan="Tên gọi"><span class="bq-ten">{{ nv.tenGoi }}</span></td>
+          <td data-nhan="Gọi là">
+            <div class="bq-goi">
+              <v-select
+                :model-value="nv.goi ?? ''"
+                data-o="goi"
+                class="bq-goi-chon"
+                :items="DS_GOI"
+                item-title="title"
+                item-value="value"
+                density="compact"
+                variant="outlined"
+                hide-details
+                :disabled="dangLuuGoi.has(nv.id)"
+                :aria-label="`Bot gọi ${nv.tenGoi} là`"
+                @update:model-value="(g: string | null) => datGoi(nv, g === 'anh' || g === 'chi' ? g : null)"
+              />
+              <div v-if="coGoiYKhac(nv)" class="bq-goi-y" :data-goi-y="nv.goiNguon">
+                <span class="bq-nho" :class="nv.goiNguon === 'khoa_tay' ? 'bq-goi-y--chac' : 'bq-mo'">{{ cauGoiY(nv) }}</span>
+                <v-btn
+                  size="x-small"
+                  variant="tonal"
+                  color="primary"
+                  data-nut="nhan-goi-y"
+                  :disabled="dangLuuGoi.has(nv.id)"
+                  :aria-label="`Dùng gợi ý: gọi ${nv.tenGoi} là ${nhanGoi(nv.goiGoiY)}`"
+                  @click="datGoi(nv, nv.goiGoiY ?? null)"
+                >Dùng</v-btn>
+              </div>
+              <span v-else-if="!nv.goi && cauKhongGoiY(nv)" class="bq-nho bq-mo">{{ cauKhongGoiY(nv) }}</span>
+            </div>
+          </td>
           <td data-nhan="Zalo uid">
             <div class="bq-uids">
               <span v-for="x in uidsCua(nv)" :key="x.zaloUid" class="bq-uid" :data-uid="x.zaloUid">
@@ -132,7 +177,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import {
-  layDanhSachNhanVien, goUidNhanVien, noiDeXuat, tuChoiDeXuat, type NguoiDungCrm, type NhanVien,
+  layDanhSachNhanVien, goUidNhanVien, noiDeXuat, tuChoiDeXuat, suaNhanVien, type GoiNv, type NguoiDungCrm, type NhanVien,
 } from '@/api/bot-quyen';
 import { goDuoc, moTaBangChung, moTaDeXuat, nhanNguonUid } from '@/views/settings/bot-quyen-uid';
 import BotQuyenLyDoDialog from './BotQuyenLyDoDialog.vue';
@@ -142,6 +187,7 @@ import { loiApi } from '@/views/settings/bot-quyen-loi';
 import { dinhDangGioVN } from '@/views/settings/may-in-nhat-ky';
 import BotQuyenNhanVienDialog from './BotQuyenNhanVienDialog.vue';
 import BotQuyenChoGan from './BotQuyenChoGan.vue';
+import { DS_GOI, nhanGoi, cauGoiY, cauKhongGoiY, coGoiYKhac, dongApHangLoat } from '@/views/settings/bot-quyen-goi';
 
 defineProps<{ nguoiDungCrm: NguoiDungCrm[] }>();
 
@@ -257,6 +303,58 @@ async function lamViec(lyDo: string) {
   }
 }
 
+// ── "Gọi là" (docs/79 T1) — chọn là lưu ngay; gợi ý chỉ áp khi người giữ trang bấm ──
+const dangLuuGoi = ref<Set<string>>(new Set());
+const dangApHangLoat = ref(false);
+const dsApHangLoat = computed(() => dongApHangLoat(ds.value));
+
+function thayDong(moi: NhanVien | undefined) {
+  if (!moi) return;
+  const i = ds.value.findIndex((x) => x.id === moi.id);
+  if (i >= 0) ds.value.splice(i, 1, { ...ds.value[i], ...moi });
+}
+
+async function datGoi(nv: NhanVien, goi: GoiNv | null) {
+  if ((nv.goi ?? null) === goi || dangLuuGoi.value.has(nv.id)) return;
+  dangLuuGoi.value = new Set([...dangLuuGoi.value, nv.id]);
+  try {
+    const { nhanVien } = await suaNhanVien(nv.id, { goi });
+    thayDong(nhanVien);
+    toast.success(goi ? `Bot sẽ gọi ${nv.tenGoi} là “${nhanGoi(goi)}” (áp trong khoảng 1 phút).` : `Đã bỏ chọn — bot gọi ${nv.tenGoi} là “anh/chị”.`);
+  } catch (e) {
+    const l = loiApi(e, 'Không lưu được “Gọi là”');
+    if (!l.daBao) toast.error(l.chu, 6000);
+    await tai();
+  } finally {
+    const s = new Set(dangLuuGoi.value);
+    s.delete(nv.id);
+    dangLuuGoi.value = s;
+  }
+}
+
+async function apGoiYHangLoat() {
+  const dsAp = [...dsApHangLoat.value];
+  if (dsAp.length === 0) return;
+  dangApHangLoat.value = true;
+  let xong = 0;
+  let loi = '';
+  try {
+    for (const nv of dsAp) {
+      try {
+        await suaNhanVien(nv.id, { goi: nv.goiGoiY ?? null });
+        xong++;
+      } catch (e) {
+        loi = loiApi(e, 'Không lưu được').chu;
+      }
+    }
+    if (xong > 0) toast.success(`Đã áp gợi ý cho ${xong} người — bot áp trong khoảng 1 phút.`);
+    if (loi) toast.error(`${dsAp.length - xong} người chưa áp được: ${loi}`, 6000);
+  } finally {
+    dangApHangLoat.value = false;
+    await tai();
+  }
+}
+
 onMounted(tai);
 </script>
 
@@ -274,4 +372,11 @@ onMounted(tai);
   border: 1px dashed var(--bq-vien); border-radius: 6px; max-width: 420px; overflow-wrap: anywhere;
 }
 .bq-de-xuat-nut { display: inline-flex; gap: 4px; }
+.bq-goi { display: flex; flex-direction: column; gap: 4px; min-width: 128px; max-width: 240px; }
+.bq-goi-chon { max-width: 150px; }
+.bq-goi-y { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; overflow-wrap: anywhere; }
+.bq-goi-y--chac { color: var(--bq-xanh); font-weight: 600; }
+@media (max-width: 700px) {
+  .bq-goi { max-width: none; }
+}
 </style>

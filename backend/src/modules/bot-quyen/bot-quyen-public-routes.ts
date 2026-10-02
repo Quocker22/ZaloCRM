@@ -3,7 +3,8 @@
 //
 //   GET /api/public/bot-quyen   (header x-api-key — cùng khoá + cùng cơ chế /api/public/conversations)
 //     → 200 {phien_ban, nhom:[{conversation_id, external_thread_id, nick_uid, chuc_nang, ten_dang_ky}],
-//            nhan_vien:[{zalo_uid, ten_goi, vai, trang_thai}]}
+//            nhan_vien:[{zalo_uid, ten_goi, vai, trang_thai, goi, uids}], nick_crm:[…]}
+//       goi = 'anh' | 'chi' | null — xưng hô chủ đã chọn (docs/79 T1)
 //     → 401 thiếu/sai khoá
 //
 // Chỉ đọc. Hình JSON là hợp đồng — xem bot-quyen-cong-khai.ts.

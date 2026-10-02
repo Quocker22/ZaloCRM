@@ -27,6 +27,7 @@ import { layDanhTinhZalo } from './bot-quyen-danh-tinh.js';
 import { nickCuaUid, uidDaThayTrongTin } from './bot-quyen-cung-nguoi.js';
 import { docNickCrm, nickCongTyTheoNick } from './bot-quyen-nick-crm.js';
 import { logger } from '../../shared/utils/logger.js';
+import { GOI_NV, laGoi, goiGoiYChoNhanVien, type GoiNv, type NguonGoi, type LyDoKhongGoiY } from './bot-quyen-goi.js';
 
 /** Sau thay đổi NV: mặc định các nhóm có thể đổi ⇒ ghi nhật ký "tự động" (góp ý chủ (4)). Không làm hỏng thay đổi NV. */
 async function ghiNhanSauDoiNv(orgId: string): Promise<void> {
@@ -339,6 +340,7 @@ export async function boXepLoaiNhom(
 type AnhNhanVien = {
   zaloUid: string; tenGoi: string; vai: string; trangThai: string; userId: string | null; ghiChu: string | null;
   soDienThoai?: string | null;
+  goi?: string | null;
 };
 
 function anhNhanVien(r: AnhNhanVien): AnhNhanVien {
@@ -347,11 +349,12 @@ function anhNhanVien(r: AnhNhanVien): AnhNhanVien {
     userId: r.userId ?? null, ghiChu: r.ghiChu ?? null,
     // chỉ khi có (nhật ký cũ không có ô này)
     ...(r.soDienThoai ? { soDienThoai: r.soDienThoai } : {}),
+    ...(r.goi ? { goi: r.goi } : {}),
   };
 }
 
 const CHON_NV = {
-  id: true, zaloUid: true, tenGoi: true, vai: true, trangThai: true, userId: true, ghiChu: true, soDienThoai: true,
+  id: true, zaloUid: true, tenGoi: true, vai: true, trangThai: true, userId: true, ghiChu: true, soDienThoai: true, goi: true,
   capNhatLuc: true, capNhatBoiId: true,
   user: { select: { id: true, fullName: true } },
   uids: { select: { zaloUid: true, zaloAccountId: true, nguon: true, bangChung: true }, orderBy: { zaloUid: 'asc' } },
@@ -394,6 +397,15 @@ export interface NhanVienView {
   ghiChu: string | null;
   /** SĐT Zalo (tuỳ chọn) — đường phụ tìm uid ở nick khác, chỉ nhận khi globalId sống trùng. */
   soDienThoai: string | null;
+  /** Xưng hô (docs/79 T1): anh | chi | null (chưa chọn ⇒ bot gọi "anh/chị"). CHỈ người giữ trang ghi. */
+  goi: GoiNv | null;
+  /**
+   * GỢI Ý từ Contact.gender của mọi uid người này (bot-quyen-goi.ts) — KHÔNG tự ghi vào `goi`. `goiNguon`: khoa_tay (NV đã
+   * sửa tay giới tính trên CRM) · zalo_tu_dien (Zalo tự điền, chưa ai xác nhận) · null. `goiGoiYLyDo` khi không gợi ý được.
+   */
+  goiGoiY: GoiNv | null;
+  goiNguon: NguonGoi | null;
+  goiGoiYLyDo: LyDoKhongGoiY | null;
   capNhatLuc: Date;
   capNhatBoi: { id: string; fullName: string } | null;
 }
@@ -401,10 +413,15 @@ export interface NhanVienView {
 async function nhanVienViews(orgId: string, rows: NvRow[]): Promise<NhanVienView[]> {
   const idNick = [...new Set(rows.flatMap((r) => [...r.uids, ...r.deXuatUid].map((u) => u.zaloAccountId))
     .filter((x): x is string => !!x))];
-  const [nguoi, nicks] = await Promise.all([
+  const [nguoi, nicks, goiY] = await Promise.all([
     tenNguoi(orgId, rows.map((r) => r.capNhatBoiId)),
     idNick.length === 0 ? [] : prisma.zaloAccount.findMany({
       where: { orgId, id: { in: idNick } }, select: { id: true, displayName: true, zaloUid: true },
+    }),
+    // Gợi ý xưng hô — lỗi đọc không làm hỏng trang (chỉ mất gợi ý).
+    goiGoiYChoNhanVien(orgId, rows).catch((err) => {
+      logger.warn('[bot-quyen] gợi ý xưng hô lỗi:', err);
+      return new Map<string, { goi: GoiNv | null; nguon: NguonGoi | null; lyDo: LyDoKhongGoiY | null }>();
     }),
   ]);
   const nick = new Map(nicks.map((n) => [n.id, { id: n.id, ten: n.displayName?.trim() || 'Nick chưa đặt tên', zaloUid: n.zaloUid }]));
@@ -416,7 +433,10 @@ async function nhanVienViews(orgId: string, rows: NvRow[]): Promise<NhanVienView
     deXuat: r.deXuatUid.map((d) => ({
       zaloUid: d.zaloUid, nick: (d.zaloAccountId && nick.get(d.zaloAccountId)) || null, soTin: d.soTin, bangChung: d.bangChung ?? null,
     })),
-    userId: r.userId, user: r.user, ghiChu: r.ghiChu, soDienThoai: r.soDienThoai, capNhatLuc: r.capNhatLuc,
+    userId: r.userId, user: r.user, ghiChu: r.ghiChu, soDienThoai: r.soDienThoai,
+    goi: laGoi(r.goi) ? r.goi : null,
+    goiGoiY: goiY.get(r.id)?.goi ?? null, goiNguon: goiY.get(r.id)?.nguon ?? null, goiGoiYLyDo: goiY.get(r.id)?.lyDo ?? null,
+    capNhatLuc: r.capNhatLuc,
     capNhatBoi: (r.capNhatBoiId && nguoi.get(r.capNhatBoiId)) || null,
   }));
 }
@@ -442,6 +462,14 @@ function kiemTrangThai(x: unknown): TrangThaiNv {
   if (!laTrangThai(x)) {
     throw new LoiBotQuyen(400, 'TRANG_THAI_KHONG_HOP_LE', `Trạng thái phải là một trong: ${TRANG_THAI_NV.join(', ')}`);
   }
+  return x;
+}
+
+/** Xưng hô: undefined = không gửi; null / '' = chưa chọn; còn lại anh | chi. Sai ⇒ 400. */
+function docGoi(x: unknown): GoiNv | null | undefined {
+  if (x === undefined) return undefined;
+  if (x === null || x === '') return null;
+  if (!laGoi(x)) throw new LoiBotQuyen(400, 'GOI_KHONG_HOP_LE', `Gọi là phải là một trong: ${GOI_NV.join(', ')} (hoặc bỏ trống)`);
   return x;
 }
 
@@ -700,6 +728,7 @@ export async function themNhanVien(orgId: string, aiId: string, input: unknown):
   const userId = chuoiHoacNull(body.userId, 'userId', DAI_UID) ?? null;
   const ghiChu = chuoiHoacNull(body.ghiChu, 'ghiChu', DAI_GHI_CHU) ?? null;
   const soDienThoai = docSdt(body.soDienThoai) ?? null;
+  const goi = docGoi(body.goi) ?? null;
   const lyDo = docLyDo(body.lyDo);
   if (laKhoaKhiTao(vai, trangThai)) {
     canLyDo(lyDo, 'thêm nhân viên đang khoá / đã nghỉ / là người công ty (bot sẽ khoá Zalo này)');
@@ -721,7 +750,7 @@ export async function themNhanVien(orgId: string, aiId: string, input: unknown):
     // uid chủ chọn làm NV mới mà đang là ĐỀ XUẤT của NV khác ⇒ đề xuất đó hết nghĩa (uid đã có chủ) — xoá.
     await tx.botNhanVienUidDeXuat.deleteMany({ where: { orgId, zaloUid: { in: chon } } });
     const tao = await tx.botNhanVien.create({
-      data: { orgId, zaloUid, tenGoi, vai, trangThai, userId, ghiChu, soDienThoai, capNhatBoiId: aiId },
+      data: { orgId, zaloUid, tenGoi, vai, trangThai, userId, ghiChu, soDienThoai, goi, capNhatBoiId: aiId },
       select: { id: true },
     });
     await tx.botNhanVienUid.createMany({
@@ -757,6 +786,7 @@ export async function suaNhanVien(
   const userId = chuoiHoacNull(body.userId, 'userId', DAI_UID);
   const ghiChu = chuoiHoacNull(body.ghiChu, 'ghiChu', DAI_GHI_CHU);
   const soDienThoai = docSdt(body.soDienThoai);
+  const goi = docGoi(body.goi);
   const lyDo = docLyDo(body.lyDo);
   await kiemUser(orgId, userId);
   if (vai === 'admin') {
@@ -780,6 +810,7 @@ export async function suaNhanVien(
       userId: userId === undefined ? cu.userId : userId,
       ghiChu: ghiChu === undefined ? cu.ghiChu : ghiChu,
       soDienThoai: soDienThoai === undefined ? cu.soDienThoai : soDienThoai,
+      goi: goi === undefined ? cu.goi : goi,
     };
     if (giongNhau(truoc, anhNhanVien(sau))) return { row: cu, doi: false };
 
@@ -801,7 +832,7 @@ export async function suaNhanVien(
       where: { id: cu.id },
       data: {
         tenGoi: sau.tenGoi, vai: sau.vai, trangThai: sau.trangThai, userId: sau.userId, ghiChu: sau.ghiChu,
-        soDienThoai: sau.soDienThoai ?? null, capNhatBoiId: aiId,
+        soDienThoai: sau.soDienThoai ?? null, goi: sau.goi ?? null, capNhatBoiId: aiId,
       },
     });
     await ghiNhatKy(tx, { orgId, aiId, doiTuong: 'nhan_vien', doiTuongId: cu.id, truoc, sau: anhNhanVien(sau), lyDo });

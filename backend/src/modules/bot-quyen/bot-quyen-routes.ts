@@ -13,9 +13,11 @@
 //   POST   /nhom/:conversationId/doc-lai                      — xếp hàng đọc lại danh sách thành viên (mặc định)
 //   GET    /nguoi-da-nhan                     ?tuKhoa=&trang=&moiTrang=&lamMoi=1 — người đã nhắn cho shop, chưa gán
 //   GET    /nhan-vien
-//   POST   /nhan-vien                         {zaloUid, zaloUids?, tenGoi, vai, trangThai?, userId?, ghiChu?, lyDo?}
+//   POST   /nhan-vien                         {zaloUid, zaloUids?, tenGoi, vai, trangThai?, userId?, ghiChu?, goi?, lyDo?}
 //                                             (zaloUids = uid cùng người ở nick khác; máy tự thêm uid nhận ra được — §8b)
-//   PUT    /nhan-vien/:id                     {tenGoi?, vai?, trangThai?, userId?, ghiChu?, lyDo?}
+//   PUT    /nhan-vien/:id                     {tenGoi?, vai?, trangThai?, userId?, ghiChu?, goi?, lyDo?}
+//                                             goi = 'anh' | 'chi' | null (docs/79 T1). GET trả thêm goiGoiY/goiNguon/goiGoiYLyDo:
+//                                             GỢI Ý từ giới tính Zalo (ưu tiên khoá tay) — không bao giờ tự ghi `goi`.
 //   POST   /nhan-vien/:id/uid                 {zaloUid? | zaloUids?, lyDo} — thêm uid của CÙNG người ở nick khác (§8b);
 //                                             lyDo BẮT BUỘC; uid phải đã thấy trong tin, không là nick CRM (§8b-an-toàn)
 //   DELETE /nhan-vien/:id/uid/:uid            {lyDo} — GỠ uid (không gỡ uid chính) + ghi từ chối (máy không nối lại)

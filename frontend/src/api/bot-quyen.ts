@@ -30,6 +30,8 @@ import { api } from '@/api/index';
 export type ChucNangNhom = 'admin' | 'sales' | 'kho' | 'ke_toan' | 'khach';
 export type VaiNhanVien = 'admin' | 'sales' | 'kho' | 'ke_toan' | 'cong_ty';
 export type TrangThaiNhanVien = 'hoat_dong' | 'khoa' | 'nghi';
+/** Xưng hô (docs/79 T1). */
+export type GoiNv = 'anh' | 'chi';
 
 export interface NickNhom {
   id: string;
@@ -203,6 +205,13 @@ export interface NhanVien {
   ghiChu: string | null;
   /** SĐT Zalo (tuỳ chọn) — nick khác tìm theo SĐT, chỉ nối khi globalId trùng. */
   soDienThoai?: string | null;
+  /** Xưng hô đã chọn — bot dùng. null = chưa chọn (bot gọi "anh/chị"). */
+  goi?: GoiNv | null;
+  /** GỢI Ý từ giới tính Zalo (KHÔNG tự áp): khoa_tay = NV đã sửa tay trên CRM · zalo_tu_dien = Zalo tự điền. */
+  goiGoiY?: GoiNv | null;
+  goiNguon?: 'khoa_tay' | 'zalo_tu_dien' | null;
+  /** Vì sao không gợi ý: chua_co_gioi · mau_thuan_khoa_tay · mau_thuan_zalo · khoa_tay_khac. */
+  goiGoiYLyDo?: string | null;
   capNhatLuc: string;
   capNhatBoi: { id: string; fullName: string } | null;
 }
@@ -259,6 +268,8 @@ export interface SuaNhanVienPayload {
   ghiChu?: string | null;
   /** null = xoá SĐT. */
   soDienThoai?: string | null;
+  /** null = chưa chọn. */
+  goi?: GoiNv | null;
   lyDo?: string;
 }
 

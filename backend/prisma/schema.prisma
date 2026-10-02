@@ -4676,6 +4676,9 @@ model BotNhanVien {
 
   /// SĐT Zalo (tuỳ chọn) — nick khác findUser(sđt) ⇒ uid, CHỈ nhận khi globalId sống trùng (§8b-an-toàn).
   soDienThoai String?                @map("so_dien_thoai")
+  /// Xưng hô (docs/79 T1): anh | chi | null (chưa chọn ⇒ bot gọi "anh/chị"). Chủ chọn trên trang; CRM chỉ gợi ý từ
+  /// Contact.gender (bot-quyen-goi.ts), không tự ghi. CHECK bot_nhan_vien_goi_check.
+  goi         String?
   org         Organization           @relation(fields: [orgId], references: [id], onDelete: Cascade)
   user        User?                  @relation(fields: [userId], references: [id], onDelete: SetNull)
   uids        BotNhanVienUid[]
