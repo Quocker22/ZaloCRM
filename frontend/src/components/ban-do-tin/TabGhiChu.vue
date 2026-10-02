@@ -26,7 +26,7 @@ const THE = [
   { icon: Lock, tieu_de: 'Ba kiểu tin', dong: [
     '<b>🔒 Cố định</b> — đích gắn với lượt chat (mã chốt, thẻ hỏi, câu trả lời). Đổi là hỏng nghiệp vụ.',
     '<b>✎ Thêm bản sao</b> — nơi gốc luôn giữ; luật chỉ THÊM đích (vd Xuất hoá đơn → Kế toán).',
-    '<b>✎ Tin thông báo</b> — tin mới (in xong, báo cáo ngày…): nơi gốc bot khai vẫn giữ, luật thêm đích tuỳ ý.',
+    '<b>✎ Thông báo thuần</b> — tin mới (in xong, báo cáo ngày…): đổi đích tự do, theo luật — KHÔNG có nơi gốc; đích bot khai chỉ là gợi ý (vẽ Tắt). Chưa có luật = không gửi tới đâu.',
     'Đích luật CRM nhận: nhóm theo chức năng (Kho, Admin, Kế toán, Sales, Khách), một NV chỉ định, người gây ra sự kiện.',
     'Nơi gốc <b>không bao giờ</b> là đích của luật bản sao; trùng nơi thật (cùng nhóm) thì chỉ gửi một tin.',
   ] },

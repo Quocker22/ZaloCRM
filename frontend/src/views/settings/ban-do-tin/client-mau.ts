@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // client-mau.ts — adapter GIẢ LẬP cho `BanDoTinClient`, CHỈ cho test + khung so ảnh (visual/ban-do-tin/xem.ts).
 // Trả đúng hình hợp đồng (hop-dong.ts) và bắt chước rào của server (bot-thong-bao-luat.ts / -service.ts): composer lạ ⇒ 400,
-// 🔒 ⇒ 400, nhom_goc ⇒ 400, nhạy cảm → nhóm khách ⇒ 400, trùng luật ⇒ 409 DA_CO_LUAT, thiếu/cũ phienBan ⇒ 400/409.
+// 🔒 ⇒ 400, nhom_goc ⇒ 400, nhạy cảm → nhóm khách ⇒ 400, nhóm khách (bot chưa hỗ trợ) ⇒ 400, trùng luật ⇒ 409 DA_CO_LUAT, thiếu/cũ phienBan ⇒ 400/409.
 import type { BanDoTinClient, SuaLuatNhap, TaoLuatNhap } from '@/api/ban-do-tin';
 import { LoiBanDoTin } from './loi';
 import { banDoMau, crmMau, danhSachLuatMau, soGia } from './danh-muc-mau';
@@ -23,9 +23,11 @@ export interface TuyChonMau {
 export function demMau(composer: readonly ComposerApi[], luat: readonly LuatApi[]): DemApi[] {
   const ra: DemApi[] = [];
   const dong = (c: string, dk: string, luatId: string | null, kq: DemApi['ket_qua'], cs: DemApi['cua_so'], so: number) => {
-    if (so > 0) ra.push({ khoa_canh: `${c}→${dk}|${luatId ?? 'goc'}`, composer: c, dich_kieu: dk, luat_id: luatId, ket_qua: kq, cua_so: cs, so });
+    // luat_phien_ban_tu = 1: bot đếm từ lúc luật được tạo — sửa luật (phiên bản > 1) thì số cũ chưa phản ánh cấu hình mới.
+    if (so > 0) ra.push({ khoa_canh: `${c}→${dk}|${luatId ?? 'goc'}`, composer: c, dich_kieu: dk, luat_id: luatId, ket_qua: kq, cua_so: cs, so, ...(luatId ? { luat_phien_ban_tu: 1 } : {}) });
   };
   for (const c of composer) {
+    if (c.kieu === 'thuan') continue; // thông báo thuần không có nơi gốc — mọi lần gửi đi qua luật
     for (const d of c.dich_goc) {
       const so7 = 5 + soGia(`${c.id}@${d}`, 300);
       dong(c.id, d, null, 'da_gui', '7d', so7);
@@ -74,6 +76,9 @@ export function taoClientMau(tc: TuyChonMau | number = {}): BanDoTinClient {
       if (d.kieu === 'nv' && !NV_MAU.some((n) => n.zaloUid === d.gia_tri)) throw sai('NV_KHONG_CO', `Không có nhân viên bot với zalo_uid ${d.gia_tri} trong tổ chức`);
       if (d.kieu === 'chuc_nang' && d.gia_tri === 'khach' && c.nhay_cam.length) {
         throw sai('LO_DU_LIEU_NHOM_KHACH', `Tin "${c.ten ?? c.id}" có dữ liệu nhạy cảm (${c.nhay_cam.join(', ')}) — không gửi vào nhóm khách`);
+      }
+      if (d.kieu === 'chuc_nang' && d.gia_tri === 'khach') {
+        throw sai('BOT_CHUA_HO_TRO_NHOM_KHACH', 'Bot chưa hỗ trợ gửi nhóm khách — bỏ đích "Nhóm khách" rồi lưu lại');
       }
     }
   }

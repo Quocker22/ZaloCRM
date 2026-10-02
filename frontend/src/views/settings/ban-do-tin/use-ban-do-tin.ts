@@ -7,11 +7,11 @@ import { computed, inject, provide, reactive, ref, shallowRef, type InjectionKey
 import type { BanDoTinClient } from '@/api/ban-do-tin';
 import { loiTuApi } from './loi';
 import { dungMoHinh } from './mo-hinh';
-import { doiHangTrongDich, dungAnhChup } from './chuyen-doi';
+import { dungAnhChup } from './chuyen-doi';
 import { cotGian, dungBoCuc, kepZoom, rongMuonToanManHinh } from './bo-cuc';
 import { dinhTuyen } from './dinh-tuyen';
 import { chonHopLe, nhanChonMat, tinhTrangThai, type LuaChon } from './trang-thai';
-import type { AnhChupBanDo, CheDo, MaDich } from './kieu';
+import type { AnhChupBanDo, CheDo } from './kieu';
 import type { DichLuatApi } from './hop-dong';
 
 export type TabBanDo = 'so_do' | 'theo_pha' | 'lien_ket' | 'ghi_chu';
@@ -44,9 +44,10 @@ export function taoBanDoTin(client: BanDoTinClient) {
   const zoomVua = ref(1);
   const tab = ref<TabBanDo>('so_do');
   const hopHuongDan = ref(false);
-  /** hộp xác nhận đang mở (Hoàn lại như mã, chuyển sang Bật) — `tra` nhận true/false */
-  const xacNhan = shallowRef<{ tieuDe: string; noiDung: string; nut: string; tra: (ok: boolean) => void } | null>(null);
-  function hoiXacNhan(h: { tieuDe: string; noiDung: string; nut: string }): Promise<boolean> {
+  /** hộp xác nhận đang mở (Hoàn lại / Xoá luật, chuyển sang Bật, thêm người nhận vào luật Bật) — `tra` nhận true/false/'phu' */
+  type HoiXacNhan = { tieuDe: string; noiDung: string; nut: string; nutPhu?: string };
+  const xacNhan = shallowRef<(HoiXacNhan & { tra: (ok: boolean | 'phu') => void }) | null>(null);
+  function hoiXacNhan(h: HoiXacNhan): Promise<boolean | 'phu'> {
     xacNhan.value?.tra(false);
     return new Promise((tra) => { xacNhan.value = { ...h, tra: (ok) => { xacNhan.value = null; tra(ok); } }; });
   }
@@ -126,14 +127,16 @@ export function taoBanDoTin(client: BanDoTinClient) {
    * định; không gửi `bat` khi tạo, xem luat.kiemCheDo). Lỗi ghi ⇒ câu server nguyên văn; 409 (luật vừa bị sửa / vừa có người
    * tạo) ⇒ tải lại để lần sau ghi đúng phiên bản. Ghi XONG mà tải lại hỏng ⇒ báo "Đã lưu; tải lại lỗi" (không phải lỗi lưu).
    */
-  async function ghiLuat(loai: string, thay: { dich?: DichLuatApi[]; cheDo?: CheDo }) {
+  async function ghiLuat(loai: string, thay: { dich?: DichLuatApi[]; cheDo?: CheDo; phienBan?: number }) {
     dangLuu.value = true;
     loiLuu.value = null;
     tinLuu.value = null;
     const cu = luatCua(loai);
+    const { phienBan, ...doi } = thay;
     try {
-      if (cu) await client.suaLuat(cu.id, { phienBan: cu.phien_ban, ...thay });
-      else await client.taoLuat({ loai, dich: thay.dich ?? [], ...(thay.cheDo === 'tat' ? { cheDo: 'tat' as const } : {}) });
+      // `phienBan` truyền vào = phiên bản người dùng ĐÃ XÁC NHẬN (Codex v2 #4) — luật đổi trong lúc hộp mở ⇒ 409, không ghi mù.
+      if (cu) await client.suaLuat(cu.id, { phienBan: phienBan ?? cu.phien_ban, ...doi });
+      else await client.taoLuat({ loai, dich: doi.dich ?? [], ...(doi.cheDo === 'tat' ? { cheDo: 'tat' as const } : {}) });
     } catch (e) {
       const l = loiTuApi(e);
       loiLuu.value = { chu: l.message, code: l.code, loai };
@@ -156,12 +159,9 @@ export function taoBanDoTin(client: BanDoTinClient) {
     } finally { dangLuu.value = false; }
   }
 
-  /** Bật/tắt MỘT hàng bản sao (giữ nguyên các đích khác, kể cả đích NV). */
-  function doiDich(loai: string, hang: MaDich, co: boolean) {
-    return ghiLuat(loai, { dich: doiHangTrongDich(luatCua(loai)?.dich_tho ?? [], hang, co) });
-  }
-  /** Thay cả danh sách đích (thêm/bỏ đích NV). */
-  function datDich(loai: string, dich: DichLuatApi[]) { return ghiLuat(loai, { dich }); }
+  /** Thay cả danh sách đích (thêm/bỏ đích NV; panel hỏi trước khi THÊM người nhận vào luật Bật — `tuy` mang phiên bản đã xác
+   *  nhận và, nếu chọn "thêm ở chế độ bóng trước", `cheDo: 'bong'`). */
+  function datDich(loai: string, dich: DichLuatApi[], tuy: { cheDo?: CheDo; phienBan?: number } = {}) { return ghiLuat(loai, { dich, ...tuy }); }
   function doiCheDo(loai: string, cheDo: CheDo) { return ghiLuat(loai, { cheDo }); }
 
   async function hoanLai(loai: string) {
@@ -181,7 +181,7 @@ export function taoBanDoTin(client: BanDoTinClient) {
 
   return {
     client, anh, loi, dangTai, chuaCoBanDo, soLuatKhiTrong, dangLuu, loiLuu, tinLuu, thuGon, toanManHinh, khung, chon, chonMat, tro, troDong, zoom, zoomVua, tab,
-    hopHuongDan, xacNhan, hoiXacNhan, theme, mh, boCuc, duong, kq, tai, datChon, doiThuGon, tatCaThuGon, thuGonTatCa, datZoom, luatCua, doiDich, datDich, doiCheDo, hoanLai,
+    hopHuongDan, xacNhan, hoiXacNhan, theme, mh, boCuc, duong, kq, tai, datChon, doiThuGon, tatCaThuGon, thuGonTatCa, datZoom, luatCua, datDich, doiCheDo, hoanLai,
   };
 }
 

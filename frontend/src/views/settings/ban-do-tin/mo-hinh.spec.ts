@@ -73,13 +73,38 @@ describe('mô hình bản đồ từ ảnh chụp mẫu (đi qua hợp đồng �
     expect(mh.demKhoi['the_xem_truoc@nhom_goc']?.d7.da_gui).toBeGreaterThan(0);
   });
 
-  it('dichHieuLuc: khoa bỏ qua luật; nơi gốc LUÔN giữ (kể cả thuan); luật tắt ⇒ không bản sao', () => {
+  it('dichHieuLuc — BA kiểu (Codex v2 #1): khoa bỏ qua luật; ban_sao nơi gốc luôn gửi + luật THÊM bản sao; thuan CHỈ theo luật', () => {
     const a = anhChupMau();
     const c = (id: string) => a.composer.find((x) => x.id === id)!;
-    expect(dichHieuLuc(c('the_xem_truoc'), luat('the_xem_truoc', ['g_kho'], 'bat'))).toEqual({ goc: ['nhom_goc'], banSao: [], cheDo: 'bat' });
-    expect(dichHieuLuc(c('da_chot'), luat('da_chot', ['g_admin'], 'bat'))).toEqual({ goc: ['nhom_goc'], banSao: ['g_admin'], cheDo: 'bat' });
+    const rong = { theoLuat: [], goiY: [] };
+    expect(dichHieuLuc(c('the_xem_truoc'), luat('the_xem_truoc', ['g_kho'], 'bat'))).toEqual({ goc: ['nhom_goc'], banSao: [], cheDo: 'bat', ...rong });
+    expect(dichHieuLuc(c('da_chot'), luat('da_chot', ['g_admin'], 'bat'))).toEqual({ goc: ['nhom_goc'], banSao: ['g_admin'], cheDo: 'bat', ...rong });
     expect(dichHieuLuc(c('da_chot'), luat('da_chot', ['g_admin'], 'tat')).banSao).toEqual([]);
-    expect(dichHieuLuc(c('in_xong'), luat('in_xong', ['nv', 'g_kho'], 'bong'))).toEqual({ goc: ['g_kho'], banSao: ['nv'], cheDo: 'bong' });
+    // thuan: KHÔNG có nơi gốc; đích + chế độ lấy từ luật; dich_goc chỉ là gợi ý (vẽ TẮT khi chưa có luật)
+    expect(dichHieuLuc(c('in_xong'), luat('in_xong', ['nv', 'g_kho'], 'bong'))).toEqual({ goc: [], banSao: [], cheDo: 'bong', theoLuat: ['nv', 'g_kho'], goiY: [] });
+    expect(dichHieuLuc(c('in_xong'), undefined)).toEqual({ goc: [], banSao: [], cheDo: 'tat', theoLuat: [], goiY: ['g_kho'] });
+    expect(dichHieuLuc(c('in_xong'), luat('in_xong', ['g_admin'], 'tat'))).toEqual({ goc: [], banSao: [], cheDo: 'tat', theoLuat: ['g_admin'], goiY: [] });
+  });
+
+  it('thuan trên sơ đồ: chưa luật ⇒ khối GỢI Ý ở dich_goc, TẮT (không vẽ như đang gửi); có luật ⇒ đúng đích + chế độ của luật', () => {
+    const a = anhChupMau();
+    let k = dungMoHinh(a).khoiTheoId['in_xong@g_kho'];
+    expect(k).toMatchObject({ ban_sao: false, che_do: 'tat', goi_y: true });
+    expect(k.tags).toContain('Tắt');
+    a.luat.push(luat('in_xong', ['g_admin'], 'bat'));
+    let mh = dungMoHinh(a);
+    expect(mh.khoiTheoId['in_xong@g_kho']).toBeUndefined();
+    k = mh.khoiTheoId['in_xong@g_admin'];
+    expect(k).toMatchObject({ ban_sao: false, che_do: 'bat', goi_y: false });
+    expect(k.tags).not.toContain('Tắt');
+    expect(k.tags).not.toContain('Bóng');
+    // nguồn máy in vẫn nối tới khối theo luật; không có đường "bản sao" cho thuan
+    expect(mh.lienKetTheoId['nguon_may_in@n_may_in~in_xong@g_admin']?.loai).toBe('su_kien');
+    expect(mh.lienKet.some((l) => l.loai === 'ban_sao' && l.den.startsWith('in_xong@'))).toBe(false);
+    a.luat[a.luat.length - 1] = luat('in_xong', ['g_admin'], 'tat');
+    mh = dungMoHinh(a);
+    expect(mh.khoiTheoId['in_xong@g_admin']).toMatchObject({ che_do: 'tat' });
+    expect(mh.khoiTheoId['in_xong@g_admin'].tags).toContain('Tắt');
   });
 
   it('nguồn nối vào composer bằng "Sự kiện từ nguồn"; CRM tự động nối sang nguồn máy in bằng "CRM tự động"', () => {

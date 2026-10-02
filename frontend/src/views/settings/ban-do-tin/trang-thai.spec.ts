@@ -84,9 +84,9 @@ describe('hash', () => {
 });
 
 describe('kiểm luật (tương đương rào server)', () => {
-  it('khách + nhạy cảm ⇒ chặn; khách không nhạy cảm ⇒ cảnh báo mẫu rút gọn', () => {
+  it('khách + nhạy cảm ⇒ chặn (lý do nhạy cảm); khách không nhạy cảm ⇒ CŨNG chặn — bot chưa hỗ trợ (Codex v2 #6)', () => {
     expect(kiemDich(c('xuat_hoa_don_tool'), 'g_khach')?.chan).toMatch(/cấm vào nhóm khách/);
-    expect(kiemDich(c('in_xong'), 'g_khach')?.canh).toMatch(/công khai/);
+    expect(kiemDich(c('in_xong'), 'g_khach')?.chan).toMatch(/Bot chưa hỗ trợ gửi nhóm khách/);
   });
   it('sales + doanh số ⇒ báo từng người; kho + giá ⇒ bản che giá', () => {
     expect(kiemDich(c('bao_cao_soan_tin'), 'g_sales')?.canh).toMatch(/không phải Admin/);
@@ -97,9 +97,9 @@ describe('kiểm luật (tương đương rào server)', () => {
     expect(dsDichPanel(c('the_xem_truoc'), [])).toEqual(['nhom_goc']);
     expect(dsDichPanel(c('da_chot'), ['g_ketoan'])).toEqual(['nhom_goc', 'g_ketoan', 'dm_nguoi_go', 'g_kho', 'g_admin', 'g_sales', 'nv', 'g_khach']);
   });
-  it('dichKhoa: 🔒 nơi gốc (mọi kiểu), mọi đích của khoa, hàng CRM chưa có kiểu đích', () => {
+  it('dichKhoa: 🔒 nơi gốc của ✎ bản sao, mọi đích của khoa, hàng CRM chưa có kiểu đích; thông báo thuần KHÔNG có nơi gốc', () => {
     expect(dichKhoa(c('da_chot'), 'nhom_goc')).toMatch(/Nơi gốc/);
-    expect(dichKhoa(c('in_xong'), 'g_kho')).toMatch(/Nơi gốc/);
+    expect(dichKhoa(c('in_xong'), 'g_kho')).toBeNull(); // Codex v2 #1: dich_goc của thuan chỉ là gợi ý
     expect(dichKhoa(c('da_chot'), 'g_kho')).toBeNull();
     expect(dichKhoa(c('the_xem_truoc'), 'g_kho')).toBe("Đích cố định: Mã chốt gắn với làn hội thoại; gửi chỗ khác thì 'chốt' ở đó không tìm ra đơn."); // ly_do_khoa bot khai
     expect(dichKhoa({ ...c('the_xem_truoc'), ly_do_khoa: undefined }, 'g_kho')).toMatch(/mã chốt/); // ảnh chụp cũ: câu chung

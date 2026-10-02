@@ -48,8 +48,9 @@ const META: Record<string, Meta> = {
   fallback_chua_ghi_lenh: M('“Em chưa ghi lệnh…”', 'len_don', ['nhom_goc'], 'ma', 'mã', 'khoa', { k: 'Thuộc lượt chat.' }),
   huy_xac_nhan: M('Huỷ đơn — xác nhận', 'len_don', ['nhom_goc'], 'ma', 'mã', 'khoa', { k: 'Mã huỷ gắn làn.' }),
   don_dai_thieu: M('Tin dài thiếu dòng', 'len_don', ['nhom_goc'], 'ma', 'mã', 'khoa', { k: 'Thuộc lượt chat.' }),
-  dong_phien: M('Đóng phiên đơn', 'len_don', ['nhom_goc'], 'ma', 'mã', 'thuan', { g: 'Ứng viên: thêm tin riêng chủ đơn.' }),
-  treo_bao_gia: M('Treo đơn thành báo giá', 'len_don', ['nhom_goc'], 'ma', 'mã', 'thuan', { g: 'Ứng viên: thêm tin riêng chủ đơn.' }),
+  // Kiểu theo danh_muc.py của bot (ban_sao — nơi gốc luôn nhận); bản mẫu cũ ghi nhầm 'thuan'.
+  dong_phien: M('Đóng phiên đơn', 'len_don', ['nhom_goc'], 'ma', 'mã', 'ban_sao', { g: 'Ứng viên: thêm tin riêng chủ đơn.' }),
+  treo_bao_gia: M('Treo đơn thành báo giá', 'len_don', ['nhom_goc'], 'ma', 'mã', 'ban_sao', { g: 'Ứng viên: thêm tin riêng chủ đơn.' }),
   ma_chot_het_hieu_luc: M('Mã chốt hết hiệu lực', 'chot', ['nguoi_giu_ma'], 'ma', 'mã', 'khoa', { k: 'Phải tới đúng người đang giữ mã.' }),
   chot_huong_dan_tu_choi: M('Chốt: hướng dẫn / từ chối', 'chot', ['nhom_goc'], 'ma', 'mã', 'khoa', { k: "Trả lời người vừa gõ 'chốt'." }),
   dang_chot: M('“Đang chốt…”', 'chot', ['nhom_goc'], 'ma', 'mã', 'khoa', { k: "Trả lời người vừa gõ 'chốt'." }),

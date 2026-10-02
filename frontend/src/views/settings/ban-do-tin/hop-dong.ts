@@ -61,6 +61,11 @@ export interface DemApi {
   ket_qua: KetQuaDem;
   cua_so: '24h' | '7d';
   so: number;
+  /**
+   * Codex v2 #5 (tuỳ chọn — bot cũ không gửi): phiên bản luật THẤP NHẤT trong các tin được đếm (= MIN tin_bao.phien_ban).
+   * ≥ `phienBan` luật đang xem ⇒ số bóng phản ánh đúng cấu hình hiện tại (`bong24hCuaLuat`).
+   */
+  luat_phien_ban_tu?: number | null;
 }
 
 /** GET /bot-quyen/ban-do-tin → { banDo } */

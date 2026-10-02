@@ -18,13 +18,23 @@ export const viTriPha = (pha: string): number => VI_TRI_PHA[pha] ?? 0;
 export const viTriHang = (hang: string): number => VI_TRI_HANG[hang] ?? 0;
 
 /**
- * Đích hiệu lực của một composer sau khi áp luật CRM. Nơi gốc (`dich_goc`) LUÔN gửi như mã — luật chỉ THÊM bản sao
- * (CRM cấm `nhom_goc` làm đích, hợp đồng §2). 🔒 không có bản sao; luật `tat` ⇒ không bản sao.
+ * Đích hiệu lực của một composer sau khi áp luật CRM — BA kiểu (Codex v2 #1, đúng `danh_muc.py` của bot):
+ *   • khoa    — chỉ nơi gốc, bỏ qua luật;
+ *   • ban_sao — nơi gốc (`dich_goc`) LUÔN gửi như mã; luật chỉ THÊM bản sao (`banSao`, CRM cấm `nhom_goc`); luật `tat` ⇒ không
+ *               bản sao;
+ *   • thuan   — KHÔNG có nơi gốc: đích + chế độ CHỈ do luật (`theoLuat`, vẽ cả khi luật `tat` — ở trạng thái tắt). Chưa có
+ *               luật ⇒ không gửi tới đâu; `dich_goc` chỉ là GỢI Ý (`goiY`, vẽ TẮT để tin vẫn có chỗ trên bản đồ).
  */
-export function dichHieuLuc(c: Composer, luat?: Luat): { goc: MaDich[]; banSao: MaDich[]; cheDo: CheDo } {
-  if (c.kieu === 'khoa' || !luat) return { goc: [...c.dich_goc], banSao: [], cheDo: 'bat' };
+export function dichHieuLuc(c: Composer, luat?: Luat): {
+  goc: MaDich[]; banSao: MaDich[]; cheDo: CheDo; theoLuat: MaDich[]; goiY: MaDich[];
+} {
+  if (c.kieu === 'thuan') {
+    if (luat && luat.dich.length) return { goc: [], banSao: [], cheDo: luat.che_do, theoLuat: [...luat.dich], goiY: [] };
+    return { goc: [], banSao: [], cheDo: luat ? luat.che_do : 'tat', theoLuat: [], goiY: [...c.dich_goc] };
+  }
+  if (c.kieu === 'khoa' || !luat) return { goc: [...c.dich_goc], banSao: [], cheDo: 'bat', theoLuat: [], goiY: [] };
   const banSao = luat.che_do === 'tat' ? [] : luat.dich.filter((d) => !c.dich_goc.includes(d));
-  return { goc: [...c.dich_goc], banSao, cheDo: luat.che_do };
+  return { goc: [...c.dich_goc], banSao, cheDo: luat.che_do, theoLuat: [], goiY: [] };
 }
 
 export function dungMoHinh(anh: AnhChupBanDo): MoHinh {
@@ -41,19 +51,28 @@ export function dungMoHinh(anh: AnhChupBanDo): MoHinh {
   for (const c of anh.composer) {
     composer[c.id] = c;
     thuTuNguon[c.id] = stt++;
-    const { goc, banSao, cheDo } = dichHieuLuc(c, luatTheoLoai[c.id]);
+    const { goc, banSao, cheDo, theoLuat, goiY } = dichHieuLuc(c, luatTheoLoai[c.id]);
     // 'Khoá' KHÔNG gắn trên sơ đồ: đa số tin là 🔒 nên nhãn đó chỉ thành nhiễu — panel nói rõ "🔒 đích cố định".
     const tagsCo: TagKhoi[] = [];
     if (c.de_xuat) tagsCo.push('Mới');
     if (c.nhay_cam.length) tagsCo.push('Nhạy cảm');
     khoiGoc[c.id] = [];
     for (const d of goc) {
-      khoi.push({ id: idKhoi(c.id, d), ten: c.ten, pha: c.pha, hang: d, nguon_id: c.id, loai_nut: 'composer', ban_sao: false, che_do: 'bat', tags: [...tagsCo], soan: c.ai_soan });
+      khoi.push({ id: idKhoi(c.id, d), ten: c.ten, pha: c.pha, hang: d, nguon_id: c.id, loai_nut: 'composer', ban_sao: false, goi_y: false, che_do: 'bat', tags: [...tagsCo], soan: c.ai_soan });
       khoiGoc[c.id].push(idKhoi(c.id, d));
+    }
+    // thông báo thuần: khối theo luật mang ĐÚNG chế độ luật; khối gợi ý (chưa có luật) luôn TẮT
+    for (const [ds, laGoiY] of [[theoLuat, false], [goiY, true]] as const) {
+      for (const d of ds) {
+        const cd: CheDo = laGoiY ? 'tat' : cheDo;
+        const tags: TagKhoi[] = cd === 'bong' ? ['Bóng', ...tagsCo] : cd === 'tat' ? ['Tắt', ...tagsCo] : [...tagsCo];
+        khoi.push({ id: idKhoi(c.id, d), ten: c.ten, pha: c.pha, hang: d, nguon_id: c.id, loai_nut: 'composer', ban_sao: false, goi_y: laGoiY, che_do: cd, tags, soan: c.ai_soan });
+        khoiGoc[c.id].push(idKhoi(c.id, d));
+      }
     }
     for (const d of banSao) {
       const tags: TagKhoi[] = cheDo === 'bong' ? ['Bóng', ...tagsCo] : [...tagsCo];
-      khoi.push({ id: idKhoi(c.id, d), ten: c.ten, pha: c.pha, hang: d, nguon_id: c.id, loai_nut: 'composer', ban_sao: true, che_do: cheDo, tags, soan: c.ai_soan });
+      khoi.push({ id: idKhoi(c.id, d), ten: c.ten, pha: c.pha, hang: d, nguon_id: c.id, loai_nut: 'composer', ban_sao: true, goi_y: false, che_do: cheDo, tags, soan: c.ai_soan });
     }
   }
   for (const n of [...anh.nguon, ...anh.crm]) {

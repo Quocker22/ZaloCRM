@@ -1,9 +1,11 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!--
   PanelChiTiet — panel phải (≥ 1024) hoặc bottom sheet (< 1024). Sáu dạng: trống (hướng dẫn + chú giải) · khối · liên kết ·
-  pha · đích (hàng) · loại. Panel khối composer: khi nào gửi, ví dụ (vi_du bot khai), nguồn câu, ĐÍCH (nơi gốc 🔒 + tick bản
-  sao ⇒ POST/PUT /bot-quyen/luat-thong-bao), chế độ tắt/bóng/bật, "nếu bật, 24h qua sẽ gửi N" (số bóng của luật), cảnh báo
-  CRM (canhBao), số 7 ngày, nhận từ / đẩy sang, và link sang Quyền bot › Nhật ký. Khối CRM tự động: chỉ xem.
+  pha · đích (hàng) · loại. Panel khối composer: khi nào gửi, ví dụ (vi_du bot khai), nguồn câu, ĐÍCH theo BA kiểu (Codex v2 #1):
+  🔒 khoa = đích cố định · ✎ bản sao = nơi gốc 🔒 + tick bản sao · ✎ thông báo thuần = đích + chế độ CHỈ do luật (dich_goc là
+  gợi ý) ⇒ POST/PUT /bot-quyen/luat-thong-bao; chế độ tắt/bóng/bật (Bật và THÊM người nhận vào luật Bật đều hỏi trước — #4),
+  "số bóng lịch sử 24h" (+ "chưa đủ dữ liệu cho cấu hình mới" sau khi sửa — #5), cảnh báo CRM (canhBao), số 7 ngày, nhận từ /
+  đẩy sang, và link sang Quyền bot › Nhật ký. Khối CRM tự động: chỉ xem.
 -->
 <template>
   <aside
@@ -52,7 +54,7 @@
           <span v-if="comp?.ai_soan" class="bdt-tag" :class="LOP_SOAN[comp.ai_soan]" :title="MO_TA_SOAN[comp.ai_soan]" data-soan>Soạn: {{ TEN_SOAN[comp.ai_soan] }}</span>
           <span v-for="t in khoi.tags" :key="t" class="bdt-tag" :class="LOP_TAG[t]">{{ t }}</span>
           <span v-if="khoi.ban_sao" class="bdt-tag t-ban-sao">Bản sao theo luật</span>
-          <span v-if="comp" class="bdt-tag t-khoa">{{ comp.kieu === 'khoa' ? '🔒 đích cố định' : comp.kieu === 'ban_sao' ? '✎ thêm bản sao' : '✎ tin thông báo' }}</span>
+          <span v-if="comp" class="bdt-tag t-khoa">{{ comp.kieu === 'khoa' ? '🔒 đích cố định' : comp.kieu === 'ban_sao' ? '✎ thêm bản sao' : '✎ thông báo thuần' }}</span>
         </div>
         <button type="button" class="bdt-dong-x" aria-label="Đóng" @click="s.datChon(null)"><X :size="16" /></button>
         <button type="button" class="bdt-copy" @click="chepLink"><Link :size="13" />{{ daChep ? 'Đã chép link' : 'Copy link' }}</button>
@@ -108,29 +110,34 @@
           </section>
 
           <section v-if="comp.kieu !== 'khoa'">
-            <h4 class="bdt-h4">Chế độ bản sao</h4>
+            <h4 class="bdt-h4">{{ thuan ? 'Chế độ gửi' : 'Chế độ bản sao' }}</h4>
             <div class="bdt-che-do" role="group" aria-label="Chế độ">
               <button
                 v-for="c in CHE_DO" :key="c.id" type="button" :class="c.id" :aria-pressed="!!luat && cheDo === c.id"
                 :disabled="s.dangLuu.value || !!kiemCheDo(luat, c.id)" :title="kiemCheDo(luat, c.id) ?? undefined" @click="doiCheDo(c.id)"
               >{{ c.ten }}</button>
             </div>
-            <p v-if="!luat" class="bdt-nho" style="margin-top: 6px" data-chua-luat>Chưa có luật — tin chạy đúng như mã. Tick một đích để tạo luật
+            <p v-if="!luat && thuan" class="bdt-nho" style="margin-top: 6px" data-chua-luat>Chưa có luật — thông báo thuần này KHÔNG gửi tới đâu
+              (đích do luật quyết; ô "gợi ý của bot" chỉ là đề xuất). Tick một đích để tạo luật (mặc định <b>chạy bóng</b>: bot ghi sổ,
+              chưa gửi).</p>
+            <p v-else-if="!luat" class="bdt-nho" style="margin-top: 6px" data-chua-luat>Chưa có luật — tin chạy đúng như mã. Tick một đích để tạo luật
               (mặc định <b>chạy bóng</b>: bot ghi sổ, chưa gửi).</p>
+            <p v-else-if="thuan" class="bdt-nho" style="margin-top: 6px">Áp cho MỌI đích — thông báo thuần không có nơi gốc.</p>
             <p v-else class="bdt-nho" style="margin-top: 6px">Áp cho BẢN SAO; nơi gốc luôn gửi như mã.</p>
             <p v-if="luat && cheDo === 'bong'" class="bdt-nho" data-neu-bat style="margin-top: 6px">
-              <template v-if="bong24h.co">Nếu bật, 24 giờ qua sẽ gửi <b>{{ bong24h.so }}</b> tin.</template>
+              <template v-if="bong24h.co">Số bóng lịch sử 24 giờ: <b>{{ bong24h.so }}</b> tin<template v-if="bong24h.hop === 'du'"> — đúng cấu hình hiện tại (luật phiên bản {{ luat.phien_ban }}).</template><template v-else>.
+                <span class="bdt-canh" style="display: block; margin-top: 4px" data-chua-du>Chưa đủ dữ liệu cho cấu hình mới — luật vừa sửa (phiên bản {{ luat.phien_ban }}); số trên còn gồm cấu hình cũ. Chờ bot chạy bóng thêm rồi xem lại.</span></template></template>
               <template v-else>Chưa có số chạy bóng 24 giờ — bot chưa đếm luật này (số tới sau lần đồng bộ kế tiếp).</template>
             </p>
             <div class="bdt-hai-nut" style="margin-top: 10px">
               <button type="button" class="bdt-nut" disabled title="Chưa có — CRM chưa mở API gửi thử"><Send :size="13" />Gửi thử</button>
-              <button v-if="luat" type="button" class="bdt-nut" :disabled="s.dangLuu.value" data-hoan-lai @click="hoanLai"><RotateCcw :size="13" />Hoàn lại như mã</button>
+              <button v-if="luat" type="button" class="bdt-nut" :disabled="s.dangLuu.value" data-hoan-lai @click="hoanLai"><RotateCcw :size="13" />{{ thuan ? 'Xoá luật (ngừng gửi)' : 'Hoàn lại như mã' }}</button>
             </div>
           </section>
 
           <section v-if="demKhoi" data-so-khoi>
             <template v-for="cs in CUA_SO" :key="cs.id">
-              <h4 class="bdt-h4">{{ cs.ten }}{{ khoi.ban_sao ? ' — bản sao này' : ' — nơi gốc' }}</h4>
+              <h4 class="bdt-h4">{{ cs.ten }}{{ khoi.ban_sao ? ' — bản sao này' : thuan ? ' — đích này' : ' — nơi gốc' }}</h4>
               <div class="bdt-so" :data-cua-so="cs.id">
                 <span><b>{{ demKhoi[cs.id].da_gui }}</b> đã gửi</span><span><b>{{ demKhoi[cs.id].bong }}</b> chạy bóng</span>
                 <span><b>{{ demKhoi[cs.id].chua_ro }}</b> chưa rõ</span><span><b>{{ demKhoi[cs.id].chan_tam_im }}</b> bị chặn</span>
@@ -177,7 +184,7 @@
         <section v-if="comp">
           <h4 class="bdt-h4">Luật &amp; nhật ký</h4>
           <p v-if="luat" class="bdt-nho" data-luat-meta>Luật CRM phiên bản <b>{{ luat.phien_ban }}</b>{{ luat.sua_luc ? ` · sửa ${gio(luat.sua_luc)}` : '' }}.</p>
-          <p v-else class="bdt-nho">Chưa có luật — đang chạy như mã.</p>
+          <p v-else class="bdt-nho">{{ thuan ? 'Chưa có luật — thông báo thuần này không gửi tới đâu.' : 'Chưa có luật — đang chạy như mã.' }}</p>
           <div class="bdt-hai-nut" style="margin-top: 10px">
             <a :href="LINK_NHAT_KY" class="bdt-nut" data-nhat-ky @click="diToi($event, LINK_NHAT_KY)">Nhật ký thay đổi (Quyền bot) ›</a>
             <button type="button" class="bdt-nut" @click="taiJson"><Download :size="13" />Tải JSON luật</button>
@@ -246,14 +253,14 @@ import IconBdt from './IconBdt.vue';
 import MauNet from './MauNet.vue';
 import SoTron from './SoTron.vue';
 import type { NvDich } from '@/api/ban-do-tin';
-import { KIEU_DUONG, KIEU_DUONG_THEO_ID, LOP_SOAN, LOP_TAG, MO_TA_SOAN, TEN_SOAN, tenNhayCam } from '@/views/settings/ban-do-tin/cau-hinh';
-import { bong24hCuaLuat } from '@/views/settings/ban-do-tin/chuyen-doi';
+import { HANG_THEO_CHUC_NANG, KIEU_DUONG, KIEU_DUONG_THEO_ID, LOP_SOAN, LOP_TAG, MO_TA_SOAN, TEN_DICH, TEN_SOAN, tenNhayCam } from '@/views/settings/ban-do-tin/cau-hinh';
+import { bong24hCuaLuat, doiHangTrongDich } from '@/views/settings/ban-do-tin/chuyen-doi';
 import { dichKhoa, dsDichPanel, kiemCheDo, kiemDich } from '@/views/settings/ban-do-tin/luat';
 import { bayFocus } from '@/views/settings/ban-do-tin/bay-focus';
 import { demTheoLoai, dichHieuLuc } from '@/views/settings/ban-do-tin/mo-hinh';
 import { dungBanDoTin } from '@/views/settings/ban-do-tin/use-ban-do-tin';
 import type { CheDo, MaDich, MaPha } from '@/views/settings/ban-do-tin/kieu';
-import type { MucCrmApi } from '@/views/settings/ban-do-tin/hop-dong';
+import type { ChucNangNhom, DichLuatApi, MucCrmApi } from '@/views/settings/ban-do-tin/hop-dong';
 
 const props = defineProps<{ sheet?: boolean }>();
 const s = dungBanDoTin();
@@ -279,15 +286,22 @@ const comp = computed(() => (khoi.value?.loai_nut === 'composer' ? mh.value.comp
 const nut = computed(() => (khoi.value && khoi.value.loai_nut !== 'composer' ? mh.value.nutPhu[khoi.value.nguon_id] : undefined));
 const luat = computed(() => (comp.value ? s.luatCua(comp.value.id) : undefined));
 const cheDo = computed<CheDo>(() => luat.value?.che_do ?? 'bat');
-/** hàng bản sao luật đang khai (kể cả khi luật `tat`) */
-const banSaoLuat = computed<MaDich[]>(() => (comp.value && luat.value ? luat.value.dich.filter((d) => !comp.value!.dich_goc.includes(d)) : []));
-/** hàng đang tick = nơi gốc + bản sao của luật */
-const dichDangGui = computed<MaDich[]>(() => (comp.value ? [...comp.value.dich_goc, ...banSaoLuat.value] : []));
-const dsDich = computed<MaDich[]>(() => (comp.value ? dsDichPanel(comp.value, banSaoLuat.value) : []));
+/** thông báo thuần — đích + chế độ CHỈ do luật, không có nơi gốc (Codex v2 #1) */
+const thuan = computed(() => comp.value?.kieu === 'thuan');
+/** hàng luật đang khai (kể cả khi luật `tat`): ✎ bản sao = phần THÊM ngoài nơi gốc · thuần = MỌI đích của luật */
+const dichLuat = computed<MaDich[]>(() => {
+  if (!comp.value || !luat.value) return [];
+  return thuan.value ? [...luat.value.dich] : luat.value.dich.filter((d) => !comp.value!.dich_goc.includes(d));
+});
+/** hàng đang tick = (✎ bản sao: nơi gốc +) hàng của luật; thuần chỉ hàng của luật — gợi ý của bot KHÔNG tick sẵn */
+const dichDangGui = computed<MaDich[]>(() => (comp.value ? (thuan.value ? [...dichLuat.value] : [...comp.value.dich_goc, ...dichLuat.value]) : []));
+const dsDich = computed<MaDich[]>(() => (comp.value ? dsDichPanel(comp.value, dichLuat.value) : []));
 const vao = computed(() => (khoi.value ? mh.value.vao[khoi.value.id] : []));
 const ra = computed(() => (khoi.value ? mh.value.ra[khoi.value.id] : []));
 const demKhoi = computed(() => (khoi.value ? mh.value.demKhoi[khoi.value.id] : undefined));
-const bong24h = computed(() => (luat.value ? bong24hCuaLuat(s.anh.value?.dem_tho ?? [], luat.value) : { co: false, so: 0 }));
+const bong24h = computed(() => (luat.value
+  ? bong24hCuaLuat(s.anh.value?.dem_tho ?? [], luat.value, s.anh.value?.luc)
+  : { co: false, so: 0, hop: 'chua_du' as const }));
 const loiCuaComp = computed(() => (s.loiLuu.value && s.loiLuu.value.loai === comp.value?.id ? s.loiLuu.value.chu : null));
 /** canhBao của CRM cho loại tin này — dạng `<loai>: …` (bot-thong-bao-luat.ts ghepLuatCongKhai) */
 const canhBaoCuaComp = computed(() => {
@@ -297,30 +311,66 @@ const canhBaoCuaComp = computed(() => {
 });
 function trangThaiHang(d: MaDich): string | null {
   const c = comp.value;
-  if (!c || c.dich_goc.includes(d) || !banSaoLuat.value.includes(d)) return null;
+  if (!c) return null;
+  if (!dichLuat.value.includes(d)) return thuan.value && c.dich_goc.includes(d) ? 'gợi ý của bot' : null;
+  if (!thuan.value && c.dich_goc.includes(d)) return null;
   const hl = dichHieuLuc(c, luat.value);
   return hl.cheDo === 'tat' ? 'luật đang tắt' : hl.cheDo === 'bong' ? 'chạy bóng' : 'đang gửi';
+}
+
+/** Tên người đọc của một đích luật (hộp hỏi khi thêm người nhận). */
+function tenDichApi(d: DichLuatApi): string {
+  if (d.kieu === 'chuc_nang') return `nhóm ${TEN_DICH(HANG_THEO_CHUC_NANG[d.gia_tri as ChucNangNhom] ?? d.gia_tri ?? '')}`;
+  if (d.kieu === 'nv') return tenNv(d.gia_tri ?? '');
+  return TEN_DICH('dm_nguoi_go');
+}
+const khoaDich = (d: DichLuatApi) => `${d.kieu}:${d.gia_tri ?? ''}`;
+
+/**
+ * Ghi danh sách đích mới. Codex v2 #4: THÊM người nhận vào luật đang BẬT = mở gửi thật tới người mới ⇒ hỏi trước, nêu tên
+ * người nhận mới; "Thêm ở chế độ bóng trước" chuyển cả luật về bóng trong CÙNG lần ghi. Xác nhận GẮN phiên bản đang xem
+ * (`phienBan` lúc mở hộp) — luật bị sửa nơi khác trong lúc hộp mở ⇒ 409 + tải lại, không ghi mù. Bỏ đích / luật bóng/tắt ⇒ ghi ngay.
+ */
+async function ghiDich(dichMoi: DichLuatApi[]): Promise<void> {
+  const cp = comp.value;
+  if (!cp) return;
+  const l = luat.value;
+  const cu = new Set((l?.dich_tho ?? []).map(khoaDich));
+  const them = dichMoi.filter((d) => !cu.has(khoaDich(d)));
+  if (!l || l.che_do !== 'bat' || !them.length) return s.datDich(cp.id, dichMoi);
+  const pb = l.phien_ban;
+  const ten = them.map(tenDichApi).join(', ');
+  const kq = await s.hoiXacNhan({
+    tieuDe: `Thêm người nhận cho "${cp.ten}"?`,
+    noiDung: `Luật đang BẬT — ${ten} sẽ nhận THẬT ngay sau lần bot đồng bộ luật kế tiếp (≤ 1 phút). Muốn xem số trước thì thêm ở chế độ bóng (cả luật chuyển về Chạy bóng).`,
+    nut: 'Thêm và gửi thật',
+    nutPhu: 'Thêm ở chế độ bóng trước',
+  });
+  if (!kq) return;
+  await s.datDich(cp.id, dichMoi, { phienBan: pb, ...(kq === 'phu' ? { cheDo: 'bong' as const } : {}) });
 }
 
 async function doiDich(d: MaDich, el: HTMLInputElement) {
   if (!comp.value) return;
   const co = el.checked;
-  if (d === 'nv') { if (!co) await s.datDich(comp.value.id, (luat.value?.dich_tho ?? []).filter((x) => x.kieu !== 'nv')); }
-  else await s.doiDich(comp.value.id, d, co);
-  // lưu hỏng ⇒ ô về đúng trạng thái đã lưu (Vue không vá lại vì :checked không đổi)
+  const cu = luat.value?.dich_tho ?? [];
+  if (d === 'nv') { if (!co) await ghiDich(cu.filter((x) => x.kieu !== 'nv')); }
+  else await ghiDich(doiHangTrongDich(cu, d, co));
+  // lưu hỏng / huỷ ⇒ ô về đúng trạng thái đã lưu (Vue không vá lại vì :checked không đổi)
   el.checked = dichDangGui.value.includes(d);
 }
 async function doiCheDo(c: CheDo) {
   const cp = comp.value;
   if (!cp || (luat.value && c === cheDo.value) || kiemCheDo(luat.value, c)) return;
   if (c === 'bat') {
-    const ok = await s.hoiXacNhan({
-      tieuDe: `Bật gửi bản sao "${cp.ten}"?`,
-      noiDung: bong24h.value.co
-        ? `Bot sẽ GỬI THẬT tới ${banSaoLuat.value.length} đích bản sao. Theo số chạy bóng, 24 giờ qua sẽ gửi ${bong24h.value.so} tin.`
-        : `Bot sẽ GỬI THẬT tới ${banSaoLuat.value.length} đích bản sao. Chưa có số chạy bóng 24 giờ để ước lượng.`,
-      nut: 'Bật',
-    });
+    const dich = thuan.value ? `${dichLuat.value.length} đích` : `${dichLuat.value.length} đích bản sao`;
+    const b = bong24h.value;
+    const so = !b.co
+      ? 'Chưa có số chạy bóng 24 giờ để ước lượng.'
+      : b.hop === 'du'
+        ? `Theo số bóng lịch sử 24 giờ (đúng cấu hình này): ${b.so} tin.`
+        : `Số bóng lịch sử 24 giờ: ${b.so} tin — chưa đủ dữ liệu cho cấu hình mới (luật vừa sửa), số đó còn gồm cấu hình cũ.`;
+    const ok = await s.hoiXacNhan({ tieuDe: `Bật gửi${thuan.value ? '' : ' bản sao'} "${cp.ten}"?`, noiDung: `Bot sẽ GỬI THẬT tới ${dich}. ${so}`, nut: 'Bật' });
     if (!ok) return;
   }
   s.doiCheDo(cp.id, c);
@@ -328,11 +378,18 @@ async function doiCheDo(c: CheDo) {
 async function hoanLai() {
   const cp = comp.value;
   if (!cp || !luat.value) return;
-  const ok = await s.hoiXacNhan({
-    tieuDe: 'Hoàn lại như mã?',
-    noiDung: `Xoá luật của "${cp.ten}": bỏ ${banSaoLuat.value.length} đích bản sao, tin chỉ còn gửi nơi gốc như mã.`,
-    nut: 'Hoàn lại như mã',
-  });
+  // Thông báo thuần không có nơi gốc: xoá luật = bot TẮT luật CRM đã xoá (dong_bo_luat) ⇒ tin không gửi tới đâu nữa.
+  const ok = await s.hoiXacNhan(thuan.value
+    ? {
+      tieuDe: 'Xoá luật — ngừng gửi?',
+      noiDung: `Xoá luật của "${cp.ten}": thông báo thuần này sẽ KHÔNG gửi tới đâu nữa (bỏ ${dichLuat.value.length} đích) cho tới khi tạo luật mới.`,
+      nut: 'Xoá luật',
+    }
+    : {
+      tieuDe: 'Hoàn lại như mã?',
+      noiDung: `Xoá luật của "${cp.ten}": bỏ ${dichLuat.value.length} đích bản sao, tin chỉ còn gửi nơi gốc như mã.`,
+      nut: 'Hoàn lại như mã',
+    });
   if (ok) await s.hoanLai(cp.id);
 }
 
@@ -350,11 +407,11 @@ function themNv(el: HTMLSelectElement) {
   const uid = el.value;
   el.value = '';
   if (!uid || !comp.value) return;
-  s.datDich(comp.value.id, [...(luat.value?.dich_tho ?? []), { kieu: 'nv', gia_tri: uid }]);
+  void ghiDich([...(luat.value?.dich_tho ?? []), { kieu: 'nv', gia_tri: uid }]);
 }
 function boNv(uid: string) {
   if (!comp.value) return;
-  s.datDich(comp.value.id, (luat.value?.dich_tho ?? []).filter((d) => !(d.kieu === 'nv' && d.gia_tri === uid)));
+  void ghiDich((luat.value?.dich_tho ?? []).filter((d) => !(d.kieu === 'nv' && d.gia_tri === uid)));
 }
 watch(nvDangGui, (v) => { if (v.length) napNv(); }, { immediate: true });
 

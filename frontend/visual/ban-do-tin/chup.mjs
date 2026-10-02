@@ -1,5 +1,5 @@
 // Chụp trang "Bản đồ tin" (dữ liệu giả lập) ở đúng các trạng thái của ảnh tham chiếu go.noti.vn, rồi dựng
-// so-sanh.html đặt hai ảnh cạnh nhau (28–33: trạng thái riêng của vòng 2, không có tham chiếu) + bảng số đo hình học (SPEC §3) đo từ DOM.
+// so-sanh.html đặt hai ảnh cạnh nhau (28–41: trạng thái riêng của vòng 2 / tự rà / Codex v2, không có tham chiếu) + bảng số đo hình học (SPEC §3) đo từ DOM.
 //
 // Chạy (cần vite dev đang chạy ở frontend/):
 //   cd frontend && npx vite --port 5291 &
@@ -70,6 +70,12 @@ const CANH = [
   ['34-desktop-light-xac-nhan-bat', MAY, 'light', '#khoi=in_sau_chot@nhom_goc', async (p) => { await p.locator('.bdt-che-do button', { hasText: 'Bật' }).click(); }],
   ['35-desktop-light-link-cu', MAY, 'light', '#khoi=khoi_da_bo@nhom_goc', null],
   ['36-desktop-light-link-sau-cuon', MAY, 'light', '#khoi=bc_ha_bao_chu@g_admin', null],
+  // ── Codex CRM+UI vòng 2 ──
+  ['37-desktop-light-thuan-chua-luat', MAY, 'light', '#khoi=in_xong@g_kho', async (p) => { await p.locator('[data-chua-luat]').scrollIntoViewIfNeeded(); }],
+  ['38-desktop-light-thuan-bong', MAY, 'light', '#khoi=in_xong@g_kho', async (p) => { await p.click('[data-dich-dong="g_kho"] input'); }],
+  ['39-desktop-light-them-nguoi-nhan-bat', MAY, 'light', '#khoi=xuat_hoa_don_tool@nhom_goc', async (p) => { await p.click('[data-dich-dong="g_sales"] input'); }],
+  ['40-desktop-light-bong-chua-du', MAY, 'light', '#khoi=in_sau_chot@nhom_goc', async (p) => { await p.click('[data-dich-dong="g_admin"] input'); await p.waitForTimeout(300); await p.locator('[data-chua-du]').scrollIntoViewIfNeeded(); }],
+  ['41-desktop-dark-them-nguoi-nhan-bat', MAY, 'dark', '#khoi=xuat_hoa_don_tool@nhom_goc', async (p) => { await p.click('[data-dich-dong="g_sales"] input'); }],
 ];
 
 /** Số đo DOM so với SPEC §2–§6 (toạ độ gốc — chia cho zoom; cỡ chữ "px_thuc" = cỡ CSS × zoom, tức cỡ người dùng thấy). */

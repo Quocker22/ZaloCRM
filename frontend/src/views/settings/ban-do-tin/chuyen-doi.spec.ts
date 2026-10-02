@@ -102,9 +102,28 @@ describe('chuyen-doi', () => {
     expect(Object.keys(d).some((k) => k.includes('chua_khai'))).toBe(false);
   });
 
-  it('"24h sẽ gửi N" = tổng bong/24h của các dòng mang luat_id = id luật', () => {
-    expect(bong24hCuaLuat(BAN_DO.dem as DemApi[], { id: 'L1', loai: 'xuat_hoa_don_tool' })).toEqual({ co: true, so: 5 });
-    expect(bong24hCuaLuat(BAN_DO.dem as DemApi[], { id: 'L9', loai: 'khac' })).toEqual({ co: false, so: 0 });
+  it('"số bóng lịch sử 24h" = tổng bong/24h của các dòng mang luat_id = id luật', () => {
+    expect(bong24hCuaLuat(BAN_DO.dem as DemApi[], { id: 'L1', loai: 'xuat_hoa_don_tool' })).toMatchObject({ co: true, so: 5 });
+    expect(bong24hCuaLuat(BAN_DO.dem as DemApi[], { id: 'L9', loai: 'khac' })).toMatchObject({ co: false, so: 0 });
+  });
+
+  it('Codex v2 #5: số bóng có phản ánh CẤU HÌNH HIỆN TẠI không — luat_phien_ban_tu, rồi tới mốc sửa luật so với lúc ảnh chụp', () => {
+    const d = (so: number, pbt?: number | null, cua_so: '24h' | '7d' = '24h'): DemApi => ({
+      khoa_canh: 'in_sau_chot→g_kho|L1', composer: 'in_sau_chot', dich_kieu: 'g_kho', luat_id: 'L1', ket_qua: 'bong', cua_so, so,
+      ...(pbt !== undefined ? { luat_phien_ban_tu: pbt } : {}),
+    });
+    const L = (phien_ban: number, sua_luc?: string) => ({ id: 'L1', loai: 'in_sau_chot', phien_ban, ...(sua_luc ? { sua_luc } : {}) });
+    const LUC = '2026-10-02T12:00:00.000Z';
+    // bot gửi phiên bản: mọi dòng 24h ≥ phiên bản luật ⇒ đúng cấu hình; một dòng thấp hơn / null ⇒ chưa đủ
+    expect(bong24hCuaLuat([d(4, 2), d(3, 3)], L(2), LUC)).toEqual({ co: true, so: 7, hop: 'du' });
+    expect(bong24hCuaLuat([d(4, 1), d(3, 2)], L(2), LUC)).toEqual({ co: true, so: 7, hop: 'chua_du' });
+    expect(bong24hCuaLuat([d(4, null)], L(2), LUC).hop).toBe('chua_du');
+    expect(bong24hCuaLuat([d(4, 2), d(9, 1, '7d')], L(2), LUC).hop).toBe('du'); // chỉ xét cửa sổ 24h
+    // bot cũ (không có trường): sửa luật ≥ 24h trước ảnh chụp ⇒ cửa sổ 24h trọn trong cấu hình hiện tại; gần hơn / sau ⇒ chưa đủ
+    expect(bong24hCuaLuat([d(4)], L(2, '2026-10-01T11:00:00.000Z'), LUC).hop).toBe('du');
+    expect(bong24hCuaLuat([d(4)], L(2, '2026-10-02T08:00:00.000Z'), LUC).hop).toBe('chua_du');
+    expect(bong24hCuaLuat([d(4)], L(2, '2026-10-02T13:00:00.000Z'), LUC).hop).toBe('chua_du');
+    expect(bong24hCuaLuat([d(4)], L(2), null).hop).toBe('chua_du');
   });
 
   it('tương thích một bản: ảnh chụp cũ mang luat_id = loai ⇒ vẫn quy về luật (fallback loai); không lẫn luật khác', () => {
@@ -112,8 +131,8 @@ describe('chuyen-doi', () => {
       khoa_canh: `in_sau_chot→g_kho|${luat_id}`, composer: 'in_sau_chot', dich_kieu: 'g_kho', luat_id, ket_qua: 'bong', cua_so, so,
     });
     const dem = [dong('in_sau_chot', 4), dong('in_sau_chot', 9, '7d'), dong('uuid-in', 2), dong('uuid-khac', 50)];
-    expect(bong24hCuaLuat(dem, { id: 'uuid-in', loai: 'in_sau_chot' })).toEqual({ co: true, so: 6 });
-    expect(bong24hCuaLuat([dong('in_sau_chot', 4)], { id: 'uuid-in', loai: 'in_sau_chot' })).toEqual({ co: true, so: 4 });
+    expect(bong24hCuaLuat(dem, { id: 'uuid-in', loai: 'in_sau_chot' })).toMatchObject({ co: true, so: 6 });
+    expect(bong24hCuaLuat([dong('in_sau_chot', 4)], { id: 'uuid-in', loai: 'in_sau_chot' })).toMatchObject({ co: true, so: 4 });
   });
 
   it('bật/tắt một hàng giữ nguyên mọi đích khác (kể cả đích NV)', () => {

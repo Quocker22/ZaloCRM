@@ -16,23 +16,27 @@ export interface CanhBaoDich {
 export function kiemDich(c: Pick<Composer, 'nhay_cam'>, dich: MaDich): CanhBaoDich | null {
   const n = c.nhay_cam;
   if (dich === 'g_khach' && n.length) return { chan: `Không được: tin có ${tenNhayCam(n)} — luật cứng cấm vào nhóm khách.` };
-  if (dich === 'g_khach') return { canh: 'Nhóm khách chỉ nhận tin công khai.' };
+  // Codex v2 #6: bot (dong_bo_luat.py) chỉ nhận chức năng admin|kho|ke_toan|sales — nhóm khách bị BỎ phía bot; CRM 400.
+  if (dich === 'g_khach') return { chan: 'Bot chưa hỗ trợ gửi nhóm khách.' };
   if (dich === 'g_sales' && n.some((v) => v === 'lai' || v === 'doanh_so'))
     return { canh: `Tin có ${tenNhayCam(n)}: bot chặn doanh số toàn công ty khi đích không phải Admin — nhóm Sales không nhận phần đó.` };
   if (dich === 'g_kho' && n.includes('gia')) return { canh: 'Nhóm kho nhận bản che giá (chỉ mã đơn, tên gọn, kho).' };
   return null;
 }
 
-/** Hàng có trong danh sách tick của panel (theo thứ tự: nơi gốc, bản sao đang có, các hàng luật thêm được). */
-export function dsDichPanel(c: Composer, banSao: readonly MaDich[]): MaDich[] {
+/**
+ * Hàng có trong danh sách tick của panel: khoa = nơi gốc; ban_sao = nơi gốc, bản sao đang có, hàng luật thêm được; thuan = đích
+ * GỢI Ý của bot (`dich_goc`), đích luật đang có, hàng luật thêm được (`dichLuat` = mọi đích của luật).
+ */
+export function dsDichPanel(c: Composer, dichLuat: readonly MaDich[]): MaDich[] {
   if (c.kieu === 'khoa') return [...c.dich_goc];
-  return [...new Set<MaDich>([...c.dich_goc, ...banSao, ...DICH_LUAT])];
+  return [...new Set<MaDich>([...c.dich_goc, ...dichLuat, ...DICH_LUAT])];
 }
 
-/** Một ô đích bị khoá trong panel (🔒) + lý do; null = tick được. */
+/** Một ô đích bị khoá trong panel (🔒) + lý do; null = tick được. Thông báo thuần KHÔNG có nơi gốc — `dich_goc` không khoá. */
 export function dichKhoa(c: Composer, d: MaDich): string | null {
   if (c.kieu === 'khoa') return c.ly_do_khoa ? `Đích cố định: ${c.ly_do_khoa}` : 'Đích cố định — tin gắn với lượt chat (mã chốt, câu hỏi neo vào tin gốc). Không định tuyến được.';
-  if (c.dich_goc.includes(d)) return 'Nơi gốc luôn nhận tin như mã — luật chỉ THÊM bản sao.';
+  if (c.kieu === 'ban_sao' && c.dich_goc.includes(d)) return 'Nơi gốc luôn nhận tin như mã — luật chỉ THÊM bản sao.';
   if (!DICH_LUAT.includes(d)) return `${TEN_DICH(d)}: CRM chưa có kiểu đích này cho luật.`;
   return null;
 }

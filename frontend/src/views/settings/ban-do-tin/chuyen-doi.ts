@@ -127,19 +127,43 @@ export function gopDem(dem: readonly DemApi[]): DemCanh[] {
   return [...m.values()];
 }
 
+/** 24 giờ — cửa sổ của số bóng. */
+const MS_24H = 24 * 3600 * 1000;
+
 /**
- * "Nếu bật, 24 giờ qua sẽ gửi N" của MỘT luật = tổng `so` (bong, 24h) của các dòng mang luat_id = `id` luật (hợp đồng §4).
- * Tương thích một bản: ảnh chụp lưu trước 02/10 có thể mang `loai` trong luat_id (CRM đổi sang id chỉ khi lưu ảnh mới) ⇒ khớp
- * cả `loai`. `loai` duy nhất mỗi org và id là uuid nên không lẫn luật khác.
+ * SỐ BÓNG LỊCH SỬ 24h của MỘT luật (Codex v2 #5) = tổng `so` (bong, 24h) của các dòng mang luat_id = `id` luật (hợp đồng §4).
+ * Tương thích một bản: ảnh chụp lưu trước 02/10 có thể mang `loai` trong luat_id ⇒ khớp cả `loai`.
+ *
+ * Đây là số ĐÃ chạy bóng, KHÔNG phải dự báo cho cấu hình đang xem: cùng id luật mà đã đổi đích thì số cũ đếm theo đích cũ.
+ * `hop` = số này có phản ánh ĐÚNG cấu hình hiện tại (`phien_ban`) không:
+ *   • bot gửi `luat_phien_ban_tu` ⇒ `du` khi MỌI dòng 24h ≥ phiên bản luật; dòng thấp hơn / null ⇒ `chua_du`;
+ *   • bot cũ (không có trường) ⇒ `du` chỉ khi lần sửa luật cuối (`sua_luc`) cách lúc ảnh chụp (`lucAnh`) ≥ 24h — cả cửa sổ
+ *     nằm trong cấu hình hiện tại; còn lại (sửa gần đây / sau ảnh chụp / không biết mốc) ⇒ `chua_du`.
  */
-export function bong24hCuaLuat(dem: readonly DemApi[], luat: { id: string; loai: string }): { co: boolean; so: number } {
+export function bong24hCuaLuat(
+  dem: readonly DemApi[],
+  luat: { id: string; loai: string; phien_ban?: number; sua_luc?: string },
+  lucAnh?: string | null,
+): { co: boolean; so: number; hop: 'du' | 'chua_du' } {
   let co = false, so = 0;
+  let coTruong = true, duPhienBan = true;
   for (const d of dem) {
     if (d.luat_id !== luat.id && d.luat_id !== luat.loai) continue;
     co = true;
-    if (d.ket_qua === 'bong' && d.cua_so === '24h') so += d.so;
+    if (d.cua_so !== '24h') continue;
+    if (d.ket_qua === 'bong') so += d.so;
+    const pbt = d.luat_phien_ban_tu;
+    if (pbt === undefined) coTruong = false;
+    else if (typeof pbt !== 'number' || pbt < (luat.phien_ban ?? Infinity)) duPhienBan = false;
   }
-  return { co, so };
+  let hop: 'du' | 'chua_du';
+  if (coTruong && co) hop = duPhienBan ? 'du' : 'chua_du';
+  else {
+    const sua = luat.sua_luc ? Date.parse(luat.sua_luc) : NaN;
+    const anh = lucAnh ? Date.parse(lucAnh) : NaN;
+    hop = !Number.isNaN(sua) && !Number.isNaN(anh) && anh - sua >= MS_24H ? 'du' : 'chua_du';
+  }
+  return { co, so, hop };
 }
 
 export interface NguonAnhChup {

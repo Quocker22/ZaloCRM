@@ -23,7 +23,8 @@ export type MaHangPhu =
 
 export type MaHang = MaDich | MaHangPhu;
 
-/** khoa: đích cố định · ban_sao: nơi gốc giữ, THÊM bản sao được · thuan: tin thông báo, thêm đích tự do. */
+/** khoa: đích cố định · ban_sao: nơi gốc LUÔN gửi, luật chỉ THÊM bản sao · thuan: thông báo thuần — đích + chế độ CHỈ do luật
+ *  (`dich_goc` chỉ là gợi ý; chưa có luật = không gửi tới đâu). Đúng `danh_muc.py` của bot. */
 export type KieuComposer = 'khoa' | 'ban_sao' | 'thuan';
 
 export type CheDo = 'tat' | 'bong' | 'bat';
@@ -82,7 +83,7 @@ export interface Luat {
   id: string;
   /** composer id */
   loai: string;
-  /** Hàng BẢN SAO luật thêm (không gồm nơi gốc — nơi gốc luôn ngầm định). */
+  /** Hàng đích của luật (ban_sao: bản sao thêm ngoài nơi gốc · thuan: MỌI đích). */
   dich: MaDich[];
   /** Đích đúng như CRM lưu (giữ zalo_uid của đích NV khi sửa). */
   dich_tho: DichLuatApi[];
@@ -158,8 +159,10 @@ export interface Khoi {
   /** composer id / nút phụ id */
   nguon_id: string;
   loai_nut: 'composer' | 'nguon' | 'crm';
-  /** Khối là bản sao theo luật (không phải nơi gốc). */
+  /** Khối là bản sao theo luật (không phải nơi gốc) — chỉ composer `ban_sao`. */
   ban_sao: boolean;
+  /** Khối GỢI Ý của tin thông báo thuần chưa có luật (đích bot khai ở `dich_goc`) — luôn `tat`, không gửi gì. */
+  goi_y?: boolean;
   che_do: CheDo;
   tags: TagKhoi[];
   /** ai soạn (chỉ khối composer có khai) — nhãn riêng, luôn hiện, không tính vào `tags` */
