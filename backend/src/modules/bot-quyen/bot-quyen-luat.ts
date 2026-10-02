@@ -14,7 +14,8 @@ export type VaiNv = (typeof VAI_NV)[number];
 export const TRANG_THAI_NV = ['hoat_dong', 'khoa', 'nghi'] as const;
 export type TrangThaiNv = (typeof TRANG_THAI_NV)[number];
 
-export const DOI_TUONG_NHAT_KY = ['nhom', 'nhan_vien', 'nick_crm'] as const;
+/** Đối tượng của bot_quyen_nhat_ky — khớp CHECK `bot_quyen_nhat_ky_doi_tuong_check` (migration 20261002090500). */
+export const DOI_TUONG_NHAT_KY = ['nhom', 'nhan_vien', 'nick_crm', 'luat_thong_bao', 'ban_do_tin'] as const;
 export type DoiTuongNhatKy = (typeof DOI_TUONG_NHAT_KY)[number];
 
 export function laChucNang(x: unknown): x is ChucNangNhom {

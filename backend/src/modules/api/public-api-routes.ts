@@ -24,6 +24,8 @@ export async function apiKeyAuth(request: FastifyRequest, reply: FastifyReply) {
   if (!setting) return reply.status(401).send({ error: 'Invalid API key' });
 
   (request as any).orgId = setting.orgId;
+  // Ai gọi (nhật ký: ảnh chụp bản đồ tin của bot — docs/78 tự rà P1-5). Id dòng cài đặt, KHÔNG bao giờ là khoá.
+  (request as any).apiKeyId = setting.id;
 }
 
 // ── Route registration ────────────────────────────────────────────────────────

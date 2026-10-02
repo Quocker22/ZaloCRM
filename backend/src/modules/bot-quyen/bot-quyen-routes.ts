@@ -24,6 +24,7 @@
 //   POST   /nhom/:conversationId/nick-crm     {zaloUid, nickId, lyDo?} — "Đây là nick CRM …" (uid nhìn từ nick của nhóm)
 //   DELETE /nhom/:conversationId/nick-crm/:zaloUid {lyDo} — gỡ (máy không nhận lại)
 //   GET    /nhat-ky                           ?limit= (mặc định 100, tối đa 500)
+//   …/luat-thong-bao, /ban-do-tin                — thông báo chủ động (docs/78 C2), bot-thong-bao-routes.ts
 //
 // Lỗi: {error: <câu tiếng Việt cho người dùng>, code: <MÃ>} — mã ở bot-quyen-service.ts.
 // Bot áp thay đổi trong ~1 phút (bridge poll GET /api/public/bot-quyen).
@@ -39,6 +40,7 @@ import { layThanhVienNhom, docThanhVienZaloMacDinh, type DocThanhVienZalo } from
 import { yeuCauDocLai, ghiNhanDoiMacDinh } from './bot-quyen-danh-sach.js';
 import { danhSachNguoiDaNhan } from './bot-quyen-nguoi-da-nhan.js';
 import { buildPrivacyContext } from '../privacy/redact.js';
+import { dangKyLuatThongBao } from './bot-thong-bao-routes.js';
 
 export interface BotQuyenRoutesOpts {
   /** Đọc thành viên nhóm trực tiếp từ Zalo — mặc định qua zaloOps; test tiêm hàm giả. */
@@ -198,6 +200,10 @@ export async function registerBotQuyenRoutes(app: FastifyInstance, opts: BotQuye
       return kq;
     } catch (err) { return guiLoi(reply, err); }
   });
+
+  // ── Thông báo chủ động (docs/78 C2) — cùng hook owner/admin ở trên ─────────
+
+  dangKyLuatThongBao(app);
 
   // ── Nhật ký ───────────────────────────────────────────────────────────────
 

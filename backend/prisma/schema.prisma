@@ -57,6 +57,9 @@ model Organization {
   botNhanVienUidTuChoi        BotNhanVienUidTuChoi[]
   botNickCrmUid               BotNickCrmUid[]
   botQuyenDanhTinh            BotQuyenDanhTinh[]
+  // Thông báo chủ động (docs/78 02/10) — luật đích theo composer + ảnh chụp bản đồ tin bot đẩy lên.
+  botLuatThongBao             BotLuatThongBao[]
+  botBanDoTin                 BotBanDoTin?
   contacts                    Contact[]
   contactAccess               ContactAccess[]
   conversations               Conversation[]
@@ -4485,6 +4488,56 @@ model PrintJob {
   @@map("print_jobs")
 }
 
+/// Sự kiện ĐỔI TRẠNG THÁI print_jobs (docs/78 C1, 02/10) — nguồn BỀN cho trạm thông báo của bot (in xong / in thất
+/// bại / không rõ / huỷ…). Ghi CÙNG GIAO DỊCH với UPDATE có điều kiện của job và CHỈ khi UPDATE đổi đúng một dòng
+/// (su-kien-in.ts `capNhatJobCoSuKien`) — không dựa nhật ký print_logs (fire-and-forget). Dòng tạo job (tuTrangThai null) do TRIGGER print_jobs_su_kien_tao ghi — phủ cả job bot INSERT bằng SQL thô.
+/// Bot đọc `WHERE bot_nhan_luc IS NULL ORDER BY id`, ghi sự kiện của nó rồi đặt `bot_nhan_luc` (xác nhận TỪNG HÀNG — không
+/// dùng con trỏ id: id cấp lúc INSERT, commit có thể đảo thứ tự). Không FK sang print_jobs: sự kiện sống lâu hơn job.
+model PrintSuKien {
+  id            BigInt    @id @default(autoincrement())
+  orgId         String    @map("org_id")
+  jobId         String    @map("job_id")
+  /// null = dòng tạo job (cho_in đầu tiên)
+  tuTrangThai   String?   @map("tu_trang_thai")
+  sangTrangThai String    @map("sang_trang_thai")
+  /// Mã ngắn vì sao (mã sự cố app/IPP như het_giay, hoặc qua_lan_thu/app_offline/odoo_pdf/mo_coi/…); null = bình thường.
+  maLoi         String?   @map("ma_loi")
+  /// timestamptz (Codex v1 #5) — cùng trục thời gian với trigger now() bất kể TimeZone phiên DB.
+  luc           DateTime  @default(now()) @db.Timestamptz(3)
+  botNhanLuc    DateTime? @map("bot_nhan_luc") @db.Timestamptz(3)
+
+  @@index([orgId, luc(sort: Desc)])
+  @@index([jobId])
+  @@map("print_su_kien")
+}
+
+/// Sự cố MÁY IN (docs/78 C1) — luồng RIÊNG, không gắn đổi trạng thái job: app báo `su-co` (agent-ws.ts) và cầu dao
+/// ngắt `tam_giu` (hang-doi-in.ts / agent-ws.ts). Ghi bền (await, thử lại một lần) lúc nhận. KHÔNG lưu token máy in
+/// (luật 2 nhat-ky.ts) — chỉ id + tên dòng print_agents (null = máy mặc định env).
+model PrintSuCo {
+  id         BigInt    @id @default(autoincrement())
+  orgId      String    @map("org_id")
+  mayInId    String?   @map("may_in_id")
+  mayInTen   String?   @map("may_in_ten")
+  printJobId String?   @map("print_job_id")
+  soHoaDon   String?   @map("so_hoa_don")
+  /// Mã sự cố (nhat-ky.ts MA_SU_CO), `tam_giu` (cầu dao giữ các hoá đơn sau), hoặc hồi phục `het_su_co` / `tiep_tuc_in`.
+  maSuCo     String    @map("ma_su_co")
+  /// `tam_giu`: mã sự cố gây ngắt (null = app không trả lời) · hồi phục (`het_su_co`/`tiep_tuc_in`): mã sự cố vừa hết.
+  /// Mã sự cố trơn: null.
+  maGoc      String?   @map("ma_goc")
+  /// MỘT sự cố = một nhóm: ma_goc ?? ma_su_co (su-kien-in.ts nhomSuCo) — su-co het_giay, tam_giu(het_giay) và hồi phục
+  /// của nó cùng nhóm `het_giay`; bot gom theo (máy, nhom_su_co).
+  nhomSuCo   String    @map("nhom_su_co")
+  chiTiet    String?   @map("chi_tiet")
+  luc        DateTime  @default(now()) @db.Timestamptz(3)
+  botNhanLuc DateTime? @map("bot_nhan_luc") @db.Timestamptz(3)
+
+  @@index([orgId, luc(sort: Desc)])
+  @@index([orgId, mayInId, id])
+  @@map("print_su_co")
+}
+
 /// Nhiều máy in theo chi nhánh (gen token ZaloCRM) — mỗi dòng 1 máy in đã đăng
 /// ký. warehouseIds = danh sách kho máy này phục vụ (HN ôm [2,4], HCM=[3]);
 /// laMacDinh = máy nhận đơn không khớp kho nào (đúng 1 máy = true, hiện = HN).
@@ -4802,4 +4855,54 @@ model BotQuyenNhatKy {
   @@index([orgId, luc(sort: Desc)])
   @@index([orgId, doiTuong, doiTuongId])
   @@map("bot_quyen_nhat_ky")
+}
+
+/// LUẬT THÔNG BÁO của bot (docs/78 C2, 02/10) — một dòng mỗi (org, composer): bản sao của tin `loai` gửi thêm tới các
+/// `dich` (mảng {kieu: chuc_nang|nv|nguoi_gay_ra, gia_tri}). Nơi GỐC luôn ngầm định — `nhom_goc` KHÔNG BAO GIỜ là đích
+/// (P0-5). Chủ sửa trên CRM (owner/admin, bot-thong-bao-routes.ts, nhật ký BotQuyenNhatKy cùng giao dịch); bot đọc qua
+/// GET /api/public/bot-thong-bao/luat (phien_ban = băm). Kiểm cứng phía server theo ảnh chụp danh mục composer MỚI NHẤT
+/// (BotBanDoTin): composer lạ / kieu=khoa / nhóm khách cho composer có dữ liệu nhạy cảm ⇒ 400.
+model BotLuatThongBao {
+  id       String   @id @default(uuid())
+  orgId    String   @map("org_id")
+  /// id composer (danh mục của bot)
+  loai     String
+  dich     Json     @default("[]")
+  /// tat | bong | bat
+  cheDo    String   @default("bong") @map("che_do")
+  dieuKien Json     @default("{}") @map("dieu_kien")
+  gomGiay  Int      @default(0) @map("gom_giay")
+  lich     Json?
+  /// Tăng mỗi lần sửa — PUT gửi kèm để chặn ghi đè đồng thời (409).
+  phienBan Int      @default(1) @map("phien_ban")
+  /// User CRM sửa cuối (`cli:gieo-luat-thong-bao` = script gieo luật chủ chọn 02/10); null = dòng SQL tay.
+  suaBoi   String?  @map("sua_boi")
+  suaLuc   DateTime @default(now()) @map("sua_luc")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, loai])
+  @@map("bot_luat_thong_bao")
+}
+
+/// ẢNH CHỤP bản đồ tin do bot đẩy lên (docs/78 B4): danh mục composer + số đếm 7 ngày. Một dòng mỗi org (bản mới nhất).
+/// Không chứa nội dung tin. Là nguồn metadata composer cho kiểm cứng luật (kieu, nhay_cam).
+model BotBanDoTin {
+  id       String   @id @default(uuid())
+  orgId    String   @unique @map("org_id")
+  phienBan String   @map("phien_ban")
+  /// Danh mục composer theo hợp đồng docs/78 hop-dong-ban-do-tin.md (id, kieu, nhay_cam, dan_toi, khi_nao, vi_du, nguon_cau…).
+  composer Json
+  /// Nguồn giả (máy in, Odoo, lịch) — chỉ để vẽ cạnh `dan_toi` vào composer.
+  nguon    Json     @default("[]")
+  /// Số đếm theo CẠNH {khoa_canh, composer, dich_kieu, luat_id, ket_qua, cua_so: 24h|7d, so}.
+  dem      Json
+  /// Sổ nhạy cảm DÍNH theo id composer {id: {nhay_cam: [...], khoa: bool}} — hợp của MỌI ảnh chụp đã nhận (tự rà P1-5).
+  /// Ảnh chụp mới không gỡ được nhãn / mở khoá composer đã có trong sổ (409) — kể cả bỏ composer ra rồi thêm lại.
+  composerDinh Json @default("{}") @map("composer_dinh")
+  luc      DateTime @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("bot_ban_do_tin")
 }

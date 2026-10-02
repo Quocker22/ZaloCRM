@@ -151,3 +151,25 @@ describe('an toàn nhiều uid (docs/77 §8b-an-toàn)', () => {
       .toBe('Nguyễn A gỡ Zalo 2945 khỏi nick CRM “Tiểu Mã Nelia” — lý do: sai');
   });
 });
+
+describe('thông báo chủ động (docs/78 C2)', () => {
+  const luat = (them: Record<string, unknown> = {}) => ({
+    loai: 'in_sau_chot', dich: [{ kieu: 'chuc_nang', gia_tri: 'kho' }], cheDo: 'bong', dieuKien: {}, gomGiay: 0, lich: null, phienBan: 1, ...them,
+  });
+  it('luật thông báo: tạo / sửa chế độ / xoá; script gieo đọc là "Script quản trị"', () => {
+    const k = nk({ doiTuong: 'luat_thong_bao', doiTuongId: 'l1', tenDoiTuong: null });
+    expect(cauNhatKy({ ...k, sau: luat() })).toBe('Nguyễn A tạo luật thông báo “in_sau_chot” (Bóng)');
+    expect(cauNhatKy({ ...k, truoc: luat(), sau: luat({ cheDo: 'bat', phienBan: 2 }), lyDo: 'xem số rồi' }))
+      .toBe('Nguyễn A sửa luật thông báo “in_sau_chot” (Bóng → Bật) — lý do: xem số rồi');
+    expect(cauNhatKy({ ...k, truoc: luat(), sau: null })).toBe('Nguyễn A xoá luật thông báo “in_sau_chot”');
+    expect(cauNhatKy({ ...k, aiId: 'cli:gieo-luat-thong-bao', ai: null, sau: luat() }))
+      .toBe('Script quản trị tạo luật thông báo “in_sau_chot” (Bóng)');
+  });
+  it('bản đồ tin: bot cập nhật danh mục (khoá API) / bị từ chối', () => {
+    const k = nk({ doiTuong: 'ban_do_tin', doiTuongId: 'b1', tenDoiTuong: null, aiId: 'api_key:s1', ai: null });
+    expect(cauNhatKy({ ...k, sau: { phienBan: 'dm-2', soComposer: 4, them: ['moi'], bo: [], doi: ['a'] } }))
+      .toBe('Bot (khoá API) cập nhật bản đồ tin dm-2: 4 loại tin — thêm moi; đổi a');
+    expect(cauNhatKy({ ...k, truoc: { phienBanGui: 'gia' }, lyDo: 'Từ chối ảnh chụp: gỡ nhạy cảm' }))
+      .toBe('Bot (khoá API) gửi bản đồ tin bị TỪ CHỐI — lý do: Từ chối ảnh chụp: gỡ nhạy cảm');
+  });
+});

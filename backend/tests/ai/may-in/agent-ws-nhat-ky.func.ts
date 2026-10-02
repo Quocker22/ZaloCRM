@@ -10,6 +10,7 @@ import { io as ioClient, type Socket as ClientSocket } from 'socket.io-client';
 import { registerAgentWs, HO_TRO_APP } from '../../../src/modules/ai/may-in/agent-ws.js';
 import { AgentRegistry, AgentHetGioCho } from '../../../src/modules/ai/may-in/agent-registry.js';
 import type { MucNhatKy } from '../../../src/modules/ai/may-in/nhat-ky.js';
+import type { SuCoIn } from '../../../src/modules/ai/may-in/su-kien-in.js';
 import { dichVuHangDoiRong } from './prisma-gia-hang-doi.js';
 
 const TOKEN = 'tokHN_bi_mat_khong_duoc_lo_9x7';
@@ -21,6 +22,7 @@ describe('agent-ws — sự cố máy in + nhật ký', () => {
   let port: number;
   let nhatKy: MucNhatKy[];
   let capNhatJobTre: ReturnType<typeof vi.fn>;
+  let suCo: SuCoIn[];
   const clients: ClientSocket[] = [];
 
   beforeEach(async () => {
@@ -30,15 +32,20 @@ describe('agent-ws — sự cố máy in + nhật ký', () => {
     registry = new AgentRegistry({ msChoKetQua: 300 });
     nhatKy = [];
     capNhatJobTre = vi.fn(async () => 1);
+    suCo = [];
     registerAgentWs(io, registry, {
       layMayInTheoToken: async (t) => (t === TOKEN ? { token: TOKEN } : null),
       ghiNhatKy: (m) => nhatKy.push(m),
       capNhatJobTre,
+      // docs/78 C1: sự cố bền — test giữ trong bộ nhớ (bản thật ghi print_su_co, xem print-su-kien-db.test.ts).
+      ghiSuCo: async (sc) => { suCo.push(sc); return 'da_luu'; },
+      docTrangThaiMay: async () => 'binh_thuong',
       // Không bao giờ để test chạm Prisma thật (DB giả của vitest.func.config).
       layJobTheoId: async () => null,
       coLenhInMoiHon: async () => false,
       dichVuHangDoi: dichVuHangDoiRong(),
       msChoThongTin: 100,
+      msGopSuCo: 150,
     });
     await new Promise<void>((resolve) => httpServer.listen(0, () => resolve()));
     const addr = httpServer.address();
@@ -88,6 +95,11 @@ describe('agent-ws — sự cố máy in + nhật ký', () => {
     expect(dong[0]).toMatchObject({ printJobId: 'pj1', soHoaDon: 'INV/2026/030045', tenKhach: 'Anh Lộc', orgId: 'org1' });
     expect(dong[0].noiDung).toBe('Hết giấy khi in hoá đơn INV/2026/030045 (máy in "HP 4003") — Khay 2 trống');
     expect(registry.layTinhTrang(TOKEN)?.ma).toBe('het_giay');
+    // docs/78 C1: đúng MỘT sự cố bền (gửi lặp không nhân đôi), kèm hoá đơn; token chỉ để tra máy.
+    expect(suCo).toEqual([{
+      maSuCo: 'het_giay', agentToken: TOKEN, orgId: 'org1', printJobId: 'pj1', soHoaDon: 'INV/2026/030045',
+      chiTiet: 'máy in "HP 4003" — Khay 2 trống',
+    }]);
   });
 
   it('su-co mã lạ → bỏ qua, không ghi', async () => {
@@ -95,6 +107,7 @@ describe('agent-ws — sự cố máy in + nhật ký', () => {
     c.emit('su-co', { jobId: 'x', loai: 'DROP TABLE' });
     await cho(60);
     expect(nhatKy.filter((m) => m.loai !== 'app_ket_noi')).toHaveLength(0);
+    expect(suCo).toEqual([]);
   });
 
   it('trang-thai-may-in: lần đầu bình thường không ghi; đổi sang kẹt giấy ghi; trùng không ghi; hết sự cố ghi', async () => {
@@ -110,6 +123,25 @@ describe('agent-ws — sự cố máy in + nhật ký', () => {
     const dong = nhatKy.filter((m) => m.loai === 'ket_giay' || m.loai === 'binh_thuong');
     expect(dong.map((m) => m.loai)).toEqual(['ket_giay', 'binh_thuong']);
     expect(dong[1].noiDung).toBe('Máy in "HP" đã hết sự cố (Kẹt giấy), hoạt động bình thường');
+    // docs/78 tự rà P1-3: máy RẢNH đổi trạng thái cũng là sự cố bền — kẹt giấy + dòng hồi phục het_su_co (ma_goc = mã cũ).
+    expect(suCo).toEqual([
+      { maSuCo: 'ket_giay', agentToken: TOKEN, chiTiet: 'máy in "HP" — Cửa sau' },
+      { maSuCo: 'het_su_co', maGoc: 'ket_giay', agentToken: TOKEN, chiTiet: 'máy in "HP"' },
+    ]);
+  });
+
+  it('su-co KHÔNG có jobId: gửi lặp trong cửa sổ gộp ⇒ một dòng; HẾT cửa sổ ⇒ ghi lại (không bị chặn mãi như Set theo socket)', async () => {
+    const { c } = await noi();
+    c.emit('su-co', { loai: 'het_giay', mayIn: 'HP' });
+    c.emit('su-co', { loai: 'het_giay', mayIn: 'HP' });
+    await cho(60);
+    expect(suCo.map((s) => s.maSuCo)).toEqual(['het_giay']);
+    expect(nhatKy.filter((m) => m.loai === 'het_giay')).toHaveLength(1);
+    await cho(150); // msGopSuCo = 150 trong test (thật: 10 phút)
+    c.emit('su-co', { loai: 'het_giay', mayIn: 'HP' });
+    await cho(60);
+    expect(suCo.map((s) => s.maSuCo)).toEqual(['het_giay', 'het_giay']);
+    expect(nhatKy.filter((m) => m.loai === 'het_giay')).toHaveLength(2);
   });
 
   it('ket-qua khong_ro tới kịp → registry nhận đúng trạng thái + mã', async () => {
@@ -126,7 +158,7 @@ describe('agent-ws — sự cố máy in + nhật ký', () => {
     await expect(p).rejects.toBeInstanceOf(AgentHetGioCho); // hạn 300ms trong test
     c.emit('ket-qua', { jobId: 'jTre', trangThai: 'da_in' });
     await cho(80);
-    expect(capNhatJobTre).toHaveBeenCalledWith('pjTre', { trangThai: 'da_in' }, null, { choPhepDangGui: false });
+    expect(capNhatJobTre).toHaveBeenCalledWith('pjTre', { trangThai: 'da_in' }, null, { choPhepDangGui: false, maLoi: null });
     const dong = nhatKy.find((m) => m.loai === 'ket_qua_tre')!;
     expect(dong.noiDung).toBe('Hoá đơn INV/9 đã in — app xác nhận sau hạn chờ (đã cập nhật trạng thái job)');
     expect(dong.mucDo).toBe('thong_tin');

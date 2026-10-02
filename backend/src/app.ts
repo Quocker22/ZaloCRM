@@ -354,6 +354,9 @@ async function bootstrap() {
   // Quyền bot (docs/77) — bridge bot poll ~60 s, cùng khoá x-api-key như publicApiRoutes.
   const { botQuyenPublicRoutes } = await import('./modules/bot-quyen/bot-quyen-public-routes.js');
   await app.register(botQuyenPublicRoutes);
+  // Thông báo chủ động (docs/78 C2): bot đọc luật + đẩy ảnh chụp bản đồ tin (x-api-key).
+  const { botThongBaoPublicRoutes } = await import('./modules/bot-quyen/bot-thong-bao-routes.js');
+  await app.register(botThongBaoPublicRoutes);
   // Gợi ý @khách / #sản-phẩm cho ô chat.
   await app.register(goiYRoutes);
   await app.register(webhookSettingsRoutes);

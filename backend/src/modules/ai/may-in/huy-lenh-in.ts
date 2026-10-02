@@ -20,6 +20,7 @@ import { logger } from '../../../shared/utils/logger.js';
 import { MAX_LAN_THU } from './hang-doi-in.js';
 import { catChu, cheToken, ghiNhatKy as ghiNhatKyThat, laMaSuCo, nhanCua, type MucNhatKy } from './nhat-ky.js';
 import { agentRegistry, type CauDao } from './agent-registry.js';
+import { capNhatJobCoSuKien, type PrismaSuKienIn } from './su-kien-in.js';
 
 // ── Kiểu dữ liệu hợp đồng (§3.1 + §8.6 + §8.7 — app viết song song theo đúng chữ này) ──
 
@@ -181,6 +182,9 @@ export interface PrismaHangDoiHuy {
     findMany: (a: Record<string, unknown>) => Promise<Array<{ id: string; ten: string; token: string }>>;
     findFirst: (a: Record<string, unknown>) => Promise<{ token: string } | null>;
   };
+  /** Sự kiện in bền (docs/78 C1) — Prisma thật có; bản giả cũ có thể thiếu (khi đó chỉ updateMany như trước). */
+  printSuKien?: PrismaSuKienIn['printSuKien'];
+  $transaction?: PrismaSuKienIn['$transaction'];
 }
 
 /** Phần registry hàng đợi cần: cầu dao + app có nối không + báo "hàng đợi đổi". */
@@ -521,12 +525,15 @@ export async function huyLenhIn(
     let kq: KetQuaHuy | null = null;
     let job: JobHangDoi | null = null;
     for (let lan = 0; lan < SO_LAN_THU_HUY && !kq; lan++) {
-      const r = await p.printJob.updateMany({
+      // docs/78 C1: cho_in → da_huy + print_su_kien CÙNG giao dịch (trạm thông báo kết thúc bộ hẹn "quá hạn").
+      const daDoi = await capNhatJobCoSuKien(p, {
+        id,
         where: { AND: [{ id, trangThai: 'cho_in' }, pv] },
         data: { trangThai: 'da_huy', loiCuoi: `Đã huỷ bởi ${nguonChu}` },
+        goiY: { tu: 'cho_in' },
       });
       job = await p.printJob.findFirst({ where: { AND: [{ id }, pv] }, select: CHON_JOB });
-      if (r.count > 0) {
+      if (daDoi > 0) {
         kq = { id, soHoaDon: job?.soHoaDon ?? null, ok: true, trangThaiMoi: 'da_huy', cach: 'chua_gui', noiDung: NOI_DUNG_HUY.chuaGui };
       } else if (job?.trangThai !== 'cho_in' || lan === SO_LAN_THU_HUY - 1) {
         kq = ketQuaKhiKhongHuyDuoc(id, job);
@@ -604,9 +611,12 @@ export async function boTheoDoi(
   return ketQua;
 
   async function boMotId(id: string): Promise<KetQuaBoTheoDoi> {
-    const r = await p.printJob.updateMany({
+    // docs/78 C1: khong_ro → bo_qua + print_su_kien CÙNG giao dịch.
+    const daDoi = await capNhatJobCoSuKien(p, {
+      id,
       where: { AND: [{ id, trangThai: 'khong_ro' }, pv] },
       data: { trangThai: 'bo_qua', loiCuoi: `Bỏ khỏi hàng đợi bởi ${nguonChu} — không biết đã in hay chưa` },
+      goiY: { tu: 'khong_ro' },
     });
     const job = await p.printJob.findFirst({ where: { AND: [{ id }, pv] }, select: CHON_JOB });
     if (job) mayDoi.add(job.agentToken ?? tokenMacDinh);
@@ -622,7 +632,7 @@ export async function boTheoDoi(
         chiTiet: { nguon: loaiNguon, ...(ghiBu ? { ghiBu: true } : {}) },
       });
     };
-    if (r.count > 0 && job) {
+    if (daDoi > 0 && job) {
       await ghiBoTheoDoi(job, nguonChu, nguon.loai, false);
       return { id, ok: true, noiDung: NOI_DUNG_BO_THEO_DOI.ok };
     }

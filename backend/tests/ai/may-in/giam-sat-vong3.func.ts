@@ -84,7 +84,7 @@ describe('agent-ws — kết quả trễ (V-b, V-c, N-a, N-b)', () => {
     registry.ghiNguCanh('jX', { printJobId: 'pjX', orgId: 'o', soHoaDon: 'INV/X', tenKhach: null, token: TOKEN });
     c.emit('ket-qua', { jobId: 'jX', trangThai: 'loi', loai: 'het_giay' });
     await cho(80);
-    expect(capNhatJobTre).toHaveBeenCalledWith('pjX', { trangThai: 'loi' }, expect.stringContaining('đã có lệnh in mới'), { choPhepDangGui: false });
+    expect(capNhatJobTre).toHaveBeenCalledWith('pjX', { trangThai: 'loi' }, expect.stringContaining('đã có lệnh in mới'), { choPhepDangGui: false, maLoi: 'het_giay' });
     expect(registry.xetCauDao(TOKEN)).toBe('gui');
     expect(nhatKy.find((m) => m.loai === 'ket_qua_tre')!.noiDung).toContain('đã có lệnh in mới cho hoá đơn này, không tự gửi lại');
   });
@@ -139,7 +139,7 @@ describe('agent-ws — kết quả trễ (V-b, V-c, N-a, N-b)', () => {
       });
       c.emit('ket-qua', { jobId: `${PJ}-1727000000000`, trangThai: 'da_in' });
       await cho(80);
-      expect(capNhatJobTre).toHaveBeenCalledWith(PJ, { trangThai: 'da_in' }, null, { choPhepDangGui: moCoi });
+      expect(capNhatJobTre).toHaveBeenCalledWith(PJ, { trangThai: 'da_in' }, null, { choPhepDangGui: moCoi, maLoi: null });
       c.disconnect();
     }
   });

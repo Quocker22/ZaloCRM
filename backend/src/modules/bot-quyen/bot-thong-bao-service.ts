@@ -1,0 +1,335 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// THÔNG BÁO CHỦ ĐỘNG (docs/78 C2) — nghiệp vụ luật thông báo + ảnh chụp bản đồ tin.
+//
+// Bất biến (như bot-quyen-service.ts):
+//   • kiểm cứng theo ảnh chụp danh mục MỚI NHẤT (bot-thong-bao-luat.ts) — chưa có ảnh chụp ⇒ không tạo/sửa được luật (409);
+//     XOÁ luật luôn được (bớt tin gửi đi không bao giờ làm lộ dữ liệu);
+//   • mỗi thay đổi ghi MỘT dòng BotQuyenNhatKy (doi_tuong='luat_thong_bao', trước/sau) TRONG CÙNG giao dịch;
+//   • ghi của một org nối đuôi nhau (pg_advisory_xact_lock) — ảnh chụp đọc TRONG giao dịch đó;
+//   • mọi truy vấn lọc theo orgId.
+import type { Prisma } from '@prisma/client';
+import { prisma, tenantTransaction } from '../../shared/database/prisma-client.js';
+import { withTenant } from '../../shared/tenant/tenant-context.js';
+import {
+  LoiLuatThongBao, docLuatVao, docAnhChup, danhMucTuAnh, danhMucHop, kiemTheoDanhMuc, ghepLuatCongKhai, LUAT_CHU_CHON_02_10,
+  kiemNhayCamDinh,
+  type ComposerAnh,
+  type Dich, type LuatBotDoc, type CheDo,
+} from './bot-thong-bao-luat.js';
+
+type Tx = Parameters<Parameters<typeof tenantTransaction>[0]>[0];
+type Body = Record<string, unknown>;
+
+const DAI_LY_DO = 500;
+
+function laBody(x: unknown): Body {
+  return x && typeof x === 'object' && !Array.isArray(x) ? (x as Body) : {};
+}
+
+function docLyDo(x: unknown): string | null {
+  if (x === undefined || x === null) return null;
+  if (typeof x !== 'string') throw new LoiLuatThongBao(400, 'DU_LIEU_KHONG_HOP_LE', 'lyDo phải là chuỗi');
+  const t = x.trim();
+  if (t.length > DAI_LY_DO) throw new LoiLuatThongBao(400, 'DU_LIEU_KHONG_HOP_LE', `lyDo dài quá ${DAI_LY_DO} ký tự`);
+  return t || null;
+}
+
+async function khoaOrg(tx: Tx, orgId: string): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`bot-thong-bao:${orgId}`}))`;
+}
+
+export interface LuatView {
+  id: string;
+  loai: string;
+  dich: Dich[];
+  cheDo: CheDo;
+  dieuKien: Record<string, unknown>;
+  gomGiay: number;
+  lich: Record<string, unknown> | null;
+  phienBan: number;
+  suaBoi: string | null;
+  suaLuc: Date;
+}
+
+type DongLuat = {
+  id: string; loai: string; dich: Prisma.JsonValue; cheDo: string; dieuKien: Prisma.JsonValue; gomGiay: number;
+  lich: Prisma.JsonValue | null; phienBan: number; suaBoi: string | null; suaLuc: Date;
+};
+
+function view(r: DongLuat): LuatView {
+  return {
+    id: r.id, loai: r.loai, dich: (r.dich ?? []) as unknown as Dich[], cheDo: r.cheDo as CheDo,
+    dieuKien: (r.dieuKien ?? {}) as Record<string, unknown>, gomGiay: r.gomGiay,
+    lich: (r.lich ?? null) as Record<string, unknown> | null, phienBan: r.phienBan, suaBoi: r.suaBoi, suaLuc: r.suaLuc,
+  };
+}
+
+/** Ảnh nhật ký — đúng các ô ảnh hưởng hành vi bot. */
+function anh(v: LuatView): object {
+  return { loai: v.loai, dich: v.dich, cheDo: v.cheDo, dieuKien: v.dieuKien, gomGiay: v.gomGiay, lich: v.lich, phienBan: v.phienBan };
+}
+
+async function ghiNhatKy(tx: Tx, d: { orgId: string; aiId: string; id: string; truoc: object | null; sau: object | null; lyDo: string | null }) {
+  await tx.botQuyenNhatKy.create({
+    data: {
+      orgId: d.orgId, aiId: d.aiId, doiTuong: 'luat_thong_bao', doiTuongId: d.id, lyDo: d.lyDo,
+      ...(d.truoc ? { truoc: d.truoc as Prisma.InputJsonValue } : {}),
+      ...(d.sau ? { sau: d.sau as Prisma.InputJsonValue } : {}),
+    },
+  });
+}
+
+/** Metadata kiểm cứng = ảnh chụp hiện tại ∪ sổ dính (Codex v1 #1). null = chưa có ảnh chụp ⇒ 409 khi ghi. */
+async function danhMucTrong(tx: Tx, orgId: string) {
+  const a = await tx.botBanDoTin.findUnique({ where: { orgId }, select: { composer: true, composerDinh: true } });
+  return a ? danhMucHop(a.composer, a.composerDinh) : null;
+}
+
+async function uidNvTrong(tx: Tx, orgId: string, dich: Dich[]): Promise<Set<string>> {
+  const can = dich.filter((d) => d.kieu === 'nv').map((d) => d.gia_tri!);
+  if (can.length === 0) return new Set();
+  const [chinh, phu] = await Promise.all([
+    tx.botNhanVien.findMany({ where: { orgId, zaloUid: { in: can } }, select: { zaloUid: true } }),
+    tx.botNhanVienUid.findMany({ where: { orgId, zaloUid: { in: can } }, select: { zaloUid: true } }),
+  ]);
+  return new Set([...chinh, ...phu].map((r) => r.zaloUid));
+}
+
+// ── Đọc (admin) ─────────────────────────────────────────────────────────────
+
+/**
+ * `canhBao` = ĐÚNG cảnh báo bot nhận ở GET /api/public/bot-thong-bao/luat (cùng `ghepLuatCongKhai` với ảnh chụp hiện tại):
+ * đích/luật CRM sẽ bỏ khi phát — chủ thấy ngay trên trang thay vì tưởng luật đang chạy như đã lưu.
+ */
+export async function danhSachLuat(orgId: string): Promise<{
+  luat: LuatView[]; banDo: { phienBan: string; luc: Date } | null; canhBao: string[];
+}> {
+  const [rows, a] = await Promise.all([
+    prisma.botLuatThongBao.findMany({ where: { orgId }, orderBy: [{ loai: 'asc' }] }),
+    prisma.botBanDoTin.findUnique({ where: { orgId }, select: { phienBan: true, luc: true, composer: true, composerDinh: true } }),
+  ]);
+  const { canh_bao } = ghepLuatCongKhai(rows, a ? danhMucHop(a.composer, a.composerDinh) : null);
+  return { luat: rows.map(view), banDo: a ? { phienBan: a.phienBan, luc: a.luc } : null, canhBao: canh_bao };
+}
+
+export async function docBanDo(orgId: string) {
+  return prisma.botBanDoTin.findUnique({ where: { orgId }, select: { phienBan: true, composer: true, nguon: true, dem: true, luc: true } });
+}
+
+// ── Ghi (admin) ─────────────────────────────────────────────────────────────
+
+export async function taoLuat(orgId: string, aiId: string, body: unknown): Promise<LuatView> {
+  const b = laBody(body);
+  if (typeof b.loai !== 'string' || !b.loai.trim() || b.loai.length > 64) {
+    throw new LoiLuatThongBao(400, 'DU_LIEU_KHONG_HOP_LE', 'loai (id composer) bắt buộc');
+  }
+  const loai = b.loai.trim();
+  const v = docLuatVao(b);
+  const lyDo = docLyDo(b.lyDo);
+  const dich = v.dich ?? [];
+  return tenantTransaction(async (tx) => {
+    await khoaOrg(tx, orgId);
+    kiemTheoDanhMuc(loai, dich, await danhMucTrong(tx, orgId), await uidNvTrong(tx, orgId, dich));
+    const co = await tx.botLuatThongBao.findUnique({ where: { orgId_loai: { orgId, loai } }, select: { id: true } });
+    if (co) throw new LoiLuatThongBao(409, 'DA_CO_LUAT', `Loại tin "${loai}" đã có luật — sửa luật đó thay vì tạo mới`);
+    const r = await tx.botLuatThongBao.create({
+      data: {
+        orgId, loai, dich: dich as unknown as Prisma.InputJsonValue,
+        // H12: luật mới mặc định `bong` (ghi không gửi) — chủ xem số rồi mới bật.
+        cheDo: v.cheDo ?? 'bong',
+        dieuKien: (v.dieuKien ?? {}) as Prisma.InputJsonValue,
+        gomGiay: v.gomGiay ?? 0,
+        ...(v.lich ? { lich: v.lich as Prisma.InputJsonValue } : {}),
+        suaBoi: aiId,
+      },
+    });
+    const moi = view(r);
+    await ghiNhatKy(tx, { orgId, aiId, id: r.id, truoc: null, sau: anh(moi), lyDo });
+    return moi;
+  });
+}
+
+export async function suaLuat(orgId: string, aiId: string, id: string, body: unknown): Promise<LuatView & { doi: boolean }> {
+  const b = laBody(body);
+  const v = docLuatVao(b);
+  const lyDo = docLyDo(b.lyDo);
+  const phienBanGui = b.phienBan;
+  // BẮT BUỘC (tự rà P2): sửa không kèm phiên bản đã đọc = ghi đè mù lên thay đổi của người khác.
+  if (phienBanGui === undefined || phienBanGui === null) {
+    throw new LoiLuatThongBao(400, 'PHIEN_BAN_THIEU', 'Thiếu phienBan (phiên bản luật đang xem) — tải lại rồi sửa');
+  }
+  if (typeof phienBanGui !== 'number' || !Number.isInteger(phienBanGui)) {
+    throw new LoiLuatThongBao(400, 'DU_LIEU_KHONG_HOP_LE', 'phienBan phải là số nguyên');
+  }
+  return tenantTransaction(async (tx) => {
+    await khoaOrg(tx, orgId);
+    const cu = await tx.botLuatThongBao.findFirst({ where: { id, orgId } });
+    if (!cu) throw new LoiLuatThongBao(404, 'KHONG_TIM_THAY', 'Không tìm thấy luật thông báo này');
+    if (phienBanGui !== cu.phienBan) {
+      throw new LoiLuatThongBao(409, 'PHIEN_BAN_CU', 'Luật vừa được người khác sửa — tải lại rồi sửa tiếp');
+    }
+    const truoc = view(cu);
+    const dich = v.dich ?? truoc.dich;
+    const sau: LuatView = {
+      ...truoc,
+      dich,
+      cheDo: v.cheDo ?? truoc.cheDo,
+      dieuKien: v.dieuKien ?? truoc.dieuKien,
+      gomGiay: v.gomGiay ?? truoc.gomGiay,
+      lich: v.lich !== undefined ? v.lich : truoc.lich,
+    };
+    if (JSON.stringify(anh(sau)) === JSON.stringify(anh(truoc))) return { ...truoc, doi: false };
+    kiemTheoDanhMuc(cu.loai, dich, await danhMucTrong(tx, orgId), await uidNvTrong(tx, orgId, dich));
+    const r = await tx.botLuatThongBao.update({
+      where: { id },
+      data: {
+        dich: dich as unknown as Prisma.InputJsonValue,
+        cheDo: sau.cheDo,
+        dieuKien: sau.dieuKien as Prisma.InputJsonValue,
+        gomGiay: sau.gomGiay,
+        // lich null ⇒ SQL NULL (không dùng Prisma.DbNull — extension strip-null-bytes biến nó thành {}; xem bot-quyen-service).
+        ...(sau.lich ? { lich: sau.lich as Prisma.InputJsonValue } : {}),
+        phienBan: { increment: 1 },
+        suaBoi: aiId,
+        suaLuc: new Date(),
+      },
+    });
+    if (!sau.lich && truoc.lich) await tx.$executeRaw`UPDATE bot_luat_thong_bao SET lich = NULL WHERE id = ${id}`;
+    const moi = { ...view(r), lich: sau.lich };
+    await ghiNhatKy(tx, { orgId, aiId, id, truoc: anh(truoc), sau: anh(moi), lyDo });
+    return { ...moi, doi: true };
+  });
+}
+
+/** Xoá luật — luôn được (kể cả khi chưa có ảnh chụp): bớt tin gửi đi không làm lộ dữ liệu. */
+export async function xoaLuat(orgId: string, aiId: string, id: string, body: unknown): Promise<{ ok: true }> {
+  const lyDo = docLyDo(laBody(body).lyDo);
+  return tenantTransaction(async (tx) => {
+    await khoaOrg(tx, orgId);
+    const cu = await tx.botLuatThongBao.findFirst({ where: { id, orgId } });
+    if (!cu) throw new LoiLuatThongBao(404, 'KHONG_TIM_THAY', 'Không tìm thấy luật thông báo này');
+    await tx.botLuatThongBao.delete({ where: { id } });
+    await ghiNhatKy(tx, { orgId, aiId, id, truoc: anh(view(cu)), sau: null, lyDo });
+    return { ok: true as const };
+  });
+}
+
+// ── Công khai (bot) ─────────────────────────────────────────────────────────
+
+export async function docLuatChoBot(orgId: string): Promise<LuatBotDoc> {
+  return withTenant(orgId, async () => {
+    const [rows, a] = await Promise.all([
+      prisma.botLuatThongBao.findMany({
+        where: { orgId },
+        select: { loai: true, dich: true, cheDo: true, dieuKien: true, gomGiay: true, lich: true, phienBan: true },
+      }),
+      prisma.botBanDoTin.findUnique({ where: { orgId }, select: { composer: true, composerDinh: true } }),
+    ]);
+    return ghepLuatCongKhai(rows, a ? danhMucHop(a.composer, a.composerDinh) : null);
+  });
+}
+
+/** Tóm tắt danh mục cho nhật ký — id → kieu + nhãn (không lưu tên/mô tả dài). */
+function tomTat(composer: readonly ComposerAnh[]): Map<string, string> {
+  return new Map(composer.map((c) => [c.id, `${c.kieu}|${c.nhay_cam.join(',')}`]));
+}
+
+/**
+ * Lưu ảnh chụp MỚI NHẤT của org (thay bản cũ) — tự rà P1-5:
+ *   • nhạy cảm DÍNH (`kiemNhayCamDinh`): gỡ nhãn / mở khoá composer đã biết ⇒ 409 NHAY_CAM_DINH, giữ bản cũ;
+ *   • nhật ký `ban_do_tin` (ai = `api_key:<id cài đặt>`): khi DANH MỤC đổi (số đếm đổi mỗi lần gửi — không ghi) và khi
+ *     bị từ chối (ghi riêng, sau khi giao dịch huỷ).
+ */
+export async function luuAnhChup(
+  orgId: string, body: unknown, apiKeyId: string | null = null,
+): Promise<{ ok: true; phien_ban: string; so_composer: number }> {
+  const a = docAnhChup(body);
+  const aiId = `api_key:${apiKeyId ?? 'khong_ro'}`;
+  try {
+    await withTenant(orgId, () => tenantTransaction(async (tx) => {
+      await khoaOrg(tx, orgId);
+      const cu = await tx.botBanDoTin.findUnique({ where: { orgId } });
+      const cuComposer = cu ? [...danhMucTuAnh(cu.composer).values()] : [];
+      // Sổ dính = sổ đã lưu ∪ danh mục bản cũ (ảnh chụp lưu trước khi có cột sổ).
+      const { dinh: dinhCu } = kiemNhayCamDinh(cu?.composerDinh ?? {}, cuComposer);
+      const { viPham, dinh } = kiemNhayCamDinh(dinhCu, a.composer);
+      if (viPham.length > 0) {
+        throw new LoiLuatThongBao(
+          409, 'NHAY_CAM_DINH',
+          `Ảnh chụp bị từ chối — không được gỡ nhạy cảm/mở khoá loại tin đã biết: ${viPham.slice(0, 5).join('; ')}`,
+        );
+      }
+      const data = {
+        phienBan: a.phien_ban,
+        composer: a.composer as unknown as Prisma.InputJsonValue,
+        nguon: a.nguon as unknown as Prisma.InputJsonValue,
+        dem: a.dem as unknown as Prisma.InputJsonValue,
+        composerDinh: dinh as unknown as Prisma.InputJsonValue,
+      };
+      const r = await tx.botBanDoTin.upsert({ where: { orgId }, create: { orgId, ...data }, update: { ...data, luc: new Date() } });
+      const truocTT = tomTat(cuComposer);
+      const sauTT = tomTat(a.composer);
+      const them = [...sauTT.keys()].filter((k) => !truocTT.has(k)).sort();
+      const bo = [...truocTT.keys()].filter((k) => !sauTT.has(k)).sort();
+      const doi = [...sauTT.keys()].filter((k) => truocTT.has(k) && truocTT.get(k) !== sauTT.get(k)).sort();
+      if (!cu || them.length + bo.length + doi.length > 0) {
+        await tx.botQuyenNhatKy.create({
+          data: {
+            orgId, aiId, doiTuong: 'ban_do_tin', doiTuongId: r.id,
+            ...(cu ? { truoc: { phienBan: cu.phienBan, soComposer: cuComposer.length } } : {}),
+            sau: { phienBan: a.phien_ban, soComposer: a.composer.length, them, bo, doi } as Prisma.InputJsonValue,
+          },
+        });
+      }
+    }));
+  } catch (err) {
+    if (err instanceof LoiLuatThongBao && err.code === 'NHAY_CAM_DINH') {
+      await withTenant(orgId, () => prisma.botQuyenNhatKy.create({
+        data: {
+          orgId, aiId, doiTuong: 'ban_do_tin', doiTuongId: orgId,
+          truoc: { phienBanGui: a.phien_ban, soComposer: a.composer.length },
+          lyDo: `Từ chối ảnh chụp: ${err.message}`.slice(0, 500),
+        },
+      })).catch(() => undefined);
+    }
+    throw err;
+  }
+  return { ok: true, phien_ban: a.phien_ban, so_composer: a.composer.length };
+}
+
+// ── Gieo luật chủ chọn 02/10 (scripts/gieo-luat-thong-bao.ts) ─────────────────
+
+export interface KetQuaGieo {
+  loai: string;
+  /** tao = vừa tạo · da_co = org đã có luật cho loại này (KHÔNG đè — chủ có thể đã sửa/xoá đích). */
+  ketQua: 'tao' | 'da_co';
+  id: string;
+}
+
+/**
+ * Tạo hai luật chủ chọn 02/10 cho MỘT org qua đúng `taoLuat` (kiểm cứng theo ảnh chụp + nhật ký + khoá org). Kiểm cả hai
+ * TRƯỚC khi ghi luật nào: thiếu ảnh chụp (409) / thiếu composer (400) ⇒ không ghi gì. Mặc định `bong`.
+ */
+export async function gieoLuatChuChon(orgId: string, o: { aiId: string; cheDo?: CheDo }): Promise<KetQuaGieo[]> {
+  const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { id: true } });
+  if (!org) throw new LoiLuatThongBao(404, 'KHONG_TIM_THAY', `Không có tổ chức ${orgId}`);
+  return withTenant(orgId, async () => {
+    const anhChup = await prisma.botBanDoTin.findUnique({ where: { orgId }, select: { composer: true, composerDinh: true } });
+    const danhMuc = anhChup ? danhMucHop(anhChup.composer, anhChup.composerDinh) : null;
+    for (const l of LUAT_CHU_CHON_02_10) kiemTheoDanhMuc(l.loai, l.dich, danhMuc, new Set());
+    const ra: KetQuaGieo[] = [];
+    for (const l of LUAT_CHU_CHON_02_10) {
+      try {
+        const v = await taoLuat(orgId, o.aiId, {
+          loai: l.loai, dich: l.dich, cheDo: o.cheDo ?? 'bong', lyDo: 'Gieo luật chủ chọn 02/10 (docs/78)',
+        });
+        ra.push({ loai: l.loai, ketQua: 'tao', id: v.id });
+      } catch (err) {
+        if (!(err instanceof LoiLuatThongBao) || err.code !== 'DA_CO_LUAT') throw err;
+        const co = await prisma.botLuatThongBao.findUniqueOrThrow({ where: { orgId_loai: { orgId, loai: l.loai } }, select: { id: true } });
+        ra.push({ loai: l.loai, ketQua: 'da_co', id: co.id });
+      }
+    }
+    return ra;
+  });
+}

@@ -25,8 +25,11 @@ import {
 import { modelCuaReport } from './ten-file-in.js';
 import { ghiNhatKy, donNhatKyCu, SO_NGAY_GIU_NHAT_KY } from './nhat-ky.js';
 import { donNhatKyAppCu } from './nhat-ky-app.js';
+import { ghiSuCoIn, donSuKienDaNhan, taoHangThuLaiSuCo } from './su-kien-in.js';
 
 let task: ReturnType<typeof cron.schedule> | null = null;
+/** `tam_giu` khi cầu dao ngắt ở hàng đợi: DB lỗi ⇒ giữ trong RAM, thử lại theo nhịp (docs/78 Codex v1 #2). */
+const hangThuLaiSuCo = taoHangThuLaiSuCo({ ghi: (sc) => ghiSuCoIn(sc) });
 let dangChay = false;
 /** Lần dọn nhật ký máy in gần nhất (ms) — dọn tối đa 1 lần/ngày. */
 let lanDonNhatKy = 0;
@@ -211,6 +214,9 @@ export function startMayInCron(): void {
     // Mỗi lần ghi print_jobs thành công → app của máy đó nhận snapshot `hang-doi` mới
     // (hợp đồng hàng đợi/huỷ v5.1 §8.7; bộ gửi mỗi socket tự gộp + so trùng, ≤ 1 lần/giây).
     baoDoiHangDoi: (agentToken) => agentRegistry.baoDoiHangDoi(tokenMayCua(agentToken)),
+    // Sự cố máy in BỀN (docs/78 C1) — `tam_giu` khi cầu dao ngắt; token quy về máy (null = máy mặc định env). Chờ ghi;
+    // DB lỗi ⇒ hàng thử lại (không mất khi DB chập).
+    ghiSuCo: (sc) => hangThuLaiSuCo.ghi({ ...sc, agentToken: tokenMayCua(sc.agentToken ?? null) }),
     // Chỉ kênh app PC biết "app có đang kết nối không"; kênh IPP luôn coi là có.
     coMay: (agentToken) => {
       const t = tokenMayCua(agentToken);
@@ -244,6 +250,10 @@ export function startMayInCron(): void {
       });
       void donNhatKyAppCu(SO_NGAY_GIU_NHAT_KY).then((n) => {
         if (n > 0) logger.info({ n }, '[may-in] đã dọn nhật ký app máy in cũ hơn 30 ngày');
+      });
+      // Sự kiện in / sự cố bền (docs/78 C1): chỉ dòng bot ĐÃ nhận.
+      void donSuKienDaNhan(SO_NGAY_GIU_NHAT_KY).then((n) => {
+        if (n.suKien + n.suCo > 0) logger.info(n, '[may-in] đã dọn print_su_kien/print_su_co bot đã nhận, cũ hơn 30 ngày');
       });
     }
   });

@@ -32,4 +32,6 @@ export const ORG_SCOPED_MODELS: ReadonlySet<string> = new Set([
   // Quyền bot (docs/77, 30/09) — mọi truy vấn chạy trong request JWT hoặc withTenant (route công khai).
   'BotNhom', 'BotNhanVien', 'BotQuyenNhatKy', 'BotNhomDanhSach', 'BotNhanVienUid',
   'BotNhanVienUidDeXuat', 'BotNhanVienUidTuChoi', 'BotNickCrmUid', 'BotQuyenDanhTinh',
+  // Thông báo chủ động (docs/78 C2, 02/10).
+  'BotLuatThongBao', 'BotBanDoTin',
 ]);

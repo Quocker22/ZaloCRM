@@ -21,6 +21,7 @@ import {
   type SuKienHangDoi,
 } from '../../../src/modules/ai/may-in/hang-doi-in.js';
 import { updateManyGia, dichVuHangDoiRong } from './prisma-gia-hang-doi.js';
+import type { SuCoIn } from '../../../src/modules/ai/may-in/su-kien-in.js';
 import { LoiIpp, LoiKhongRo } from '../../../src/modules/ai/may-in/ipp-client.js';
 import { taoGhiNhatKy, type MucNhatKy, type PrismaNhatKy } from '../../../src/modules/ai/may-in/nhat-ky.js';
 import { traNhatKy } from '../../../src/modules/ai/may-in/print-agent-routes.js';
@@ -118,6 +119,7 @@ describe('agent-ws — V2, V3, chip tình trạng, cầu dao, mất kết nối 
   let port: number;
   let nhatKy: MucNhatKy[];
   let capNhatJobTre: ReturnType<typeof vi.fn>;
+  let suCo: SuCoIn[];
   let bayGio: number;
   const clients: ClientSocket[] = [];
 
@@ -132,10 +134,13 @@ describe('agent-ws — V2, V3, chip tình trạng, cầu dao, mất kết nối 
     const cuaTestNay: MucNhatKy[] = [];
     nhatKy = cuaTestNay;
     capNhatJobTre = vi.fn(async () => 1);
+    suCo = [];
     registerAgentWs(io, registry, {
       layMayInTheoToken: async (t) => (t === TOKEN ? { token: TOKEN } : null),
       ghiNhatKy: (m) => cuaTestNay.push(m),
       capNhatJobTre,
+      ghiSuCo: async (sc) => { suCo.push(sc); return 'da_luu'; },
+      docTrangThaiMay: async () => 'binh_thuong',
       layJobTheoId: async () => null,
       coLenhInMoiHon: async () => false,
       dichVuHangDoi: dichVuHangDoiRong(),
@@ -213,6 +218,10 @@ describe('agent-ws — V2, V3, chip tình trạng, cầu dao, mất kết nối 
     const loai = nhatKy.map((m) => m.loai);
     expect(loai).toContain('binh_thuong');
     expect(nhatKy.find((m) => m.loai === 'tiep_tuc_in')!.noiDung).toBe('Máy in hoạt động lại (đã in hoá đơn INV/7) — tiếp tục in các hoá đơn đang chờ');
+    // docs/78 tự rà P1-3: đóng cầu dao ⇒ đúng MỘT dòng hồi phục bền (gỡ chip cùng lúc KHÔNG thêm dòng thứ hai).
+    expect(suCo.filter((s) => s.maSuCo === 'tiep_tuc_in' || s.maSuCo === 'het_su_co')).toEqual([
+      expect.objectContaining({ maSuCo: 'tiep_tuc_in', maGoc: 'het_giay', agentToken: TOKEN, orgId: 'org1', printJobId: 'pjOk', soHoaDon: 'INV/7' }),
+    ]);
   });
 
   it('sự cố CẤP MÁY: "bình thường" tới SAU lúc ngắt → đóng cầu dao; su-co "binh_thuong" xử như trạng thái', async () => {
@@ -225,6 +234,8 @@ describe('agent-ws — V2, V3, chip tình trạng, cầu dao, mất kết nối 
     await cho(40);
     expect(registry.xetCauDao(TOKEN)).toBe('gui');
     expect(nhatKy.map((m) => m.loai)).toContain('tiep_tuc_in');
+    // P1-3: sự cố CẤP MÁY lúc rảnh được ghi bền; đóng cầu dao theo trạng thái ⇒ MỘT dòng hồi phục (không thêm het_su_co).
+    expect(suCo.map((s) => [s.maSuCo, s.maGoc ?? null])).toEqual([['het_giay', null], ['tiep_tuc_in', 'het_giay']]);
   });
 
   it('V1 vòng 2: sự cố chỉ JOB thấy (máy mạng) — "bình thường" cấp máy KHÔNG xoá chip, KHÔNG đóng cầu dao, KHÔNG ghi "hết lỗi"', async () => {
@@ -261,10 +272,13 @@ describe('agent-ws — V2, V3, chip tình trạng, cầu dao, mất kết nối 
     c.emit('ket-qua', { jobId: 'jL1', trangThai: 'loi', loai: 'het_giay' });
     c.emit('ket-qua', { jobId: 'jL2', trangThai: 'loi', loai: 'loi_pdf' });
     await cho(80);
-    expect(capNhatJobTre).toHaveBeenCalledWith('pjL1', { trangThai: 'thu_lai', tangLanThu: false }, 'Hết giấy', { choPhepDangGui: false });
-    expect(capNhatJobTre).toHaveBeenCalledWith('pjL2', { trangThai: 'thu_lai', tangLanThu: true }, 'File PDF hỏng', { choPhepDangGui: false });
+    expect(capNhatJobTre).toHaveBeenCalledWith('pjL1', { trangThai: 'thu_lai', tangLanThu: false }, 'Hết giấy', { choPhepDangGui: false, maLoi: 'het_giay' });
+    expect(capNhatJobTre).toHaveBeenCalledWith('pjL2', { trangThai: 'thu_lai', tangLanThu: true }, 'File PDF hỏng', { choPhepDangGui: false, maLoi: 'loi_pdf' });
     expect(registry.xetCauDao(TOKEN)).toBe('giu');
     expect(nhatKy.filter((m) => m.loai === 'tam_giu')).toHaveLength(1);
+    // docs/78 C1: cầu dao ngắt ⇒ đúng MỘT sự cố bền `tam_giu` (mã gốc het_giay).
+    await cho(20);
+    expect(suCo.filter((x) => x.maSuCo === 'tam_giu')).toEqual([expect.objectContaining({ maGoc: 'het_giay', printJobId: 'pjL1', orgId: 'org1' })]);
   });
 
   it('backend khởi động lại (mất ngữ cảnh bộ nhớ): kết quả trễ tra DB theo id "<printJobId>-<ms>", CHỈ nhận khi đúng máy; job dang_gui mồ côi nhận luôn', async () => {
@@ -292,7 +306,7 @@ describe('agent-ws — V2, V3, chip tình trạng, cầu dao, mất kết nối 
     c2.emit('ket-qua', { jobId: 'cmf0000000000000000000002-1790251200000', trangThai: 'da_in' });
     await cho(120);
     expect(cap2).toHaveBeenCalledTimes(1);
-    expect(cap2).toHaveBeenCalledWith('cmf0000000000000000000001', { trangThai: 'da_in' }, null, { choPhepDangGui: true });
+    expect(cap2).toHaveBeenCalledWith('cmf0000000000000000000001', { trangThai: 'da_in' }, null, { choPhepDangGui: true, maLoi: null });
     expect(nk2.find((m) => m.loai === 'ket_qua_tre' && m.soHoaDon === 'INV/DB1')).toBeTruthy();
     expect(JSON.stringify(nk2)).not.toContain('INV/DB2');
     io2.close();

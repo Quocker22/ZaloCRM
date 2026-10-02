@@ -55,13 +55,23 @@ function stripNullBytes<T>(value: T, depth = 0): T {
   return out as T;
 }
 
+/**
+ * Adapter pg của CRM — phiên DB LUÔN UTC (docs/78, Codex v1 #5 — đo 02/10 trên Postgres 16): @prisma/adapter-pg 7.5 đọc
+ * timestamptz bằng cách CẮT bỏ độ lệch (`normalize_timestamptz` thay "+07" bằng "+00:00") và ghi Date không kèm độ lệch ⇒
+ * phiên ở Asia/Ho_Chi_Minh đọc/ghi lệch 7 giờ. Cột TIMESTAMP trơn + DEFAULT CURRENT_TIMESTAMP cũng chỉ khớp giờ Prisma ghi
+ * khi phiên là UTC. Ghim ở kết nối thay vì tin TimeZone mặc định của máy DB. Export cho test dựng client cùng cấu hình.
+ */
+export function taoAdapterPg(connectionString: string): PrismaPg {
+  return new PrismaPg({ connectionString, options: '-c TimeZone=UTC' });
+}
+
 function createPrismaClient() {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) {
     throw new Error('DATABASE_URL environment variable is not set');
   }
 
-  const adapter = new PrismaPg({ connectionString });
+  const adapter = taoAdapterPg(connectionString);
 
   const base = new PrismaClient({
     adapter,
