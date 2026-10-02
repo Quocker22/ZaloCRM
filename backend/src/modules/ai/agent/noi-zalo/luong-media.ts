@@ -29,6 +29,7 @@ import { timDich, guiTin } from './gui-zalo.js';
 import { layLichSu } from './du-lieu.js';
 import { baoNhanVien } from './bao-nhan-vien.js';
 import { LOAI_VIEC } from './dich-bao.js';
+import { aiKhachPhaiImONhom } from '../../../bot-quyen/nhom-bot-phu-trach.js';
 import type { NgữCanhTin } from './types.js';
 
 /** Loại tin media bot KHÔNG đọc được nhưng người gửi đang chờ phản hồi. */
@@ -257,6 +258,11 @@ export async function xuLyTinMedia(
   // HẸP có chủ ý: chỉ nói khi CÓ TAG. Không tag thì giữ nguyên im lặng như cũ.
   if (ctx.laNhom && !ctx.daTagBot) return false;
   if (ctx.laNhom) {
+    // NHÓM BOT PHỤ TRÁCH (docs/79 T6): bot (Hermes) đã nhận tag trong nhóm này — CRM không nói câu báo ảnh hỏng (tránh
+    // trả lời đôi). Tra lỗi ⇒ im.
+    if (await aiKhachPhaiImONhom({
+      orgId: ctx.orgId, conversationId: ctx.conversationId, laNhom: true, duong: 'media_anh_hong',
+    })) return true;
     const dichNhom = await timDich(ctx.conversationId);
     if (!dichNhom) return false;
     try {

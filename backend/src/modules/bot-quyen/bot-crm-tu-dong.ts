@@ -13,12 +13,16 @@
 //   • chào nhóm                   — ai/agent/noi-zalo/chao-nhom.ts: KHÔNG có công tắc; chặn từng nhóm bằng Conversation.botGroupBlocked;
 //   • nick hệ thống               — system-notifications/internal-contact-handshake-hook.ts (mã xác nhận 4 số khi NV đồng ý kết bạn);
 //   • chuyển sale (RAG)           — ai/knowledge/auto-reply-wiring.ts (AiConfig.autoReplyEnabled; UID sale từ env AI_HANDOFF_SALE_ZALO_UID);
+//   • trợ lý AI trả lời khách     — ai/agent/noi-zalo/luong-khach.ts (agent khách) → ai/knowledge/auto-reply-wiring.ts (RAG cũ);
+//     cả hai cần AiConfig.autoReplyEnabled. IM ở nhóm bot phụ trách (docs/79 T6 — bot-quyen/nhom-bot-phu-trach.ts), cùng
+//     câu báo ảnh hỏng trong nhóm (luong-media.ts) và chào nhóm; số tin đã im đếm trong tiến trình (demAiKhachBoQua);
 //   • thông báo đẩy               — push/push-service.ts (env FIREBASE_SERVICE_ACCOUNT_JSON|PATH — toàn máy chủ);
 //   • máy in                      — ai/may-in/su-kien-in.ts: CRM KHÔNG gửi tin sự cố; chỉ ghi print_su_kien/print_su_co cho bot đọc.
 //
 // Không trả threadId / UID / số điện thoại: chỉ tên gọi + loại đích (trang quản trị, nhưng bản đồ không cần định danh).
 import { prisma } from '../../shared/database/prisma-client.js';
 import { parseOffsetsHours } from '../contacts/appointment-reminder.js';
+import { demAiKhachBoQua, type LyDoAiKhachBoQua } from './nhom-bot-phu-trach.js';
 
 /** Loại đích của một mục CRM — trang ánh xạ sang hàng của dải "CRM tự động". */
 export const LOAI_DICH_CRM = ['nguoi_truc', 'sale_phu_trach', 'nhom_zalo', 'ung_dung', 'bot'] as const;
@@ -63,6 +67,8 @@ export interface DuLieuCrm {
   soNguoiNhanSanSang: number;
   soNhomChanChao: number;
   soMayIn: number;
+  /** Số tin trợ lý AI khách của CRM đã IM theo lý do (tiến trình hiện tại — docs/79 T6). Vắng = 0. */
+  aiKhachBoQua?: Record<LyDoAiKhachBoQua, number>;
 }
 
 export interface MoiTruongCrm {
@@ -79,6 +85,37 @@ export function docMoiTruong(env: NodeJS.ProcessEnv = process.env): MoiTruongCrm
     threadBaoSaleEnv: Boolean(env.AI_AGENT_THREAD_BAO_SALE),
     handoffSaleEnv: Boolean(env.AI_HANDOFF_SALE_ZALO_UID?.trim()),
     firebase: Boolean(env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim() || env.FIREBASE_SERVICE_ACCOUNT_PATH?.trim()),
+  };
+}
+
+/** Câu dùng chung cho mọi mục CRM tự nói vào nhóm (docs/79 T6). */
+const IM_NHOM_BOT = 'Im ở nhóm bot phụ trách (nhóm có chức năng trên trang Quyền bot — bot trả lời ở đó).';
+
+/** Trợ lý AI trả lời khách của CRM (agent khách → RAG cũ) — im ở nhóm bot phụ trách (docs/79 T6). */
+function mucTroLyKhach(du: DuLieuCrm, mt: MoiTruongCrm): MucCrmTuDong {
+  const bat = !!du.aiConfig?.autoReplyEnabled;
+  const agent = !!du.aiConfig?.agentKhachEnabled && mt.odooDu;
+  const bo = du.aiKhachBoQua ?? { nhom_do_bot_phu_trach: 0, tra_cuu_loi: 0 };
+  return {
+    id: 'crm_tro_ly_khach',
+    ten: 'Trợ lý AI trả lời khách (CRM)',
+    pha: 'hoi',
+    loai_dich: 'nhom_zalo',
+    bat,
+    ly_do_tat: bat ? null : 'Tự trả lời AI đang tắt (Cài đặt AI › tự trả lời)',
+    khi_nao: `Khách nhắn riêng, hoặc tag nick trong nhóm CHƯA xếp loại ⇒ ${agent ? 'agent khách (tool-calling)' : 'RAG cũ'} trả lời. `
+      + 'Im ở nhóm bot phụ trách: nhóm có chức năng trên trang Quyền bot (chủ xếp hoặc mặc định) thì bot trả lời, trợ lý CRM im.',
+    nguon_ma: 'backend/src/modules/ai/agent/noi-zalo/luong-khach.ts (xuLyTinKhach) · ai/knowledge/auto-reply-wiring.ts '
+      + '(runAutoReplyForMessage) · bot-quyen/nhom-bot-phu-trach.ts (aiKhachPhaiImONhom)',
+    chinh_o: '/settings/crm/ai-assistant',
+    dich: [
+      { ten: 'Khách nhắn riêng', loai: 'ca_nhan', bat },
+      { ten: 'Nhóm chưa xếp loại (khi tag nick) — im ở nhóm bot phụ trách', loai: 'nhom', bat },
+    ],
+    ghi_chu: `${IM_NHOM_BOT} Không tra được trang Quyền bot ⇒ cũng im ở nhóm (không bao giờ trả lời đôi). `
+      + `Từ lúc máy chủ chạy: đã im ${bo.nhom_do_bot_phu_trach} tin ở nhóm bot phụ trách, ${bo.tra_cuu_loi} tin vì tra lỗi `
+      + '(log ai_khach_bo_qua).',
+    dan_toi: [],
   };
 }
 
@@ -139,6 +176,7 @@ export function dungCrmTuDong(du: DuLieuCrm, mt: MoiTruongCrm): MucCrmTuDong[] {
   const muc: MucCrmTuDong[] = [
     mucBao(du, mt, 'khach_can_ho_tro'),
     mucBao(du, mt, 'bot_su_co'),
+    mucTroLyKhach(du, mt),
     {
       id: 'crm_lich_hen_tao',
       ten: 'Báo sale: lịch hẹn mới + nhắc Zalo',
@@ -206,7 +244,7 @@ export function dungCrmTuDong(du: DuLieuCrm, mt: MoiTruongCrm): MucCrmTuDong[] {
       nguon_ma: 'backend/src/modules/ai/agent/noi-zalo/chao-nhom.ts (chaoNhomKhiThem)',
       chinh_o: null,
       dich: [{ ten: 'Nhóm vừa thêm nick', loai: 'nhom', bat: true }],
-      ghi_chu: `Không có công tắc tổ chức. Nhóm đang chặn chào: ${du.soNhomChanChao} (cột bot_group_blocked — chỉ đặt được trong DB).`,
+      ghi_chu: `Không có công tắc tổ chức. Nhóm đang chặn chào: ${du.soNhomChanChao} (cột bot_group_blocked — chỉ đặt được trong DB). ${IM_NHOM_BOT}`,
       dan_toi: [],
     },
     {
@@ -235,7 +273,7 @@ export function dungCrmTuDong(du: DuLieuCrm, mt: MoiTruongCrm): MucCrmTuDong[] {
       nguon_ma: 'backend/src/modules/ai/knowledge/auto-reply-wiring.ts (runAutoReplyForMessage)',
       chinh_o: '/settings/crm/ai-assistant',
       dich: [{ ten: 'Nhóm mới: sale + khách', loai: 'nhom', bat: !!du.aiConfig?.autoReplyEnabled && mt.handoffSaleEnv }],
-      ghi_chu: 'UID sale lấy từ env máy chủ (chung mọi tổ chức).',
+      ghi_chu: `UID sale lấy từ env máy chủ (chung mọi tổ chức). ${IM_NHOM_BOT}`,
       dan_toi: [],
     },
     {
@@ -302,6 +340,7 @@ export async function docCrmTuDong(orgId: string, env: NodeJS.ProcessEnv = proce
     soNguoiNhanSanSang,
     soNhomChanChao,
     soMayIn,
+    aiKhachBoQua: demAiKhachBoQua(orgId),
   };
   return { crm: dungCrmTuDong(du, docMoiTruong(env)) };
 }

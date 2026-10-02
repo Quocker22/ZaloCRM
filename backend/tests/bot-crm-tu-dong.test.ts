@@ -73,6 +73,24 @@ describe('dungCrmTuDong', () => {
     expect(muc({}, { firebase: true }).crm_day_tin.bat).toBe(true);
   });
 
+  it('trợ lý AI trả lời khách (docs/79 T6): hiện "im ở nhóm bot phụ trách" + số tin đã bỏ qua; bật theo tự trả lời', () => {
+    const tat = muc().crm_tro_ly_khach;
+    expect(tat.bat).toBe(false);
+    expect(tat.ly_do_tat).toMatch(/Tự trả lời/);
+    const m = muc({ aiConfig: { agentKhachEnabled: true, autoReplyEnabled: true }, aiKhachBoQua: { nhom_do_bot_phu_trach: 7, tra_cuu_loi: 2 } })
+      .crm_tro_ly_khach;
+    expect(m.bat).toBe(true);
+    expect(m.ghi_chu).toMatch(/im ở nhóm bot phụ trách/i);
+    expect(m.ghi_chu).toMatch(/7 tin/);
+    expect(m.ghi_chu).toMatch(/2 tin/);
+    expect(m.khi_nao).toMatch(/im ở nhóm bot phụ trách/i);
+    expect(m.dich.some((d) => d.loai === 'nhom' && /im ở nhóm bot phụ trách/i.test(d.ten))).toBe(true);
+    expect(m.nguon_ma).toMatch(/nhom-bot-phu-trach\.ts/);
+    // chào nhóm + chuyển sale (RAG) cũng im ở nhóm bot phụ trách
+    expect(muc().crm_chao_nhom.ghi_chu).toMatch(/im ở nhóm bot phụ trách/i);
+    expect(muc().crm_chuyen_sale.ghi_chu).toMatch(/im ở nhóm bot phụ trách/i);
+  });
+
   it('docMoiTruong đọc đúng env', () => {
     expect(docMoiTruong({ ODOO_URL: 'u', ODOO_DB: 'd', ODOO_USERNAME: 'n', ODOO_PASSWORD: 'p', FIREBASE_SERVICE_ACCOUNT_PATH: '/x' }))
       .toEqual({ odooDu: true, threadBaoSaleEnv: false, handoffSaleEnv: false, firebase: true });

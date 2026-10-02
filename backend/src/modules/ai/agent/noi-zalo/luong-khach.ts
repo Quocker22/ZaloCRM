@@ -29,6 +29,7 @@ import { demVaKiemTra, CAU_XIN_PHEP } from './gioi-han.js';
 import { taoDung, taoMoc, chayCoHanGio, hanGioLuot } from './dung.js';
 import { thuGiuViec } from './khoa-viec.js';
 import { chayBongDieuPhoi } from '../dieu-phoi/bong.js';
+import { aiKhachPhaiImONhom } from '../../../bot-quyen/nhom-bot-phu-trach.js';
 import type { NgữCanhTin } from './types.js';
 
 const prismaLog = prisma as unknown as PrismaGhiLog;
@@ -52,6 +53,15 @@ export async function xuLyTinKhach(ctx: NgữCanhTin): Promise<boolean> {
   // không được ăn vào quota 15 tin/giờ của hội thoại.
   if (ctx.laNhom && !ctx.daTagBot && !coTagBot(ctx.content)) {
     logger.info({ conversationId: ctx.conversationId }, '[agent/khach] tin nhóm không tag bot — bỏ qua');
+    return true;
+  }
+
+  // NHÓM BOT PHỤ TRÁCH (docs/79 T6): nhóm có chức năng trên trang Quyền bot ⇒ bot (Hermes) trả lời khách, agent CRM
+  // IM — cùng kích hoạt "nick bị tag" nên không chặn là khách nhận HAI câu. Trả TRUE để RAG cũ cũng không nói thay.
+  // Tra lỗi ⇒ cũng im (nhom-bot-phu-trach.ts). Đứng TRƯỚC mọi thứ tốn tiền/gửi tin (báo NV, câu xin phép, LLM).
+  if (ctx.laNhom && await aiKhachPhaiImONhom({
+    orgId: ctx.orgId, conversationId: ctx.conversationId, laNhom: true, duong: 'agent_khach',
+  })) {
     return true;
   }
 

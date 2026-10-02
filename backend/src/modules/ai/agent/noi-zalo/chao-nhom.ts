@@ -15,6 +15,7 @@ import { logger } from '../../../../shared/utils/logger.js';
 import { dungGenerate } from './llm.js';
 import { hanGioLuot } from './dung.js';
 import { guiTin, type DichGui } from './gui-zalo.js';
+import { aiKhachPhaiImONhom } from '../../../bot-quyen/nhom-bot-phu-trach.js';
 
 const SO_TIN_DOC = 30;
 const MAX_NGU_CANH = 120; // ký tự tối đa cho câu ngữ cảnh
@@ -118,6 +119,13 @@ export async function chaoNhomKhiThem(deps: ChaoNhomDeps): Promise<boolean> {
   // 3. Nhóm bị chặn → dừng.
   if (conv.botGroupBlocked) {
     logger.info({ groupId }, '[chao-nhom] nhóm trong blocklist — bỏ qua');
+    return true;
+  }
+
+  // 3b. Nhóm bot phụ trách (docs/79 T6): nhóm đã có chức năng trên trang Quyền bot ⇒ bot nói ở đó, CRM KHÔNG chào
+  //     ("tư vấn sản phẩm và báo giá" trái rào không-giá của bot). Không đặt cờ đã chào: bỏ xếp loại rồi thêm lại nick
+  //     thì vẫn chào được. Tra lỗi ⇒ không chào.
+  if (await aiKhachPhaiImONhom({ orgId, conversationId: conv.id, laNhom: true, duong: 'chao_nhom' })) {
     return true;
   }
 

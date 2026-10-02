@@ -28,6 +28,10 @@ vi.mock('../../../src/shared/database/prisma-client.js', () => ({
     },
   },
 }));
+// Nhóm CHƯA xếp loại trên trang Quyền bot ⇒ cổng docs/79 T6 không chặn (test này đo ngân sách thời gian, không đo cổng).
+vi.mock('../../../src/modules/bot-quyen/bot-quyen-cong-khai.js', () => ({
+  docCauHinhCongKhai: vi.fn(async () => ({ phien_ban: 'x', nhom: [], nhan_vien: [], nick_crm: [] })),
+}));
 vi.mock('../../../src/modules/ai/agent/noi-zalo/gui-zalo.js', () => ({
   timDich: vi.fn(async () => ({
     accountId: 'a1', threadId: 't1', threadType: 1, zaloUid: 'u1', tenKhach: null, sdtKhach: null,

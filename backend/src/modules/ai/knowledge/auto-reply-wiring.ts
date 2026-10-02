@@ -15,6 +15,7 @@ import { buildSummaryPrompt, formatGroupSummary, groupName } from './handoff-gro
 import { resolveOrder, formatOrderLines, formatVnd, type KbLookup } from './order-checkout.js';
 import { getQrConfig, buildTransferNote, renderVietQrImage } from './qr-image.js';
 import { humanPace } from './human-pace.js';
+import { aiKhachPhaiImONhom } from '../../bot-quyen/nhom-bot-phu-trach.js';
 
 const kbDeps: IngestDeps = { prisma: prisma as unknown as IngestDeps['prisma'], embed: generateEmbedding };
 
@@ -43,6 +44,12 @@ export async function runAutoReplyForMessage(ctx: AutoReplyContext): Promise<voi
       select: { id: true, isVirtual: true, zaloAccountId: true, externalThreadId: true, threadType: true, contactId: true },
     });
     if (!conv) return;
+
+    // NHÓM BOT PHỤ TRÁCH (docs/79 T6): nhóm có chức năng trên trang Quyền bot ⇒ bot trả lời, RAG CRM im (kể cả chuyển
+    // sale / chốt đơn bên dưới). Tra lỗi ⇒ im. DM không tra.
+    if (await aiKhachPhaiImONhom({
+      orgId: ctx.orgId, conversationId: conv.id, laNhom: conv.threadType === 'group', duong: 'rag_auto_reply',
+    })) return;
 
     // IM LẶNG TRONG GROUP HANDOFF: nếu tin đến từ 1 GROUP mà bot đã tạo để chuyển sale,
     // bot KHÔNG tự trả lời — để sale nói với khách. CHỈ trả lời khi bot bị @tag.
