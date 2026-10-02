@@ -634,12 +634,12 @@
   "thoi_gian": {
     "bam_khoi_ms": {
       "js": {
-        "lon_nhat": 11.3,
-        "trung_vi": 2.1
+        "lon_nhat": 16.3,
+        "trung_vi": 2.2
       },
       "den_khung_ke": {
-        "lon_nhat": 32.7,
-        "trung_vi": 8.7
+        "lon_nhat": 36.2,
+        "trung_vi": 8.3
       },
       "url": "http://localhost:5291/visual/ban-do-tin/xem.html"
     }
