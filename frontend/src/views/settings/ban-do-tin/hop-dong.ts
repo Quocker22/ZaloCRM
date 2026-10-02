@@ -56,6 +56,7 @@ export interface DemApi {
   khoa_canh: string;
   composer: string;
   dich_kieu: string;
+  /** `id` luật CRM (§4); ảnh chụp lưu trước 02/10 có thể còn `loai` — đọc qua `bong24hCuaLuat` (khớp cả hai). */
   luat_id: string | null;
   ket_qua: KetQuaDem;
   cua_so: '24h' | '7d';

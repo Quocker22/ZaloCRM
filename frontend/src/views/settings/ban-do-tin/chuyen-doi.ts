@@ -127,11 +127,15 @@ export function gopDem(dem: readonly DemApi[]): DemCanh[] {
   return [...m.values()];
 }
 
-/** "Nếu bật, 24 giờ qua sẽ gửi N" của MỘT luật = tổng `so` (bong, 24h) của các dòng mang luat_id đó (hợp đồng §4). */
-export function bong24hCuaLuat(dem: readonly DemApi[], luatId: string): { co: boolean; so: number } {
+/**
+ * "Nếu bật, 24 giờ qua sẽ gửi N" của MỘT luật = tổng `so` (bong, 24h) của các dòng mang luat_id = `id` luật (hợp đồng §4).
+ * Tương thích một bản: ảnh chụp lưu trước 02/10 có thể mang `loai` trong luat_id (CRM đổi sang id chỉ khi lưu ảnh mới) ⇒ khớp
+ * cả `loai`. `loai` duy nhất mỗi org và id là uuid nên không lẫn luật khác.
+ */
+export function bong24hCuaLuat(dem: readonly DemApi[], luat: { id: string; loai: string }): { co: boolean; so: number } {
   let co = false, so = 0;
   for (const d of dem) {
-    if (d.luat_id !== luatId) continue;
+    if (d.luat_id !== luat.id && d.luat_id !== luat.loai) continue;
     co = true;
     if (d.ket_qua === 'bong' && d.cua_so === '24h') so += d.so;
   }

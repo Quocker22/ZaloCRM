@@ -277,7 +277,7 @@ const dsDich = computed<MaDich[]>(() => (comp.value ? dsDichPanel(comp.value, ba
 const vao = computed(() => (khoi.value ? mh.value.vao[khoi.value.id] : []));
 const ra = computed(() => (khoi.value ? mh.value.ra[khoi.value.id] : []));
 const demKhoi = computed(() => (khoi.value ? mh.value.demKhoi[khoi.value.id] : undefined));
-const bong24h = computed(() => (luat.value ? bong24hCuaLuat(s.anh.value?.dem_tho ?? [], luat.value.id) : { co: false, so: 0 }));
+const bong24h = computed(() => (luat.value ? bong24hCuaLuat(s.anh.value?.dem_tho ?? [], luat.value) : { co: false, so: 0 }));
 const loiCuaComp = computed(() => (s.loiLuu.value && s.loiLuu.value.loai === comp.value?.id ? s.loiLuu.value.chu : null));
 /** canhBao của CRM cho loại tin này — dạng `<loai>: …` (bot-thong-bao-luat.ts ghepLuatCongKhai) */
 const canhBaoCuaComp = computed(() => {

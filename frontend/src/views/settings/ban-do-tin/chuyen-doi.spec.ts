@@ -102,9 +102,18 @@ describe('chuyen-doi', () => {
     expect(Object.keys(d).some((k) => k.includes('chua_khai'))).toBe(false);
   });
 
-  it('"24h sẽ gửi N" = tổng bong/24h của các dòng mang luat_id', () => {
-    expect(bong24hCuaLuat(BAN_DO.dem as DemApi[], 'L1')).toEqual({ co: true, so: 5 });
-    expect(bong24hCuaLuat(BAN_DO.dem as DemApi[], 'L9')).toEqual({ co: false, so: 0 });
+  it('"24h sẽ gửi N" = tổng bong/24h của các dòng mang luat_id = id luật', () => {
+    expect(bong24hCuaLuat(BAN_DO.dem as DemApi[], { id: 'L1', loai: 'xuat_hoa_don_tool' })).toEqual({ co: true, so: 5 });
+    expect(bong24hCuaLuat(BAN_DO.dem as DemApi[], { id: 'L9', loai: 'khac' })).toEqual({ co: false, so: 0 });
+  });
+
+  it('tương thích một bản: ảnh chụp cũ mang luat_id = loai ⇒ vẫn quy về luật (fallback loai); không lẫn luật khác', () => {
+    const dong = (luat_id: string, so: number, cua_so: '24h' | '7d' = '24h'): DemApi => ({
+      khoa_canh: `in_sau_chot→g_kho|${luat_id}`, composer: 'in_sau_chot', dich_kieu: 'g_kho', luat_id, ket_qua: 'bong', cua_so, so,
+    });
+    const dem = [dong('in_sau_chot', 4), dong('in_sau_chot', 9, '7d'), dong('uuid-in', 2), dong('uuid-khac', 50)];
+    expect(bong24hCuaLuat(dem, { id: 'uuid-in', loai: 'in_sau_chot' })).toEqual({ co: true, so: 6 });
+    expect(bong24hCuaLuat([dong('in_sau_chot', 4)], { id: 'uuid-in', loai: 'in_sau_chot' })).toEqual({ co: true, so: 4 });
   });
 
   it('bật/tắt một hàng giữ nguyên mọi đích khác (kể cả đích NV)', () => {
