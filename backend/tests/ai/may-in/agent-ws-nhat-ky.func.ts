@@ -38,7 +38,8 @@ describe('agent-ws — sự cố máy in + nhật ký', () => {
       ghiNhatKy: (m) => nhatKy.push(m),
       capNhatJobTre,
       // docs/78 C1: sự cố bền — test giữ trong bộ nhớ (bản thật ghi print_su_co, xem print-su-kien-db.test.ts).
-      ghiSuCo: async (sc) => { suCo.push(sc); return true; },
+      ghiSuCo: async (sc) => { suCo.push(sc); return 'da_luu'; },
+      docTrangThaiMay: async () => 'binh_thuong',
       // Không bao giờ để test chạm Prisma thật (DB giả của vitest.func.config).
       layJobTheoId: async () => null,
       coLenhInMoiHon: async () => false,

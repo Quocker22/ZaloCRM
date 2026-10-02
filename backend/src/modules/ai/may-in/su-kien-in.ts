@@ -3,17 +3,17 @@
 //
 // VÌ SAO không dựa nhật ký print_logs: `ghiNhatKy` là fire-and-forget (nhat-ky.ts luật 1) — DB chập một nhịp là mất
 // dòng, mà mất dòng "in thất bại" là kho không bao giờ được báo. Ở đây:
-//   1. `capNhatJobCoSuKien` = UPDATE print_jobs CÓ ĐIỀU KIỆN + INSERT print_su_kien trong MỘT giao dịch; sự kiện chỉ
-//      sinh khi UPDATE đổi ĐÚNG một dòng (count 0 = job vừa bị huỷ / kết quả trễ đã chốt ⇒ không có chuyện gì xảy ra).
-//      Dòng job bị khoá (`FOR UPDATE`) TRƯỚC khi UPDATE ⇒ `tu_trang_thai` là trạng thái THẬT lúc đổi (kể cả khi điều kiện
-//      là một tập trạng thái), `org_id` đọc từ chính dòng job.
-//   2. `taoJobCoSuKien` = INSERT job; sự kiện tạo (tu null → cho_in) do TRIGGER DB ghi cùng giao dịch (phủ cả job bot
-//      INSERT thẳng bằng SQL).
-//   3. `ghiSuCoIn` = sự cố MÁY IN (`su-co`, trạng thái máy rảnh, `tam_giu`, hồi phục) — không gắn trạng thái job; ghi CÓ
-//      CHỜ, gộp theo sự cố đang mở (máy, mã), lỗi thì chờ 200 ms thử lại một lần, vẫn lỗi thì logger.error (không ném).
+//   1. Sự kiện đổi trạng thái do TRIGGER DB ghi (migration 20261002090300, Codex v1 #4): AFTER INSERT (tạo job) + AFTER
+//      UPDATE OF trang_thai — phủ MỌI đường ghi (mã này, bot psycopg, SQL tay, image cũ sau khi lùi). Mã CRM KHÔNG tự INSERT
+//      print_su_kien nữa (ghi cả hai = hai dòng).
+//      `capNhatJobCoSuKien` = khoá dòng job (`FOR UPDATE`) + đặt mã lý do `zalocrm.ma_loi` (transaction-local) + UPDATE CÓ
+//      ĐIỀU KIỆN trong MỘT giao dịch; trigger đọc mã đó. Thử lại cho_in → cho_in vẫn là sự kiện vì có mã.
+//   2. `taoJobCoSuKien` = INSERT job; sự kiện tạo (tu null → cho_in) do trigger.
+//   3. Sự cố máy in (`ghiSuCoIn`, `print_su_co`) — không gắn trạng thái job; ghi CÓ CHỜ, gộp theo (org, máy, nhom_su_co),
+//      lỗi thì thử lại; người gọi không chờ được thì đưa vào hàng thử lại (`HangThuLaiSuCo`). Xem mục "Sự cố máy in".
 // Hàm 1–2 NÉM khi DB lỗi — đúng như updateMany trơn trước đây (người gọi đã xử lý lỗi ghi job).
 import { logger } from '../../../shared/utils/logger.js';
-import { catChu, cheToken, orgMacDinhTuEnv } from './nhat-ky.js';
+import { catChu, cheToken, laMaCapMayIn, orgMacDinhTuEnv } from './nhat-ky.js';
 
 type Dong = Record<string, unknown>;
 
@@ -59,14 +59,14 @@ function sangCua(data: Dong): string {
 }
 
 /**
- * UPDATE print_jobs có điều kiện + sự kiện cùng giao dịch. Trả số dòng đã đổi (0 hoặc 1) — người gọi giữ nguyên
- * nghĩa `count` như `updateMany` trước đây.
+ * UPDATE print_jobs có điều kiện; sự kiện do trigger ghi CÙNG giao dịch, mang `maLoi` qua `zalocrm.ma_loi`. Trả số dòng đã
+ * đổi (0 hoặc 1) — người gọi giữ nguyên nghĩa `count` như `updateMany` trước đây.
  */
 export async function capNhatJobCoSuKien(p: PrismaSuKienIn, a: ThamSoDoiTrangThai): Promise<number> {
   const sang = sangCua(a.data);
   const maLoi = catChu(a.maLoi ?? null, MA_LOI_DAI);
   if (!p.$transaction) {
-    // Bản giả cũ (không giao dịch): giữ hành vi cũ; ghi sự kiện nếu bản giả có bảng.
+    // Bản giả cũ (không giao dịch, không trigger): giả lập đúng một dòng như trigger nếu bản giả có bảng.
     const r = await p.printJob.updateMany({ where: a.where, data: a.data });
     if (r.count === 1 && p.printSuKien) {
       await p.printSuKien.create({
@@ -76,17 +76,15 @@ export async function capNhatJobCoSuKien(p: PrismaSuKienIn, a: ThamSoDoiTrangTha
     return r.count;
   }
   return giaoDich(p, async (tx) => {
-    const dong = (await tx.$queryRaw`SELECT org_id, trang_thai FROM print_jobs WHERE id = ${a.id} FOR UPDATE`) as Array<{
-      org_id: string;
+    const dong = (await tx.$queryRaw`SELECT trang_thai FROM print_jobs WHERE id = ${a.id} FOR UPDATE`) as Array<{
       trang_thai: string;
     }>;
     if (dong.length === 0) return 0;
+    // Gán lại đúng trạng thái cũ mà không mã (không nên xảy ra) ⇒ vẫn là một lần thử lại: đặt mã chung để trigger ghi.
+    const ma = maLoi ?? (dong[0].trang_thai === sang ? 'thu_lai' : '');
+    await tx.$executeRaw`SELECT set_config('zalocrm.ma_loi', ${ma}, true)`;
     const r = (await tx.printJob.updateMany({ where: a.where, data: a.data })) as { count: number };
-    if (r.count !== 1) return r.count;
-    await tx.printSuKien.create({
-      data: { orgId: dong[0].org_id, jobId: a.id, tuTrangThai: dong[0].trang_thai, sangTrangThai: sang, maLoi },
-    });
-    return 1;
+    return r.count;
   });
 }
 
@@ -109,16 +107,25 @@ export async function taoJobCoSuKien(p: PrismaSuKienIn, data: Dong): Promise<Don
 
 // ── Sự cố máy in ────────────────────────────────────────────────────────────
 //
-// MỘT SỰ CỐ = một `nhom_su_co` (docs/78 tự rà P1-4). Cùng một lần hết giấy sinh nhiều dòng: `su-co het_giay` (app thấy khi
+// MỘT SỰ CỐ = (org, máy, nhom_su_co) (Codex v1 #3). Cùng một lần hết giấy sinh nhiều dòng: `su-co het_giay` (app thấy khi
 // in), `het_giay` (máy rảnh báo trạng thái), `tam_giu` ma_goc=het_giay (cầu dao ngắt), rồi hồi phục `tiep_tuc_in` /
 // `het_su_co` ma_goc=het_giay. Mọi dòng đó cùng `nhom_su_co = 'het_giay'` (= ma_goc ?? ma_su_co) — bot GOM theo
-// (máy, nhom_su_co) và coi dòng hồi phục là đóng sự cố; không tự suy luận lại từ mã.
+// (máy, nhom_su_co) và coi dòng hồi phục là đóng ĐÚNG nhóm đó; nhóm khác (kẹt giấy cùng lúc) vẫn mở.
+//
+// LƯU RỒI MỚI ĐÁNH DẤU (Codex v1 #2): registry/cầu dao trong RAM có thể đổi TRƯỚC, nhưng việc "đã ghi sự cố" chỉ được coi là
+// xong khi `ghiSuCoIn` trả `da_luu`/`trung`. Người gọi:
+//   • đường trạng thái máy (agent-ws `dongBoTrangThaiBen`) so trạng thái báo về với trạng thái ĐÃ LƯU (RAM, nạp lại từ dòng
+//     cuối trong DB khi tiến trình mới chạy — `docTrangThaiMayDaLuu`) và ghi lại ở MỖI nhịp tới khi lưu được;
+//   • sự cố một lần (`su-co`, `tam_giu`, hồi phục khi in được) chờ kết quả; `loi_db` ⇒ vào `HangThuLaiSuCo` (RAM, có trần,
+//     thử lại theo nhịp — mất khi tiến trình dừng; trạng thái máy thì đường trên tự bù).
 
 /** Mã HỒI PHỤC: `het_su_co` (máy về bình thường / gỡ chip) · `tiep_tuc_in` (đóng cầu dao — hoá đơn đang giữ được in tiếp). */
 export const MA_HOI_PHUC = ['het_su_co', 'tiep_tuc_in'] as const;
-/** Cửa sổ gộp sự cố cùng (máy, mã) khi chưa có hồi phục — dài hơn nhịp báo trạng thái (20 s) và nhịp thử lại cầu dao. */
+/** Cửa sổ gộp sự cố cùng (máy, mã, nhóm) khi chưa có hồi phục của nhóm — dài hơn nhịp báo trạng thái (20 s). */
 export const PHUT_GOP_SU_CO = 10;
 const MS_CHO_THU_LAI_SU_CO = 200;
+/** Trạng thái máy "không sự cố" (đường trạng thái máy). */
+export const BINH_THUONG = 'binh_thuong';
 
 export function laMaHoiPhuc(ma: string): boolean {
   return (MA_HOI_PHUC as readonly string[]).includes(ma);
@@ -141,6 +148,8 @@ export interface SuCoIn {
   printJobId?: string | null;
   soHoaDon?: string | null;
   chiTiet?: string | null;
+  /** Lúc sự cố xảy ra — hàng thử lại đặt giờ GỐC để dòng ghi bù không mang giờ ghi bù. Mặc định now() của DB. */
+  luc?: Date;
 }
 
 export interface PrismaSuCoIn {
@@ -148,6 +157,8 @@ export interface PrismaSuCoIn {
   printAgent: { findUnique: (a: { where: { token: string } }) => Promise<{ id: string; orgId: string; ten: string } | null> };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   $transaction?: (fn: (tx: any) => Promise<any>) => Promise<any>;
+  /** Đọc trạng thái đã lưu (`docTrangThaiMayDaLuu`); bản giả không có ⇒ coi như chưa có dòng nào. */
+  $queryRaw?: (...a: unknown[]) => Promise<unknown>;
 }
 
 export interface DepsSuCoIn {
@@ -158,39 +169,58 @@ export interface DepsSuCoIn {
   cho?: (ms: number) => Promise<void>;
 }
 
-/** da_luu = đã ghi · trung = gộp vào sự cố đang mở (không ghi) · khong_luu = không ghi được (thiếu org / DB lỗi). */
-export type KetQuaGhiSuCo = 'da_luu' | 'trung' | 'khong_luu';
+/**
+ * da_luu = đã ghi · trung = sự cố/hồi phục này ĐÃ có trong DB (gộp) · khong_luu = không bao giờ lưu được (không xác định
+ * được org — thử lại vô ích) · loi_db = DB lỗi qua hai lần thử (CHƯA lưu — người gọi phải thử lại).
+ */
+export type KetQuaGhiSuCo = 'da_luu' | 'trung' | 'khong_luu' | 'loi_db';
+
+/** Kết quả nghĩa là "đã nằm trong DB" — chỉ khi đó mới được đánh dấu đã ghi. */
+export function daLuuSuCo(kq: unknown): boolean {
+  return kq === 'da_luu' || kq === 'trung';
+}
+
+type TxRaw = { $queryRaw: (...a: unknown[]) => Promise<unknown> };
 
 /**
- * Đã có dòng cùng sự cố đang mở? (trong giao dịch đã khoá theo máy+mã)
- *   - sự cố: dòng cùng (org, máy, mã) trong PHUT_GOP_SU_CO phút mà SAU nó chưa có dòng hồi phục của máy;
- *   - hồi phục: dòng mới nhất của máy đã là hồi phục (không có sự cố nào để đóng thêm).
- * `may_in_id` NULL (máy mặc định env không có dòng print_agents) so như một máy. `luc` là giờ UTC (Prisma gửi now() UTC vào
- * cột TIMESTAMP không múi giờ) ⇒ so với `now() AT TIME ZONE 'UTC'`, KHÔNG với CURRENT_TIMESTAMP (lệch theo TimeZone của DB).
+ * Dòng này đã có trong DB? (trong giao dịch đã khoá theo máy) — định danh (org, máy, nhom_su_co):
+ *   - hồi phục: dòng MỚI NHẤT của CÙNG nhóm đã là hồi phục (nhóm đã đóng) ⇒ trùng. Nhóm khác không đóng nhóm này.
+ *   - sự cố: dòng cùng (org, máy, nhóm, mã) trong PHUT_GOP_SU_CO phút mà SAU nó chưa có hồi phục CỦA NHÓM ĐÓ ⇒ trùng.
+ * `may_in_id` NULL (máy mặc định env không có dòng print_agents) so như một máy. `luc` timestamptz ⇒ so thẳng với now().
  */
-async function daCoDongMo(tx: { $queryRaw: (...a: unknown[]) => Promise<unknown> }, orgId: string, mayInId: string | null, ma: string): Promise<boolean> {
+async function daCoDongMo(tx: TxRaw, orgId: string, mayInId: string | null, ma: string, nhom: string): Promise<boolean> {
   if (laMaHoiPhuc(ma)) {
     const r = (await tx.$queryRaw`
-      SELECT ma_su_co FROM print_su_co WHERE org_id = ${orgId} AND may_in_id IS NOT DISTINCT FROM ${mayInId}
+      SELECT ma_su_co FROM print_su_co
+      WHERE org_id = ${orgId} AND may_in_id IS NOT DISTINCT FROM ${mayInId} AND nhom_su_co = ${nhom}
       ORDER BY id DESC LIMIT 1`) as Array<{ ma_su_co: string }>;
     return r.length > 0 && laMaHoiPhuc(r[0].ma_su_co);
   }
   const r = (await tx.$queryRaw`
     SELECT 1 FROM print_su_co r
-    WHERE r.org_id = ${orgId} AND r.may_in_id IS NOT DISTINCT FROM ${mayInId} AND r.ma_su_co = ${ma}
-      AND r.luc > (now() AT TIME ZONE 'UTC') - make_interval(mins => ${PHUT_GOP_SU_CO}::int)
+    WHERE r.org_id = ${orgId} AND r.may_in_id IS NOT DISTINCT FROM ${mayInId}
+      AND r.nhom_su_co = ${nhom} AND r.ma_su_co = ${ma}
+      AND r.luc > now() - make_interval(mins => ${PHUT_GOP_SU_CO}::int)
       AND NOT EXISTS (
         SELECT 1 FROM print_su_co h
         WHERE h.org_id = r.org_id AND h.may_in_id IS NOT DISTINCT FROM r.may_in_id AND h.id > r.id
-          AND h.ma_su_co IN ('het_su_co', 'tiep_tuc_in'))
+          AND h.nhom_su_co = r.nhom_su_co AND h.ma_su_co IN ('het_su_co', 'tiep_tuc_in'))
     LIMIT 1`) as unknown[];
   return r.length > 0;
+}
+
+function choMacDinh(ms: number): Promise<void> {
+  return new Promise<void>((r) => setTimeout(r, ms));
+}
+
+async function prismaSuCo(deps: { prisma?: PrismaSuCoIn }): Promise<PrismaSuCoIn> {
+  return deps.prisma ?? ((await import('../../../shared/database/prisma-client.js')).prisma as unknown as PrismaSuCoIn);
 }
 
 /** Ghi sự cố máy in (gộp theo sự cố đang mở — xem `daCoDongMo`). Không bao giờ ném. */
 export async function ghiSuCoIn(sc: SuCoIn, deps: DepsSuCoIn = {}): Promise<KetQuaGhiSuCo> {
   const thu = async (): Promise<KetQuaGhiSuCo> => {
-    const p = deps.prisma ?? ((await import('../../../shared/database/prisma-client.js')).prisma as unknown as PrismaSuCoIn);
+    const p = await prismaSuCo(deps);
     const may = sc.agentToken ? await p.printAgent.findUnique({ where: { token: sc.agentToken } }) : null;
     const orgId = sc.orgId ?? may?.orgId ?? (deps.orgMacDinh ?? orgMacDinhTuEnv)();
     if (!orgId) {
@@ -199,6 +229,7 @@ export async function ghiSuCoIn(sc: SuCoIn, deps: DepsSuCoIn = {}): Promise<KetQ
     }
     const maSuCo = catChu(sc.maSuCo, MA_LOI_DAI) ?? sc.maSuCo;
     const maGoc = catChu(sc.maGoc ?? null, MA_LOI_DAI);
+    const nhom = nhomSuCo(maSuCo, maGoc);
     const data = {
       orgId,
       mayInId: may?.id ?? null,
@@ -207,9 +238,10 @@ export async function ghiSuCoIn(sc: SuCoIn, deps: DepsSuCoIn = {}): Promise<KetQ
       soHoaDon: catChu(sc.soHoaDon ?? null, 100),
       maSuCo,
       maGoc,
-      nhomSuCo: nhomSuCo(maSuCo, maGoc),
+      nhomSuCo: nhom,
       // Che TRƯỚC rồi mới cắt (như nhat-ky.ts) — token vắt qua mép không lọt nửa đầu.
       chiTiet: catChu(cheToken(sc.chiTiet ?? null, sc.agentToken), 1000),
+      ...(sc.luc ? { luc: sc.luc } : {}),
     };
     if (!p.$transaction) {
       // Bản giả không giao dịch (test): không gộp.
@@ -217,9 +249,9 @@ export async function ghiSuCoIn(sc: SuCoIn, deps: DepsSuCoIn = {}): Promise<KetQ
       return 'da_luu';
     }
     return giaoDich(p as unknown as PrismaSuKienIn, async (tx) => {
-      // Nối đuôi các lần ghi CÙNG (org, máy, mã) — hai `su-co` lặp tới cùng lúc không cùng lọt qua bước kiểm.
+      // Nối đuôi mọi lần ghi của CÙNG máy — hai `su-co` lặp tới cùng lúc không cùng lọt qua bước kiểm.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`print_su_co:${orgId}:${data.mayInId ?? '-'}`}))`;
-      if (await daCoDongMo(tx, orgId, data.mayInId, maSuCo)) return 'trung';
+      if (await daCoDongMo(tx, orgId, data.mayInId, maSuCo, nhom)) return 'trung';
       await tx.printSuCo.create({ data });
       return 'da_luu';
     });
@@ -229,13 +261,129 @@ export async function ghiSuCoIn(sc: SuCoIn, deps: DepsSuCoIn = {}): Promise<KetQ
       return await thu();
     } catch (err) {
       if (lan === 1) {
-        logger.error({ err: err instanceof Error ? err.message : String(err), maSuCo: sc.maSuCo }, '[may-in] KHÔNG lưu được print_su_co');
+        logger.error({ err: err instanceof Error ? err.message : String(err), maSuCo: sc.maSuCo }, '[may-in] CHƯA lưu được print_su_co — người gọi thử lại');
       } else {
-        await (deps.cho ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms))))(MS_CHO_THU_LAI_SU_CO);
+        await (deps.cho ?? choMacDinh)(MS_CHO_THU_LAI_SU_CO);
       }
     }
   }
-  return 'khong_luu';
+  return 'loi_db';
+}
+
+/**
+ * Trạng thái máy ĐÃ LƯU theo DB — mã sự cố CẤP MÁY của dòng mới nhất (bỏ `tam_giu` và mã cấp job), hoặc `binh_thuong` khi
+ * dòng mới nhất là hồi phục / chưa có dòng nào / không xác định được org. NÉM khi DB lỗi (người gọi thử lại nhịp sau).
+ * Dùng khi tiến trình mới chạy (RAM trống): "trạng thái đã lưu = dòng cuối trong DB".
+ */
+export async function docTrangThaiMayDaLuu(
+  agentToken: string | null, deps: { prisma?: PrismaSuCoIn; orgMacDinh?: () => string | null } = {},
+): Promise<string> {
+  const p = await prismaSuCo(deps);
+  const may = agentToken ? await p.printAgent.findUnique({ where: { token: agentToken } }) : null;
+  const orgId = may?.orgId ?? (deps.orgMacDinh ?? orgMacDinhTuEnv)();
+  if (!orgId) return BINH_THUONG;
+  if (typeof p.$queryRaw !== 'function') return BINH_THUONG;
+  const r = (await (p as unknown as TxRaw).$queryRaw`
+    SELECT ma_su_co FROM print_su_co
+    WHERE org_id = ${orgId} AND may_in_id IS NOT DISTINCT FROM ${may?.id ?? null} AND ma_su_co <> 'tam_giu'
+    ORDER BY id DESC LIMIT 50`) as Array<{ ma_su_co: string }>;
+  for (const d of r) {
+    if (laMaHoiPhuc(d.ma_su_co)) return BINH_THUONG;
+    if (laMaCapMayIn(d.ma_su_co) && d.ma_su_co !== BINH_THUONG) return d.ma_su_co;
+  }
+  return BINH_THUONG;
+}
+
+/** Hàng thử lại sự cố một lần (RAM) — xem đầu mục. */
+export interface HangThuLaiSuCo {
+  /** Ghi; `loi_db` ⇒ giữ lại thử sau (giờ gốc). Trả kết quả của lần ghi NGAY. */
+  ghi: (sc: SuCoIn) => Promise<KetQuaGhiSuCo>;
+  /** Thử lại các mục đang chờ theo thứ tự; dừng ở mục đầu tiên vẫn `loi_db`. */
+  xa: () => Promise<void>;
+  soCho: () => number;
+  dung: () => void;
+}
+
+export const MS_THU_LAI_SU_CO = 30_000;
+/** Trần hàng chờ — DB chập lâu thì bỏ mục CŨ NHẤT (logger.error) thay vì phình RAM. */
+export const TRAN_HANG_THU_LAI_SU_CO = 500;
+
+export function taoHangThuLaiSuCo(o: {
+  ghi: (sc: SuCoIn) => Promise<unknown>;
+  msNhip?: number;
+  tran?: number;
+  bayGio?: () => Date;
+}): HangThuLaiSuCo {
+  const cho: SuCoIn[] = [];
+  const msNhip = o.msNhip ?? MS_THU_LAI_SU_CO;
+  const tran = o.tran ?? TRAN_HANG_THU_LAI_SU_CO;
+  let hen: ReturnType<typeof setTimeout> | null = null;
+  let dangXa = false;
+  let daDung = false;
+
+  const ketQua = (x: unknown): KetQuaGhiSuCo =>
+    x === 'da_luu' || x === 'trung' || x === 'khong_luu' || x === 'loi_db' ? x : 'loi_db';
+
+  const henLai = (): void => {
+    if (hen || daDung || cho.length === 0) return;
+    hen = setTimeout(() => {
+      hen = null;
+      void xa();
+    }, msNhip);
+    (hen as { unref?: () => void }).unref?.();
+  };
+
+  const xa = async (): Promise<void> => {
+    if (dangXa) return;
+    dangXa = true;
+    try {
+      while (cho.length > 0) {
+        let kq: KetQuaGhiSuCo;
+        try {
+          kq = ketQua(await o.ghi(cho[0]));
+        } catch {
+          kq = 'loi_db';
+        }
+        if (kq === 'loi_db') break;
+        cho.shift();
+      }
+    } finally {
+      dangXa = false;
+      henLai();
+    }
+  };
+
+  return {
+    ghi: async (sc) => {
+      const luc = sc.luc ?? (o.bayGio ?? (() => new Date()))();
+      let kq: KetQuaGhiSuCo;
+      try {
+        kq = ketQua(await o.ghi(sc));
+      } catch {
+        kq = 'loi_db';
+      }
+      if (kq === 'loi_db') {
+        // Ghi bù mang giờ GỐC của sự cố, không phải giờ DB sống lại.
+        const coGio = sc.luc ? sc : { ...sc, luc };
+        if (cho.length >= tran) {
+          const bo = cho.shift();
+          logger.error({ maSuCo: bo?.maSuCo }, '[may-in] hàng thử lại sự cố đầy — BỎ mục cũ nhất');
+        }
+        cho.push(coGio);
+        henLai();
+      } else if (cho.length > 0) {
+        void xa(); // DB vừa ghi được ⇒ xả luôn hàng đang chờ
+      }
+      return kq;
+    },
+    xa,
+    soCho: () => cho.length,
+    dung: () => {
+      daDung = true;
+      if (hen) clearTimeout(hen);
+      hen = null;
+    },
+  };
 }
 
 // ── Dọn ─────────────────────────────────────────────────────────────────────

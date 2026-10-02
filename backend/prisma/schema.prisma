@@ -4502,8 +4502,9 @@ model PrintSuKien {
   sangTrangThai String    @map("sang_trang_thai")
   /// Mã ngắn vì sao (mã sự cố app/IPP như het_giay, hoặc qua_lan_thu/app_offline/odoo_pdf/mo_coi/…); null = bình thường.
   maLoi         String?   @map("ma_loi")
-  luc           DateTime  @default(now())
-  botNhanLuc    DateTime? @map("bot_nhan_luc")
+  /// timestamptz (Codex v1 #5) — cùng trục thời gian với trigger now() bất kể TimeZone phiên DB.
+  luc           DateTime  @default(now()) @db.Timestamptz(3)
+  botNhanLuc    DateTime? @map("bot_nhan_luc") @db.Timestamptz(3)
 
   @@index([orgId, luc(sort: Desc)])
   @@index([jobId])
@@ -4529,8 +4530,8 @@ model PrintSuCo {
   /// của nó cùng nhóm `het_giay`; bot gom theo (máy, nhom_su_co).
   nhomSuCo   String    @map("nhom_su_co")
   chiTiet    String?   @map("chi_tiet")
-  luc        DateTime  @default(now())
-  botNhanLuc DateTime? @map("bot_nhan_luc")
+  luc        DateTime  @default(now()) @db.Timestamptz(3)
+  botNhanLuc DateTime? @map("bot_nhan_luc") @db.Timestamptz(3)
 
   @@index([orgId, luc(sort: Desc)])
   @@index([orgId, mayInId, id])

@@ -12,7 +12,7 @@ import {
   themJobIn, chayMotLuotIn, donJobMoCoi, MAX_LAN_THU, MS_JOB_MO_COI, TRANG_THAI_JOB,
   type PrismaHangDoiIn, type ClientMayIn, type DepsChayLuot,
 } from '../src/modules/ai/may-in/hang-doi-in.js';
-import { capNhatJobCoSuKien, ghiSuCoIn, donSuKienDaNhan, type PrismaSuKienIn } from '../src/modules/ai/may-in/su-kien-in.js';
+import { capNhatJobCoSuKien, ghiSuCoIn, donSuKienDaNhan, type PrismaSuKienIn, type PrismaSuCoIn } from '../src/modules/ai/may-in/su-kien-in.js';
 import { capNhatJobTreThat } from '../src/modules/ai/may-in/agent-ws.js';
 import { huyLenhIn, boTheoDoi, type PrismaHangDoiHuy } from '../src/modules/ai/may-in/huy-lenh-in.js';
 import { LoiIpp, LoiKhongRo } from '../src/modules/ai/may-in/ipp-client.js';
@@ -32,14 +32,17 @@ async function donDep() {
 }
 
 async function taoJob(o: { org?: string; trangThai?: string; lanThu?: number; ippJobId?: number | null; updatedAt?: Date } = {}) {
-  await themJobIn(p, { orgId: o.org ?? ORG, hoaDonId: 1, soHoaDon: `INV/${Math.random().toString(36).slice(2, 8)}`, report: 'r' });
-  const job = await prisma.printJob.findFirstOrThrow({ where: { orgId: o.org ?? ORG }, orderBy: { createdAt: 'desc' } });
-  if (o.trangThai || o.lanThu !== undefined || o.ippJobId !== undefined) {
-    await prisma.printJob.update({
-      where: { id: job.id },
-      data: { trangThai: o.trangThai ?? job.trangThai, lanThu: o.lanThu ?? job.lanThu, ippJobId: o.ippJobId ?? null },
-    });
+  // Dựng job ở ĐÚNG trạng thái cần ngay lúc INSERT — UPDATE trạng thái để dựng sẽ sinh sự kiện (trigger UPDATE, tự rà Codex
+  // v1 #4) và làm bẩn phần kiểm. Dòng tạo (tu null) bị `suKien` bỏ.
+  if (!o.trangThai && o.lanThu === undefined && o.ippJobId === undefined) {
+    await themJobIn(p, { orgId: o.org ?? ORG, hoaDonId: 1, soHoaDon: `INV/${Math.random().toString(36).slice(2, 8)}`, report: 'r' });
+  } else {
+    await prisma.printJob.create({ data: {
+      orgId: o.org ?? ORG, hoaDonId: 1, soHoaDon: `INV/${Math.random().toString(36).slice(2, 8)}`, report: 'r',
+      trangThai: o.trangThai ?? 'cho_in', lanThu: o.lanThu ?? 0, ippJobId: o.ippJobId ?? null,
+    } });
   }
+  const job = await prisma.printJob.findFirstOrThrow({ where: { orgId: o.org ?? ORG }, orderBy: { createdAt: 'desc' } });
   if (o.updatedAt) await prisma.$executeRaw`UPDATE print_jobs SET updated_at = ${o.updatedAt} WHERE id = ${job.id}`;
   return job.id;
 }
@@ -299,7 +302,7 @@ describeCanDb('print_su_kien / print_su_co — sự kiện in bền (DB)', () =>
     ]);
   });
 
-  it('ghiSuCoIn: lỗi DB lần đầu ⇒ chờ 200 ms rồi thử lại một lần; vẫn lỗi ⇒ khong_luu, không ném', async () => {
+  it('ghiSuCoIn: lỗi DB lần đầu ⇒ chờ 200 ms rồi thử lại một lần; vẫn lỗi ⇒ loi_db (CHƯA lưu — khác khong_luu), không ném', async () => {
     const cho = vi.fn(async () => undefined);
     let lan = 0;
     const gia = {
@@ -309,7 +312,146 @@ describeCanDb('print_su_kien / print_su_co — sự kiện in bền (DB)', () =>
     expect(await ghiSuCoIn({ maSuCo: 'het_giay', orgId: ORG }, { prisma: gia, cho })).toBe('da_luu');
     expect(cho).toHaveBeenCalledWith(200);
     const hong = { ...gia, printSuCo: { create: async () => { throw new Error('chết'); } } };
-    expect(await ghiSuCoIn({ maSuCo: 'het_giay', orgId: ORG }, { prisma: hong, cho })).toBe('khong_luu');
+    expect(await ghiSuCoIn({ maSuCo: 'het_giay', orgId: ORG }, { prisma: hong, cho })).toBe('loi_db');
+  });
+
+  // ── Codex v1 #4: MỌI đổi trạng thái sinh sự kiện ở DB (trigger UPDATE), không chỉ đường qua helper ──
+  it('UPDATE trạng thái bằng SQL THÔ (tay/script) ⇒ đúng MỘT sự kiện, tu/sang đúng, không ma_loi', async () => {
+    const id = await taoJob();
+    await prisma.$executeRaw`UPDATE print_jobs SET trang_thai = 'da_huy' WHERE id = ${id}`;
+    expect(await suKien(id)).toEqual([{ tu: 'cho_in', sang: 'da_huy', ma: null, org: ORG, nhan: null }]);
+    // Không đổi trạng thái (chỉ cột khác / gán lại đúng giá trị cũ, không mã) ⇒ KHÔNG có sự kiện.
+    await prisma.$executeRaw`UPDATE print_jobs SET lan_thu = lan_thu + 1 WHERE id = ${id}`;
+    await prisma.$executeRaw`UPDATE print_jobs SET trang_thai = 'da_huy' WHERE id = ${id}`;
+    expect(await suKien(id)).toHaveLength(1);
+  });
+
+  it('mã CŨ (updateMany trơn, không qua helper — bản image lùi) ⇒ sự kiện vẫn có, ma_loi null', async () => {
+    const id = await taoJob();
+    expect((await prisma.printJob.updateMany({ where: { id, trangThai: 'cho_in' }, data: { trangThai: 'dang_gui' } })).count).toBe(1);
+    expect(await suKien(id)).toEqual([{ tu: 'cho_in', sang: 'dang_gui', ma: null, org: ORG, nhan: null }]);
+  });
+
+  it('helper: mỗi lần đổi đúng MỘT sự kiện kèm ma_loi (kể cả thử lại cho_in → cho_in); ma_loi không rò sang giao dịch sau', async () => {
+    const id = await taoJob();
+    const ps = prisma as unknown as PrismaSuKienIn;
+    expect(await capNhatJobCoSuKien(ps, { id, where: { id, trangThai: 'cho_in' }, data: { trangThai: 'cho_in', lanThu: 1 }, maLoi: 'app_offline' })).toBe(1);
+    expect(await capNhatJobCoSuKien(ps, { id, where: { id, trangThai: 'cho_in' }, data: { trangThai: 'dang_gui' } })).toBe(1);
+    expect(await capNhatJobCoSuKien(ps, { id, where: { id, trangThai: 'dang_gui' }, data: { trangThai: 'khong_ro' }, maLoi: 'het_gio_cho' })).toBe(1);
+    // UPDATE trơn ngay sau (giao dịch khác, có thể cùng kết nối) ⇒ KHÔNG mang mã của lần trước.
+    await prisma.$executeRaw`UPDATE print_jobs SET trang_thai = 'loi' WHERE id = ${id}`;
+    expect(await suKien(id)).toEqual([
+      { tu: 'cho_in', sang: 'cho_in', ma: 'app_offline', org: ORG, nhan: null },
+      { tu: 'cho_in', sang: 'dang_gui', ma: null, org: ORG, nhan: null },
+      { tu: 'dang_gui', sang: 'khong_ro', ma: 'het_gio_cho', org: ORG, nhan: null },
+      { tu: 'khong_ro', sang: 'loi', ma: null, org: ORG, nhan: null },
+    ]);
+  });
+
+  it('UPDATE trạng thái bị ROLLBACK ⇒ sự kiện cũng mất (cùng giao dịch)', async () => {
+    const id = await taoJob();
+    await expect(prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`UPDATE print_jobs SET trang_thai = 'da_huy' WHERE id = ${id}`;
+      throw new Error('huỷ giao dịch');
+    })).rejects.toThrow('huỷ giao dịch');
+    expect(await suKien(id)).toEqual([]);
+    expect((await prisma.printJob.findUniqueOrThrow({ where: { id } })).trangThai).toBe('cho_in');
+  });
+
+  // ── Codex v1 #6: hàm trigger không bị bảng TẠM cùng tên bắt mất dòng ──
+  it('bảng TẠM tên print_su_kien của người gọi KHÔNG bắt được dòng của trigger (tạo + đổi trạng thái)', async () => {
+    const id = 'psk-temp-1';
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`CREATE TEMP TABLE print_su_kien (LIKE public.print_su_kien INCLUDING DEFAULTS) ON COMMIT DROP`);
+      await tx.$executeRawUnsafe(`SET LOCAL search_path = pg_temp, public`);
+      await tx.$executeRaw`INSERT INTO print_jobs (id, org_id, hoa_don_id, so_hoa_don, report, trang_thai, lan_thu, updated_at)
+        VALUES (${id}, ${ORG}, 9, 'INV/TEMP', 'r', 'cho_in', 0, now())`;
+      await tx.$executeRaw`UPDATE print_jobs SET trang_thai = 'da_huy' WHERE id = ${id}`;
+      const tam = (await tx.$queryRawUnsafe(`SELECT count(*)::int AS n FROM pg_temp.print_su_kien`)) as Array<{ n: number }>;
+      expect(tam[0].n).toBe(0);
+    });
+    expect(await suKien(id, false)).toEqual([
+      { tu: null, sang: 'cho_in', ma: null, org: ORG, nhan: null },
+      { tu: 'cho_in', sang: 'da_huy', ma: null, org: ORG, nhan: null },
+    ]);
+  });
+
+  it('hàm trigger: SECURITY DEFINER + search_path cố định (pg_catalog, public, pg_temp) + bảng ghi đủ schema', async () => {
+    const r = (await prisma.$queryRaw`
+      SELECT p.proname, p.prosecdef, p.proconfig, pg_get_functiondef(p.oid) AS def
+      FROM pg_proc p JOIN pg_trigger t ON t.tgfoid = p.oid
+      WHERE t.tgrelid = 'public.print_jobs'::regclass AND NOT t.tgisinternal AND t.tgname LIKE 'print_jobs_su_kien%'`) as Array<{
+      proname: string; prosecdef: boolean; proconfig: string[] | null; def: string;
+    }>;
+    expect(r.length).toBeGreaterThanOrEqual(2); // AFTER INSERT + AFTER UPDATE OF trang_thai
+    for (const f of r) {
+      expect(f.prosecdef).toBe(true);
+      expect(f.proconfig).toEqual(['search_path=pg_catalog, public, pg_temp']);
+      expect(f.def).toContain('public.print_su_kien');
+    }
+  });
+
+  // ── Codex v1 #5: `luc` là timestamptz — đúng dù múi giờ phiên DB là Asia/Ho_Chi_Minh ──
+  it('cột luc/bot_nhan_luc của print_su_kien + print_su_co là timestamptz', async () => {
+    const r = (await prisma.$queryRaw`
+      SELECT table_name, column_name, data_type FROM information_schema.columns
+      WHERE table_name IN ('print_su_kien', 'print_su_co') AND column_name IN ('luc', 'bot_nhan_luc')
+      ORDER BY table_name, column_name`) as Array<{ table_name: string; column_name: string; data_type: string }>;
+    expect(r).toHaveLength(4);
+    for (const c of r) expect(c.data_type).toBe('timestamp with time zone');
+  });
+
+  it('múi giờ MẶC ĐỊNH của DB = Asia/Ho_Chi_Minh: client CRM vẫn phiên UTC; helper + trigger ghi luc đúng giờ thật; cửa sổ gộp 10 phút đúng', async () => {
+    const { PrismaClient } = await import('@prisma/client');
+    const { taoAdapterPg } = await import('../src/shared/database/prisma-client.js');
+    const db = (await prisma.$queryRaw`SELECT current_database() AS d`) as Array<{ d: string }>;
+    const cachGiay = async (where: 'su_kien' | 'su_co') => {
+      const r = (where === 'su_kien'
+        ? await prisma.$queryRaw`SELECT extract(epoch FROM now() - max(luc))::float8 AS s FROM print_su_kien WHERE org_id = ${ORG} AND tu_trang_thai IS NOT NULL`
+        : await prisma.$queryRaw`SELECT extract(epoch FROM now() - max(luc))::float8 AS s FROM print_su_co WHERE org_id = ${ORG}`) as Array<{ s: number }>;
+      return Math.abs(r[0].s);
+    };
+    await prisma.$executeRawUnsafe(`ALTER DATABASE "${db[0].d}" SET timezone = 'Asia/Ho_Chi_Minh'`);
+    // Client MỚI (kết nối mới nhận mặc định HCM của DB) dựng ĐÚNG như client của CRM.
+    const crm = new PrismaClient({ adapter: taoAdapterPg(process.env.DATABASE_URL!) });
+    try {
+      const tz = (await crm.$queryRaw`SHOW timezone`) as Array<{ TimeZone: string }>;
+      expect(tz[0].TimeZone).toBe('UTC');
+      // Đường helper (trigger UPDATE) qua client CRM.
+      const id = await taoJob();
+      expect(await capNhatJobCoSuKien(crm as unknown as PrismaSuKienIn, {
+        id, where: { id, trangThai: 'cho_in' }, data: { trangThai: 'dang_gui' },
+      })).toBe(1);
+      expect(await cachGiay('su_kien')).toBeLessThan(60);
+      const e = await crm.printSuKien.findFirstOrThrow({ where: { jobId: id, tuTrangThai: 'cho_in' } });
+      expect(Math.abs(e.luc.getTime() - Date.now())).toBeLessThan(60_000);
+      // Sự cố: ghi + gộp + quá cửa sổ.
+      const d = { prisma: crm as unknown as PrismaSuCoIn };
+      expect(await ghiSuCoIn({ maSuCo: 'het_giay', orgId: ORG }, d)).toBe('da_luu');
+      expect(await cachGiay('su_co')).toBeLessThan(60);
+      expect(await ghiSuCoIn({ maSuCo: 'het_giay', orgId: ORG }, d)).toBe('trung');
+      await prisma.$executeRaw`UPDATE print_su_co SET luc = luc - interval '11 minutes' WHERE org_id = ${ORG}`;
+      expect(await ghiSuCoIn({ maSuCo: 'het_giay', orgId: ORG }, d)).toBe('da_luu');
+    } finally {
+      await crm.$disconnect();
+      await prisma.$executeRawUnsafe(`ALTER DATABASE "${db[0].d}" RESET timezone`);
+    }
+  });
+
+  it('writer SQL thô trong phiên Asia/Ho_Chi_Minh (bot psycopg / SQL tay): DEFAULT luc + trigger đúng giờ thật; CRM coi là trong cửa sổ', async () => {
+    await prisma.printJob.deleteMany({ where: { id: 'psk-hcm-raw' } });
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SET LOCAL TimeZone = 'Asia/Ho_Chi_Minh'`;
+      await tx.$executeRaw`INSERT INTO print_jobs (id, org_id, hoa_don_id, so_hoa_don, report, trang_thai, lan_thu, updated_at)
+        VALUES ('psk-hcm-raw', ${ORG}, 9, 'INV/HCM', 'r', 'cho_in', 0, now())`;
+      await tx.$executeRaw`UPDATE print_jobs SET trang_thai = 'da_huy' WHERE id = 'psk-hcm-raw'`;
+      await tx.$executeRaw`INSERT INTO print_su_co (org_id, ma_su_co, nhom_su_co) VALUES (${ORG}, 'ket_giay', 'ket_giay')`;
+    });
+    const r = (await prisma.$queryRaw`
+      SELECT max(abs(extract(epoch FROM now() - luc)))::float8 AS s FROM (
+        SELECT luc FROM print_su_kien WHERE job_id = 'psk-hcm-raw' UNION ALL SELECT luc FROM print_su_co WHERE org_id = ${ORG}) x`) as Array<{ s: number }>;
+    expect(r[0].s).toBeLessThan(60);
+    expect(await ghiSuCoIn({ maSuCo: 'ket_giay', orgId: ORG })).toBe('trung');
   });
 
   it('TRANG_THAI_JOB (TypeScript) == danh sách CHECK print_su_kien_sang_trang_thai_check trên DB', async () => {

@@ -1,8 +1,12 @@
 -- 02/10/2026: THÔNG BÁO CHỦ ĐỘNG (docs/78 C1, Codex P0-3) — sự kiện in BỀN cho trạm thông báo của bot.
---   print_su_kien  một dòng mỗi lần print_jobs ĐỔI trạng thái (kể cả thử lại cho_in → cho_in và dòng tạo job) — ghi CÙNG
---                  GIAO DỊCH với UPDATE có điều kiện, chỉ khi UPDATE đổi đúng một dòng (su-kien-in.ts).
+--   print_su_kien  một dòng mỗi lần print_jobs ĐỔI trạng thái (kể cả thử lại cho_in → cho_in và dòng tạo job) — do TRIGGER
+--                  ghi CÙNG GIAO DỊCH với INSERT/UPDATE (migration 20261002090300), mọi đường ghi kể cả SQL tay.
 --   print_su_co    sự cố MÁY IN (app báo `su-co`, cầu dao `tam_giu`) — luồng riêng, không gắn trạng thái job.
 -- Bot xác nhận TỪNG HÀNG bằng `bot_nhan_luc` (Codex P1-2: không dùng con trỏ id). Chỉ THÊM bảng — không đụng bảng cũ.
+--
+-- `luc`/`bot_nhan_luc` là TIMESTAMPTZ (Codex v1 #5): mọi writer (trigger, Prisma, SQL tay) và mọi phép so (`now() - interval`)
+-- cùng một trục thời gian bất kể TimeZone của phiên DB — TIMESTAMP trơn + DEFAULT CURRENT_TIMESTAMP ghi giờ ĐỊA PHƯƠNG của phiên
+-- trong khi Prisma ghi giờ UTC (lệch 7 giờ ở Asia/Ho_Chi_Minh, cửa sổ gộp 10 phút thành 7 giờ).
 --
 -- lock_timeout: như các migration 30/09 — chờ khoá quá 5 s thì HỎNG (chạy lại sau) thay vì chặn truy vấn phía sau.
 SET lock_timeout = '5s';
@@ -14,8 +18,8 @@ CREATE TABLE "print_su_kien" (
     "tu_trang_thai" TEXT,
     "sang_trang_thai" TEXT NOT NULL,
     "ma_loi" TEXT,
-    "luc" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "bot_nhan_luc" TIMESTAMP(3),
+    "luc" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "bot_nhan_luc" TIMESTAMPTZ(3),
 
     CONSTRAINT "print_su_kien_pkey" PRIMARY KEY ("id")
 );
@@ -39,8 +43,8 @@ CREATE TABLE "print_su_co" (
     "ma_su_co" TEXT NOT NULL,
     "ma_goc" TEXT,
     "chi_tiet" TEXT,
-    "luc" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "bot_nhan_luc" TIMESTAMP(3),
+    "luc" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "bot_nhan_luc" TIMESTAMPTZ(3),
 
     CONSTRAINT "print_su_co_pkey" PRIMARY KEY ("id")
 );
