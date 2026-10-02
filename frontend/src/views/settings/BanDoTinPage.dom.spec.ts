@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// BanDoTinPage — trang Cài đặt › Hệ thống › "Bản đồ tin" (docs/78 C3) với client GIẢ LẬP:
+// BanDoTinPage — trang Cài đặt › Hệ thống › "Bản đồ tin" (docs/78 C3) với client GIẢ LẬP đúng hợp đồng API:
 //   • bấm khối ⇒ panel: khi nào gửi, ví dụ NGUYÊN VĂN trong bong bóng Zalo, nguồn câu, đích + hash #khoi=;
-//   • tin 🔒 ⇒ mọi ô đích bị khoá kèm lý do; tin ✎ ⇒ tick đích gọi client.luuLuat, khối bản sao hiện trên sơ đồ;
-//   • rào phía trình duyệt: khách + nhạy cảm bị khoá; kho + giá ⇒ cảnh báo che giá;
-//   • chạy bóng ⇒ "Nếu bật, 24 giờ qua sẽ gửi N"; Gửi thử tắt khi chưa có backend;
+//   • tin 🔒 ⇒ mọi ô đích khoá kèm lý do, không có chế độ; tin ✎: tick đích ⇒ POST luật (chạy bóng) / PUT kèm phienBan;
+//   • lỗi server hiện NGUYÊN VĂN; 409 ⇒ tải lại; canhBao của CRM hiện ở trang + panel; số bóng 24h của luật;
+//   • lớp CRM tự động chỉ xem; trạng thái trống khi bot chưa gửi danh mục; nhãn "Dữ liệu mẫu" chỉ với adapter giả lập;
 //   • Esc bỏ chọn (xoá hash); điện thoại < 768 ⇒ cổng "mở trên máy tính" rồi bản rút gọn Theo pha.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils';
@@ -12,16 +12,18 @@ import { mount, flushPromises, type VueWrapper } from '@vue/test-utils';
 vi.mock('@/api/index', () => ({ api: {} }));
 
 import BanDoTinPage from './BanDoTinPage.vue';
-import { taoClientMau } from './ban-do-tin/client-mau';
+import { taoClientMau, type TuyChonMau } from './ban-do-tin/client-mau';
+import { LoiBanDoTin } from './ban-do-tin/loi';
 import vd from './ban-do-tin/du-lieu-mau.json';
 import type { BanDoTinClient } from '@/api/ban-do-tin';
 
 let w: VueWrapper | null = null;
-async function mo(rong = 1440, hash = ''): Promise<{ w: VueWrapper; client: BanDoTinClient }> {
+async function mo(rong = 1440, hash = '', tc: TuyChonMau = {}, sua?: (c: BanDoTinClient) => void): Promise<{ w: VueWrapper; client: BanDoTinClient }> {
   Object.defineProperty(window, 'innerWidth', { configurable: true, value: rong });
   history.replaceState(null, '', `/settings/ban-do-tin${hash}`);
-  const client = taoClientMau();
-  vi.spyOn(client, 'luuLuat');
+  const client = taoClientMau(tc);
+  for (const k of ['taoLuat', 'suaLuat', 'xoaLuat', 'layLuat', 'layBanDo'] as const) vi.spyOn(client, k);
+  sua?.(client);
   w = mount(BanDoTinPage, { props: { client }, attachTo: document.body });
   await flushPromises();
   return { w, client };
@@ -57,46 +59,140 @@ describe('BanDoTinPage — máy tính', () => {
     expect(p.text()).toMatch(/Đẩy sang\s*7/);
   });
 
-  it('tin 🔒: ô đích khoá + lý do; chế độ không đổi được', async () => {
+  it('tin 🔒: ô đích khoá + lý do; không có phần chế độ', async () => {
     const { w } = await mo();
     await bamKhoi(w, 'the_xem_truoc@nhom_goc');
     const p = panel(w);
     expect(p.text()).toContain('Đích cố định');
     for (const o of p.findAll('[data-dich] input')) expect((o.element as HTMLInputElement).disabled).toBe(true);
-    expect(p.findAll('.bdt-che-do button').every((b) => (b.element as HTMLButtonElement).disabled)).toBe(true);
+    expect(p.find('.bdt-che-do').exists()).toBe(false);
   });
 
-  it('tin ✎ bản sao: nơi gốc 🔒, khách bị chặn, tick Kế toán ⇒ luuLuat + khối bản sao xuất hiện', async () => {
+  it('tin ✎ chưa có luật: nơi gốc 🔒, khách bị chặn; tick Kế toán ⇒ POST luật (CRM mặc định chạy bóng) + khối bản sao "Bóng"', async () => {
     const { w, client } = await mo();
     await bamKhoi(w, 'da_chot@nhom_goc');
     let p = panel(w);
+    expect(p.find('[data-chua-luat]').exists()).toBe(true);
     expect((p.find('[data-dich-dong="nhom_goc"] input').element as HTMLInputElement).disabled).toBe(true);
     expect((p.find('[data-dich-dong="g_khach"] input').element as HTMLInputElement).disabled).toBe(true);
     expect(p.find('[data-dich-dong="g_khach"]').text()).toMatch(/cấm vào nhóm khách/);
     expect(p.find('[data-lo]').text()).toMatch(/giá, SĐT/);
     await p.find('[data-dich-dong="g_ketoan"] input').setValue(true);
     await flushPromises();
-    expect(client.luuLuat).toHaveBeenCalledWith(expect.objectContaining({ loai: 'da_chot', dich: ['nhom_goc', 'g_ketoan'], che_do: 'bat' }));
-    expect(w.find('[data-khoi="da_chot@g_ketoan"]').exists()).toBe(true);
+    expect(client.taoLuat).toHaveBeenCalledWith({ loai: 'da_chot', dich: [{ kieu: 'chuc_nang', gia_tri: 'ke_toan' }] });
+    expect(client.suaLuat).not.toHaveBeenCalled();
+    const k = w.find('[data-khoi="da_chot@g_ketoan"]');
+    expect(k.exists()).toBe(true);
+    expect(k.text()).toContain('Bóng');
     p = panel(w);
-    expect(p.text()).toMatch(/thêm Kế toán/); // nhật ký
+    expect(p.find('[data-tin-luu]').text()).toMatch(/CHẠY BÓNG/);
+    expect(p.find('[data-luat-meta]').text()).toMatch(/phiên bản 1/);
   });
 
-  it('kho + giá ⇒ cảnh báo bản che giá sau khi tick', async () => {
-    const { w } = await mo();
+  it('luật đã có: tick Kho ⇒ PUT kèm phienBan, giữ đích cũ; cảnh báo bản che giá', async () => {
+    const { w, client } = await mo();
     await bamKhoi(w, 'xuat_hoa_don_tool@nhom_goc');
     await panel(w).find('[data-dich-dong="g_kho"] input').setValue(true);
     await flushPromises();
+    expect(client.suaLuat).toHaveBeenCalledWith('luat-1', {
+      phienBan: 1, dich: [{ kieu: 'chuc_nang', gia_tri: 'ke_toan' }, { kieu: 'chuc_nang', gia_tri: 'kho' }],
+    });
     expect(panel(w).find('[data-dich-dong="g_kho"]').text()).toMatch(/che giá/);
+    expect(w.find('[data-khoi="xuat_hoa_don_tool@g_kho"]').exists()).toBe(true);
   });
 
-  it('chạy bóng ⇒ "Nếu bật, 24 giờ qua sẽ gửi N"; Gửi thử tắt', async () => {
+  it('đổi chế độ ⇒ PUT chỉ cheDo; Hoàn lại như mã ⇒ DELETE, khối bản sao biến mất', async () => {
+    const { w, client } = await mo();
+    await bamKhoi(w, 'xuat_hoa_don_tool@nhom_goc');
+    await panel(w).findAll('.bdt-che-do button').find((b) => b.text() === 'Chạy bóng')!.trigger('click');
+    await flushPromises();
+    expect(client.suaLuat).toHaveBeenCalledWith('luat-1', { phienBan: 1, cheDo: 'bong' });
+    expect(w.find('[data-khoi="xuat_hoa_don_tool@g_ketoan"]').text()).toContain('Bóng');
+    await panel(w).find('[data-hoan-lai]').trigger('click');
+    await flushPromises();
+    expect(client.xoaLuat).toHaveBeenCalledWith('luat-1');
+    expect(w.find('[data-khoi="xuat_hoa_don_tool@g_ketoan"]').exists()).toBe(false);
+  });
+
+  it('lỗi server hiện NGUYÊN VĂN; 409 PHIEN_BAN_CU ⇒ tải lại luật + báo', async () => {
+    const CAU = 'Không có nhân viên bot với zalo_uid uid-x trong tổ chức';
+    const { w, client } = await mo(1440, '', {}, (c) => {
+      vi.spyOn(c, 'suaLuat')
+        .mockRejectedValueOnce(new LoiBanDoTin(CAU, 400, 'NV_KHONG_CO'))
+        .mockRejectedValueOnce(new LoiBanDoTin('Luật vừa được người khác sửa — tải lại rồi sửa tiếp', 409, 'PHIEN_BAN_CU'));
+    });
+    await bamKhoi(w, 'xuat_hoa_don_tool@nhom_goc');
+    await panel(w).find('[data-dich-dong="g_admin"] input').setValue(true);
+    await flushPromises();
+    expect(panel(w).find('[data-loi-luu]').text()).toBe(CAU);
+    const lanTai = vi.mocked(client.layLuat).mock.calls.length;
+    await panel(w).find('[data-dich-dong="g_admin"] input').setValue(true);
+    await flushPromises();
+    expect(panel(w).find('[data-loi-luu]').text()).toBe('Luật vừa được người khác sửa — tải lại rồi sửa tiếp');
+    expect(vi.mocked(client.layLuat).mock.calls.length).toBe(lanTai + 1);
+    expect(panel(w).find('[data-tin-luu]').text()).toMatch(/Đã tải lại/);
+  });
+
+  it('luật chạy bóng ⇒ "Nếu bật, 24 giờ qua sẽ gửi N" (tổng bong/24h của luật); Gửi thử tắt; link Nhật ký Quyền bot', async () => {
     const { w } = await mo();
-    await bamKhoi(w, 'in_xong@g_kho');
+    await bamKhoi(w, 'in_sau_chot@nhom_goc');
     const p = panel(w);
     expect(p.find('[data-neu-bat]').text()).toMatch(/Nếu bật, 24 giờ qua sẽ gửi \d+ tin/);
     const gui = p.findAll('button').find((b) => b.text().includes('Gửi thử'))!;
     expect((gui.element as HTMLButtonElement).disabled).toBe(true);
+    expect(p.find('[data-nhat-ky]').attributes('href')).toBe('/settings/bot-quyen?tab=nhat-ky');
+  });
+
+  it('canhBao của CRM hiện ở đầu trang và trong panel của loại tin đó', async () => {
+    const CB = 'in_sau_chot: bỏ đích chuc_nang:khach — Tin "In sau chốt" có dữ liệu nhạy cảm (gia) — không gửi vào nhóm khách';
+    const { w } = await mo(1440, '', {}, (c) => {
+      const goc = c.layLuat.bind(c);
+      c.layLuat = async () => ({ ...(await goc()), canhBao: [CB] });
+    });
+    expect(w.find('[data-canh-bao-trang]').text()).toContain(CB);
+    await bamKhoi(w, 'in_sau_chot@nhom_goc');
+    expect(panel(w).find('[data-canh-bao]').text()).toContain(CB);
+    await bamKhoi(w, 'xuat_hoa_don_tool@nhom_goc');
+    expect(panel(w).find('[data-canh-bao]').exists()).toBe(false);
+  });
+
+  it('Một NV chỉ định: chọn NV ⇒ PUT thêm đích nv (zalo_uid)', async () => {
+    const { w, client } = await mo();
+    await bamKhoi(w, 'xuat_hoa_don_tool@nhom_goc');
+    const chon = panel(w).find('[data-them-nv]');
+    await chon.trigger('focus');
+    await flushPromises();
+    await chon.setValue('uid-nv-lan');
+    await flushPromises();
+    expect(client.suaLuat).toHaveBeenCalledWith('luat-1', {
+      phienBan: 1, dich: [{ kieu: 'chuc_nang', gia_tri: 'ke_toan' }, { kieu: 'nv', gia_tri: 'uid-nv-lan' }],
+    });
+    expect(panel(w).find('[data-nv-dich]').text()).toContain('Chị Lan');
+  });
+
+  it('khối CRM tự động: chỉ xem, nói rõ bật/tắt + lý do, không có ô tick', async () => {
+    const { w } = await mo();
+    await bamKhoi(w, 'crm_lich_hen_nhac@crm_sale');
+    const p = panel(w);
+    expect(p.find('[data-crm-trang-thai]').text()).toMatch(/chỉ xem.*Đang tắt: Chưa bật "Nhắc lịch hẹn qua Zalo"/s);
+    expect(p.find('[data-dich] input').exists()).toBe(false);
+  });
+
+  it('lớp CRM tự động hỏng ⇒ vẫn vẽ phần bot + báo ở đầu trang', async () => {
+    const { w } = await mo(1440, '', { loiCrm: true });
+    expect(w.findAll('.bdt-khoi').length).toBeGreaterThan(46);
+    expect(w.find('[data-canh-bao-trang]').text()).toMatch(/Không tải được lớp CRM tự động/);
+  });
+
+  it('bot chưa gửi ảnh chụp ⇒ trạng thái trống rõ ràng, không vẽ sơ đồ', async () => {
+    const { w } = await mo(1440, '', { trong: true });
+    expect(w.find('[data-chua-co-ban-do]').text()).toContain('Bot chưa gửi danh mục — bản đồ sẽ hiện sau khi bot dev chạy bản mới');
+    expect(w.find('.bdt-khoi').exists()).toBe(false);
+  });
+
+  it('adapter thật (không phải giả lập) ⇒ KHÔNG có nhãn "Dữ liệu mẫu"', async () => {
+    const { w } = await mo(1440, '', {}, (c) => { (c as { laMau: boolean }).laMau = false; });
+    expect(w.text()).not.toContain('Dữ liệu mẫu');
   });
 
   it('rê dòng panel ⇒ đúng một đường được đánh dấu đang trỏ', async () => {

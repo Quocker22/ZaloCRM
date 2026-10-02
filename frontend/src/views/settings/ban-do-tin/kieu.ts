@@ -1,43 +1,40 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// kieu.ts — kiểu dữ liệu trang "Bản đồ tin" (docs/78 §3 C3).
+// kieu.ts — kiểu dữ liệu TRÌNH BÀY của trang "Bản đồ tin" (docs/78 §3 C3).
 //
-// Hợp đồng danh mục composer (bot đẩy sang CRM, docs/78 B4):
-//   { id, ten, pha, kieu: khoa|ban_sao|thuan, dich_goc[], nhay_cam[], khi_nao, vi_du, nguon_cau, dan_toi: [{den, kieu}] }
-// + luật (bản sao) + số đếm 7 ngày { canh_id, so, chan, bong }.
-// Trang chỉ đọc qua client (`@/api/ban-do-tin`); bản giả lập ở `client-mau.ts`.
+// Dữ liệu vào là ĐÚNG hợp đồng (hop-dong.ts: ảnh chụp bot + luật CRM + lớp CRM tự động); `chuyen-doi.ts` dựng
+// `AnhChupBanDo` dưới đây: mã pha/đích lạ quy về hàng đã biết, luật quy về hàng bản sao, số đếm gộp theo khối.
+
+import type { DemApi, DichLuatApi, MucCrmApi } from './hop-dong';
 
 /** Mã pha = mã cột trên sơ đồ, theo thứ tự trái → phải. */
 export type MaPha =
   | 'hoi' | 'len_don' | 'chot' | 'xuat_hd' | 'in' | 'thu_tien' | 'kho' | 'bao_cao' | 'he_thong';
 
-/** Mã đích (hàng) — khớp `dich` trong luật (`luat-chu-chon-02-10.json`). */
+/** Mã đích (hàng) — khớp `dich_goc` của composer và `dich_kieu` của số đếm. */
 export type MaDich =
   | 'nhom_goc' | 'dm_nguoi_go' | 'nguoi_giu_ma' | 'chu_don'
   | 'g_kho' | 'g_admin' | 'g_ketoan' | 'g_sales' | 'g_kythuat'
   | 'nv' | 'g_khach';
 
-/** Hàng nguồn (dải "Nguồn") và hàng CRM tự động — không phải đích của luật. */
-export type MaHangPhu = 'n_may_in' | 'n_odoo' | 'n_lich' | 'crm_sale' | 'crm_hen' | 'crm_nhom' | 'crm_he_thong';
+/** Hàng nguồn (dải "Nguồn") và hàng CRM tự động (theo `loai_dich` của API) — không phải đích của luật. */
+export type MaHangPhu =
+  | 'n_may_in' | 'n_odoo' | 'n_lich' | 'n_khac'
+  | 'crm_truc' | 'crm_sale' | 'crm_nhom' | 'crm_app' | 'crm_bot';
 
 export type MaHang = MaDich | MaHangPhu;
 
-/** khoa: đích cố định · ban_sao: nơi gốc khoá, THÊM bản sao được · thuan: đổi đích tự do. */
+/** khoa: đích cố định · ban_sao: nơi gốc giữ, THÊM bản sao được · thuan: tin thông báo, thêm đích tự do. */
 export type KieuComposer = 'khoa' | 'ban_sao' | 'thuan';
-
-/** Ai soạn chữ — hiện thành tag trên khối. */
-export type NguoiSoan = 'ma' | 'model' | 'mau' | 'anh';
 
 export type CheDo = 'tat' | 'bong' | 'bat';
 
-/** Sáu loại đường nối (mã dùng cho `#loai=`). */
-export type LoaiLienKet = 'nghiep_vu' | 'ban_sao' | 'nguon' | 'vong' | 'chan' | 'crm';
-
-/** Loại cạnh khai trong `dan_toi` (ban_sao sinh từ luật, không khai tay). */
-export type KieuCanh = Exclude<LoaiLienKet, 'ban_sao'>;
+/** Sáu loại đường nối (mã dùng cho `#loai=`). Bốn loại đầu = `dan_toi.kieu` của hợp đồng; ban_sao sinh từ luật CRM;
+ *  crm = lớp CRM tự động (GET /ban-do-tin/crm-tu-dong). */
+export type LoaiLienKet = 'nghiep_vu' | 'hoi_lai' | 'su_kien' | 'chan' | 'ban_sao' | 'crm';
 
 export interface CanhDanToi {
   den: string;
-  kieu: KieuCanh;
+  kieu: LoaiLienKet;
   /** Vì sao nối — hiện ở panel liên kết. */
   vi_sao?: string;
 }
@@ -46,21 +43,20 @@ export interface Composer {
   id: string;
   ten: string;
   pha: MaPha;
+  /** mã pha bot gửi khi KHÔNG khớp cột nào (vẽ ở cột Hệ thống) */
+  pha_la?: string;
   kieu: KieuComposer;
   dich_goc: MaDich[];
+  /** mã đích gốc bot gửi mà trang chưa biết (không vẽ được) */
+  dich_goc_la?: string[];
+  /** nhãn hợp đồng: gia sdt tien doanh_so lai … */
   nhay_cam: string[];
   khi_nao: string;
   vi_du: string;
   nguon_cau: string;
   ghi_chu?: string;
   dan_toi: CanhDanToi[];
-  /** Phần trình bày (bot không bắt buộc gửi): ai soạn, lý do khoá, gợi ý, đề xuất mới, chế độ mặc định. */
-  soan?: NguoiSoan;
-  ai_soan?: string;
-  ly_do_khoa?: string;
-  goi_y?: string;
-  de_xuat?: boolean;
-  che_do?: CheDo;
+  de_xuat: boolean;
 }
 
 /** Khối nguồn (máy in, Odoo, lịch) hoặc khối CRM tự động — chỉ xem. */
@@ -72,46 +68,51 @@ export interface NutPhu {
   mo_ta: string;
   dan_toi: CanhDanToi[];
   chi_xem: true;
+  /** chỉ với mục CRM: bản gốc API (bật/tắt, lý do, đích, chỉnh ở đâu) */
+  crm?: MucCrmApi;
 }
 
 export interface Luat {
   id: string;
   /** composer id */
   loai: string;
-  /** Danh sách đích HIỆU LỰC (gồm cả nơi gốc với composer ban_sao) — cùng dạng luật chủ chọn 02/10. */
+  /** Hàng BẢN SAO luật thêm (không gồm nơi gốc — nơi gốc luôn ngầm định). */
   dich: MaDich[];
+  /** Đích đúng như CRM lưu (giữ zalo_uid của đích NV khi sửa). */
+  dich_tho: DichLuatApi[];
   che_do: CheDo;
   phien_ban: number;
-  nguoi_sua?: string;
-  luc?: string;
+  sua_boi?: string | null;
+  sua_luc?: string;
 }
 
+export interface SoDem { da_gui: number; chan_tam_im: number; loi: number; bong: number; chua_ro: number }
+
+/** Số đếm đã gộp: `gui:<khối>` (mọi lần gửi tới khối) · `luat:<khối>` (chỉ phần qua luật — cạnh bản sao). */
 export interface DemCanh {
-  /** `tu~den` (id khối) cho đường nối; `gui:<id khối>` cho số tin của một khối. */
   canh_id: string;
-  so: number;
-  chan: number;
-  bong: number;
-  /** Chỉ với `gui:` — số tin chạy bóng trong 24 giờ qua ("nếu bật, 24h qua sẽ gửi N"). */
-  bong_24h?: number;
-}
-
-export interface DongNhatKy {
-  luc: string;
-  nguoi: string;
-  noi_dung: string;
+  d7: SoDem;
+  h24: SoDem;
 }
 
 export interface AnhChupBanDo {
-  phien_ban: number;
+  /** phien_ban danh mục bot (chuỗi) */
+  phien_ban: string;
+  /** lúc CRM nhận ảnh chụp */
+  luc: string | null;
   /** true khi dữ liệu là bản giả lập (client-mau) — trang hiện nhãn "Dữ liệu mẫu". */
   mau: boolean;
   composer: Composer[];
   nguon: NutPhu[];
   crm: NutPhu[];
   luat: Luat[];
-  dem_7_ngay: DemCanh[];
-  nhat_ky: DongNhatKy[];
+  dem: DemCanh[];
+  /** dòng số đếm gốc (panel tính "24h sẽ gửi" theo luật) */
+  dem_tho: DemApi[];
+  /** cảnh báo CRM sẽ bỏ đích/luật khi phát cho bot (GET /luat-thong-bao → canhBao) */
+  canh_bao: string[];
+  /** lớp CRM tự động không tải được — vẫn vẽ phần bot */
+  loi_crm: string | null;
 }
 
 // ─── Mô hình đã dựng (mo-hinh.ts) ───────────────────────────────────────
@@ -140,7 +141,7 @@ export interface NhomHang {
   chi_xem?: boolean;
 }
 
-export type TagKhoi = 'Mã' | 'Model' | 'Mẫu' | 'Ảnh' | 'Mới' | 'Bóng' | 'Nguồn' | 'CRM';
+export type TagKhoi = 'Khoá' | 'Nhạy cảm' | 'Mới' | 'Bóng' | 'Tắt' | 'Nguồn' | 'CRM';
 
 export interface Khoi {
   /** `<composer>@<hàng>` */

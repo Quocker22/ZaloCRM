@@ -8,16 +8,16 @@
   <section class="bdt-khung" aria-label="Sơ đồ bản đồ tin">
     <header class="bdt-dau-khung">
       <h2><span class="logo"><Send :size="13" /></span>Bản đồ tin — {{ mh.khoi.length }} khối × {{ mh.pha.length }} pha</h2>
-      <span class="bdt-goi-y">Bấm một khối để làm nổi luồng · Bấm tên nhóm để thu gọn · Ctrl + cuộn để phóng to</span>
+      <span class="bdt-goi-y">Bấm một khối để làm nổi luồng · Bấm tên nhóm để thu gọn · Ctrl + cuộn để phóng to · kéo để di chuyển</span>
       <div class="bdt-nut-hang">
         <button type="button" class="bdt-nut huong-dan" @click="s.hopHuongDan.value = true"><BookOpenText :size="14" />Hướng dẫn sử dụng</button>
         <button type="button" class="bdt-nut" @click="s.thuGonTatCa()"><Layers :size="14" />{{ s.tatCaThuGon.value ? 'Mở tất cả nhóm' : 'Thu gọn nhóm' }}</button>
         <div class="bdt-zoom" role="group" aria-label="Thu phóng">
           <button type="button" aria-label="Thu nhỏ" :disabled="s.zoom.value <= ZOOM_MIN + 1e-6" @click="buocZoom(1 / 1.2)"><Minus :size="14" /></button>
-          <button type="button" class="pt" title="Về vừa khung" @click="vuaKhung">{{ phanTramZoom(s.zoom.value, s.zoomVua.value) }}%</button>
+          <button type="button" class="pt" title="Về cỡ mặc định (≥ 75 %)" data-zoom-pt @click="veMacDinh">{{ Math.round(s.zoom.value * 100) }}%</button>
           <button type="button" aria-label="Phóng to" :disabled="s.zoom.value >= ZOOM_MAX - 1e-6" @click="buocZoom(1.2)"><Plus :size="14" /></button>
         </div>
-        <button type="button" class="bdt-nut" @click="vuaKhung"><RotateCcw :size="14" />Vừa khung</button>
+        <button type="button" class="bdt-nut" title="Thu nhỏ cho thấy trọn bản đồ" data-vua-khung @click="vuaKhung"><RotateCcw :size="14" />Vừa khung</button>
       </div>
     </header>
 
@@ -33,13 +33,6 @@
       @click="bamTrong"
     >
       <div class="bdt-ban-do" :style="{ width: `${bc.rong}px`, height: `${bc.cao}px`, zoom: s.zoom.value, '--z': s.zoom.value }">
-        <!-- 1. tiêu đề pha -->
-        <button
-          v-for="(p, i) in mh.pha" :key="p.id" type="button" class="bdt-pha"
-          :class="{ sang: kq.che === 'chon' && kq.phaSang.has(p.id), mo: kq.che === 'chon' && !kq.phaSang.has(p.id) }"
-          :style="hcn(bc.dauPha[i])" :title="`${p.ma} · ${p.ten}`" @click.stop="s.datChon({ kieu: 'pha', id: p.id })"
-        ><span class="ma">{{ p.ma }}</span>{{ p.ten }}</button>
-
         <!-- 2. svg đường nền: mọi đường, độ đục theo một class -->
         <svg class="bdt-svg bdt-lop-nen" :class="kq.che" :width="bc.rong" :height="bc.cao" aria-hidden="true">
           <defs>
@@ -58,27 +51,6 @@
         <div v-for="h in bc.hang" :key="`d${h.id}`" class="bdt-dai-hang" :style="hcn(h.dai)" />
         <template v-for="g in bc.nhom" :key="`dg${g.id}`">
           <div v-if="g.thuGon" class="bdt-dai-hang" :style="{ left: '144px', top: `${g.dai!.y + 3}px`, width: `${bc.phaiCotCuoi + 4 - 144}px`, height: '44px' }" />
-        </template>
-
-        <!-- 5. thanh nhóm dọc -->
-        <template v-for="g in bc.nhom" :key="`t${g.id}`">
-          <button
-            v-if="g.thanh" type="button" class="bdt-thanh-nhom" :class="{ gon: g.thuGon, crm: g.id === 'crm' }" :style="hcn(g.thanh)"
-            :aria-expanded="!g.thuGon" :aria-label="`${g.thuGon ? 'Mở' : 'Thu gọn'} nhóm ${tenNhom[g.id]}`"
-            @click.stop="s.doiThuGon(g.id)"
-          ><ChevronDown class="chev" :size="12" /><span v-if="!g.thuGon" class="chu-doc">{{ tenNhom[g.id] }}</span></button>
-        </template>
-
-        <!-- 6. nhãn hàng (hoặc tên nhóm khi thu gọn) -->
-        <button
-          v-for="h in bc.hang" :key="`l${h.id}`" type="button" class="bdt-nhan-hang"
-          :class="{ sang: kq.che === 'chon' && kq.hangSang.has(h.id), mo: kq.che === 'chon' && !kq.hangSang.has(h.id) }"
-          :style="hcn(h.nhan)" @click.stop="s.datChon({ kieu: 'hang', id: h.id })"
-        ><span class="o-ico"><IconBdt :ten="mh.hang[h.id].icon" /></span><span class="chu">{{ mh.hang[h.id].ten }}</span></button>
-        <template v-for="g in bc.nhom" :key="`ln${g.id}`">
-          <button v-if="g.nhanThuGon" type="button" class="bdt-nhan-hang" :style="hcn(g.nhanThuGon)" @click.stop="s.doiThuGon(g.id)">
-            <span class="o-ico"><IconBdt :ten="mh.hang[nhomTheoId[g.id].hang[0]].icon" /></span><span class="chu">{{ tenNhom[g.id] }}</span>
-          </button>
         </template>
 
         <!-- 7. nhãn vòng -->
@@ -125,6 +97,41 @@
             </g>
           </template>
         </svg>
+
+        <!-- 11. lớp DÍNH: hàng tiêu đề pha (dính trên) + cột nhãn hàng (dính trái) + góc — cuộn ngang/dọc vẫn đọc được.
+             Ba lớp cùng một ô lưới của .bdt-ban-do (position: sticky); con bên trong vẫn tuyệt đối theo toạ độ gốc. -->
+        <div class="bdt-dinh bdt-dinh-hang" :style="{ width: `${COT_TRAI}px`, height: `${bc.cao}px` }" data-dinh-hang>
+          <template v-for="g in bc.nhom" :key="`dn${g.id}`">
+            <div v-if="g.dai" class="bdt-nhom" :class="{ crm: g.id === 'crm' }" :style="hcn(g.dai)" />
+          </template>
+          <!-- 5. thanh nhóm dọc -->
+          <template v-for="g in bc.nhom" :key="`t${g.id}`">
+            <button
+              v-if="g.thanh" type="button" class="bdt-thanh-nhom" :class="{ gon: g.thuGon, crm: g.id === 'crm' }" :style="hcn(g.thanh)"
+              :aria-expanded="!g.thuGon" :aria-label="`${g.thuGon ? 'Mở' : 'Thu gọn'} nhóm ${tenNhom[g.id]}`"
+              @click.stop="s.doiThuGon(g.id)"
+            ><ChevronDown class="chev" :size="12" /><span v-if="!g.thuGon" class="chu-doc">{{ tenNhom[g.id] }}</span></button>
+          </template>
+          <!-- 6. nhãn hàng (hoặc tên nhóm khi thu gọn) -->
+          <button
+            v-for="h in bc.hang" :key="`l${h.id}`" type="button" class="bdt-nhan-hang"
+            :class="{ sang: kq.che === 'chon' && kq.hangSang.has(h.id), mo: kq.che === 'chon' && !kq.hangSang.has(h.id) }"
+            :style="hcn(h.nhan)" @click.stop="s.datChon({ kieu: 'hang', id: h.id })"
+          ><span class="o-ico"><IconBdt :ten="mh.hang[h.id].icon" /></span><span class="chu">{{ mh.hang[h.id].ten }}</span></button>
+          <template v-for="g in bc.nhom" :key="`ln${g.id}`">
+            <button v-if="g.nhanThuGon" type="button" class="bdt-nhan-hang" :style="hcn(g.nhanThuGon)" @click.stop="s.doiThuGon(g.id)">
+              <span class="o-ico"><IconBdt :ten="mh.hang[nhomTheoId[g.id].hang[0]].icon" /></span><span class="chu">{{ tenNhom[g.id] }}</span>
+            </button>
+          </template>
+        </div>
+        <div class="bdt-dinh bdt-dinh-pha" :style="{ width: `${bc.rong}px`, height: `${CAO_DAU}px` }" data-dinh-pha>
+          <button
+            v-for="(p, i) in mh.pha" :key="p.id" type="button" class="bdt-pha"
+            :class="{ sang: kq.che === 'chon' && kq.phaSang.has(p.id), mo: kq.che === 'chon' && !kq.phaSang.has(p.id) }"
+            :style="hcn(bc.dauPha[i])" :title="`${p.ma} · ${p.ten}`" @click.stop="s.datChon({ kieu: 'pha', id: p.id })"
+          ><span class="ma">{{ p.ma }}</span>{{ p.ten }}</button>
+        </div>
+        <div class="bdt-dinh bdt-dinh-goc" :style="{ width: `${COT_TRAI}px`, height: `${CAO_DAU}px` }" />
       </div>
     </div>
     <footer class="bdt-chan-khung">{{ chanKhung }}</footer>
@@ -136,10 +143,12 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { BookOpenText, ChevronDown, Layers, Minus, Plus, RotateCcw, Send } from 'lucide-vue-next';
 import IconBdt from './IconBdt.vue';
 import LopDuong from './LopDuong.vue';
-import { KIEU_DUONG } from '@/views/settings/ban-do-tin/cau-hinh';
-import { phanTramZoom, zoomVuaHaiChieu, zoomVuaKhung, ZOOM_MAX, ZOOM_MIN, type HinhChuNhat } from '@/views/settings/ban-do-tin/bo-cuc';
+import { KIEU_DUONG, LOP_TAG } from '@/views/settings/ban-do-tin/cau-hinh';
+import {
+  COT_X0, DAI_NHOM_LE, HANG_DAU_TOP, zoomMacDinh, zoomVuaHaiChieu, zoomVuaKhung, ZOOM_MAX, ZOOM_MIN, type HinhChuNhat,
+} from '@/views/settings/ban-do-tin/bo-cuc';
 import { dungBanDoTin } from '@/views/settings/ban-do-tin/use-ban-do-tin';
-import type { Khoi, TagKhoi } from '@/views/settings/ban-do-tin/kieu';
+import type { Khoi } from '@/views/settings/ban-do-tin/kieu';
 import { doDucKhoi } from '@/views/settings/ban-do-tin/trang-thai';
 
 const s = dungBanDoTin();
@@ -148,7 +157,6 @@ const bc = computed(() => s.boCuc.value!);
 const duong = computed(() => s.duong.value);
 const kq = computed(() => s.kq.value!);
 
-const LOP_TAG: Record<TagKhoi, string> = { Mã: 't-ma', Model: 't-model', Mẫu: 't-mau', Ảnh: 't-anh', Mới: 't-moi', Bóng: 't-bong', Nguồn: 't-nguon', CRM: 't-crm' };
 const tenNhom = computed(() => Object.fromEntries(mh.value.nhom.map((n) => [n.id, n.ten])) as Record<string, string>);
 const nhomTheoId = computed(() => Object.fromEntries(mh.value.nhom.map((n) => [n.id, n])));
 const khoiHien = computed(() => mh.value.khoi.filter((k) => bc.value.khoi[k.id]));
@@ -156,10 +164,17 @@ const khoiHien = computed(() => mh.value.khoi.filter((k) => bc.value.khoi[k.id])
 const dsCoDuong = computed(() => mh.value.lienKet.filter((l) => duong.value[l.id]));
 const dsNoi = computed(() => mh.value.lienKet.filter((l) => kq.value.noi.has(l.id) && duong.value[l.id]));
 const tenKhoi = (id: string) => mh.value.khoiTheoId[id]?.ten ?? id;
-const chanKhung = computed(() => (s.anh.value?.mau
-  ? 'Dữ liệu MẪU — danh mục 46 tin + cạnh viết tay, số đếm giả; chưa nối backend (docs/78)'
-  : `Danh mục bot phiên bản ${s.anh.value?.phien_ban ?? '—'} · số đếm 7 ngày`));
+const chanKhung = computed(() => {
+  const a = s.anh.value;
+  if (a?.mau) return 'Dữ liệu MẪU — danh mục 46 tin + cạnh viết tay, số đếm giả (adapter giả lập)';
+  const luc = a?.luc ? new Date(a.luc) : null;
+  const gio = luc && !isNaN(+luc) ? ` · bot gửi lúc ${luc.toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}` : '';
+  return `Danh mục bot phiên bản ${a?.phien_ban ?? '—'}${gio} · số đếm 7 ngày`;
+});
 
+/** lớp dính: cột nhãn hàng rộng tới mép dải hàng; hàng tiêu đề pha cao tới mép trên dải nhóm đầu */
+const COT_TRAI = COT_X0 - 6;
+const CAO_DAU = HANG_DAU_TOP - DAI_NHOM_LE - 1;
 const hcn = (r: HinhChuNhat) => ({ left: `${r.x}px`, top: `${r.y}px`, width: `${r.w}px`, height: `${r.h}px` });
 
 function lopKhoi(k: Khoi) {
@@ -179,7 +194,8 @@ function troDuong(id: string | null) { s.troDong.value = id; }
 
 // ── Thu phóng ───────────────────────────────────────────────
 const vungXem = ref<HTMLElement | null>(null);
-const dangVua = ref(true);
+/** mac_dinh = vừa khung nhưng KHÔNG dưới 75 % (đọc được ở 1440×900, cuộn ngang) · vua = vừa trọn khung · tu_do = người chỉnh */
+const cheDoZoom = ref<'mac_dinh' | 'vua' | 'tu_do'>('mac_dinh');
 const lonHonKhung = ref(false);
 
 function tinhVua() {
@@ -188,7 +204,8 @@ function tinhVua() {
   const w = el.clientWidth, h = el.clientHeight;
   s.khung.rong = w; s.khung.cao = h;
   s.zoomVua.value = s.toanManHinh.value ? zoomVuaHaiChieu(w, h, bc.value.rong, bc.value.cao) : zoomVuaKhung(w, bc.value.rong);
-  if (dangVua.value) s.datZoom(s.zoomVua.value);
+  if (cheDoZoom.value === 'mac_dinh') s.datZoom(zoomMacDinh(s.zoomVua.value));
+  else if (cheDoZoom.value === 'vua') s.datZoom(s.zoomVua.value);
   capNhatLon();
 }
 function capNhatLon() {
@@ -196,8 +213,9 @@ function capNhatLon() {
   if (!el) return;
   lonHonKhung.value = bc.value.rong * s.zoom.value > el.clientWidth - 24 + 1 || bc.value.cao * s.zoom.value > el.clientHeight - 20 + 1;
 }
-function buocZoom(f: number) { dangVua.value = false; s.datZoom(s.zoom.value * f); requestAnimationFrame(capNhatLon); }
-function vuaKhung() { dangVua.value = true; s.datZoom(s.zoomVua.value); requestAnimationFrame(capNhatLon); }
+function buocZoom(f: number) { cheDoZoom.value = 'tu_do'; s.datZoom(s.zoom.value * f); requestAnimationFrame(capNhatLon); }
+function vuaKhung() { cheDoZoom.value = 'vua'; s.datZoom(s.zoomVua.value); requestAnimationFrame(capNhatLon); }
+function veMacDinh() { cheDoZoom.value = 'mac_dinh'; s.datZoom(zoomMacDinh(s.zoomVua.value)); requestAnimationFrame(capNhatLon); }
 function banhXe(e: WheelEvent) {
   if (!(e.ctrlKey || e.metaKey)) return;
   e.preventDefault();
@@ -207,7 +225,7 @@ function phim(e: KeyboardEvent) {
   if ((e.target as HTMLElement).closest('input,textarea')) return;
   if (e.key === '+' || e.key === '=') { buocZoom(1.2); e.preventDefault(); }
   else if (e.key === '-' || e.key === '_') { buocZoom(1 / 1.2); e.preventDefault(); }
-  else if (e.key === '0') { vuaKhung(); e.preventDefault(); }
+  else if (e.key === '0') { veMacDinh(); e.preventDefault(); }
 }
 
 // ── Kéo để di chuyển ────────────────────────────────────────
@@ -239,5 +257,5 @@ onMounted(() => {
 });
 onBeforeUnmount(() => { ro?.disconnect(); vungXem.value?.removeEventListener('wheel', banhXe); window.removeEventListener('mousemove', diKeo); });
 watch(() => [bc.value.rong, bc.value.cao, s.toanManHinh.value], () => requestAnimationFrame(tinhVua));
-defineExpose({ vuaKhung, buocZoom });
+defineExpose({ vuaKhung, buocZoom, veMacDinh });
 </script>

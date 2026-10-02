@@ -4,7 +4,7 @@ import { dungBoCuc } from './bo-cuc';
 import { dinhTuyen, duongGapKhuc } from './dinh-tuyen';
 import { PHA } from './cau-hinh';
 import type { Khoi, LoaiLienKet, MaHang, MaPha, NhomHang } from './kieu';
-import { anhChupMau } from './danh-muc-mau';
+import { anhChupMau } from './client-mau';
 import { dungMoHinh } from './mo-hinh';
 
 const k = (id: string, pha: MaPha, hang: MaHang): Khoi =>
@@ -54,7 +54,7 @@ describe('định tuyến', () => {
   });
 
   it('về pha trước ⇒ vòng qua hành lang đáy, vào mép PHẢI đích (+2)', () => {
-    const r = dinhTuyen(bc, [L('g', 'a', 'vong')]);
+    const r = dinhTuyen(bc, [L('g', 'a', 'hoi_lai')]);
     const d = r['g~a'];
     expect(d.hinh).toBe('vong');
     expect(d.hanhLang!).toBeGreaterThan(bc.dayNoiDung);

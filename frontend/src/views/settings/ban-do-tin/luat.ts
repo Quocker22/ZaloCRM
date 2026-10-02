@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// luat.ts — kiểm luật đích PHÍA TRÌNH DUYỆT, tương đương rào phía server (docs/78 §1 "luật an toàn cứng", C2, P0-5).
-// Server vẫn kiểm lại — đây chỉ để chặn sớm + giải thích cho người sửa.
-import { DICH_CO_THE_THEM, TEN_DICH } from './cau-hinh';
-import type { CheDo, Composer, MaDich } from './kieu';
+// luat.ts — chặn sớm + giải thích PHÍA TRÌNH DUYỆT cho luật đích (docs/78 §1 "luật an toàn cứng", C2, P0-5).
+// Server (backend bot-thong-bao-luat.ts) kiểm lại MỌI thứ và câu lỗi của server hiện NGUYÊN VĂN — đây chỉ để không bấm
+// được ô chắc chắn bị từ chối, và để giải thích.
+import { DICH_LUAT, TEN_DICH, tenNhayCam } from './cau-hinh';
+import type { Composer, MaDich } from './kieu';
 
 export interface CanhBaoDich {
   /** chặn: không được tick */
@@ -11,51 +12,27 @@ export interface CanhBaoDich {
   canh?: string;
 }
 
-const DOANH_SO = ['lãi', 'doanh số'];
-
-/** Cảnh báo cho MỘT đích của MỘT composer (luật cứng: không giá/SĐT/tiền/lãi vào nhóm khách…). */
+/** Cảnh báo cho MỘT hàng bản sao của MỘT composer. Luật cứng duy nhất CRM kiểm theo nhãn: nhạy cảm ⇒ cấm nhóm khách. */
 export function kiemDich(c: Pick<Composer, 'nhay_cam'>, dich: MaDich): CanhBaoDich | null {
   const n = c.nhay_cam;
-  if (dich === 'g_khach' && n.length) return { chan: `Không được: tin có ${n.join(', ')} — luật cứng cấm vào nhóm khách.` };
-  if (dich === 'g_khach') return { canh: 'Nhóm khách chỉ nhận tin công khai; bot sẽ dùng mẫu rút gọn.' };
-  if (dich === 'g_sales' && n.some((v) => DOANH_SO.includes(v)))
-    return { canh: `Tin có ${n.join(', ')}: theo quyết định 30/09 chỉ admin xem doanh số toàn công ty — bot sẽ chỉ gửi số của từng người.` };
-  if (dich === 'g_kho' && n.includes('giá')) return { canh: 'Nhóm kho sẽ nhận bản che giá (chỉ mã đơn, tên gọn, kho).' };
+  if (dich === 'g_khach' && n.length) return { chan: `Không được: tin có ${tenNhayCam(n)} — luật cứng cấm vào nhóm khách.` };
+  if (dich === 'g_khach') return { canh: 'Nhóm khách chỉ nhận tin công khai.' };
+  if (dich === 'g_sales' && n.some((v) => v === 'lai' || v === 'doanh_so'))
+    return { canh: `Tin có ${tenNhayCam(n)}: theo quyết định 30/09 chỉ admin xem doanh số toàn công ty — bot chỉ gửi số của từng người.` };
+  if (dich === 'g_kho' && n.includes('gia')) return { canh: 'Nhóm kho nhận bản che giá (chỉ mã đơn, tên gọn, kho).' };
   return null;
 }
 
-export interface KetQuaKiemLuat {
-  hopLe: boolean;
-  loi: string[];
-  canh: string[];
+/** Hàng có trong danh sách tick của panel (theo thứ tự: nơi gốc, bản sao đang có, các hàng luật thêm được). */
+export function dsDichPanel(c: Composer, banSao: readonly MaDich[]): MaDich[] {
+  if (c.kieu === 'khoa') return [...c.dich_goc];
+  return [...new Set<MaDich>([...c.dich_goc, ...banSao, ...DICH_LUAT])];
 }
 
-/** Kiểm cả một luật (danh sách đích hiệu lực + chế độ) cho composer. */
-export function kiemLuat(c: Composer, dich: MaDich[], cheDo: CheDo): KetQuaKiemLuat {
-  const loi: string[] = [];
-  const canh: string[] = [];
-  if (c.kieu === 'khoa') loi.push(`🔒 ${c.ten}: đích cố định — ${c.ly_do_khoa ?? 'thuộc lượt chat'}`);
-  if (!['tat', 'bong', 'bat'].includes(cheDo)) loi.push('Chế độ không hợp lệ.');
-  const lap = dich.filter((d, i) => dich.indexOf(d) !== i);
-  if (lap.length) loi.push(`Đích lặp: ${[...new Set(lap)].map(TEN_DICH).join(', ')}.`);
-  for (const d of dich) {
-    if (!DICH_CO_THE_THEM.includes(d) && !c.dich_goc.includes(d)) loi.push(`Đích không hợp lệ: ${TEN_DICH(d)}.`);
-    const cb = kiemDich(c, d);
-    if (cb?.chan) loi.push(cb.chan);
-    if (cb?.canh) canh.push(`${TEN_DICH(d)}: ${cb.canh}`);
-  }
-  if (c.kieu === 'ban_sao') {
-    const thieu = c.dich_goc.filter((d) => !dich.includes(d));
-    if (thieu.length) loi.push(`Nơi gốc luôn giữ (${thieu.map(TEN_DICH).join(', ')}) — chỉ THÊM bản sao.`);
-  }
-  if (c.kieu === 'thuan' && !dich.length && cheDo !== 'tat') loi.push('Chưa có đích nào — chọn ít nhất một, hoặc đặt chế độ Tắt.');
-  if (dich.includes('nv')) canh.push('Một NV chỉ định: chọn người ở trang Quyền bot trước khi bật.');
-  return { hopLe: loi.length === 0, loi, canh };
-}
-
-/** Đích một ô có bị khoá trong panel không (🔒) + lý do. */
+/** Một ô đích bị khoá trong panel (🔒) + lý do; null = tick được. */
 export function dichKhoa(c: Composer, d: MaDich): string | null {
-  if (c.kieu === 'khoa') return c.ly_do_khoa ?? 'Thuộc lượt chat.';
-  if (c.kieu === 'ban_sao' && c.dich_goc.includes(d)) return 'Nơi gốc luôn giữ — chỉ THÊM bản sao.';
+  if (c.kieu === 'khoa') return 'Đích cố định — tin gắn với lượt chat (mã chốt, câu hỏi neo vào tin gốc). Không định tuyến được.';
+  if (c.dich_goc.includes(d)) return 'Nơi gốc luôn nhận tin như mã — luật chỉ THÊM bản sao.';
+  if (!DICH_LUAT.includes(d)) return `${TEN_DICH(d)}: CRM chưa có kiểu đích này cho luật.`;
   return null;
 }

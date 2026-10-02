@@ -54,13 +54,13 @@ import { BookOpenText, Check } from 'lucide-vue-next';
 import IconBdt from './IconBdt.vue';
 import { dungBanDoTin } from '@/views/settings/ban-do-tin/use-ban-do-tin';
 import { viTriPha } from '@/views/settings/ban-do-tin/mo-hinh';
-import type { Hang, MaPha, TagKhoi } from '@/views/settings/ban-do-tin/kieu';
+import type { Hang, MaPha } from '@/views/settings/ban-do-tin/kieu';
+import { LOP_TAG } from '@/views/settings/ban-do-tin/cau-hinh';
 
 defineProps<{ gon?: boolean }>();
 const emit = defineEmits<{ chonKhoi: [id: string] }>();
 const s = dungBanDoTin();
 const mh = computed(() => s.mh.value!);
-const LOP_TAG: Record<TagKhoi, string> = { Mã: 't-ma', Model: 't-model', Mẫu: 't-mau', Ảnh: 't-anh', Mới: 't-moi', Bóng: 't-bong', Nguồn: 't-nguon', CRM: 't-crm' };
 const phaId = ref<MaPha>((s.chon.value?.kieu === 'pha' ? s.chon.value.id : 'hoi') as MaPha);
 const pha = computed(() => mh.value.pha.find((p) => p.id === phaId.value)!);
 const khoi = computed(() => mh.value.khoi.filter((k) => k.pha === phaId.value));

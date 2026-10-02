@@ -1,8 +1,9 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!--
   PanelChiTiet — panel phải (≥ 1024) hoặc bottom sheet (< 1024). Sáu dạng: trống (hướng dẫn + chú giải) · khối · liên kết ·
-  pha · đích (hàng) · loại. Panel khối: khi nào gửi, ví dụ bong bóng Zalo (nguyên văn vi_du), nguồn câu, ĐÍCH (tick, 🔒 lý do,
-  cảnh báo lộ dữ liệu), chế độ tắt/bóng/bật, "nếu bật, 24h qua sẽ gửi N", gửi thử, số 7 ngày, nhận từ / đẩy sang, nhật ký.
+  pha · đích (hàng) · loại. Panel khối composer: khi nào gửi, ví dụ (vi_du bot khai), nguồn câu, ĐÍCH (nơi gốc 🔒 + tick bản
+  sao ⇒ POST/PUT /bot-quyen/luat-thong-bao), chế độ tắt/bóng/bật, "nếu bật, 24h qua sẽ gửi N" (số bóng của luật), cảnh báo
+  CRM (canhBao), số 7 ngày, nhận từ / đẩy sang, và link sang Quyền bot › Nhật ký. Khối CRM tự động: chỉ xem.
 -->
 <template>
   <aside class="bdt-panel" :class="{ sheet }" aria-label="Chi tiết" data-panel>
@@ -20,20 +21,18 @@
       ><MauNet :loai="k.id" /><span class="ten">{{ k.ten }}</span><span class="so">{{ demLoai[k.id] }}</span></button>
       <h4 class="bdt-h4" style="margin-top: 16px">Nhãn khối</h4>
       <div class="bdt-nhan-khoi">
-        <span><span class="bdt-tag t-ma">Mã</span>mã soạn</span>
-        <span><span class="bdt-tag t-model">Model</span>model viết</span>
-        <span><span class="bdt-tag t-mau">Mẫu</span>tin khuôn</span>
-        <span><span class="bdt-tag t-anh">Ảnh</span>ảnh Odoo</span>
+        <span><span class="bdt-tag t-nhay">Nhạy cảm</span>giá/SĐT/tiền/lãi</span>
         <span><span class="bdt-tag t-moi">Mới</span>đề xuất</span>
         <span><span class="bdt-tag t-bong">Bóng</span>ghi sổ, chưa gửi</span>
+        <span><span class="bdt-tag t-crm">CRM</span>CRM tự gửi</span>
+        <span><span class="bdt-tag t-tat">Tắt</span>đang không gửi</span>
       </div>
       <p class="bdt-nho" style="margin-top: 14px">Mẹo: bấm tên pha hoặc tên đích để xem cả cột, cả hàng. Khối viền cam bên trái là
         <b>bản sao theo luật</b>. Phím Esc để bỏ chọn.</p>
       <div class="bdt-hai-nut" style="margin-top: 14px">
         <button type="button" class="bdt-nut" @click="taiJson"><Download :size="14" />Tải JSON luật</button>
       </div>
-      <p v-if="s.anh.value?.mau" class="bdt-canh" style="margin-top: 12px">Đang xem DỮ LIỆU MẪU: cạnh "dẫn tới" viết tay, số đếm giả.
-        Bot sẽ đẩy danh mục thật (docs/78 B4).</p>
+      <p v-if="s.anh.value?.mau" class="bdt-canh" style="margin-top: 12px">Đang xem DỮ LIỆU MẪU: cạnh "dẫn tới" viết tay, số đếm giả.</p>
     </div>
 
     <!-- ── Khối ── -->
@@ -47,70 +46,112 @@
         <h3>{{ khoi.ten }}</h3>
         <div class="tags">
           <span v-for="t in khoi.tags" :key="t" class="bdt-tag" :class="LOP_TAG[t]">{{ t }}</span>
-          <span v-if="khoi.ban_sao" class="bdt-tag t-anh">Bản sao theo luật</span>
-          <span v-if="comp" class="bdt-tag t-ma">{{ comp.kieu === 'khoa' ? '🔒 đích cố định' : comp.kieu === 'ban_sao' ? '✎ thêm bản sao' : '✎ đổi đích tự do' }}</span>
+          <span v-if="khoi.ban_sao" class="bdt-tag t-ban-sao">Bản sao theo luật</span>
+          <span v-if="comp" class="bdt-tag t-khoa">{{ comp.kieu === 'khoa' ? '🔒 đích cố định' : comp.kieu === 'ban_sao' ? '✎ thêm bản sao' : '✎ tin thông báo' }}</span>
         </div>
         <button type="button" class="bdt-dong-x" aria-label="Đóng" @click="s.datChon(null)"><X :size="16" /></button>
         <button type="button" class="bdt-copy" @click="chepLink"><Link :size="13" />{{ daChep ? 'Đã chép link' : 'Copy link' }}</button>
       </div>
       <div class="bdt-panel-than">
         <template v-if="comp">
-          <div class="bdt-nho">Ai soạn: <b>{{ comp.ai_soan }}</b> · <span class="bdt-code">{{ comp.id }}</span></div>
-          <section><h4 class="bdt-h4">Khi nào gửi</h4><p class="bdt-chu">{{ comp.khi_nao }}</p></section>
-          <section>
+          <div class="bdt-nho"><span class="bdt-code">{{ comp.id }}</span><template v-if="comp.pha_la"> · pha bot khai: <b>{{ comp.pha_la }}</b> (chưa có cột — vẽ ở P9)</template></div>
+          <section v-if="comp.khi_nao"><h4 class="bdt-h4">Khi nào gửi</h4><p class="bdt-chu">{{ comp.khi_nao }}</p></section>
+          <section v-if="comp.vi_du">
             <h4 class="bdt-h4">Ví dụ — NV thấy trên Zalo</h4>
             <div class="bdt-zalo-dau"><span class="av"><Bot :size="12" /></span>Bot LEDNELIA{{ comp.de_xuat ? ' · đề xuất, chưa có trong mã' : '' }}</div>
             <div class="bdt-zalo" data-vi-du>{{ comp.vi_du }}</div>
             <details v-if="comp.ghi_chu" class="bdt-bien-the"><summary>Biến thể &amp; ghi chú</summary><p class="bdt-nho">{{ comp.ghi_chu }}</p></details>
           </section>
-          <section><h4 class="bdt-h4">Nguồn câu</h4><span class="bdt-code">{{ comp.nguon_cau }}</span></section>
-          <p v-if="comp.goi_y" class="bdt-nho">💡 {{ comp.goi_y }}</p>
+          <section v-if="comp.nguon_cau"><h4 class="bdt-h4">Nguồn câu</h4><span class="bdt-code">{{ comp.nguon_cau }}</span></section>
 
           <section data-dich>
-            <h4 class="bdt-h4">Đích <span class="dem">{{ dichHienTai.length }}</span></h4>
-            <div v-if="comp.kieu === 'khoa'" class="bdt-khoa-ly-do"><Lock :size="13" style="flex: none; margin-top: 2px" />Đích cố định: {{ comp.ly_do_khoa ?? 'thuộc lượt chat' }}</div>
-            <label v-for="d in dsDich" :key="d" class="bdt-dich" :class="{ khoa: !!dichKhoa(comp, d) }" :data-dich-dong="d">
-              <input
-                type="checkbox" :checked="dichHienTai.includes(d)"
-                :disabled="!!dichKhoa(comp, d) || !!kiemDich(comp, d)?.chan || s.dangLuu.value"
-                @change="doiDich(d, ($event.target as HTMLInputElement).checked)"
-              >
-              <span style="min-width: 0">
-                <span class="ten">{{ mh.hang[d].ten }}<span v-if="dichKhoa(comp, d)">🔒</span></span>
-                <span v-if="dichKhoa(comp, d) && comp.kieu !== 'khoa'" class="vi-sao">{{ dichKhoa(comp, d) }}</span>
-                <span v-if="kiemDich(comp, d)?.chan" class="bdt-chan" style="display: block">{{ kiemDich(comp, d)!.chan }}</span>
-                <span v-else-if="kiemDich(comp, d)?.canh && dichHienTai.includes(d)" class="bdt-canh" style="display: block">{{ kiemDich(comp, d)!.canh }}</span>
-              </span>
-            </label>
-            <p v-if="comp.nhay_cam.length" class="bdt-canh" data-lo>⚠️ Tin có <b>{{ comp.nhay_cam.join(', ') }}</b> — mỗi đích nhận bản che theo quyền
+            <h4 class="bdt-h4">Đích <span class="dem">{{ dichDangGui.length }}</span></h4>
+            <div v-if="comp.kieu === 'khoa'" class="bdt-khoa-ly-do"><Lock :size="13" style="flex: none; margin-top: 2px" />{{ dichKhoa(comp, comp.dich_goc[0]) }}</div>
+            <p v-if="comp.dich_goc_la?.length" class="bdt-canh">Bot khai đích gốc chưa có hàng trên bản đồ: <b>{{ comp.dich_goc_la.join(', ') }}</b>.</p>
+            <template v-for="d in dsDich" :key="d">
+              <label class="bdt-dich" :class="{ khoa: !!dichKhoa(comp, d) }" :data-dich-dong="d">
+                <input
+                  type="checkbox" :checked="dichDangGui.includes(d)"
+                  :disabled="!!dichKhoa(comp, d) || !!kiemDich(comp, d)?.chan || s.dangLuu.value || (d === 'nv' && !dichDangGui.includes('nv'))"
+                  @change="doiDich(d, $event.target as HTMLInputElement)"
+                >
+                <span style="min-width: 0">
+                  <span class="ten">{{ mh.hang[d].ten }}<span v-if="dichKhoa(comp, d)">🔒</span><span v-if="trangThaiHang(d)" class="bdt-nho"> · {{ trangThaiHang(d) }}</span></span>
+                  <span v-if="dichKhoa(comp, d) && comp.kieu !== 'khoa'" class="vi-sao">{{ dichKhoa(comp, d) }}</span>
+                  <span v-if="kiemDich(comp, d)?.chan" class="bdt-chan" style="display: block">{{ kiemDich(comp, d)!.chan }}</span>
+                  <span v-else-if="kiemDich(comp, d)?.canh && dichDangGui.includes(d)" class="bdt-canh" style="display: block">{{ kiemDich(comp, d)!.canh }}</span>
+                </span>
+              </label>
+              <!-- Một NV chỉ định: mỗi đích nv mang zalo_uid — thêm/bỏ từng người -->
+              <div v-if="d === 'nv' && comp.kieu !== 'khoa'" class="bdt-nv-dich" data-nv-dich>
+                <span v-for="n in nvDangGui" :key="n" class="bdt-chip-nv">{{ tenNv(n) }}
+                  <button type="button" :aria-label="`Bỏ ${tenNv(n)}`" :disabled="s.dangLuu.value" @click="boNv(n)"><X :size="11" /></button>
+                </span>
+                <select class="bdt-chon-nv" :disabled="s.dangLuu.value" aria-label="Thêm một NV chỉ định" data-them-nv @focus="napNv" @change="themNv(($event.target as HTMLSelectElement))">
+                  <option value="">+ Thêm NV…</option>
+                  <option v-for="n in nvChonDuoc" :key="n.zaloUid" :value="n.zaloUid">{{ n.tenGoi }}</option>
+                </select>
+                <span v-if="loiNv" class="bdt-chan">{{ loiNv }}</span>
+              </div>
+            </template>
+            <p v-if="comp.nhay_cam.length" class="bdt-canh" data-lo>⚠️ Tin có <b>{{ tenNhayCam(comp.nhay_cam) }}</b> — mỗi đích nhận bản che theo quyền
               của chính đích (Admin/Kế toán thấy đủ; nhóm khách không bao giờ nhận).</p>
-            <p v-if="s.loiLuu.value" class="bdt-chan" role="alert">{{ s.loiLuu.value }}</p>
+            <p v-if="loiCuaComp" class="bdt-chan" role="alert" data-loi-luu>{{ loiCuaComp }}</p>
+            <p v-if="s.tinLuu.value" class="bdt-nho" data-tin-luu>{{ s.tinLuu.value }}</p>
+            <div v-for="(c, i) in canhBaoCuaComp" :key="i" class="bdt-canh" data-canh-bao>⚠️ CRM sẽ bỏ khi phát cho bot: {{ c }}</div>
           </section>
 
-          <section>
-            <h4 class="bdt-h4">Chế độ</h4>
+          <section v-if="comp.kieu !== 'khoa'">
+            <h4 class="bdt-h4">Chế độ bản sao</h4>
             <div class="bdt-che-do" role="group" aria-label="Chế độ">
               <button
-                v-for="c in CHE_DO" :key="c.id" type="button" :class="c.id" :aria-pressed="cheDo === c.id"
-                :disabled="comp.kieu === 'khoa' || s.dangLuu.value" @click="doiCheDo(c.id)"
+                v-for="c in CHE_DO" :key="c.id" type="button" :class="c.id" :aria-pressed="!!luat && cheDo === c.id"
+                :disabled="s.dangLuu.value" @click="doiCheDo(c.id)"
               >{{ c.ten }}</button>
             </div>
-            <p v-if="comp.kieu === 'ban_sao'" class="bdt-nho" style="margin-top: 6px">Chế độ áp cho BẢN SAO; nơi gốc luôn gửi.</p>
-            <p v-if="cheDo === 'bong'" class="bdt-nho" data-neu-bat style="margin-top: 6px">Nếu bật, 24 giờ qua sẽ gửi <b>{{ neuBat }}</b> tin.</p>
+            <p v-if="!luat" class="bdt-nho" style="margin-top: 6px" data-chua-luat>Chưa có luật — tin chạy đúng như mã. Tick một đích để tạo luật
+              (mặc định <b>chạy bóng</b>: bot ghi sổ, chưa gửi).</p>
+            <p v-else class="bdt-nho" style="margin-top: 6px">Áp cho BẢN SAO; nơi gốc luôn gửi như mã.</p>
+            <p v-if="luat && cheDo === 'bong'" class="bdt-nho" data-neu-bat style="margin-top: 6px">
+              <template v-if="bong24h.co">Nếu bật, 24 giờ qua sẽ gửi <b>{{ bong24h.so }}</b> tin.</template>
+              <template v-else>Chưa có số chạy bóng 24 giờ — bot chưa đếm luật này (số tới sau lần đồng bộ kế tiếp).</template>
+            </p>
             <div class="bdt-hai-nut" style="margin-top: 10px">
-              <button type="button" class="bdt-nut" :disabled="!s.client.coGuiThu" :title="s.client.coGuiThu ? '' : 'Cần backend — chưa nối'"><Send :size="13" />Gửi thử</button>
-              <button v-if="luat" type="button" class="bdt-nut" :disabled="s.dangLuu.value" @click="s.hoanLai(comp.id)"><RotateCcw :size="13" />Hoàn lại như mã</button>
+              <button type="button" class="bdt-nut" disabled title="Chưa có — CRM chưa mở API gửi thử"><Send :size="13" />Gửi thử</button>
+              <button v-if="luat" type="button" class="bdt-nut" :disabled="s.dangLuu.value" data-hoan-lai @click="s.hoanLai(comp.id)"><RotateCcw :size="13" />Hoàn lại như mã</button>
             </div>
           </section>
 
           <section v-if="demKhoi">
-            <h4 class="bdt-h4">7 ngày qua</h4>
-            <div class="bdt-so"><span><b>{{ demKhoi.so }}</b> đã gửi</span><span><b>{{ demKhoi.chan }}</b> bị chặn</span><span><b>{{ demKhoi.bong }}</b> chạy bóng</span></div>
+            <h4 class="bdt-h4">7 ngày qua{{ khoi.ban_sao ? ' — bản sao này' : '' }}</h4>
+            <div class="bdt-so">
+              <span><b>{{ demKhoi.d7.da_gui }}</b> đã gửi</span><span><b>{{ demKhoi.d7.chan_tam_im }}</b> bị chặn</span>
+              <span><b>{{ demKhoi.d7.bong }}</b> chạy bóng</span><span v-if="demKhoi.d7.loi"><b>{{ demKhoi.d7.loi }}</b> lỗi</span>
+            </div>
           </section>
+        </template>
+
+        <!-- CRM tự động -->
+        <template v-else-if="nut?.crm">
+          <p class="bdt-chu">{{ nut.crm.khi_nao }}</p>
+          <p class="bdt-khoa-ly-do" data-crm-trang-thai>
+            <Lock :size="13" style="flex: none; margin-top: 2px" />
+            <span>CRM tự gửi — chỉ xem ở đây. <b>{{ nut.crm.bat ? 'Đang bật.' : 'Đang tắt' }}</b><template v-if="!nut.crm.bat && nut.crm.ly_do_tat">: {{ nut.crm.ly_do_tat }}.</template></span>
+          </p>
+          <section>
+            <h4 class="bdt-h4">Gửi tới <span class="dem">{{ nut.crm.dich.length }}</span></h4>
+            <ul class="bdt-crm-dich">
+              <li v-for="(d, i) in nut.crm.dich" :key="i" :class="{ tat: !d.bat }">{{ d.ten }}<span class="bdt-nho"> · {{ TEN_LOAI_DICH_CRM[d.loai] }}{{ d.bat ? '' : ' · tắt' }}</span></li>
+              <li v-if="!nut.crm.dich.length" class="bdt-nho">Chưa có nơi nhận.</li>
+            </ul>
+          </section>
+          <p v-if="nut.crm.ghi_chu" class="bdt-nho">{{ nut.crm.ghi_chu }}</p>
+          <section><h4 class="bdt-h4">Mã gửi</h4><span class="bdt-code">{{ nut.crm.nguon_ma }}</span></section>
+          <a v-if="nut.crm.chinh_o" :href="nut.crm.chinh_o" class="bdt-nut" style="align-self: flex-start" @click="diToi($event, nut.crm.chinh_o)">Chỉnh ở trang cài đặt ›</a>
         </template>
         <template v-else-if="nut">
           <p class="bdt-chu">{{ nut.mo_ta }}</p>
-          <p class="bdt-khoa-ly-do"><Lock :size="13" style="flex: none; margin-top: 2px" />{{ khoi.loai_nut === 'crm' ? 'Tin CRM tự gửi — chỉ xem ở đây.' : 'Nguồn sự kiện — không phải tin, không có đích.' }}</p>
+          <p class="bdt-khoa-ly-do"><Lock :size="13" style="flex: none; margin-top: 2px" />Nguồn sự kiện — không phải tin, không có đích.</p>
         </template>
 
         <section>
@@ -124,12 +165,13 @@
           <p v-if="!ra.length" class="bdt-nho">Không có.</p>
         </section>
         <section v-if="comp">
-          <h4 class="bdt-h4">Nhật ký thay đổi</h4>
-          <ul class="bdt-nhat-ky">
-            <li v-for="(n, i) in nhatKy" :key="i"><time>{{ gio(n.luc) }}</time>{{ n.nguoi }} — {{ n.noi_dung }}</li>
-            <li v-if="!nhatKy.length" class="bdt-nho">Chưa đổi gì — đang chạy như mã.</li>
-          </ul>
-          <div class="bdt-hai-nut" style="margin-top: 10px"><button type="button" class="bdt-nut" @click="taiJson"><Download :size="13" />Tải JSON luật</button></div>
+          <h4 class="bdt-h4">Luật &amp; nhật ký</h4>
+          <p v-if="luat" class="bdt-nho" data-luat-meta>Luật CRM phiên bản <b>{{ luat.phien_ban }}</b>{{ luat.sua_luc ? ` · sửa ${gio(luat.sua_luc)}` : '' }}.</p>
+          <p v-else class="bdt-nho">Chưa có luật — đang chạy như mã.</p>
+          <div class="bdt-hai-nut" style="margin-top: 10px">
+            <a :href="LINK_NHAT_KY" class="bdt-nut" data-nhat-ky @click="diToi($event, LINK_NHAT_KY)">Nhật ký thay đổi (Quyền bot) ›</a>
+            <button type="button" class="bdt-nut" @click="taiJson"><Download :size="13" />Tải JSON luật</button>
+          </div>
         </section>
       </div>
     </template>
@@ -147,8 +189,8 @@
         <section><h4 class="bdt-h4">Điểm đi</h4><DongLienKet :l="lk" huong="vao" /></section>
         <section><h4 class="bdt-h4">Điểm đến</h4><DongLienKet :l="lk" huong="ra" /></section>
         <section><h4 class="bdt-h4">Vì sao nối</h4><p class="bdt-chu">{{ lk.vi_sao || KIEU_DUONG_THEO_ID[lk.loai].mo_ta }}</p></section>
-        <section v-if="lk.dem"><h4 class="bdt-h4">7 ngày qua</h4>
-          <div class="bdt-so"><span><b>{{ lk.dem.so }}</b> lần</span><span><b>{{ lk.dem.chan }}</b> bị chặn</span><span><b>{{ lk.dem.bong }}</b> bóng</span></div></section>
+        <section v-if="lk.dem"><h4 class="bdt-h4">7 ngày qua (qua luật)</h4>
+          <div class="bdt-so"><span><b>{{ lk.dem.d7.da_gui }}</b> đã gửi</span><span><b>{{ lk.dem.d7.chan_tam_im }}</b> bị chặn</span><span><b>{{ lk.dem.d7.bong }}</b> bóng</span></div></section>
         <div class="bdt-hai-nut">
           <button type="button" class="bdt-nut" :disabled="lk.so <= 1" @click="nhayLk(-1)">‹ Liên kết trước</button>
           <button type="button" class="bdt-nut" :disabled="lk.so >= mh.lienKet.length" @click="nhayLk(1)">Liên kết sau ›</button>
@@ -187,24 +229,29 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, getCurrentInstance, ref, watch } from 'vue';
 import { Bot, Download, Link, Lock, RotateCcw, Send, X } from 'lucide-vue-next';
 import DongLienKet from './DongLienKet.vue';
 import IconBdt from './IconBdt.vue';
 import MauNet from './MauNet.vue';
 import SoTron from './SoTron.vue';
-import { DICH_CO_THE_THEM, KIEU_DUONG, KIEU_DUONG_THEO_ID } from '@/views/settings/ban-do-tin/cau-hinh';
-import { dichKhoa, kiemDich } from '@/views/settings/ban-do-tin/luat';
+import type { NvDich } from '@/api/ban-do-tin';
+import { KIEU_DUONG, KIEU_DUONG_THEO_ID, LOP_TAG, tenNhayCam } from '@/views/settings/ban-do-tin/cau-hinh';
+import { bong24hCuaLuat } from '@/views/settings/ban-do-tin/chuyen-doi';
+import { dichKhoa, dsDichPanel, kiemDich } from '@/views/settings/ban-do-tin/luat';
 import { demTheoLoai, dichHieuLuc } from '@/views/settings/ban-do-tin/mo-hinh';
 import { dungBanDoTin } from '@/views/settings/ban-do-tin/use-ban-do-tin';
-import type { CheDo, MaDich, MaPha, TagKhoi } from '@/views/settings/ban-do-tin/kieu';
+import type { CheDo, MaDich, MaPha } from '@/views/settings/ban-do-tin/kieu';
+import type { MucCrmApi } from '@/views/settings/ban-do-tin/hop-dong';
 
 defineProps<{ sheet?: boolean }>();
 const s = dungBanDoTin();
 const mh = computed(() => s.mh.value!);
 const chon = computed(() => s.chon.value);
-const LOP_TAG: Record<TagKhoi, string> = { Mã: 't-ma', Model: 't-model', Mẫu: 't-mau', Ảnh: 't-anh', Mới: 't-moi', Bóng: 't-bong', Nguồn: 't-nguon', CRM: 't-crm' };
 const CHE_DO: { id: CheDo; ten: string }[] = [{ id: 'tat', ten: 'Tắt' }, { id: 'bong', ten: 'Chạy bóng' }, { id: 'bat', ten: 'Bật' }];
+const TEN_LOAI_DICH_CRM: Record<MucCrmApi['dich'][number]['loai'], string> = { nhom: 'nhóm Zalo', ca_nhan: 'tin riêng', ung_dung: 'trong app', bot: 'bot đọc' };
+/** Tab Nhật ký của trang Quyền bot — mọi thay đổi luật/ảnh chụp ghi ở bot_quyen_nhat_ky (luat_thong_bao, ban_do_tin). */
+const LINK_NHAT_KY = '/settings/bot-quyen?tab=nhat-ky';
 /** tên khối + đích khi là bản sao (hai đầu cùng một loại tin) */
 const tenDay = (id: string) => { const k = mh.value.khoiTheoId[id]; return k.ban_sao ? `${k.ten} (${mh.value.hang[k.hang].ten})` : k.ten; };
 const pha = (id: string) => mh.value.pha.find((p) => p.id === (id as MaPha))!;
@@ -213,30 +260,70 @@ const demLoai = computed(() => demTheoLoai(mh.value.lienKet));
 const khoi = computed(() => (chon.value?.kieu === 'khoi' ? mh.value.khoiTheoId[chon.value.id] : undefined));
 const comp = computed(() => (khoi.value?.loai_nut === 'composer' ? mh.value.composer[khoi.value.nguon_id] : undefined));
 const nut = computed(() => (khoi.value && khoi.value.loai_nut !== 'composer' ? mh.value.nutPhu[khoi.value.nguon_id] : undefined));
-const luat = computed(() => (comp.value ? s.anh.value?.luat.find((l) => l.loai === comp.value!.id) : undefined));
-const hieuLuc = computed(() => (comp.value ? dichHieuLuc(comp.value, luat.value) : null));
-const dichHienTai = computed<MaDich[]>(() => (comp.value ? (luat.value?.dich ?? comp.value.dich_goc) : []));
-const cheDo = computed<CheDo>(() => hieuLuc.value?.cheDo ?? 'bat');
-const dsDich = computed<MaDich[]>(() => {
-  const c = comp.value;
-  if (!c) return [];
-  if (c.kieu === 'khoa') return [...c.dich_goc];
-  return [...new Set<MaDich>([...c.dich_goc, ...dichHienTai.value, ...DICH_CO_THE_THEM])];
-});
+const luat = computed(() => (comp.value ? s.luatCua(comp.value.id) : undefined));
+const cheDo = computed<CheDo>(() => luat.value?.che_do ?? 'bat');
+/** hàng bản sao luật đang khai (kể cả khi luật `tat`) */
+const banSaoLuat = computed<MaDich[]>(() => (comp.value && luat.value ? luat.value.dich.filter((d) => !comp.value!.dich_goc.includes(d)) : []));
+/** hàng đang tick = nơi gốc + bản sao của luật */
+const dichDangGui = computed<MaDich[]>(() => (comp.value ? [...comp.value.dich_goc, ...banSaoLuat.value] : []));
+const dsDich = computed<MaDich[]>(() => (comp.value ? dsDichPanel(comp.value, banSaoLuat.value) : []));
 const vao = computed(() => (khoi.value ? mh.value.vao[khoi.value.id] : []));
 const ra = computed(() => (khoi.value ? mh.value.ra[khoi.value.id] : []));
 const demKhoi = computed(() => (khoi.value ? mh.value.demKhoi[khoi.value.id] : undefined));
-const neuBat = computed(() => mh.value.khoi.filter((k) => k.nguon_id === comp.value?.id)
-  .reduce((t, k) => t + (mh.value.demKhoi[k.id]?.bong_24h ?? 0), 0));
-const nhatKy = computed(() => (s.anh.value?.nhat_ky ?? []).filter((n) => comp.value && n.noi_dung.startsWith(`${comp.value.ten}:`)));
-
-function doiDich(d: MaDich, co: boolean) {
-  const c = comp.value!;
-  const moi = co ? [...dichHienTai.value, d] : dichHienTai.value.filter((x) => x !== d);
-  const thuTu = dsDich.value;
-  s.luuLuat(c.id, thuTu.filter((x) => moi.includes(x)), cheDo.value);
+const bong24h = computed(() => (luat.value ? bong24hCuaLuat(s.anh.value?.dem_tho ?? [], luat.value.id) : { co: false, so: 0 }));
+const loiCuaComp = computed(() => (s.loiLuu.value && s.loiLuu.value.loai === comp.value?.id ? s.loiLuu.value.chu : null));
+/** canhBao của CRM cho loại tin này — dạng `<loai>: …` (bot-thong-bao-luat.ts ghepLuatCongKhai) */
+const canhBaoCuaComp = computed(() => {
+  const c = comp.value;
+  if (!c) return [];
+  return (s.anh.value?.canh_bao ?? []).filter((x) => x.startsWith(`${c.id}:`));
+});
+function trangThaiHang(d: MaDich): string | null {
+  const c = comp.value;
+  if (!c || c.dich_goc.includes(d) || !banSaoLuat.value.includes(d)) return null;
+  const hl = dichHieuLuc(c, luat.value);
+  return hl.cheDo === 'tat' ? 'luật đang tắt' : hl.cheDo === 'bong' ? 'chạy bóng' : 'đang gửi';
 }
-function doiCheDo(c: CheDo) { if (comp.value && c !== cheDo.value) s.luuLuat(comp.value.id, dichHienTai.value, c); }
+
+async function doiDich(d: MaDich, el: HTMLInputElement) {
+  if (!comp.value) return;
+  const co = el.checked;
+  if (d === 'nv') { if (!co) await s.datDich(comp.value.id, (luat.value?.dich_tho ?? []).filter((x) => x.kieu !== 'nv')); }
+  else await s.doiDich(comp.value.id, d, co);
+  // lưu hỏng ⇒ ô về đúng trạng thái đã lưu (Vue không vá lại vì :checked không đổi)
+  el.checked = dichDangGui.value.includes(d);
+}
+function doiCheDo(c: CheDo) { if (comp.value && (!luat.value || c !== cheDo.value)) s.doiCheDo(comp.value.id, c); }
+
+// ── đích NV ──
+const dsNv = ref<NvDich[] | null>(null);
+const loiNv = ref<string | null>(null);
+async function napNv() {
+  if (dsNv.value) return;
+  try { dsNv.value = await s.client.layNhanVien(); } catch (e) { loiNv.value = `Không tải được danh sách NV: ${(e as Error).message}`; dsNv.value = []; }
+}
+const nvDangGui = computed(() => (luat.value?.dich_tho ?? []).filter((d) => d.kieu === 'nv').map((d) => d.gia_tri!));
+const nvChonDuoc = computed(() => (dsNv.value ?? []).filter((n) => n.trangThai === 'hoat_dong' && !nvDangGui.value.includes(n.zaloUid)));
+const tenNv = (uid: string) => dsNv.value?.find((n) => n.zaloUid === uid)?.tenGoi ?? `NV …${uid.slice(-4)}`;
+function themNv(el: HTMLSelectElement) {
+  const uid = el.value;
+  el.value = '';
+  if (!uid || !comp.value) return;
+  s.datDich(comp.value.id, [...(luat.value?.dich_tho ?? []), { kieu: 'nv', gia_tri: uid }]);
+}
+function boNv(uid: string) {
+  if (!comp.value) return;
+  s.datDich(comp.value.id, (luat.value?.dich_tho ?? []).filter((d) => !(d.kieu === 'nv' && d.gia_tri === uid)));
+}
+watch(nvDangGui, (v) => { if (v.length) napNv(); }, { immediate: true });
+
+// ── điều hướng trong app (có router thì push, không có — khung so ảnh — để trình duyệt tự đi) ──
+const router = getCurrentInstance()?.appContext.config.globalProperties.$router as { push: (p: string) => unknown } | undefined;
+function diToi(e: MouseEvent, duong: string) {
+  if (!router || e.ctrlKey || e.metaKey || e.shiftKey) return;
+  e.preventDefault();
+  router.push(duong);
+}
 
 const lk = computed(() => (chon.value?.kieu === 'lien_ket' ? mh.value.lienKetTheoId[chon.value.id] : undefined));
 function nhayLk(b: number) { const l = mh.value.lienKet[lk.value!.so - 1 + b]; if (l) s.datChon({ kieu: 'lien_ket', id: l.id }); }
@@ -267,10 +354,13 @@ const gio = (iso: string) => { const d = new Date(iso); return isNaN(+d) ? iso :
 function taiJson() {
   const a = s.anh.value;
   if (!a) return;
-  const b = new Blob([JSON.stringify({ ghi_chu: 'Bản đồ tin — luật đích hiện hành', phien_ban: a.phien_ban, luat: a.luat.map(({ loai, dich, che_do }) => ({ loai, dich, che_do })) }, null, 2)], { type: 'application/json' });
+  const b = new Blob([JSON.stringify({
+    ghi_chu: 'Bản đồ tin — luật thông báo CRM hiện hành', danh_muc_bot: a.phien_ban,
+    luat: a.luat.map(({ id, loai, dich_tho, che_do, phien_ban }) => ({ id, loai, dich: dich_tho, che_do, phien_ban })),
+  }, null, 2)], { type: 'application/json' });
   const u = URL.createObjectURL(b);
   const el = document.createElement('a');
-  el.href = u; el.download = 'luat-ban-do-tin.json'; el.click();
+  el.href = u; el.download = 'luat-thong-bao.json'; el.click();
   setTimeout(() => URL.revokeObjectURL(u), 1000);
 }
 </script>

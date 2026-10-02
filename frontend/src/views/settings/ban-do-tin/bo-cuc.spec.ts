@@ -2,7 +2,7 @@
 // Toán bố cục theo SPEC §3 (số đo go.noti.vn): cột x0 150 bước 196 rộng 150, hàng n·38+(n−1)·4+6, khe 6/14…
 import { describe, it, expect } from 'vitest';
 import {
-  caoHang, cheDoManHinh, cotGian, rongMuonToanManHinh, dungBoCuc, kepZoom, phanTramZoom, zoomVuaKhung, COT_X0, COT_BUOC, HANG_DAU_TOP,
+  caoHang, cheDoManHinh, cotGian, rongMuonToanManHinh, dungBoCuc, kepZoom, zoomMacDinh, zoomVuaKhung, COT_X0, COT_BUOC, HANG_DAU_TOP,
 } from './bo-cuc';
 import { raiCong } from './dinh-tuyen';
 import { PHA, NHOM_HANG } from './cau-hinh';
@@ -78,7 +78,8 @@ describe('cổng nối', () => {
 describe('thu phóng + màn hình', () => {
   it('vừa khung = (rộng − 24)/rộng bản đồ; % so với vừa khung; kẹp 0.5–2.4', () => {
     expect(zoomVuaKhung(1020, 1326)).toBeCloseTo(996 / 1326, 6);
-    expect(phanTramZoom(0.751 * 1.2, 0.751)).toBe(120);
+    expect(zoomMacDinh(0.54)).toBe(0.75); // vừa khung 1440×900 ≈ 0.54 ⇒ mặc định 75 %, cuộn ngang
+    expect(zoomMacDinh(0.9)).toBe(0.9);
     expect(kepZoom(0.1)).toBe(0.5);
     expect(kepZoom(9)).toBe(2.4);
   });

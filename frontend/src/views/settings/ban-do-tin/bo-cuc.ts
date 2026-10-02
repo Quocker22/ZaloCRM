@@ -207,11 +207,14 @@ export const ZOOM_MIN = 0.5;
 export const ZOOM_MAX = 2.4;
 export const kepZoom = (z: number): number => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
 /** Vừa khung = khớp chiều NGANG: (rộng khung − 24) / rộng bản đồ. */
+/** Dưới mức này chữ khối (12px) còn ~9px — không đọc được ở 1440×900. Mặc định không thu dưới đây (cuộn ngang thay vì thu). */
+export const ZOOM_DOC_DUOC = 0.75;
+/** Zoom mặc định: vừa khung nếu ≥ 75 %, không thì 75 % (cuộn). "Vừa khung" vẫn cho thu trọn. */
+export const zoomMacDinh = (vua: number): number => kepZoom(Math.max(vua, ZOOM_DOC_DUOC));
 export const zoomVuaKhung = (khungRong: number, banDoRong: number): number => kepZoom((khungRong - 24) / banDoRong);
 /** Vừa cả hai chiều (toàn màn hình). */
 export const zoomVuaHaiChieu = (khungRong: number, khungCao: number, banDoRong: number, banDoCao: number): number =>
   kepZoom(Math.min((khungRong - 24) / banDoRong, (khungCao - 20) / banDoCao));
-export const phanTramZoom = (z: number, vua: number): number => Math.round((z / vua) * 100);
 
 /** Bề rộng màn hình → chế độ trang (SPEC §8). */
 export type CheDoManHinh = 'may' | 'bang' | 'dt';

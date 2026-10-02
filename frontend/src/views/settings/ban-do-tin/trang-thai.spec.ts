@@ -1,18 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Độ đục theo SPEC §5 + hash (§7) + kiểm luật (docs/78 luật cứng) + ngân sách hiệu năng (P1/P2-10).
 import { describe, it, expect } from 'vitest';
-import { anhChupMau } from './danh-muc-mau';
-import { demMau } from './client-mau';
+import { anhChupMau } from './client-mau';
 import { dungMoHinh } from './mo-hinh';
 import { doDucDuongNen, doDucDuongNoi, doDucKhoi, tinhTrangThai } from './trang-thai';
 import { docHash, vietHash } from './hash';
-import { dichKhoa, kiemDich, kiemLuat } from './luat';
+import { dichKhoa, dsDichPanel, kiemDich } from './luat';
 import { boDau, timKiem } from './tim';
 import { dungBoCuc } from './bo-cuc';
 import { dinhTuyen } from './dinh-tuyen';
 import type { AnhChupBanDo, Composer, MaDich } from './kieu';
 
-const a = anhChupMau(); a.dem_7_ngay = demMau(a);
+const a = anhChupMau();
 const mh = dungMoHinh(a);
 const c = (id: string) => a.composer.find((x) => x.id === id)!;
 
@@ -69,11 +68,15 @@ describe('hash', () => {
   it('đọc + viết khứ hồi mọi loại', () => {
     const ds = [
       { kieu: 'khoi', id: 'da_chot@nhom_goc' }, { kieu: 'pha', id: 'chot' }, { kieu: 'hang', id: 'g_kho' },
-      { kieu: 'lien_ket', id: 'a@nhom_goc~b@g_kho' }, { kieu: 'loai', id: 'vong' },
+      { kieu: 'lien_ket', id: 'a@nhom_goc~b@g_kho' }, { kieu: 'loai', id: 'hoi_lai' },
     ] as const;
     for (const x of ds) expect(docHash(vietHash(x))).toEqual(x);
     expect(vietHash({ kieu: 'lien_ket', id: 'a@x~b@y' })).toBe('#lien-ket=a@x~b@y');
     expect(vietHash({ kieu: 'hang', id: 'g_kho' })).toBe('#dich=g_kho');
+  });
+  it('mã loại cũ (nguon / vong) vẫn mở được — quy về su_kien / hoi_lai', () => {
+    expect(docHash('#loai=vong')).toEqual({ kieu: 'loai', id: 'hoi_lai' });
+    expect(docHash('#loai=nguon')).toEqual({ kieu: 'loai', id: 'su_kien' });
   });
   it('hash rác ⇒ null', () => {
     for (const h of ['', '#', '#khoi=', '#loai=khong_co', '#lien-ket=abc', '#la=1', '#khoi=%E0%A4%A']) expect(docHash(h)).toBeNull();
@@ -90,19 +93,16 @@ describe('kiểm luật (tương đương rào server)', () => {
     expect(kiemDich(c('xuat_hoa_don_tool'), 'g_kho')?.canh).toMatch(/che giá/);
     expect(kiemDich(c('in_xong'), 'g_kho')).toBeNull();
   });
-  it('khoa ⇒ không đổi được; ban_sao bỏ nơi gốc ⇒ lỗi; thuan rỗng mà bật ⇒ lỗi', () => {
-    expect(kiemLuat(c('the_xem_truoc'), ['nhom_goc'], 'bat').hopLe).toBe(false);
-    expect(kiemLuat(c('da_chot'), ['g_ketoan'], 'bat').loi.join()).toMatch(/Nơi gốc luôn giữ/);
-    expect(kiemLuat(c('da_chot'), ['nhom_goc', 'g_ketoan'], 'bat').hopLe).toBe(true);
-    expect(kiemLuat(c('in_xong'), [], 'bat').hopLe).toBe(false);
-    expect(kiemLuat(c('in_xong'), [], 'tat').hopLe).toBe(true);
-    expect(kiemLuat(c('da_chot'), ['nhom_goc', 'g_khach'] as MaDich[], 'bat').hopLe).toBe(false);
-    expect(kiemLuat(c('da_chot'), ['nhom_goc', 'g_kho'], 'bat').canh.join()).toMatch(/che giá/);
+  it('danh sách tick: khoa chỉ nơi gốc; còn lại = nơi gốc + bản sao + đúng các hàng CRM nhận làm đích luật', () => {
+    expect(dsDichPanel(c('the_xem_truoc'), [])).toEqual(['nhom_goc']);
+    expect(dsDichPanel(c('da_chot'), ['g_ketoan'])).toEqual(['nhom_goc', 'g_ketoan', 'dm_nguoi_go', 'g_kho', 'g_admin', 'g_sales', 'nv', 'g_khach']);
   });
-  it('dichKhoa: 🔒 nơi gốc của ban_sao, mọi đích của khoa', () => {
+  it('dichKhoa: 🔒 nơi gốc (mọi kiểu), mọi đích của khoa, hàng CRM chưa có kiểu đích', () => {
     expect(dichKhoa(c('da_chot'), 'nhom_goc')).toMatch(/Nơi gốc/);
+    expect(dichKhoa(c('in_xong'), 'g_kho')).toMatch(/Nơi gốc/);
     expect(dichKhoa(c('da_chot'), 'g_kho')).toBeNull();
-    expect(dichKhoa(c('the_xem_truoc'), 'g_kho')).toMatch(/Mã chốt/);
+    expect(dichKhoa(c('the_xem_truoc'), 'g_kho')).toMatch(/mã chốt/);
+    expect(dichKhoa(c('da_chot'), 'g_kythuat')).toMatch(/chưa có kiểu đích/);
   });
 });
 
@@ -118,15 +118,15 @@ describe('tìm không dấu', () => {
 
 describe('hiệu năng (60 composer × 15 đích)', () => {
   it('dựng + định tuyến một lần, rồi mỗi lần bấm tính trạng thái ≤ 50 ms', () => {
-    const lon: AnhChupBanDo = { ...a, composer: [], luat: [], dem_7_ngay: [] };
+    const lon: AnhChupBanDo = { ...a, composer: [], luat: [], dem: [] };
     const dich: MaDich[] = ['nhom_goc', 'dm_nguoi_go', 'chu_don', 'g_kho', 'g_admin', 'g_ketoan', 'g_sales', 'g_kythuat', 'nv', 'g_khach'];
     const goc = a.composer;
     for (let i = 0; i < 60; i++) {
       const g: Composer = goc[i % goc.length];
       lon.composer.push({ ...g, id: `c${i}`, kieu: 'ban_sao', dich_goc: ['nhom_goc'], dan_toi: [
-        { den: `c${(i + 1) % 60}`, kieu: 'nghiep_vu' }, { den: `c${(i + 7) % 60}`, kieu: 'vong' }, { den: `c${(i + 13) % 60}`, kieu: 'chan' },
+        { den: `c${(i + 1) % 60}`, kieu: 'nghiep_vu' }, { den: `c${(i + 7) % 60}`, kieu: 'hoi_lai' }, { den: `c${(i + 13) % 60}`, kieu: 'chan' },
       ] });
-      lon.luat.push({ id: `l${i}`, loai: `c${i}`, dich: dich.slice(0, 1 + (i % dich.length)), che_do: 'bat', phien_ban: 1 });
+      lon.luat.push({ id: `l${i}`, loai: `c${i}`, dich: dich.slice(0, 1 + (i % dich.length)), dich_tho: [], che_do: 'bat', phien_ban: 1 });
     }
     const m = dungMoHinh(lon);
     expect(m.khoi.length).toBeGreaterThan(300);

@@ -48,7 +48,10 @@ import BotQuyenNhanVienTab from '@/components/bot-quyen/BotQuyenNhanVienTab.vue'
 import BotQuyenNhatKyTab from '@/components/bot-quyen/BotQuyenNhatKyTab.vue';
 
 type Tab = 'nhom' | 'nhan-vien' | 'nhat-ky';
-const tab = ref<Tab>('nhom');
+// `?tab=nhat-ky` — trang Bản đồ tin link thẳng sang Nhật ký (luật thông báo + ảnh chụp ghi ở đây).
+const TABS: Tab[] = ['nhom', 'nhan-vien', 'nhat-ky'];
+const tabUrl = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('tab') : null;
+const tab = ref<Tab>(TABS.includes(tabUrl as Tab) ? (tabUrl as Tab) : 'nhom');
 const nguoiDungCrm = ref<NguoiDungCrm[]>([]);
 
 // Danh sách tài khoản CRM chỉ để hiện tên (nhật ký, gắn tài khoản) — hỏng thì trang vẫn dùng được.

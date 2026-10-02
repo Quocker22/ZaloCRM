@@ -9,7 +9,7 @@
     <path class="halo" :d="duong[l.id].d" :style="{ strokeWidth: rong(l) + 2.4 }" />
     <path
       class="net"
-      :class="noi && kq?.chay && KIEU[l.loai].dash ? (l.loai === 'vong' ? 'chay-vong' : 'chay-dut') : ''"
+      :class="noi && kq?.chay && KIEU[l.loai].dash ? (l.loai === 'hoi_lai' ? 'chay-vong' : 'chay-dut') : ''"
       :d="duong[l.id].d"
       :marker-end="`url(#bdt-mui-${l.loai})`"
       :style="{ stroke: `var(--bdt-lk-${l.loai})`, strokeWidth: rong(l), strokeDasharray: KIEU[l.loai].dash ?? undefined, opacity: duc(l) }"
