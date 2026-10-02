@@ -328,7 +328,7 @@ export async function luuAnhChup(
   return { ok: true, phien_ban: a.phien_ban, so_composer: a.composer.length };
 }
 
-// ── Gieo luật chủ chọn 02/10 (scripts/gieo-luat-thong-bao.ts) ─────────────────
+// ── Gieo luật chủ chọn 02/10 (src/scripts/gieo-luat-thong-bao.ts) ─────────────────
 
 export interface KetQuaGieo {
   loai: string;

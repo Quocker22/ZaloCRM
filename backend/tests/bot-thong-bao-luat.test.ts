@@ -355,3 +355,25 @@ describe('docDoiSoatEcho — thân POST /api/public/ban-do-tin/doi-soat-echo', (
     expect(docDoiSoatEcho({ echo_ids: Array.from({ length: 200 }, (_, i) => `tb:${i}:0`) })).toHaveLength(200);
   });
 });
+
+describe('script gieo luật — chạy được trong image prod (giám sát docs/78 D3)', () => {
+  // Image prod chỉ có dist/ (không tsx, không src/): script phải nằm dưới `src/` để `tsc` (rootDir src, include src/**)
+  // biên dịch ra `dist/scripts/gieo-luat-thong-bao.js` — runbook §4.2 gọi đúng đường đó.
+  it('nằm trong phạm vi tsconfig ⇒ ra dist/scripts; --help in cách dùng, thoát 0, không cần DB', async () => {
+    const { readFileSync, existsSync } = await import('node:fs');
+    const { spawnSync } = await import('node:child_process');
+    const goc = new URL('..', import.meta.url).pathname;
+    const tsc = JSON.parse(readFileSync(`${goc}tsconfig.json`, 'utf8')) as { compilerOptions: { rootDir: string }; include: string[] };
+    expect(tsc.compilerOptions.rootDir).toBe('./src');
+    expect(tsc.include).toContain('src/**/*');
+    expect(existsSync(`${goc}src/scripts/gieo-luat-thong-bao.ts`)).toBe(true);
+    expect(existsSync(`${goc}scripts/gieo-luat-thong-bao.ts`)).toBe(false);
+    const env = { PATH: process.env.PATH ?? '' };
+    const r = spawnSync(process.execPath, ['--import', 'tsx', 'src/scripts/gieo-luat-thong-bao.ts', '--help'], { cwd: goc, env, encoding: 'utf8' });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('node dist/scripts/gieo-luat-thong-bao.js --org <org_id>');
+    const runbook = readFileSync(`${goc}../docs/may-in/TRIEN-KHAI-THONG-BAO-CHU-DONG.md`, 'utf8');
+    expect(runbook).toContain('node dist/scripts/gieo-luat-thong-bao.js --org <org_id>');
+    expect(runbook).not.toContain('npx tsx scripts/gieo-luat-thong-bao.ts');
+  }, 30_000);
+});
