@@ -7,7 +7,7 @@
 //   • ưu tiên đoạn nói đúng mã SP.
 import { describe, it, expect } from 'vitest';
 import {
-  bamTuDoan, dauHieuNoiBo, lamSachChoKhach, docYeuCauTim, uuTienTheoSanPham, MAU_KY_TU, mauNoiDung, tapToken, khopNeo, dongCoGia, tieuDeSach,
+  bamTuDoan, dauHieuNoiBo, lamSachChoKhach, docYeuCauTim, uuTienTheoSanPham, MAU_KY_TU, mauNoiDung, tapToken, khopNeo, dongCoGia, tieuDeSach, nenLoaiTru,
 } from '../src/modules/bot-quyen/bot-cho-khach-kho.js';
 import { LoiChoKhach } from '../src/modules/bot-quyen/bot-cho-khach-hop-dong.js';
 
@@ -85,6 +85,17 @@ describe('lamSachChoKhach — các dạng Codex v2 tái hiện (02/10 khuya)', (
     expect(tieuDeSach('P3.076 giá bán 900k')).toBe('Tài liệu kỹ thuật');
     expect(tieuDeSach('Bảng giá P3.076')).toBe('Tài liệu kỹ thuật');
     expect(tieuDeSach('LLR- P3.076 .3840hz outdoor')).toBe('LLR- P3.076 .3840hz outdoor');
+  });
+});
+
+describe('nenLoaiTru — chỉ tín hiệu MẠNH (đề xuất nhầm 23/29 datasheet ở staging 02/10 khuya)', () => {
+  it('datasheet có link/email/một dòng giá lẻ ⇒ KHÔNG đề xuất', () => {
+    expect(nenLoaiTru('LLR- P3.076 .3840hz outdoor', ['Pixel pitch: 3.076mm\nRefresh: 3840Hz\nwww.llr.com\nsales@llr.com\nGiá bán: 1.200.000đ\nIP65\nScan 1/13'])).toEqual([]);
+  });
+  it('bảng giá / catalog giá + tồn / chữ nội bộ ⇒ đề xuất', () => {
+    expect(nenLoaiTru('Catalog LEDNELIA (giá + nhóm + tồn)', ['P10 | 120k', 'P5 | 200k', 'P3 | 300k', 'P4 | 250k', 'P2 | 500k'])).not.toEqual([]);
+    expect(nenLoaiTru('Catalog (giá + tồn)', ['Tên: P10', 'Giá bán: 120.000đ'])).toEqual(['tiêu đề nói giá/tồn']);
+    expect(nenLoaiTru('OVP-K2', ['Tài liệu nội bộ — không gửi khách'])).toEqual(['chữ “nội bộ”']);
   });
 });
 

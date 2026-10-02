@@ -18,7 +18,7 @@ import {
   LoiChoKhach, docDanhMuc, dungDuyetCongKhai, DANG_BAM,
   type DuyetCongKhai, type SanPhamDanhMuc, type TaiLieuDanhMuc,
 } from './bot-cho-khach-hop-dong.js';
-import { docKho, dauHieuNoiBo, mauNoiDung } from './bot-cho-khach-kho.js';
+import { docKho, dauHieuNoiBo, mauNoiDung, nenLoaiTru } from './bot-cho-khach-kho.js';
 
 type Tx = Parameters<Parameters<typeof tenantTransaction>[0]>[0];
 type Body = Record<string, unknown>;
@@ -195,7 +195,7 @@ export interface TaiLieuView {
   loaiTruBoi: { id: string; fullName: string } | null;
   loaiTruLuc: Date | null;
   loaiTruLyDo: string | null;
-  /** Có dấu hiệu nội bộ mà CHƯA loại trừ — UI nhắc admin xem (không tự loại). */
+  /** Tín hiệu MẠNH (`nenLoaiTru`) mà CHƯA loại trừ — UI nhắc admin xem (không tự loại). */
   deXuatLoaiTru: boolean;
   /** Lý do "có vẻ nội bộ" xét TOÀN VĂN (chỉ nhắc — không chặn). */
   dauHieuNoiBo: string[];
@@ -225,7 +225,7 @@ export async function danhSachTaiLieu(orgId: string): Promise<{
       mauNoiDung: mauNoiDung(t.doan), noiDungBam: t.noiDungBam, trangThai, noiDungBamDaDuyet: r?.noiDungBam ?? null,
       choKhach: !!t.noiDungBam && !lt, dauHieuNoiBo: dau,
       loaiTru: !!lt, loaiTruBoi: lt ? (nguoi.get(lt.boi) ?? { id: lt.boi, fullName: '' }) : null, loaiTruLuc: lt?.luc ?? null,
-      loaiTruLyDo: lt?.lyDo ?? null, deXuatLoaiTru: !lt && dau.length > 0,
+      loaiTruLyDo: lt?.lyDo ?? null, deXuatLoaiTru: !lt && nenLoaiTru(t.tieuDe, t.doan).length > 0,
       duyetBoi: r ? (nguoi.get(r.duyetBoi) ?? { id: r.duyetBoi, fullName: '' }) : null, duyetLuc: r?.luc ?? null,
     };
   });
@@ -302,7 +302,7 @@ export async function loaiTruTaiLieuNoiBo(orgId: string, aiId: string, ap: boole
     prisma.botTaiLieuLoaiTru.findMany({ where: { orgId }, select: { taiLieuId: true } }),
   ]));
   const da = new Set(loai.map((r) => r.taiLieuId));
-  const deXuat = kho.map((t) => ({ id: t.id, tieuDe: t.tieuDe, dauHieu: dauHieuNoiBo(t.tieuDe, t.doan), daLoaiTru: da.has(t.id) }))
+  const deXuat = kho.map((t) => ({ id: t.id, tieuDe: t.tieuDe, dauHieu: nenLoaiTru(t.tieuDe, t.doan), daLoaiTru: da.has(t.id) }))
     .filter((t) => t.dauHieu.length > 0);
   const can = deXuat.filter((t) => !t.daLoaiTru).map((t) => t.id);
   if (!ap || can.length === 0) return { deXuat, doi: 0 };

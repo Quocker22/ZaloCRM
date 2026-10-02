@@ -147,6 +147,23 @@ export function dauHieuNoiBo(tieuDe: string, doan: readonly string[]): string[] 
   return ra;
 }
 
+/**
+ * NÊN LOẠI TRỪ khỏi đường khách — tín hiệu MẠNH, hẹp hơn `dauHieuNoiBo` (vốn đếm cả dòng link/email/giá lẻ — datasheet nào cũng có,
+ * 02/10 khuya đề xuất nhầm 23/29 datasheet): chữ nội bộ (bảng giá, giá đại lý, công nợ…) ở tiêu đề/toàn văn, HOẶC tài liệu mà
+ * ≥ 20% dòng (và ≥ 5 dòng) có giá/tiền/số tồn — bảng giá, catalog giá + tồn.
+ */
+export function nenLoaiTru(tieuDe: string, doan: readonly string[]): string[] {
+  const ra: string[] = [];
+  const k = ` ${boDau(`${tieuDe}\n${doan.join('\n')}`).replace(/[^a-z0-9]+/g, ' ')} `;
+  for (const [c, hien] of CHU_NOI_BO) if (k.includes(` ${c} `)) ra.push(`chữ “${hien}”`);
+  const dong = doan.join('\n').split('\n').filter((d) => d.trim());
+  const ban = dong.filter((d) => dongCoGia(d) || RE_TON.test(boDau(d))).length;
+  const tieuDeBan = /\b(gia|ton)\b/.test(boDau(tieuDe));
+  if (ban >= 5 && ban / Math.max(1, dong.length) >= 0.2) ra.push(`${ban}/${dong.length} dòng có giá/tồn`);
+  else if (tieuDeBan && ban > 0) ra.push('tiêu đề nói giá/tồn');
+  return ra;
+}
+
 export function mauNoiDung(doan: readonly string[]): string | null {
   const s = doan.join('\n').trim();
   if (!s) return null;
@@ -369,7 +386,49 @@ async function xepVaLoc(
     .map((x) => ({ tai_lieu_id: x.id, tieu_de: x.tieuDe, noi_dung: x.noiDung, diem: Math.round(x.diem * 1000) / 1000 }));
 }
 
-const CHON_DOAN = { id: true, documentId: true, ord: true, content: true, embedding: true, embedDim: true } as const;
+/** Đoạn KHÔNG kèm embedding (3072 chiều × ~1.300 đoạn = ~30 MB — đọc hết mỗi lần mất ~4,5 s trên staging, đo 02/10 khuya). */
+const CHON_DOAN_NHE = { id: true, documentId: true, ord: true, content: true } as const;
+/** Không neo SP: số ứng viên tối đa được đọc embedding (chọn theo số token trùng câu hỏi). */
+const TRAN_UNG_VIEN_KHONG_NEO = 300;
+
+/** Từ quá chung không dùng để chọn ứng viên khi không có neo. */
+const TU_CHUNG_TIM = new Set(['thong', 'so', 'ky', 'thuat', 'cho', 'anh', 'chi', 'em', 'cua', 'la', 'bao', 'nhieu', 'gi', 'nao',
+  'co', 'khong', 'va', 'voi', 'the', 'led', 'module']);
+
+/**
+ * Tìm chung cho hai đường: đọc đoạn NHẸ (không embedding) ⇒ chọn ứng viên (neo SP nếu có; không neo ⇒ đoạn có token trùng câu
+ * hỏi, tối đa TRAN_UNG_VIEN_KHONG_NEO) ⇒ CHỈ đọc embedding của ứng viên ⇒ `xepVaLoc`. `loaiTru` = tài liệu bỏ (đường khách).
+ */
+async function timTrong(orgId: string, yc: YeuCauTim, loaiTru: ReadonlySet<string>, deps: DepsTim): Promise<DoanTim[]> {
+  const ngoaiDoc = loaiTru.size > 0 ? { id: { notIn: [...loaiTru] } } : {};
+  const ngoaiDoan = loaiTru.size > 0 ? { documentId: { notIn: [...loaiTru] } } : {};
+  const [docs, nhe] = await Promise.all([
+    prisma.knowledgeDocument.findMany({ where: { orgId, ...ngoaiDoc }, select: { id: true, title: true } }),
+    prisma.knowledgeChunk.findMany({ where: { orgId, ...ngoaiDoan }, select: CHON_DOAN_NHE }),
+  ]);
+  const tieuDe = new Map(docs.map((d) => [d.id, d.title]));
+  const hop = nhe.filter((r) => tieuDe.has(r.documentId) && !loaiTru.has(r.documentId));
+  const neo = yc.sanPham?.neo ?? null;
+  let ung: typeof hop;
+  if (neo) {
+    ung = hop.filter((r) => khopNeo(neo, tapToken(`${tieuDe.get(r.documentId) ?? ''}\n${r.content}`)));
+  } else {
+    const cau = [...tapToken([yc.truyVan, yc.sanPham?.ten, yc.sanPham?.ma].filter(Boolean).join(' '))]
+      .filter((t) => t.length >= 2 && !TU_CHUNG_TIM.has(t));
+    const diem = hop.map((r) => {
+      const tap = tapToken(`${tieuDe.get(r.documentId) ?? ''}\n${r.content}`);
+      return { r, d: cau.filter((t) => tap.has(t)).length };
+    }).filter((x) => x.d > 0);
+    diem.sort((a, b) => b.d - a.d);
+    ung = diem.slice(0, TRAN_UNG_VIEN_KHONG_NEO).map((x) => x.r);
+  }
+  if (ung.length === 0) return [];
+  const vec = new Map((await prisma.knowledgeChunk.findMany({
+    where: { orgId, id: { in: ung.map((r) => r.id) } }, select: { id: true, embedding: true, embedDim: true },
+  })).map((v) => [v.id, v]));
+  const rows: HangDoan[] = ung.map((r) => ({ ...r, embedding: vec.get(r.id)?.embedding ?? [], embedDim: vec.get(r.id)?.embedDim ?? 0 }));
+  return xepVaLoc(yc, rows, tieuDe, deps);
+}
 
 /**
  * KHÁCH (chủ chốt 02/10 tối): thông số kỹ thuật ai hỏi cũng trả lời được ⇒ MỌI tài liệu kho tri thức của org, TRỪ tài liệu admin
@@ -380,16 +439,9 @@ export async function timChoKhach(orgId: string, body: unknown, deps: DepsTim = 
   return withTenant(orgId, async () => {
     const loaiTru = new Set((await prisma.botTaiLieuLoaiTru.findMany({ where: { orgId }, select: { taiLieuId: true } }))
       .map((r) => r.taiLieuId));
-    const ngoai = loaiTru.size > 0 ? { id: { notIn: [...loaiTru] } } : {};
-    const [docs, rows] = await Promise.all([
-      prisma.knowledgeDocument.findMany({ where: { orgId, ...ngoai }, select: { id: true, title: true } }),
-      prisma.knowledgeChunk.findMany({
-        where: { orgId, ...(loaiTru.size > 0 ? { documentId: { notIn: [...loaiTru] } } : {}) }, select: CHON_DOAN,
-      }),
-    ]);
-    const tieuDe = new Map(docs.map((d) => [d.id, d.title]));
-    const ket_qua = await xepVaLoc(yc, rows.filter((r) => tieuDe.has(r.documentId) && !loaiTru.has(r.documentId)), tieuDe, deps);
-    logger.info({ orgId, soTaiLieuDung: tieuDe.size, soLoaiTru: loaiTru.size, soTra: ket_qua.length }, '[cho-khach] tìm thông số cho khách');
+    const bd = Date.now();
+    const ket_qua = await timTrong(orgId, yc, loaiTru, deps);
+    logger.info({ orgId, soLoaiTru: loaiTru.size, soTra: ket_qua.length, ms: Date.now() - bd }, '[cho-khach] tìm thông số cho khách');
     return { ket_qua };
   });
 }
@@ -398,13 +450,9 @@ export async function timChoKhach(orgId: string, body: unknown, deps: DepsTim = 
 export async function timNoiBo(orgId: string, body: unknown, deps: DepsTim = depsTuEnv()): Promise<{ ket_qua: DoanTim[] }> {
   const yc = docYeuCauTim(body);
   return withTenant(orgId, async () => {
-    const [docs, rows] = await Promise.all([
-      prisma.knowledgeDocument.findMany({ where: { orgId }, select: { id: true, title: true } }),
-      prisma.knowledgeChunk.findMany({ where: { orgId }, select: CHON_DOAN }),
-    ]);
-    const tieuDe = new Map(docs.map((d) => [d.id, d.title]));
-    const ket_qua = await xepVaLoc(yc, rows.filter((r) => tieuDe.has(r.documentId)), tieuDe, deps);
-    logger.info({ orgId, soTra: ket_qua.length }, '[tai-lieu-ky-thuat] tìm thông số cho NV');
+    const bd = Date.now();
+    const ket_qua = await timTrong(orgId, yc, new Set(), deps);
+    logger.info({ orgId, soTra: ket_qua.length, ms: Date.now() - bd }, '[tai-lieu-ky-thuat] tìm thông số cho NV');
     return { ket_qua };
   });
 }
