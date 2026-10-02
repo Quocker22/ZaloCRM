@@ -187,10 +187,14 @@ function docSanPham(x: unknown, i: number): SanPhamDanhMuc {
 }
 
 /** Kiểm + chuẩn hoá danh mục bot đẩy lên. Trường lạ bỏ qua (không lưu). */
-export function docDanhMuc(body: unknown): DanhMucChoKhach {
-  if (!laObj(body)) sai('Thân phải là object JSON');
+export function docDanhMuc(than: unknown): DanhMucChoKhach {
+  if (!laObj(than)) sai('Thân phải là object JSON');
+  let body: Record<string, unknown> = than;
   const phienBan = body.phien_ban;
   if (typeof phienBan !== 'string' || phienBan.length < 1 || soKyTu(phienBan) > 128) sai('phien_ban là chuỗi 1–128 ký tự');
+  // 02/10 tối: tài liệu nay lấy từ KHO TRI THỨC CRM — bot gửi `tai_lieu: []` (hoặc bỏ khoá). Bot cũ còn gửi tài liệu kho của
+  // nó: vẫn kiểm hình + lưu (vô hại — không đường nào dùng nữa).
+  if (body.tai_lieu === undefined) body = { ...body, tai_lieu: [] };
   if (!Array.isArray(body.tai_lieu)) sai('tai_lieu phải là mảng');
   if (!Array.isArray(body.san_pham)) sai('san_pham phải là mảng');
   if (body.tai_lieu.length > TOI_DA_TAI_LIEU) sai(`tai_lieu tối đa ${TOI_DA_TAI_LIEU} phần tử`);

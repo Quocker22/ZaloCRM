@@ -17,7 +17,7 @@ export interface Hit {
  * Rank chunks by cosine to queryVec, descending. Chunks whose dimension differs
  * from the query (provider mismatch) score 0 via cosine and are dropped.
  */
-export function rankChunks(queryVec: number[], chunks: ScoredChunk[], topK: number): Hit[] {
+export function rankChunks(queryVec: number[], chunks: readonly ScoredChunk[], topK: number): Hit[] {
   const hits: Hit[] = [];
   for (const c of chunks) {
     const score = cosine(queryVec, c.embedding);

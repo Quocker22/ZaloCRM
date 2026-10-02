@@ -122,13 +122,27 @@ export async function searchKnowledge(
     where: { orgId },
     select: { id: true, content: true, embedding: true, embedDim: true },
   });
+  return xepHangDoan(deps.embed, rows, query, topK, cfg);
+}
 
+/**
+ * Xếp hạng HYBRID (vector + từ khoá) trên một TẬP ĐOẠN ĐÃ ĐỌC SẴN — cùng thuật toán `searchKnowledge` dùng cho cả kho.
+ * Tách riêng để đường "cho khách" (docs/79) xếp hạng CHỈ trên đoạn của tài liệu đã duyệt mà nó vừa đọc + băm (không đọc lại
+ * kho giữa chừng — đọc một lần, băm và xếp hạng trên CHÍNH các hàng đó).
+ */
+export async function xepHangDoan(
+  embed: IngestDeps['embed'],
+  rows: ReadonlyArray<{ id: string; content: string; embedding: number[]; embedDim: number }>,
+  query: string,
+  topK: number,
+  cfg: EmbedConfig,
+): Promise<Hit[]> {
   // Vector search — nhưng nếu embedding provider CHẾT/không cấu hình (vd không có Ollama,
   // provider không hỗ trợ /embeddings) thì đừng để cả KB search sập: rơi về LEXICAL-only.
   // Trước đây embed() throw → searchKnowledge throw → hook mất ngữ cảnh → bot im lặng.
   let vectorHits: Hit[] = [];
   try {
-    const [queryVec] = await deps.embed({ ...cfg, texts: [query] });
+    const [queryVec] = await embed({ ...cfg, texts: [query] });
     vectorHits = rankChunks(queryVec, rows, topK);
   } catch (err) {
     logger.warn('[kb] embedding lỗi, dùng lexical-only: %s', (err as Error).message);

@@ -23,10 +23,11 @@ const CHU_NOI_BO = ['bang gia', 'gia von', 'gia dai ly', 'gia si', 'chiet khau',
 const SO_TIEN = /\d[\d.,]*\s*(?:đ|vnđ|vnd|k\b|tr\b|triệu|nghìn|ngàn)/i;
 
 /**
- * Xét CẢ tiêu đề lẫn mẫu nội dung (chữ nội bộ + số tiền ở mỗi chỗ). GIỚI HẠN: CRM chỉ có tiêu đề + 300 ký tự đầu bot gửi —
- * bảng giá nằm ở trang 3 thì cờ này KHÔNG thấy. Người duyệt phải xem toàn văn ở kho tri thức của bot trước khi tick.
+ * Backend gửi `dauHieuNoiBo` (xét TOÀN VĂN kho tri thức CRM) ⇒ dùng nó. Backend cũ (không có khoá) ⇒ xét tiêu đề + mẫu 300 ký tự
+ * (chữ nội bộ + số tiền) — bảng giá ở trang sau thì không thấy.
  */
-export function coVeNoiBo(t: Pick<TaiLieuChoKhach, 'tieuDe' | 'mauNoiDung'>): boolean {
+export function coVeNoiBo(t: Pick<TaiLieuChoKhach, 'tieuDe' | 'mauNoiDung' | 'dauHieuNoiBo'>): boolean {
+  if (Array.isArray(t.dauHieuNoiBo)) return t.dauHieuNoiBo.length > 0;
   for (const chu of [t.tieuDe, t.mauNoiDung ?? '']) {
     if (!chu) continue;
     const k = ` ${boDau(chu).replace(/[^a-z0-9]+/g, ' ')} `;

@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Cho khách (docs/79 T5) trên Postgres THẬT:
 //   • quản trị /api/v1/bot-quyen/cho-khach/*: 401 không token, 403 NV thường (mọi route), cách ly org;
-//   • duyệt tài liệu hàng loạt (chỉ id có trong danh mục; chưa có danh mục ⇒ 409), bỏ duyệt luôn được, nhật ký MỖI mục;
-//   • duyệt tài liệu gắn băm NỘI DUNG: nạp lại cùng id mà nội dung đổi ⇒ "doi_sau_duyet", GET công khai không trả nữa;
+//   • tài liệu = KHO TRI THỨC CRM (knowledge_documents/chunks — sửa 02/10 tối), băm §3b CRM tự tính từ đoạn;
+//   • duyệt tài liệu hàng loạt (chỉ id có trong kho), bỏ duyệt luôn được, nhật ký MỖI mục; toàn văn cho người duyệt;
+//   • duyệt tài liệu gắn băm NỘI DUNG: kho nạp lại cùng id mà nội dung đổi ⇒ "doi_sau_duyet", GET công khai không trả nữa;
 //     duyệt bằng băm cũ ⇒ 409 TAI_LIEU_DA_DOI; tài liệu rỗng (băm null) không duyệt được;
+//   • (tìm — POST /cho-khach/tim + /tai-lieu-ky-thuat/tim: tests/bot-cho-khach-tim-db.test.ts);
 //   • duyệt mô tả gắn băm: bot đẩy mô tả mới ⇒ "doi_sau_duyet", băm trong GET công khai vẫn là băm CŨ (bot so ⇒ không dùng);
 //     duyệt bằng băm cũ ⇒ 409 MO_TA_DA_DOI; duyệt lại bằng băm mới ⇒ hiệu lực lại;
 //   • công khai: POST danh mục (kiểm hình, băm lệch ⇒ 400, giữ bản cũ), GET duyệt (phien_ban ổn định/đổi đúng lúc, tài liệu
@@ -41,6 +43,26 @@ const tl = (id: string, tieu_de: string, them: Record<string, unknown> = {}) => 
 const TEN_TL: Record<string, string> = { 'doc-1': 'Datasheet P10', 'doc-2': 'Bảng giá nội bộ', 'doc-3': 'Hướng dẫn lắp' };
 /** Thân duyệt tài liệu với băm người duyệt ĐANG NHÌN (danh mục mặc định). */
 const mucTl = (...ids: string[]) => ({ taiLieu: ids.map((id) => ({ id, noiDungBam: TEN_TL[id] ? bamTl(TEN_TL[id]) : 'e'.repeat(64) })) });
+
+/** Nạp (lại) một tài liệu vào KHO TRI THỨC CRM của org — thay mọi đoạn. */
+async function napKho(orgId: string, id: string, tieuDe: string, doan: string[]) {
+  await prisma.knowledgeChunk.deleteMany({ where: { documentId: id } });
+  await prisma.knowledgeDocument.upsert({
+    where: { id }, create: { id, orgId, title: tieuDe, source: 'datasheet-pdf', content: doan.join('\n\n') },
+    update: { title: tieuDe, content: doan.join('\n\n') },
+  });
+  if (doan.length > 0) {
+    await prisma.knowledgeChunk.createMany({
+      data: doan.map((content, ord) => ({
+        orgId, documentId: id, ord, content, embedding: [1, 0, 0], embedProvider: 'test', embedModel: 'test', embedDim: 3,
+      })),
+    });
+  }
+}
+/** Ba tài liệu mặc định của org A — đoạn khớp `bamTl`. */
+async function napKhoMacDinh(orgId = ORG_A) {
+  for (const [id, ten] of Object.entries(TEN_TL)) await napKho(orgId, id, ten, [`Nội dung ${ten}`, 'Đoạn hai']);
+}
 const sp = (product_id: number, mo: string | null, them: Record<string, unknown> = {}) => ({
   product_id, ma: `SP${product_id}`, ten: `Sản phẩm ${product_id}`, mo_ta_ban: mo, mo_ta_bam: bamMoTa(mo), ...them,
 });
@@ -53,6 +75,8 @@ function danhMuc(o: { phien_ban?: string; tai_lieu?: unknown[]; san_pham?: unkno
 }
 
 async function donDep() {
+  await prisma.knowledgeChunk.deleteMany({ where: { orgId: { in: ORGS } } });
+  await prisma.knowledgeDocument.deleteMany({ where: { orgId: { in: ORGS } } });
   await prisma.botQuyenNhatKy.deleteMany({ where: { orgId: { in: ORGS } } });
   await prisma.botTaiLieuChoKhach.deleteMany({ where: { orgId: { in: ORGS } } });
   await prisma.botMoTaDuyet.deleteMany({ where: { orgId: { in: ORGS } } });
@@ -129,6 +153,8 @@ describeCanDb('bot-cho-khach — duyệt tài liệu RAG + mô tả SP cho khác
   });
 
   beforeEach(async () => {
+    await prisma.knowledgeChunk.deleteMany({ where: { orgId: { in: ORGS } } });
+    await prisma.knowledgeDocument.deleteMany({ where: { orgId: { in: ORGS } } });
     await prisma.botQuyenNhatKy.deleteMany({ where: { orgId: { in: ORGS } } });
     await prisma.botTaiLieuChoKhach.deleteMany({ where: { orgId: { in: ORGS } } });
     await prisma.botMoTaDuyet.deleteMany({ where: { orgId: { in: ORGS } } });
@@ -138,29 +164,33 @@ describeCanDb('bot-cho-khach — duyệt tài liệu RAG + mô tả SP cho khác
 
   // ── Quyền vào + cách ly ──────────────────────────────────────────────────────
 
-  it('không token ⇒ 401; NV thường ⇒ 403 ở MỌI route (6/6), không ghi gì', async () => {
+  it('không token ⇒ 401; NV thường ⇒ 403 ở MỌI route (7/7), không ghi gì', async () => {
     await guiDanhMuc(KHOA_A);
+    await napKhoMacDinh();
     expect((await goi('GET', '/tai-lieu', null)).statusCode).toBe(401);
     const cac = [
       await goi('GET', '/tai-lieu', MEMBER),
+      await goi('GET', '/tai-lieu/doc-1/toan-van', MEMBER),
       await goi('POST', '/tai-lieu/duyet', MEMBER, mucTl('doc-1')),
       await goi('POST', '/tai-lieu/bo-duyet', MEMBER, { ids: ['doc-1'] }),
       await goi('GET', '/mo-ta', MEMBER),
       await goi('POST', '/mo-ta/duyet', MEMBER, { sanPham: [{ productId: 11, moTaBam: bamMoTa(MO_1) }] }),
       await goi('POST', '/mo-ta/bo-duyet', MEMBER, { productIds: [11] }),
     ];
-    expect(cac.map((r) => r.statusCode)).toEqual([403, 403, 403, 403, 403, 403]);
+    expect(cac.map((r) => r.statusCode)).toEqual([403, 403, 403, 403, 403, 403, 403]);
     expect(await prisma.botTaiLieuChoKhach.count({ where: { orgId: ORG_A } })).toBe(0);
     expect(await prisma.botMoTaDuyet.count({ where: { orgId: ORG_A } })).toBe(0);
   });
 
-  it('cách ly org: danh mục + duyệt của A không thấy/không đụng được từ B (khoá B, owner B)', async () => {
+  it('cách ly org: kho + duyệt của A không thấy/không đụng được từ B (khoá B, owner B)', async () => {
     await guiDanhMuc(KHOA_A);
+    await napKhoMacDinh();
     expect((await goi('POST', '/tai-lieu/duyet', OWNER, mucTl('doc-1'))).statusCode).toBe(200);
-    // Owner B: chưa có danh mục org B ⇒ không thấy tài liệu A, duyệt id của A ⇒ 409 (không có danh mục), bỏ duyệt ⇒ 0.
+    // Owner B: kho org B rỗng ⇒ không thấy tài liệu A, duyệt id của A ⇒ 409 (không có trong kho), toàn văn ⇒ 404, bỏ duyệt ⇒ 0.
     const dsB = (await goi('GET', '/tai-lieu', OWNER_B)).json();
-    expect(dsB).toEqual({ danhMuc: null, taiLieu: [], duyetNgoaiDanhMuc: [] });
-    expect((await goi('POST', '/tai-lieu/duyet', OWNER_B, mucTl('doc-1'))).json().code).toBe('CHUA_CO_DANH_MUC');
+    expect(dsB).toMatchObject({ kho: { soTaiLieu: 0 }, taiLieu: [], duyetNgoaiDanhMuc: [] });
+    expect((await goi('POST', '/tai-lieu/duyet', OWNER_B, mucTl('doc-1'))).json().code).toBe('KHONG_CO_TRONG_DANH_MUC');
+    expect((await goi('GET', '/tai-lieu/doc-1/toan-van', OWNER_B)).statusCode).toBe(404);
     expect((await goi('POST', '/tai-lieu/bo-duyet', OWNER_B, { ids: ['doc-1'] })).json()).toEqual({ doi: 0 });
     expect((await idCongKhai(KHOA_B))).toEqual([]);
     expect((await idCongKhai(KHOA_A))).toEqual(['doc-1']);
@@ -217,15 +247,15 @@ describeCanDb('bot-cho-khach — duyệt tài liệu RAG + mô tả SP cho khác
 
   // ── Tài liệu ────────────────────────────────────────────────────────────────
 
-  it('chưa có danh mục ⇒ duyệt 409 CHUA_CO_DANH_MUC; GET duyệt công khai rỗng (mặc định đóng)', async () => {
+  it('kho rỗng ⇒ duyệt 409 KHONG_CO_TRONG_DANH_MUC; GET duyệt công khai rỗng (mặc định đóng)', async () => {
     const r = await goi('POST', '/tai-lieu/duyet', OWNER, mucTl('doc-1'));
-    expect([r.statusCode, r.json().code]).toEqual([409, 'CHUA_CO_DANH_MUC']);
+    expect([r.statusCode, r.json().code]).toEqual([409, 'KHONG_CO_TRONG_DANH_MUC']);
     const d = await docDuyet(KHOA_A);
     expect(d).toMatchObject({ danh_muc_phien_ban: null, tai_lieu_cho_khach: [], mo_ta_da_duyet: [] });
   });
 
-  it('duyệt hàng loạt: chỉ id có trong danh mục (lô có id lạ ⇒ 409 cả lô, không ghi gì); trùng ⇒ không ghi lại; nhật ký MỖI mục', async () => {
-    await guiDanhMuc(KHOA_A);
+  it('duyệt hàng loạt: chỉ id có trong KHO (lô có id lạ ⇒ 409 cả lô, không ghi gì); trùng ⇒ không ghi lại; nhật ký MỖI mục', async () => {
+    await napKhoMacDinh();
     const la = await goi('POST', '/tai-lieu/duyet', OWNER, mucTl('doc-1', 'doc-khong-co'));
     expect([la.statusCode, la.json().code]).toEqual([409, 'KHONG_CO_TRONG_DANH_MUC']);
     expect(await prisma.botTaiLieuChoKhach.count({ where: { orgId: ORG_A } })).toBe(0);
@@ -241,17 +271,22 @@ describeCanDb('bot-cho-khach — duyệt tài liệu RAG + mô tả SP cho khác
     expect(nk[0].sau).toEqual({ tieuDe: 'Datasheet P10', choKhach: true, noiDungBam: bamTl('Datasheet P10') });
 
     const ds = (await goi('GET', '/tai-lieu', ADMIN)).json();
-    expect(ds.danhMuc.phienBan).toBe('dm-1');
+    expect(ds.kho.soTaiLieu).toBe(3);
+    // sắp theo tiêu đề
     expect(ds.taiLieu.map((t: { id: string; choKhach: boolean; trangThai: string }) => [t.id, t.choKhach, t.trangThai])).toEqual([
-      ['doc-1', true, 'da_duyet'], ['doc-2', false, 'chua_duyet'], ['doc-3', true, 'da_duyet'],
+      ['doc-2', false, 'chua_duyet'], ['doc-1', true, 'da_duyet'], ['doc-3', true, 'da_duyet'],
     ]);
-    expect(ds.taiLieu[0]).toMatchObject({ noiDungBam: bamTl('Datasheet P10'), noiDungBamDaDuyet: bamTl('Datasheet P10') });
-    expect(ds.taiLieu[0]).toMatchObject({ tieuDe: 'Datasheet P10', mauNoiDung: 'Nội dung Datasheet P10', duyetBoi: { id: OWNER, fullName: `Tên ${OWNER}` } });
+    const d1 = ds.taiLieu.find((t: { id: string }) => t.id === 'doc-1');
+    expect(d1).toMatchObject({ noiDungBam: bamTl('Datasheet P10'), noiDungBamDaDuyet: bamTl('Datasheet P10'), soDoan: 2, nguon: 'datasheet-pdf' });
+    expect(d1).toMatchObject({ tieuDe: 'Datasheet P10', mauNoiDung: 'Nội dung Datasheet P10\nĐoạn hai', duyetBoi: { id: OWNER, fullName: `Tên ${OWNER}` } });
+    // "Bảng giá nội bộ" ⇒ dấu hiệu nội bộ (chỉ nhắc)
+    expect(ds.taiLieu[0].dauHieuNoiBo.join(' ')).toMatch(/bảng giá/);
+    expect(d1.dauHieuNoiBo).toEqual([]);
     expect((await idCongKhai(KHOA_A))).toEqual(['doc-1', 'doc-3']);
   });
 
   it('bỏ duyệt hàng loạt: luôn được; chỉ mục đang duyệt mới ghi nhật ký', async () => {
-    await guiDanhMuc(KHOA_A);
+    await napKhoMacDinh();
     await goi('POST', '/tai-lieu/duyet', OWNER, mucTl('doc-1', 'doc-3'));
     await prisma.botQuyenNhatKy.deleteMany({ where: { orgId: ORG_A } });
     expect((await goi('POST', '/tai-lieu/bo-duyet', ADMIN, { ids: ['doc-1', 'doc-2'], lyDo: 'nhầm' })).json()).toEqual({ doi: 1 });
@@ -260,31 +295,29 @@ describeCanDb('bot-cho-khach — duyệt tài liệu RAG + mô tả SP cho khác
     expect((await idCongKhai(KHOA_A))).toEqual(['doc-3']);
   });
 
-  it('tài liệu đã duyệt rời danh mục ⇒ không còn ở GET công khai, hiện ở duyetNgoaiDanhMuc, vẫn bỏ duyệt được', async () => {
-    await guiDanhMuc(KHOA_A);
+  it('tài liệu đã duyệt bị xoá khỏi kho ⇒ không còn ở GET công khai, hiện ở duyetNgoaiDanhMuc, vẫn bỏ duyệt được', async () => {
+    await napKhoMacDinh();
     await goi('POST', '/tai-lieu/duyet', OWNER, mucTl('doc-1', 'doc-3'));
-    await guiDanhMuc(KHOA_A, danhMuc({ phien_ban: 'dm-2', tai_lieu: [tl('doc-1', 'Datasheet P10')] }));
+    await prisma.knowledgeDocument.delete({ where: { id: 'doc-3' } });
     expect((await idCongKhai(KHOA_A))).toEqual(['doc-1']);
     expect((await goi('GET', '/tai-lieu', OWNER)).json().duyetNgoaiDanhMuc).toEqual(['doc-3']);
     expect((await goi('POST', '/tai-lieu/bo-duyet', OWNER, { ids: ['doc-3'] })).json()).toEqual({ doi: 1 });
   });
 
-  it('duyệt tài liệu gắn băm NỘI DUNG: nạp lại cùng id mà nội dung đổi ⇒ hết hiệu lực; băm cũ ⇒ 409; duyệt lại ⇒ hiệu lực', async () => {
-    await guiDanhMuc(KHOA_A);
+  it('duyệt tài liệu gắn băm NỘI DUNG: kho nạp lại cùng id mà nội dung đổi ⇒ hết hiệu lực; băm cũ ⇒ 409; duyệt lại ⇒ hiệu lực', async () => {
+    await napKhoMacDinh();
     expect((await goi('POST', '/tai-lieu/duyet', OWNER, mucTl('doc-1', 'doc-3'))).json()).toEqual({ doi: 2 });
     expect((await docDuyet(KHOA_A)).tai_lieu_cho_khach).toEqual([
       { id: 'doc-1', noi_dung_bam: bamTl('Datasheet P10') }, { id: 'doc-3', noi_dung_bam: bamTl('Hướng dẫn lắp') },
     ]);
 
-    // Kho tri thức nạp lại doc-1 (cùng kb_documents.id, nội dung khác) ⇒ bot đẩy danh mục với băm mới.
+    // Kho tri thức CRM nạp lại doc-1 (cùng id, nội dung khác) ⇒ CRM tự tính băm mới.
     const bamMoi = bamNoiDungTaiLieu(['Nội dung Datasheet P10', 'Đoạn hai — đã sửa giá 125.000đ'])!;
-    await guiDanhMuc(KHOA_A, danhMuc({
-      phien_ban: 'dm-2', tai_lieu: [tl('doc-1', 'Datasheet P10', { noi_dung_bam: bamMoi }), tl('doc-2', 'Bảng giá nội bộ'), tl('doc-3', 'Hướng dẫn lắp')],
-    }));
+    await napKho(ORG_A, 'doc-1', 'Datasheet P10', ['Nội dung Datasheet P10', 'Đoạn hai — đã sửa giá 125.000đ']);
     // Công khai: doc-1 KHÔNG còn (mặc định đóng) — chỉ doc-3 giữ nguyên.
     expect((await docDuyet(KHOA_A)).tai_lieu_cho_khach).toEqual([{ id: 'doc-3', noi_dung_bam: bamTl('Hướng dẫn lắp') }]);
     const ds = (await goi('GET', '/tai-lieu', OWNER)).json();
-    expect(ds.taiLieu[0]).toMatchObject({
+    expect(ds.taiLieu.find((t: { id: string }) => t.id === 'doc-1')).toMatchObject({
       id: 'doc-1', trangThai: 'doi_sau_duyet', choKhach: false, noiDungBam: bamMoi, noiDungBamDaDuyet: bamTl('Datasheet P10'),
     });
 
@@ -307,17 +340,19 @@ describeCanDb('bot-cho-khach — duyệt tài liệu RAG + mô tả SP cho khác
     ]]);
   });
 
-  it('tài liệu rỗng (noi_dung_bam null) không duyệt được ⇒ 409 TAI_LIEU_DA_DOI; trạng thái khong_noi_dung', async () => {
-    await guiDanhMuc(KHOA_A, danhMuc({ tai_lieu: [tl('doc-1', 'Datasheet P10'), tl('doc-9', 'Ảnh chưa OCR', { noi_dung_bam: null, so_doan: 0 })] }));
+  it('tài liệu rỗng (không đoạn — vd mục lục) không duyệt được ⇒ 409 TAI_LIEU_DA_DOI; trạng thái khong_noi_dung', async () => {
+    await napKho(ORG_A, 'doc-1', 'Datasheet P10', ['Nội dung Datasheet P10', 'Đoạn hai']);
+    await napKho(ORG_A, 'doc-9', 'Ảnh chưa OCR', []);
     const r = await goi('POST', '/tai-lieu/duyet', OWNER, { taiLieu: [{ id: 'doc-9', noiDungBam: 'a'.repeat(64) }] });
     expect([r.statusCode, r.json().code]).toEqual([409, 'TAI_LIEU_DA_DOI']);
     const ds = (await goi('GET', '/tai-lieu', OWNER)).json();
-    expect(ds.taiLieu[1]).toMatchObject({ id: 'doc-9', trangThai: 'khong_noi_dung', noiDungBam: null, choKhach: false });
+    expect(ds.taiLieu.find((t: { id: string }) => t.id === 'doc-9')).toMatchObject({ trangThai: 'khong_noi_dung', noiDungBam: null, choKhach: false, soDoan: 0 });
     expect(await idCongKhai(KHOA_A)).toEqual([]);
   });
 
   it('lô rỗng / quá 500 / id sai dạng ⇒ 400', async () => {
     await guiDanhMuc(KHOA_A);
+    await napKhoMacDinh();
     const cac = [
       await goi('POST', '/tai-lieu/duyet', OWNER, mucTl()),
       await goi('POST', '/tai-lieu/duyet', OWNER, mucTl(...Array.from({ length: 501 }, (_, i) => `d${i}`))),
@@ -405,6 +440,7 @@ describeCanDb('bot-cho-khach — duyệt tài liệu RAG + mô tả SP cho khác
 
   it('GET duyệt: phien_ban ổn định khi không đổi, đổi khi duyệt/bỏ duyệt; danh_muc_phien_ban theo danh mục', async () => {
     await guiDanhMuc(KHOA_A);
+    await napKhoMacDinh();
     const a = await docDuyet(KHOA_A);
     expect(a.danh_muc_phien_ban).toBe('dm-1');
     expect((await docDuyet(KHOA_A)).phien_ban).toBe(a.phien_ban);
@@ -420,11 +456,27 @@ describeCanDb('bot-cho-khach — duyệt tài liệu RAG + mô tả SP cho khác
 
   it('nhật ký chung (/nhat-ky) hiện tên đối tượng cho dòng cho khách', async () => {
     await guiDanhMuc(KHOA_A);
+    await napKhoMacDinh();
     await goi('POST', '/tai-lieu/duyet', OWNER, mucTl('doc-1'));
     await goi('POST', '/mo-ta/duyet', OWNER, { sanPham: [{ productId: 11, moTaBam: bamMoTa(MO_1) }] });
     const r = await admin.inject({ method: 'GET', url: '/api/v1/bot-quyen/nhat-ky', headers: { authorization: `Bearer ${token(OWNER)}` } });
     const ds = r.json().nhatKy as Array<{ doiTuong: string; tenDoiTuong: string | null }>;
     expect(ds.find((e) => e.doiTuong === 'tai_lieu_cho_khach')?.tenDoiTuong).toBe('Datasheet P10');
     expect(ds.find((e) => e.doiTuong === 'mo_ta_duyet')?.tenDoiTuong).toBe('Sản phẩm 11');
+  });
+
+  it('toàn văn: đoạn theo ord + băm + dấu hiệu nội bộ xét TOÀN VĂN (giá ở đoạn cuối vẫn thấy)', async () => {
+    await napKho(ORG_A, 'doc-7', 'Card thu BX-V7512', ['Tên: Card thu BX-V7512', 'x'.repeat(400), 'Giá bán: 260.000đ']);
+    const r = (await goi('GET', '/tai-lieu/doc-7/toan-van', ADMIN)).json();
+    expect(r.doan).toEqual(['Tên: Card thu BX-V7512', 'x'.repeat(400), 'Giá bán: 260.000đ']);
+    expect(r.noiDungBam).toBe(bamNoiDungTaiLieu(r.doan));
+    expect(r.dauHieuNoiBo.join(' ')).toMatch(/giá/);
+    expect((await goi('GET', '/tai-lieu/khong-co/toan-van', ADMIN)).statusCode).toBe(404);
+    expect((await goi('GET', '/tai-lieu/c%C3%B3%20d%E1%BA%A5u/toan-van', ADMIN)).statusCode).toBe(400);
+  });
+
+  it('danh mục không có khoá tai_lieu (bot mới) ⇒ 200', async () => {
+    const r = await guiDanhMuc(KHOA_A, { phien_ban: 'dm-x', san_pham: [sp(11, MO_1)] });
+    expect(r.json()).toEqual({ ok: true, phien_ban: 'dm-x', so_tai_lieu: 0, so_san_pham: 1 });
   });
 });

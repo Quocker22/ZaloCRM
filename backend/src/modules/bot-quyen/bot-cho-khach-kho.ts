@@ -1,0 +1,368 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Nguồn thông số kỹ thuật cho bot = KHO TRI THỨC CỦA CRM (knowledge_documents / knowledge_chunks) — docs/79, sửa 02/10 tối
+// (chủ: thông số kỹ thuật nằm ở kho tri thức CRM, không phải kb_documents của bot).
+//
+// Hai đường tìm, cùng một bộ xếp hạng (`xepHangDoan` — hybrid vector + từ khoá y như agent CRM):
+//   • KHÁCH  (POST /api/public/cho-khach/tim):  CHỈ tài liệu đã DUYỆT "khách xem được" mà băm nội dung HIỆN TẠI (§3b, tính từ
+//     CHÍNH các đoạn vừa đọc để xếp hạng — không đọc lại giữa chừng) == băm lúc duyệt. Chưa duyệt / đổi sau duyệt ⇒ không bao giờ.
+//   • NHÂN VIÊN (POST /api/public/tai-lieu-ky-thuat/tim): mọi tài liệu của org — NV vốn đọc cả kho (tool tra_tri_thuc cũ).
+// Lưới chung: mỗi đoạn trả bot bị bỏ DÒNG có giá/tiền, SĐT, đường dẫn/email, số tồn, liên hệ mua bán (không đụng dòng thông số).
+// Bot còn bộ kiểm riêng (đường khách: số phải có trong nguồn, không giá/SĐT/link).
+import { prisma } from '../../shared/database/prisma-client.js';
+import { withTenant } from '../../shared/tenant/tenant-context.js';
+import { logger } from '../../shared/utils/logger.js';
+import { generateEmbedding } from '../ai/knowledge/embedding.js';
+import { xepHangDoan, type EmbedConfig } from '../ai/knowledge/knowledge-service.js';
+import { doanCoGia } from '../ai/odoo/tools/tra-tri-thuc.js';
+import { LoiChoKhach, bamNoiDungTaiLieu, soKyTu } from './bot-cho-khach-hop-dong.js';
+
+/** Mẫu đầu nội dung cho người duyệt nhìn (code point). */
+export const MAU_KY_TU = 300;
+export const SO_DOAN_TOI_DA = 5;
+const SO_DOAN_MAC_DINH = 3;
+const DAI_TRUY_VAN = 500;
+const DAI_TEN = 500;
+const DAI_MA = 128;
+const NEO_NHOM_TOI_DA = 8;
+const NEO_LUA_CHON_TOI_DA = 6;
+const DANG_NEO = /^[0-9a-z]{1,40}$/;
+/** Ứng viên tối thiểu lấy từ bộ xếp hạng (thực tế: mọi ứng viên sau lọc neo). */
+const UNG_VIEN = 40;
+
+function boDau(s: string): string {
+  return s.normalize('NFC').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd');
+}
+
+// ── Băm (hợp đồng §3b) ──────────────────────────────────────────────────────────────────────────────────────────────
+
+/** Băm nội dung tài liệu từ các đoạn knowledge_chunks: sắp ord tăng dần (phá hoà theo id), nối "\n", chuẩn hoá §3, sha256. */
+export function bamTuDoan(doan: ReadonlyArray<{ id: string; ord: number; content: string }>): string | null {
+  const s = [...doan].sort((a, b) => a.ord - b.ord || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return bamNoiDungTaiLieu(s.map((x) => x.content));
+}
+
+// ── Dòng bẩn + dấu hiệu nội bộ ─────────────────────────────────────────────────────────────────────────────────────
+
+const CHU_NOI_BO: Array<[string, string]> = [
+  ['bang gia', 'bảng giá'], ['bao gia', 'báo giá'], ['gia von', 'giá vốn'], ['gia nhap', 'giá nhập'], ['gia dai ly', 'giá đại lý'],
+  ['gia si', 'giá sỉ'], ['chiet khau', 'chiết khấu'], ['noi bo', 'nội bộ'], ['cong no', 'công nợ'], ['hoa hong', 'hoa hồng'],
+  ['ton kho', 'tồn kho'], ['so luong ton', 'số lượng tồn'],
+];
+
+/** Một DÒNG có giá/tiền? "3000K", "60 bóng/m", "16,7 triệu màu", "50.000 giờ", "Giá trị" KHÔNG phải tiền. */
+export function dongCoGia(dong: string): boolean {
+  if (doanCoGia(dong)) return true;
+  const k = boDau(dong);
+  if (/\bgia\s*(ban|von|si|le|nhap|dai ly|tot|niem yet|khuyen mai|uu dai|goc|tham khao)\b/.test(k)) return true;
+  if (/\b(chiet khau|giam gia|bang gia|bao gia)\b/.test(k)) return true;
+  if (/\d[\d.,]*\s*(?:₫|đ|vnđ|vnd|usd)(?![a-zà-ỹ])/i.test(dong)) return true;
+  if (/(?:^|[^\w])\$\s*\d|\d\s*\$/.test(dong)) return true;
+  if (/(?<![\w.,])\d{1,3}(?:[.,]\d)?\s?k(?![a-zA-Z0-9])/.test(dong)) return true;   // "120k" — K HOA là nhiệt độ màu
+  if (/\d\s?tr(?:\d|(?![a-zà-ỹ]))/i.test(dong)) return true;                           // "1tr2", "1,2tr"
+  return false;
+}
+
+const RE_SDT = /(?<!\d)(?:\+?84[\s.-]?|0)(?:[35789]\d|2\d{2})(?:[\s.-]?\d){7}(?!\d)/;
+const RE_LINK = /\b(?:https?:\/\/|www\.)|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|vn|net|org|info|biz|io|cn|dev|shop|store|xyz)\b/i;
+const RE_EMAIL = /[\w.+-]+@[\w-]+\.[\w.-]+/;
+const RE_TON = /\b(?:ton(?:\s*kho)?|so luong ton|stock|inventory)\s*[:=]?\s*\d/;
+const RE_LIEN_HE = /\b(?:lien he|hotline|zalo|goi ngay|inbox|nhan tin|san hang|san so luong|co san hang)\b/;
+
+/** Dòng KHÔNG được tới bot: giá/tiền, SĐT, đường dẫn, email, số tồn, liên hệ mua bán. */
+export function dongBan(dong: string): boolean {
+  const k = boDau(dong);
+  return dongCoGia(dong) || RE_SDT.test(dong) || RE_LINK.test(dong) || RE_EMAIL.test(dong) || RE_TON.test(k) || RE_LIEN_HE.test(k);
+}
+
+/** Bỏ dòng bẩn; giữ dòng còn lại theo thứ tự. Mọi dòng bẩn ⇒ ''. */
+export function lamSachChoKhach(noiDung: string): string {
+  return noiDung.replace(/\r\n?/g, '\n').split('\n').filter((d) => d.trim() && !dongBan(d)).join('\n').trim();
+}
+
+/**
+ * Lý do một tài liệu "có vẻ nội bộ" — xét tiêu đề + TOÀN VĂN (CRM giữ toàn văn ⇒ bảng giá ở trang cuối vẫn thấy). Chỉ để
+ * NHẮC người duyệt; dòng giá/SĐT/link vẫn bị bỏ khi trả bot dù tài liệu đã duyệt.
+ */
+export function dauHieuNoiBo(tieuDe: string, doan: readonly string[]): string[] {
+  const ra: string[] = [];
+  const k = ` ${boDau(`${tieuDe}\n${doan.join('\n')}`).replace(/[^a-z0-9]+/g, ' ')} `;
+  for (const [c, hien] of CHU_NOI_BO) if (k.includes(` ${c} `)) ra.push(`chữ “${hien}”`);
+  let gia = 0;
+  let sdt = 0;
+  let link = 0;
+  let ton = 0;
+  for (const d of doan.join('\n').split('\n')) {
+    if (!d.trim()) continue;
+    if (dongCoGia(d)) gia++;
+    if (RE_SDT.test(d)) sdt++;
+    if (RE_LINK.test(d) || RE_EMAIL.test(d)) link++;
+    if (RE_TON.test(boDau(d))) ton++;
+  }
+  if (gia) ra.push(`${gia} dòng có giá/tiền (bot bỏ các dòng này)`);
+  if (ton) ra.push(`${ton} dòng có số tồn (bot bỏ)`);
+  if (sdt) ra.push(`${sdt} dòng có số điện thoại (bot bỏ)`);
+  if (link) ra.push(`${link} dòng có đường dẫn/email (bot bỏ)`);
+  return ra;
+}
+
+export function mauNoiDung(doan: readonly string[]): string | null {
+  const s = doan.join('\n').trim();
+  if (!s) return null;
+  const a = Array.from(s);
+  return a.length > MAU_KY_TU ? a.slice(0, MAU_KY_TU).join('') : s;
+}
+
+// ── Token / neo định danh SP ────────────────────────────────────────────────────────────────────────────────────────
+
+/** Token như bot (`khach.nguon._tap_token_tai_lieu`): [0-9a-z]+ sau khi bỏ dấu, kèm ghép 2–3 token liền nhau. */
+export function tapToken(text: string): Set<string> {
+  const t = boDau(text).match(/[0-9a-z]+/g) ?? [];
+  const ra = new Set(t);
+  for (let i = 0; i < t.length; i++) {
+    if (i + 1 < t.length) ra.add(t[i] + t[i + 1]);
+    if (i + 2 < t.length) ra.add(t[i] + t[i + 1] + t[i + 2]);
+  }
+  return ra;
+}
+
+/** Mọi nhóm neo phải có ít nhất một lựa chọn trong tập token. Không neo ⇒ true. */
+export function khopNeo(neo: readonly (readonly string[])[] | null | undefined, tap: Set<string>): boolean {
+  if (!neo || neo.length === 0) return true;
+  return neo.every((g) => g.some((x) => tap.has(x)));
+}
+
+// ── Yêu cầu tìm ─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+export interface SanPhamTim {
+  ten: string | null;
+  ma: string | null;
+  /** Nhóm neo định danh (bot dựng): đoạn (kèm tiêu đề tài liệu) phải khớp MỌI nhóm. */
+  neo?: string[][];
+}
+
+export interface YeuCauTim {
+  truyVan: string;
+  soDoan: number;
+  sanPham: SanPhamTim | null;
+}
+
+function saiTim(msg: string): never {
+  throw new LoiChoKhach(400, 'YEU_CAU_TIM_KHONG_HOP_LE', msg);
+}
+
+function chuoiTuyChon(x: unknown, ten: string, toiDa: number): string | null {
+  if (x === undefined || x === null) return null;
+  if (typeof x !== 'string') saiTim(`${ten} phải là chuỗi hoặc null`);
+  const t = x.trim();
+  if (soKyTu(t) > toiDa) saiTim(`${ten} dài quá ${toiDa} ký tự`);
+  return t || null;
+}
+
+/** Kiểm thân POST …/tim. Sai ⇒ 400 YEU_CAU_TIM_KHONG_HOP_LE. */
+export function docYeuCauTim(body: unknown): YeuCauTim {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) saiTim('Thân phải là object JSON');
+  const b = body as Record<string, unknown>;
+  const truyVan = chuoiTuyChon(b.truy_van, 'truy_van', DAI_TRUY_VAN);
+  if (!truyVan) saiTim('truy_van bắt buộc');
+  let soDoan = SO_DOAN_MAC_DINH;
+  if (b.so_doan !== undefined && b.so_doan !== null) {
+    if (typeof b.so_doan !== 'number' || !Number.isInteger(b.so_doan) || b.so_doan < 1 || b.so_doan > SO_DOAN_TOI_DA) {
+      saiTim(`so_doan là số nguyên 1–${SO_DOAN_TOI_DA}`);
+    }
+    soDoan = b.so_doan;
+  }
+  let sanPham: SanPhamTim | null = null;
+  if (b.san_pham !== undefined && b.san_pham !== null) {
+    if (typeof b.san_pham !== 'object' || Array.isArray(b.san_pham)) saiTim('san_pham phải là object hoặc null');
+    const s = b.san_pham as Record<string, unknown>;
+    sanPham = { ten: chuoiTuyChon(s.ten, 'san_pham.ten', DAI_TEN), ma: chuoiTuyChon(s.ma, 'san_pham.ma', DAI_MA) };
+    if (s.neo !== undefined && s.neo !== null) {
+      if (!Array.isArray(s.neo) || s.neo.length > NEO_NHOM_TOI_DA) saiTim(`san_pham.neo là mảng ≤ ${NEO_NHOM_TOI_DA} nhóm`);
+      sanPham.neo = s.neo.map((g, i) => {
+        if (!Array.isArray(g) || g.length < 1 || g.length > NEO_LUA_CHON_TOI_DA
+            || !g.every((x) => typeof x === 'string' && DANG_NEO.test(x))) {
+          saiTim(`san_pham.neo[${i}] là mảng 1–${NEO_LUA_CHON_TOI_DA} chuỗi [0-9a-z]{1,40}`);
+        }
+        return g as string[];
+      });
+    }
+  }
+  return { truyVan, soDoan, sanPham };
+}
+
+/** Đoạn nói ĐÚNG mã SP (bỏ dấu/gạch/khoảng) lên đầu; phần còn lại giữ thứ tự. Mã < 3 ký tự ⇒ không đổi. */
+export function uuTienTheoSanPham<T extends { tieuDe: string; noiDung: string }>(ds: readonly T[], sp: SanPhamTim | null): T[] {
+  const ma = sp?.ma ? boDau(sp.ma).replace(/[^0-9a-z]+/g, '') : '';
+  if (ma.length < 3) return [...ds];
+  const co = (x: T) => boDau(`${x.tieuDe}\n${x.noiDung}`).replace(/[^0-9a-z]+/g, '').includes(ma);
+  return [...ds.filter(co), ...ds.filter((x) => !co(x))];
+}
+
+// ── Đọc kho ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** Bề mặt Prisma tối thiểu (client thường lẫn client giao dịch đều khớp — kiểu sinh của hai client không hợp nhau). */
+export interface KhoDb {
+  knowledgeDocument: {
+    findMany(args: { where: Record<string, unknown>; select: { id: true; title: true; source: true; updatedAt: true } }):
+      Promise<Array<{ id: string; title: string; source: string; updatedAt: Date }>>;
+  };
+  knowledgeChunk: {
+    findMany(args: { where: Record<string, unknown>; select: { id: true; documentId: true; ord: true; content: true } }):
+      Promise<Array<{ id: string; documentId: string; ord: number; content: string }>>;
+  };
+}
+
+export interface TaiLieuKho {
+  id: string;
+  tieuDe: string;
+  nguon: string;
+  capNhatLuc: Date;
+  /** Đoạn theo ord tăng dần (phá hoà theo id). */
+  doan: string[];
+  /** §3b — null = không đoạn / rỗng (không duyệt được). */
+  noiDungBam: string | null;
+}
+
+/** Tài liệu của org kèm đoạn + băm (CRM tự tính) — `ids` để chỉ đọc vài tài liệu. Sắp theo tiêu đề. */
+export async function docKho(db: KhoDb, orgId: string, ids?: readonly string[]): Promise<TaiLieuKho[]> {
+  const [docs, chunks] = await Promise.all([
+    db.knowledgeDocument.findMany({
+      where: ids ? { orgId, id: { in: [...ids] } } : { orgId },
+      select: { id: true, title: true, source: true, updatedAt: true },
+    }),
+    db.knowledgeChunk.findMany({
+      where: ids ? { orgId, documentId: { in: [...ids] } } : { orgId },
+      select: { id: true, documentId: true, ord: true, content: true },
+    }),
+  ]);
+  const theoDoc = new Map<string, Array<{ id: string; ord: number; content: string }>>();
+  for (const c of chunks) {
+    const a = theoDoc.get(c.documentId) ?? [];
+    a.push(c);
+    theoDoc.set(c.documentId, a);
+  }
+  return docs.map((d) => {
+    const ds = [...(theoDoc.get(d.id) ?? [])].sort((a, b) => a.ord - b.ord || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    return {
+      id: d.id, tieuDe: d.title, nguon: d.source, capNhatLuc: d.updatedAt, doan: ds.map((x) => x.content), noiDungBam: bamTuDoan(ds),
+    };
+  }).sort((a, b) => a.tieuDe.localeCompare(b.tieuDe, 'vi') || (a.id < b.id ? -1 : 1));
+}
+
+// ── Tìm ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+export interface DoanTim {
+  tai_lieu_id: string;
+  tieu_de: string;
+  noi_dung: string;
+  diem: number;
+}
+
+export interface DepsTim {
+  embed: typeof generateEmbedding;
+  cfg: EmbedConfig;
+}
+
+/** Cấu hình embedding như agent CRM (`du-lieu.ts:timTriThuc`). Thiếu EMBED_BASE_URL ⇒ embed ném ⇒ chỉ tìm theo từ khoá. */
+export function depsTuEnv(): DepsTim {
+  return {
+    embed: generateEmbedding,
+    cfg: {
+      provider: process.env.EMBED_PROVIDER ?? 'openai',
+      model: process.env.EMBED_MODEL ?? 'google/gemini-embedding-001',
+      baseUrl: process.env.EMBED_BASE_URL || undefined,
+      apiKey: process.env.EMBED_API_KEY,
+    },
+  };
+}
+
+interface HangDoan {
+  id: string;
+  documentId: string;
+  ord: number;
+  content: string;
+  embedding: number[];
+  embedDim: number;
+}
+
+async function xepVaLoc(
+  yc: YeuCauTim, rows: readonly HangDoan[], tieuDe: ReadonlyMap<string, string>, deps: DepsTim,
+): Promise<DoanTim[]> {
+  // Neo lọc TRƯỚC khi xếp hạng — topK không bị đoạn của SP khác chiếm chỗ.
+  const neo = yc.sanPham?.neo ?? null;
+  const ung = neo ? rows.filter((r) => khopNeo(neo, tapToken(`${tieuDe.get(r.documentId) ?? ''}\n${r.content}`))) : [...rows];
+  if (ung.length === 0) return [];
+  const cauTim = [yc.truyVan, yc.sanPham?.ten, yc.sanPham?.ma].filter(Boolean).join(' ');
+  // Xếp hạng TRÊN MỌI ứng viên (không cắt topK trước — nhánh từ khoá của `xepHangDoan` dừng ở topK+3 hàng ĐẦU theo thứ tự
+  // đọc, nên đoạn đúng mã nằm sau dễ bị bỏ), rồi ưu tiên đoạn chứa nhiều token PHÂN BIỆT (có chữ số: "p3076", "3840hz",
+  // "v7512") của câu hỏi — tính trên tiêu đề + đoạn; hoà ⇒ giữ thứ tự hybrid.
+  const hits = await xepHangDoan(deps.embed, ung, cauTim, Math.max(UNG_VIEN, ung.length), deps.cfg);
+  const docCua = new Map(ung.map((r) => [r.id, r.documentId]));
+  const phanBiet = [...tapToken(cauTim)].filter((t) => t.length >= 2 && /\d/.test(t));
+  const diemPb = new Map(hits.map((h) => {
+    const tap = tapToken(`${tieuDe.get(docCua.get(h.chunkId) ?? '') ?? ''}\n${h.content}`);
+    return [h.chunkId, phanBiet.filter((t) => tap.has(t)).length];
+  }));
+  hits.sort((a, b) => (diemPb.get(b.chunkId) ?? 0) - (diemPb.get(a.chunkId) ?? 0));
+  const daCo = new Set<string>();
+  const ra: Array<{ tieuDe: string; noiDung: string; id: string; diem: number }> = [];
+  for (const h of hits) {
+    const id = docCua.get(h.chunkId);
+    if (!id) continue;
+    const sach = lamSachChoKhach(h.content);
+    if (!sach || daCo.has(sach)) continue;
+    daCo.add(sach);
+    ra.push({ tieuDe: tieuDe.get(id) ?? '', noiDung: sach, id, diem: Number.isFinite(h.score) ? h.score : 0 });
+  }
+  return uuTienTheoSanPham(ra, yc.sanPham).slice(0, yc.soDoan)
+    .map((x) => ({ tai_lieu_id: x.id, tieu_de: x.tieuDe, noi_dung: x.noiDung, diem: Math.round(x.diem * 1000) / 1000 }));
+}
+
+const CHON_DOAN = { id: true, documentId: true, ord: true, content: true, embedding: true, embedDim: true } as const;
+
+/**
+ * KHÁCH: chỉ tài liệu ĐÃ DUYỆT mà băm nội dung hiện tại == băm lúc duyệt. Băm tính trên CHÍNH các hàng vừa đọc để xếp hạng
+ * (một lần đọc) ⇒ nội dung chưa duyệt không bao giờ lọt dù kho nạp lại giữa chừng. Org lấy từ khoá (người gọi).
+ */
+export async function timChoKhach(orgId: string, body: unknown, deps: DepsTim = depsTuEnv()): Promise<{ ket_qua: DoanTim[] }> {
+  const yc = docYeuCauTim(body);
+  return withTenant(orgId, async () => {
+    const duyet = await prisma.botTaiLieuChoKhach.findMany({ where: { orgId }, select: { taiLieuId: true, noiDungBam: true } });
+    if (duyet.length === 0) return { ket_qua: [] };
+    const bamDuyet = new Map(duyet.map((d) => [d.taiLieuId, d.noiDungBam]));
+    const ids = [...bamDuyet.keys()];
+    const [docs, rows] = await Promise.all([
+      prisma.knowledgeDocument.findMany({ where: { orgId, id: { in: ids } }, select: { id: true, title: true } }),
+      prisma.knowledgeChunk.findMany({ where: { orgId, documentId: { in: ids } }, select: CHON_DOAN }),
+    ]);
+    const theoDoc = new Map<string, HangDoan[]>();
+    for (const r of rows) {
+      const a = theoDoc.get(r.documentId) ?? [];
+      a.push(r);
+      theoDoc.set(r.documentId, a);
+    }
+    const dung = new Set([...theoDoc.entries()].filter(([id, ds]) => {
+      const b = bamTuDoan(ds);
+      return b !== null && b === bamDuyet.get(id);
+    }).map(([id]) => id));
+    const tieuDe = new Map(docs.filter((d) => dung.has(d.id)).map((d) => [d.id, d.title]));
+    const ket_qua = await xepVaLoc(yc, rows.filter((r) => dung.has(r.documentId) && tieuDe.has(r.documentId)), tieuDe, deps);
+    logger.info({ orgId, soTaiLieuDung: tieuDe.size, soTra: ket_qua.length }, '[cho-khach] tìm thông số cho khách');
+    return { ket_qua };
+  });
+}
+
+/** NHÂN VIÊN: mọi tài liệu của org (NV vốn đọc cả kho — như tool tra_tri_thuc trước đây). Cùng lưới bỏ dòng bẩn. */
+export async function timNoiBo(orgId: string, body: unknown, deps: DepsTim = depsTuEnv()): Promise<{ ket_qua: DoanTim[] }> {
+  const yc = docYeuCauTim(body);
+  return withTenant(orgId, async () => {
+    const [docs, rows] = await Promise.all([
+      prisma.knowledgeDocument.findMany({ where: { orgId }, select: { id: true, title: true } }),
+      prisma.knowledgeChunk.findMany({ where: { orgId }, select: CHON_DOAN }),
+    ]);
+    const tieuDe = new Map(docs.map((d) => [d.id, d.title]));
+    const ket_qua = await xepVaLoc(yc, rows.filter((r) => tieuDe.has(r.documentId)), tieuDe, deps);
+    logger.info({ orgId, soTra: ket_qua.length }, '[tai-lieu-ky-thuat] tìm thông số cho NV');
+    return { ket_qua };
+  });
+}

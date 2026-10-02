@@ -20,6 +20,7 @@ vi.mock('@/api/bot-cho-khach', () => ({
   layMoTaChoKhach: vi.fn(),
   duyetMoTaChoKhach: vi.fn(),
   boDuyetMoTaChoKhach: vi.fn(),
+  layToanVanTaiLieu: vi.fn(),
 }));
 vi.mock('@/api/bot-quyen', () => ({
   layNguoiDungCrm: vi.fn().mockResolvedValue([]),
@@ -31,6 +32,7 @@ vi.mock('@/api/bot-quyen', () => ({
 
 import {
   layTaiLieuChoKhach, duyetTaiLieuChoKhach, boDuyetTaiLieuChoKhach, layMoTaChoKhach, duyetMoTaChoKhach, boDuyetMoTaChoKhach,
+  layToanVanTaiLieu,
 } from '@/api/bot-cho-khach';
 import BotQuyenChoKhachTab from '@/components/bot-quyen/BotQuyenChoKhachTab.vue';
 import BotQuyenPage from './BotQuyenPage.vue';
@@ -92,7 +94,7 @@ const N3 = '3'.repeat(64);
 const N4 = '4'.repeat(64);
 const N4_CU = '5'.repeat(64);
 const TAI_LIEU: DsTaiLieuChoKhach = {
-  danhMuc: { phienBan: 'dm-1', luc: '2026-10-02T02:00:00.000Z' },
+  kho: { soTaiLieu: 5, luc: '2026-10-02T02:00:00.000Z' },
   duyetNgoaiDanhMuc: [],
   taiLieu: [
     { id: 'doc-1', tieuDe: 'Datasheet P10', loai: 'pdf', nguon: 'file-zalo', soDoan: 12, capNhatLuc: '2026-09-30T02:00:00.000Z',
@@ -239,16 +241,38 @@ describe('Tab "Cho khách" — tài liệu', () => {
     w.unmount();
   });
 
-  it('hộp duyệt nói rõ: người duyệt mới xem MẪU 300 ký tự (CRM không có toàn văn) + chỉ chỗ xem toàn văn', async () => {
+  it('hộp duyệt nhắc đọc TOÀN VĂN; nút "Xem toàn văn" tải đoạn của đúng tài liệu, bấm lại thì ẩn', async () => {
+    vi.mocked(layToanVanTaiLieu).mockResolvedValue({
+      id: 'doc-3', tieuDe: 'Hướng dẫn lắp', nguon: 'nhap-tay', noiDungBam: N3, doan: ['Bước 1: cắt nguồn', 'Bước 2: đấu dây'],
+      dauHieuNoiBo: [],
+    });
     const w = gan();
     await flushPromises();
     expect(nut(tlHang(w, 'doc-3'), 'Xem mẫu').exists()).toBe(true);
+    expect(tlHang(w, 'doc-5').find('[data-nut="toan-van"]').exists()).toBe(false); // không đoạn ⇒ không nút
+    await tlHang(w, 'doc-3').find('[data-nut="toan-van"]').trigger('click');
+    await flushPromises();
+    expect(layToanVanTaiLieu).toHaveBeenCalledWith('doc-3');
+    expect(tlHang(w, 'doc-3').find('[data-o="toan-van"]').text()).toContain('Bước 2: đấu dây');
+    await tlHang(w, 'doc-3').find('[data-nut="toan-van"]').trigger('click');
+    expect(tlHang(w, 'doc-3').find('[data-o="toan-van"]').exists()).toBe(false);
     await tlHang(w, 'doc-3').find('input[type="checkbox"]').setValue(true);
     await w.find('[data-nut="duyet-tai-lieu"]').trigger('click');
     const hop = w.find('.vo-dialog');
-    expect(hop.find('[data-o="chi-xem-mau"]').text()).toContain('Bạn mới xem mẫu 300 ký tự đầu');
+    expect(hop.find('[data-o="chi-xem-mau"]').exists()).toBe(false);
     expect(hop.find('[data-o="xem-toan-van"]').text()).toContain('Xem toàn văn');
-    expect(hop.find('[data-o="xem-toan-van"]').text()).toContain('kho tri thức');
+    w.unmount();
+  });
+
+  it('cờ "có vẻ nội bộ" theo dauHieuNoiBo của backend (xét toàn văn) — lý do hiện ở title', async () => {
+    const ds = structuredClone(TAI_LIEU);
+    ds.taiLieu[0].dauHieuNoiBo = ['3 dòng có giá/tiền (bot bỏ các dòng này)'];
+    ds.taiLieu[1].dauHieuNoiBo = [];
+    vi.mocked(layTaiLieuChoKhach).mockResolvedValue(ds);
+    const w = gan();
+    await flushPromises();
+    expect(tlHang(w, 'doc-1').find('[data-o="noi-bo"]').attributes('title')).toContain('3 dòng có giá/tiền');
+    expect(tlHang(w, 'doc-2').find('[data-o="noi-bo"]').exists()).toBe(false);
     w.unmount();
   });
 
@@ -283,12 +307,12 @@ describe('Tab "Cho khách" — tài liệu', () => {
     w.unmount();
   });
 
-  it('chưa có danh mục ⇒ câu "Bot chưa gửi danh mục"', async () => {
-    vi.mocked(layTaiLieuChoKhach).mockResolvedValue({ danhMuc: null, taiLieu: [], duyetNgoaiDanhMuc: [] });
+  it('kho tri thức rỗng ⇒ câu "chưa có tài liệu nào"; chưa có danh mục SP ⇒ "Bot chưa gửi danh mục sản phẩm"', async () => {
+    vi.mocked(layTaiLieuChoKhach).mockResolvedValue({ kho: { soTaiLieu: 0, luc: '2026-10-02T02:00:00.000Z' }, taiLieu: [], duyetNgoaiDanhMuc: [] });
     vi.mocked(layMoTaChoKhach).mockResolvedValue({ danhMuc: null, sanPham: [], dem: { coMoTa: 0, daDuyet: 0, doiSauDuyet: 0, chuaDuyet: 0, tong: 0 } });
     const w = gan();
     await flushPromises();
-    expect(phan(w, 'tai-lieu').text()).toContain('Bot chưa gửi danh mục tài liệu');
+    expect(phan(w, 'tai-lieu').text()).toContain('Kho tri thức của CRM chưa có tài liệu nào');
     expect(phan(w, 'mo-ta').text()).toContain('Bot chưa gửi danh mục sản phẩm');
     w.unmount();
   });

@@ -1,7 +1,8 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!--
   Tab "Cho khách" của trang Quyền bot (docs/79 T5): người giữ trang quyết bot được dùng gì khi KHÁCH hỏi thông số trong nhóm khách.
-    • Tài liệu khách xem được — danh mục kho tri thức (RAG) do bot gửi lên; tick hàng loạt. MẶC ĐỊNH không tài liệu nào được dùng.
+    • Tài liệu khách xem được — KHO TRI THỨC CỦA CRM (knowledge_documents, sửa 02/10 tối); tick hàng loạt, "Xem toàn văn" đọc hết
+      trước khi tick. MẶC ĐỊNH không tài liệu nào được dùng cho KHÁCH (nhân viên hỏi thông số thì bot đọc cả kho).
       Duyệt gắn với ĐÚNG nội dung (băm) lúc duyệt: kho nạp lại tài liệu với nội dung khác ⇒ chip "Tài liệu đã đổi — cần duyệt lại".
     • Mô tả sản phẩm đã duyệt — "Mô tả bán hàng" trên Odoo; duyệt gắn với ĐÚNG nội dung đang thấy: sửa mô tả sau đó ⇒ chip
       "Mô tả đã đổi — cần duyệt lại" và bot thôi dùng tới khi duyệt lại (K2).
@@ -17,17 +18,18 @@
       </div>
       <v-alert type="warning" variant="tonal" density="compact" class="mb-3" data-o="canh-bao-noi-bo">
         Chỉ tick tài liệu <b>công khai</b> (datasheet, catalogue, hướng dẫn lắp). <b>KHÔNG tick tài liệu nội bộ, bảng giá, báo giá,
-        chiết khấu, công nợ</b> — bot trích nội dung tài liệu đã tick để trả lời khách trong nhóm.
+        chiết khấu, công nợ</b> — bot trích nội dung tài liệu đã tick để trả lời khách trong nhóm. Dòng có giá/tiền, số điện thoại,
+        đường dẫn bot tự bỏ trước khi trả lời.
       </v-alert>
 
       <v-alert v-if="tl.loi" type="error" variant="tonal" density="compact" class="mb-3" role="alert">{{ tl.loi }}</v-alert>
-      <div v-if="tl.dangTai && !tl.da" class="bq-trong">Đang tải danh mục tài liệu…</div>
-      <div v-else-if="tl.da && !tl.danhMuc" class="bq-trong">
-        Bot chưa gửi danh mục tài liệu — chưa có gì để duyệt. Bot gửi danh mục khi khởi động và mỗi lần kho tri thức đổi.
+      <div v-if="tl.dangTai && !tl.da" class="bq-trong">Đang tải kho tri thức…</div>
+      <div v-else-if="tl.da && tl.ds.length === 0 && tl.ngoaiDanhMuc.length === 0" class="bq-trong">
+        Kho tri thức của CRM chưa có tài liệu nào — chưa có gì để duyệt.
       </div>
-      <template v-else-if="tl.danhMuc">
+      <template v-else-if="tl.da">
         <p class="bq-ck-moc bq-mo">
-          Danh mục bot gửi lúc {{ gio(tl.danhMuc.luc) }} · {{ tl.ds.length }} tài liệu · {{ soChoKhach }} khách xem được
+          Kho tri thức CRM · {{ tl.ds.length }} tài liệu · {{ soChoKhach }} khách xem được
         </p>
         <div class="bq-ck-loc">
           <v-text-field
@@ -44,7 +46,7 @@
         </div>
         <p v-if="tl.ngoaiDanhMuc.length > 0" class="bq-ck-ngoai">
           <v-icon size="15" icon="mdi-information-outline" />
-          {{ tl.ngoaiDanhMuc.length }} tài liệu đã duyệt không còn trong danh mục bot gửi (bot không dùng).
+          {{ tl.ngoaiDanhMuc.length }} tài liệu đã duyệt không còn trong kho tri thức (bot không dùng).
           <v-btn variant="text" size="small" @click="moHop('bo-tl', tl.ngoaiDanhMuc)">Bỏ duyệt các tài liệu này</v-btn>
         </p>
 
@@ -90,17 +92,24 @@
                   <span v-if="t.nguon" class="bq-chip bq-chip--rong">{{ t.nguon }}</span>
                   <span
                     v-if="coVeNoiBo(t)" class="bq-chip bq-chip--do" data-o="noi-bo"
-                    title="Tên hoặc nội dung có chữ/số tiền hay gặp ở tài liệu nội bộ — kiểm lại trước khi cho khách"
+                    :title="lyDoNoiBo(t)"
                   ><v-icon size="12" icon="mdi-alert-outline" />Có vẻ tài liệu nội bộ</span>
                 </div>
-                <v-btn
-                  v-if="t.mauNoiDung" variant="text" size="x-small" class="bq-ck-xem"
-                  @click="doiMo(t.id)"
-                >{{ tl.mo.includes(t.id) ? 'Ẩn mẫu' : 'Xem mẫu' }}</v-btn>
-                <template v-if="tl.mo.includes(t.id)">
+                <span class="bq-cac-nut">
+                  <v-btn
+                    v-if="t.mauNoiDung" variant="text" size="x-small" class="bq-ck-xem"
+                    @click="doiMo(t.id)"
+                  >{{ tl.mo.includes(t.id) ? 'Ẩn mẫu' : 'Xem mẫu' }}</v-btn>
+                  <v-btn
+                    v-if="t.soDoan > 0" variant="text" size="x-small" class="bq-ck-xem" data-nut="toan-van"
+                    :loading="tl.dangDocToanVan === t.id" @click="doiToanVan(t.id)"
+                  >{{ tl.toanVan[t.id] ? 'Ẩn toàn văn' : 'Xem toàn văn' }}</v-btn>
+                </span>
+                <template v-if="tl.mo.includes(t.id) && !tl.toanVan[t.id]">
                   <p class="bq-ck-mau" data-o="mau">{{ t.mauNoiDung }}</p>
                   <p class="bq-ck-mau-chu bq-mo">{{ CAU_CHI_MAU }}</p>
                 </template>
+                <p v-if="tl.toanVan[t.id]" class="bq-ck-mau bq-ck-toan-van" data-o="toan-van">{{ tl.toanVan[t.id] }}</p>
               </td>
               <td data-nhan="Đoạn"><span class="bq-nho">{{ t.soDoan }}</span></td>
               <td data-nhan="Cập nhật"><span class="bq-nho bq-mo">{{ t.capNhatLuc ? gio(t.capNhatLuc) : '—' }}</span></td>
@@ -223,13 +232,9 @@
       :loi="hop.loi" :nguy-hiem="hop.nguyHiem" @xac-nhan="xacNhanHop"
     >
       <template v-if="hop.loai === 'duyet-tl'">
-        <p class="bq-nho bq-ck-luu-y" data-o="chi-xem-mau">
-          <b>Bạn mới xem mẫu {{ CAT_MAU }} ký tự đầu</b> của mỗi tài liệu — CRM không giữ toàn văn, nên bảng giá / chiết khấu nằm ở
-          trang sau thì cờ "Có vẻ tài liệu nội bộ" KHÔNG thấy.
-        </p>
         <p class="bq-nho bq-ck-luu-y" data-o="xem-toan-van">
-          <v-icon size="14" icon="mdi-book-open-page-variant-outline" /> <b>Xem toàn văn</b> trước khi duyệt: mở tài liệu trong
-          kho tri thức của bot (hỏi bot trong nhóm nội bộ “mở tài liệu &lt;tên&gt;”, hoặc tệp gốc ở nguồn đã ghi cạnh tên).
+          <v-icon size="14" icon="mdi-book-open-page-variant-outline" /> Bấm <b>Xem toàn văn</b> ở từng tài liệu để đọc hết trước khi
+          duyệt — cờ "Có vẻ tài liệu nội bộ" đã xét toàn văn nhưng chỉ là nhắc, người duyệt quyết.
         </p>
       </template>
       <p v-if="hop.ids.length > LO_TOI_DA && !hop.dangLam" class="bq-nho bq-ck-luu-y" data-o="theo-lo">
@@ -244,7 +249,8 @@
 import { computed, onMounted, reactive } from 'vue';
 import {
   layTaiLieuChoKhach, duyetTaiLieuChoKhach, boDuyetTaiLieuChoKhach, layMoTaChoKhach, duyetMoTaChoKhach, boDuyetMoTaChoKhach,
-  type DanhMucMoc, type DemMoTa, type LocMoTa, type MoTaSanPham, type NguoiDuyet, type TaiLieuChoKhach,
+  layToanVanTaiLieu,
+  type DanhMucMoc, type DemMoTa, type KhoMoc, type LocMoTa, type MoTaSanPham, type NguoiDuyet, type TaiLieuChoKhach,
 } from '@/api/bot-cho-khach';
 import { useToast } from '@/composables/use-toast';
 import { loiApi } from '@/views/settings/bot-quyen-loi';
@@ -256,9 +262,15 @@ import {
 import BotQuyenLyDoDialog from './BotQuyenLyDoDialog.vue';
 
 const toast = useToast();
-/** CRM chỉ nhận mẫu này (hợp đồng §2, CAT_MAU_NOI_DUNG) — không có toàn văn. */
+/** Mẫu đầu nội dung (backend MAU_KY_TU). */
 const CAT_MAU = 300;
-const CAU_CHI_MAU = `Chỉ ${CAT_MAU} ký tự đầu — toàn văn xem trong kho tri thức của bot.`;
+const CAU_CHI_MAU = `Chỉ ${CAT_MAU} ký tự đầu — bấm "Xem toàn văn" để đọc hết.`;
+
+function lyDoNoiBo(t: TaiLieuChoKhach): string {
+  const ly = t.dauHieuNoiBo ?? [];
+  return ly.length > 0 ? `Có ${ly.join('; ')} — kiểm lại trước khi cho khách`
+    : 'Tên hoặc nội dung có chữ/số tiền hay gặp ở tài liệu nội bộ — kiểm lại trước khi cho khách';
+}
 
 function gio(luc: string): string {
   return dinhDangGioVN(luc, { coNam: true }).slice(0, 16);
@@ -270,9 +282,9 @@ function nguoiDuyetChu(ai: NguoiDuyet | null, luc: string | null): string {
 
 // ── Tài liệu ──
 const tl = reactive({
-  ds: [] as TaiLieuChoKhach[], danhMuc: null as DanhMucMoc | null, ngoaiDanhMuc: [] as string[],
+  ds: [] as TaiLieuChoKhach[], kho: null as KhoMoc | null, ngoaiDanhMuc: [] as string[],
   dangTai: false, da: false, loi: '', tuKhoa: '' as string | null, loc: 'tat_ca' as LocTaiLieu, chon: [] as string[], mo: [] as string[],
-  dangLam: null as string | null,
+  dangLam: null as string | null, toanVan: {} as Record<string, string>, dangDocToanVan: null as string | null,
 });
 const locTlNut = computed((): Array<{ v: LocTaiLieu; chu: string; so: number }> => [
   { v: 'tat_ca', chu: 'Tất cả', so: tl.ds.length },
@@ -298,14 +310,34 @@ function doiMo(id: string) {
   tl.mo = tl.mo.includes(id) ? tl.mo.filter((x) => x !== id) : [...tl.mo, id];
 }
 
+/** Toàn văn (đoạn theo thứ tự) — tải khi bấm, bấm lại thì ẩn. */
+async function doiToanVan(id: string) {
+  if (tl.toanVan[id]) {
+    const { [id]: _bo, ...con } = tl.toanVan;
+    tl.toanVan = con;
+    return;
+  }
+  tl.dangDocToanVan = id;
+  try {
+    const r = await layToanVanTaiLieu(id);
+    tl.toanVan = { ...tl.toanVan, [id]: r.doan.join('\n\n') || '(trống)' };
+  } catch (e) {
+    const l = loiApi(e, 'Không tải được toàn văn');
+    if (!l.daBao) toast.error(l.chu, 6000);
+  } finally {
+    tl.dangDocToanVan = null;
+  }
+}
+
 async function taiTaiLieu() {
   tl.dangTai = true;
   tl.loi = '';
   try {
     const r = await layTaiLieuChoKhach();
     tl.ds = r.taiLieu;
-    tl.danhMuc = r.danhMuc;
+    tl.kho = r.kho;
     tl.ngoaiDanhMuc = r.duyetNgoaiDanhMuc;
+    tl.toanVan = {};
     tl.da = true;
   } catch (e) {
     const l = loiApi(e, 'Không tải được danh mục tài liệu');
@@ -529,6 +561,7 @@ onMounted(() => {
 }
 .bq-ck-mo-ta { margin: 0; max-height: 9.5em; overflow: auto; }
 .bq-ck-mau-chu { margin: 2px 0 0; font-size: 12px; }
+.bq-ck-toan-van { max-height: 24em; overflow: auto; }
 .bq-ck-luu-y { margin: 8px 0 0; line-height: 1.5; }
 @media (max-width: 700px) {
   .bq-ck-cot-tick { width: auto; }

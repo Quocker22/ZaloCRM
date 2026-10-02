@@ -1,13 +1,19 @@
-# Hợp đồng "Cho khách": bot → CRM → bot (docs/79 T5, 02/10)
+# Hợp đồng "Cho khách": bot → CRM → bot (docs/79 T5, 02/10; sửa 02/10 tối — tài liệu = KHO TRI THỨC CRM)
 
 Đường khách của bot (docs/79 T3/T4) chỉ được dùng **tài liệu kho tri thức (RAG) đã đánh dấu "khách xem được"** và **mô tả bán
-hàng (`description_sale`) đã duyệt**. Người giữ trang duyệt ở tab **"Cho khách"** của trang Quyền bot (CRM). Hợp đồng gồm ba bên:
+hàng (`description_sale`) đã duyệt**. Người giữ trang duyệt ở tab **"Cho khách"** của trang Quyền bot (CRM).
+
+**Sửa 02/10 tối (chủ):** thông số kỹ thuật nằm ở **kho tri thức CỦA CRM** (`knowledge_documents` / `knowledge_chunks`), không
+phải `kb_documents` của bot (trống trên dev). Từ đây: CRM tự liệt kê tài liệu, tự tính băm §3b từ `knowledge_chunks`, giữ duyệt,
+và **CRM phục vụ tìm kiếm** (§8): bot gọi `POST /api/public/cho-khach/tim` (khách — chỉ tài liệu đã duyệt) hoặc
+`POST /api/public/tai-lieu-ky-thuat/tim` (nhân viên — cả kho). Bot **không** đẩy tài liệu trong danh mục nữa (`tai_lieu: []`), không
+đọc `kb_chunks` cho câu thông số. Hợp đồng gồm ba bên:
 
 | bên | việc | mã |
 |---|---|---|
-| bot | đẩy danh mục (`POST /api/public/cho-khach/danh-muc`), đọc duyệt (`GET /api/public/cho-khach/duyet`), **so băm trước khi dùng mô tả VÀ tài liệu** | repo bot (T4) |
-| CRM | kiểm danh mục, lưu bản mới nhất, lưu duyệt + nhật ký | `backend/src/modules/bot-quyen/bot-cho-khach-*.ts` |
-| giao diện | tab "Cho khách" (`/api/v1/bot-quyen/cho-khach/*`, owner/admin) | `frontend/src/components/bot-quyen/BotQuyenChoKhachTab.vue` |
+| bot | đẩy danh mục **SP** (`POST /api/public/cho-khach/danh-muc`), đọc duyệt mô tả (`GET /api/public/cho-khach/duyet`), **so băm trước khi dùng mô tả**, gọi tìm (§8) + kiểm neo định danh SP + bộ kiểm câu trả lời | repo bot (T4) |
+| CRM | kiểm danh mục SP, liệt kê + băm tài liệu kho tri thức, lưu duyệt + nhật ký, **tìm** (lọc duyệt + băm, xếp hạng hybrid như agent CRM, bỏ dòng bẩn) | `backend/src/modules/bot-quyen/bot-cho-khach-*.ts` |
+| giao diện | tab "Cho khách" (`/api/v1/bot-quyen/cho-khach/*`, owner/admin) — có "Xem toàn văn" | `frontend/src/components/bot-quyen/BotQuyenChoKhachTab.vue` |
 
 Đổi hợp đồng = đổi file này + `bot-cho-khach-hop-dong.ts` + test `backend/tests/bot-cho-khach-hop-dong.test.ts` (vector băm §3, §3b).
 
@@ -24,7 +30,8 @@ Thân ≤ **8 MB**. CRM giữ **một** danh mục mỗi org (bản mới nhất
 ```jsonc
 {
   "phien_ban": "a1b2c3…",            // bắt buộc, chuỗi 1–128 (bot tự đặt, vd sha256 nội dung) — CRM trả lại ở GET duyệt
-  "tai_lieu": [                      // bắt buộc, 0–5000, id duy nhất
+  "tai_lieu": [                      // TUỲ CHỌN từ 02/10 tối (vắng = []), 0–5000, id duy nhất. Bot mới gửi [] — tài liệu là kho
+                                     // tri thức CRM; CRM vẫn kiểm hình + lưu cho bot cũ nhưng KHÔNG đường nào dùng nữa
     {
       "id": "0b6a3c1e-…",            // kb_documents.id — ^[A-Za-z0-9_-]{1,64}$
       "tieu_de": "Datasheet P10",    // 1–500 (cắt khoảng trắng hai đầu)
@@ -103,8 +110,8 @@ noi_dung_bam(doc) = bam(noi_dung(doc))          -- đúng chuan()/bam() §3: NFC
                   = null khi doc không có đoạn nào hoặc rỗng sau chuẩn hoá (tài liệu như vậy KHÔNG duyệt được)
 ```
 
-SQL tham khảo (bot): `select string_agg(noi_dung, E'\n' order by ord) from kb_chunks where document_id = $1` rồi `bam()` trong
-Python. Đoạn rỗng giữa chừng không đổi băm (dòng rỗng bị bỏ), đổi THỨ TỰ đoạn thì đổi băm.
+Từ 02/10 tối **CRM tự tính** trên `knowledge_chunks.content` của tài liệu (`ord` tăng dần, trùng `ord` ⇒ phá hoà theo `id`) —
+`bot-cho-khach-kho.ts:bamTuDoan`. Đoạn rỗng giữa chừng không đổi băm (dòng rỗng bị bỏ), đổi THỨ TỰ đoạn thì đổi băm.
 
 Vector (bot PHẢI kiểm cùng giá trị):
 
@@ -120,21 +127,19 @@ Vector (bot PHẢI kiểm cùng giá trị):
 {
   "phien_ban": "9f…",                       // sha256 hex của JSON chuẩn {tai_lieu_cho_khach, mo_ta_da_duyet} — đổi ⇔ nội dung đổi
   "danh_muc_phien_ban": "a1b2c3…",          // phien_ban danh mục CRM đang giữ | null (chưa nhận danh mục nào)
-  "tai_lieu_cho_khach": [{ "id": "0b6a3c1e-…", "noi_dung_bam": "954417e5…" }],
-                                            // tài liệu đã duyệt, CÒN trong danh mục mới nhất VÀ noi_dung_bam trong danh mục ==
-                                            // băm lúc duyệt; kèm băm LÚC DUYỆT; sắp theo id tăng dần
+  "tai_lieu_cho_khach": [{ "id": "cmt72…", "noi_dung_bam": "954417e5…" }],
+                                            // tài liệu đã duyệt mà băm §3b HIỆN TẠI trong kho tri thức CRM == băm lúc duyệt;
+                                            // kèm băm LÚC DUYỆT; sắp theo id. THÔNG TIN — bot không cần (POST …/tim đã lọc)
   "mo_ta_da_duyet": [{ "product_id": 1234, "mo_ta_bam": "cff3e472…" }]  // mọi duyệt kèm băm LÚC DUYỆT, sắp theo product_id
 }
 ```
 
 Luật bot (bắt buộc — CRM không thay được):
 
-1. **Mặc định đóng.** Tài liệu không có trong `tai_lieu_cho_khach` ⇒ không dùng cho khách. Chưa đọc được lần nào / lỗi mạng ⇒
-   coi như rỗng (không tài liệu, không mô tả); có bản cũ thì giữ bản cũ đọc được gần nhất.
-2. **Tài liệu gắn băm.** Chỉ dùng tài liệu cho khách khi `noi_dung_bam(doc)` (§3b) tính trên `kb_chunks` HIỆN TẠI của bot ==
-   `noi_dung_bam` đã duyệt của nó. Khác ⇒ coi như chưa duyệt: kho tri thức nạp lại tài liệu cùng `kb_documents.id` (đồng bộ
-   lại theo `nguon_id`) mà nội dung đổi là mất duyệt ngay, không đợi CRM — người giữ trang thấy chip "Tài liệu đã đổi — cần
-   duyệt lại" sau lần đẩy danh mục kế tiếp.
+1. **Mặc định đóng.** Chưa đọc được lần nào / lỗi mạng ⇒ coi như rỗng (không mô tả); có bản cũ thì giữ bản cũ đọc được gần nhất.
+2. **Tài liệu: CRM lọc.** Từ 02/10 tối bot KHÔNG tự lọc tài liệu: đoạn cho khách CHỈ lấy qua `POST /api/public/cho-khach/tim` (§8),
+   CRM chỉ trả đoạn của tài liệu đã duyệt mà băm hiện tại == băm duyệt (băm tính trên chính các hàng nó xếp hạng). Kho nạp lại
+   tài liệu với nội dung khác ⇒ mất duyệt ngay (chip "Tài liệu đã đổi — cần duyệt lại").
 3. **Mô tả gắn băm.** Chỉ dùng `description_sale` của SP khi `bam(description_sale hiện tại) == mo_ta_bam` đã duyệt của SP
    đó. Khác ⇒ coi như chưa duyệt (K2): NV sửa mô tả qua bot / trên Odoo là mất duyệt ngay, không đợi CRM.
 4. Poll như `/api/public/bot-quyen` (~60 s); so `phien_ban` để biết có cần áp lại.
@@ -144,8 +149,9 @@ Luật bot (bắt buộc — CRM không thay được):
 
 | route | thân / tham số | trả |
 |---|---|---|
-| `GET /tai-lieu` | — | `{danhMuc: {phienBan, luc} \| null, taiLieu: [{id, tieuDe, loai, nguon, soDoan, capNhatLuc, mauNoiDung, noiDungBam, trangThai, noiDungBamDaDuyet, choKhach, duyetBoi, duyetLuc}], duyetNgoaiDanhMuc: string[]}` — `choKhach` ⇔ `trangThai = 'da_duyet'` |
-| `POST /tai-lieu/duyet` | `{taiLieu: [{id, noiDungBam}] (1..500), lyDo?}` | `{doi}` — `noiDungBam` = băm người duyệt ĐANG NHÌN; id phải có trong danh mục (khác ⇒ `409 KHONG_CO_TRONG_DANH_MUC`, cả lô); băm khác danh mục hiện tại / tài liệu rỗng (băm `null`) ⇒ `409 TAI_LIEU_DA_DOI` cả lô; chưa có danh mục ⇒ `409 CHUA_CO_DANH_MUC`; đã duyệt đúng băm ⇒ bỏ qua; duyệt lại sau khi đổi ⇒ ghi băm mới |
+| `GET /tai-lieu` | — | `{kho: {soTaiLieu, luc}, taiLieu: [{id, tieuDe, loai (null), nguon (= knowledge_documents.source), soDoan, capNhatLuc, mauNoiDung (300 code point đầu), noiDungBam (§3b CRM tính), trangThai, noiDungBamDaDuyet, choKhach, dauHieuNoiBo: string[], duyetBoi, duyetLuc}], duyetNgoaiDanhMuc: string[]}` — tài liệu = kho tri thức CRM sắp theo tiêu đề; `dauHieuNoiBo` xét TOÀN VĂN (chữ "bảng giá/báo giá/chiết khấu/nội bộ/tồn kho…", số dòng có giá/SĐT/link/tồn — chỉ NHẮC); `duyetNgoaiDanhMuc` = đã duyệt nhưng tài liệu không còn trong kho; `choKhach` ⇔ `trangThai = 'da_duyet'` |
+| `GET /tai-lieu/:id/toan-van` | — | `{id, tieuDe, nguon, noiDungBam, doan: string[], dauHieuNoiBo}` — toàn văn (đoạn theo `ord`) cho người duyệt; không có ⇒ `404 KHONG_CO_TAI_LIEU` |
+| `POST /tai-lieu/duyet` | `{taiLieu: [{id, noiDungBam}] (1..500), lyDo?}` | `{doi}` — `noiDungBam` = băm người duyệt ĐANG NHÌN; id phải có trong kho (khác ⇒ `409 KHONG_CO_TRONG_DANH_MUC`, cả lô); băm khác kho hiện tại / tài liệu rỗng (băm `null`) ⇒ `409 TAI_LIEU_DA_DOI` cả lô; đã duyệt đúng băm ⇒ bỏ qua; duyệt lại sau khi đổi ⇒ ghi băm mới |
 | `POST /tai-lieu/bo-duyet` | `{ids: string[1..500], lyDo?}` | `{doi}` — luôn được (kể cả id đã rời danh mục) |
 | `GET /mo-ta` | `?loc=co_mo_ta` (mặc định) `\| da_duyet \| doi_sau_duyet \| tat_ca` | `{danhMuc, sanPham: [{productId, ma, ten, moTaBan, moTaBam, trangThai, moTaBamDaDuyet, duyetBoi, duyetLuc}], dem: {coMoTa, daDuyet, doiSauDuyet, chuaDuyet, tong}}` |
 | `POST /mo-ta/duyet` | `{sanPham: [{productId, moTaBam}] (1..500), lyDo?}` | `{doi}` — `moTaBam` = băm người duyệt ĐANG NHÌN; khác băm trong danh mục hiện tại / SP không có mô tả ⇒ `409 MO_TA_DA_DOI` cả lô. Duyệt lại sau khi đổi ⇒ ghi băm mới |
@@ -159,21 +165,51 @@ bị xoá sau khi duyệt). `trangThai` tài liệu: `khong_noi_dung` (băm `nul
 Nhật ký: MỖI mục đổi một dòng `bot_quyen_nhat_ky` trong cùng giao dịch — `tai_lieu_cho_khach` (`doi_tuong_id` = id tài liệu,
 trước/sau `{tieuDe, choKhach, noiDungBam?}` — duyệt lại sau khi đổi: trước/sau mang hai băm), `mo_ta_duyet` (`doi_tuong_id` = product_id, trước/sau `{ten, moTaBam}`, sau `null` = bỏ duyệt).
 
-## 6. Dữ liệu (migration `20261002110000_bot_cho_khach`, chỉ thêm bảng + nới CHECK nhật ký)
+## 6. Dữ liệu (migration `20261002110000_bot_cho_khach`, chỉ thêm bảng + nới CHECK nhật ký; sửa 02/10 tối KHÔNG cần migration mới)
 
-- `bot_cho_khach_danh_muc` (org duy nhất): `phien_ban`, `tai_lieu` jsonb, `san_pham` jsonb, `luc`.
-- `bot_tai_lieu_cho_khach` (org, tai_lieu_id) duy nhất: `noi_dung_bam` (CHECK `^[0-9a-f]{64}$`), `duyet_boi`, `luc`.
+- `bot_cho_khach_danh_muc` (org duy nhất): `phien_ban`, `tai_lieu` jsonb (từ 02/10 tối: `[]`, không dùng), `san_pham` jsonb, `luc`.
+- `bot_tai_lieu_cho_khach` (org, tai_lieu_id) duy nhất: `tai_lieu_id` = **`knowledge_documents.id` của CRM** (cuid — trước 02/10
+  tối là `kb_documents.id` uuid của bot: dòng cũ như vậy không khớp tài liệu nào ⇒ không bao giờ dùng, hiện ở
+  `duyetNgoaiDanhMuc` để bỏ duyệt), `noi_dung_bam` (CHECK `^[0-9a-f]{64}$`), `duyet_boi`, `luc`.
 - `bot_mo_ta_duyet` (org, product_id) duy nhất: `mo_ta_bam` (CHECK `^[0-9a-f]{64}$`), `duyet_boi`, `luc`.
 - `bot_quyen_nhat_ky.doi_tuong` nhận thêm `tai_lieu_cho_khach | mo_ta_duyet | danh_muc_cho_khach`.
 
 ## 7. Còn hở (biết trước)
 
-- ~~Duyệt tài liệu gắn id, không gắn nội dung~~ — **đã đóng 02/10**: duyệt gắn `noi_dung_bam` (§3b, §4 luật 2). Còn lại: CRM
-  không kiểm được bot tính băm đúng (không có nội dung đầy đủ) — tính sai chỉ làm tài liệu không dùng được, không làm lộ.
-- Cờ "Có vẻ tài liệu nội bộ" trên giao diện chỉ là NHẮC (chữ "bảng giá", "chiết khấu", "nội bộ"…, số tiền — xét CẢ tiêu đề lẫn
-  mẫu) — không chặn. Bộ kiểm câu trả lời của bot (không giá/tiền/SĐT, số phải có trong đoạn nguồn) vẫn là lưới cuối.
-- **CRM chỉ có mẫu 300 ký tự đầu, không có toàn văn** (cố ý — không thêm route đọc toàn văn từ bot). Hộp duyệt nói rõ "Bạn mới
-  xem mẫu 300 ký tự đầu" + chỉ chỗ "Xem toàn văn" (kho tri thức của bot / tệp gốc); bảng giá nằm sau 300 ký tự đầu thì cờ nội bộ
-  KHÔNG thấy — người duyệt phải đọc toàn văn ở đó.
+- ~~Duyệt tài liệu gắn id, không gắn nội dung~~ — **đã đóng 02/10**: duyệt gắn `noi_dung_bam` (§3b). Từ 02/10 tối CRM tự tính
+  băm từ kho của nó (không còn phụ thuộc bot tính đúng).
+- Cờ "Có vẻ tài liệu nội bộ" chỉ là NHẮC — không chặn; nay xét TOÀN VĂN (bảng giá ở trang cuối vẫn thấy) + nút "Xem toàn văn".
+  Dòng có giá/SĐT/link/tồn bị bỏ khi trả bot dù tài liệu đã duyệt; bộ kiểm câu trả lời của bot vẫn là lưới cuối.
+- Đồng bộ kho tri thức CRM xoá + tạo lại tài liệu (id mới) ⇒ mất duyệt (fail-closed) — phải duyệt lại.
+- Tìm khi embedding chết (thiếu `EMBED_BASE_URL`/nhà cung cấp lỗi) ⇒ chỉ nhánh từ khoá (như agent CRM).
 - Giao diện "Chọn hết" > 500 mục: gửi lần lượt từng lô ≤ 500 (route giữ trần 500), báo tiến độ; lô lỗi (vd 409) không chặn lô
   sau, hộp báo lô nào lỗi + giữ chọn đúng các mục chưa lưu. Mỗi lô vẫn "cả lô hoặc không".
+
+## 8. Bot → CRM: tìm đoạn thông số (sửa 02/10 tối)
+
+| route | ai dùng | lọc |
+|---|---|---|
+| `POST /api/public/cho-khach/tim` | đường KHÁCH của bot | CHỈ tài liệu có dòng duyệt mà băm §3b HIỆN TẠI (tính trên chính các hàng đọc để xếp hạng) == băm lúc duyệt |
+| `POST /api/public/tai-lieu-ky-thuat/tim` | đường NHÂN VIÊN (tool `tra_tri_thuc`) | mọi tài liệu của org |
+
+Khoá như §1 (org đã đặt khoá riêng ⇒ chỉ khoá riêng). Thân ≤ 16 KB:
+
+```jsonc
+{
+  "truy_van": "thông số P3.076 out ốp lưng 3840HZ",   // bắt buộc, 1–500 code point (cắt khoảng trắng hai đầu)
+  "so_doan": 5,                                       // tuỳ chọn, nguyên 1–5 (mặc định 3)
+  "san_pham": {                                       // tuỳ chọn | null
+    "ten": "Module LLR P3.076 outdoor",               // ≤ 500 | null — ghép vào câu tìm
+    "ma": "P3076-OUT",                                // ≤ 128 | null — đoạn chứa mã (bỏ dấu/gạch) được xếp lên đầu
+    "neo": [["p3"], ["076"]]                          // tuỳ chọn, ≤ 8 nhóm × 1–6 chuỗi [0-9a-z]{1,40}: đoạn (kèm TIÊU ĐỀ tài liệu)
+  }                                                   //   phải có ≥ 1 lựa chọn của MỖI nhóm trong tập token — lọc TRƯỚC khi xếp hạng
+}
+```
+
+Token (cả CRM lẫn bot): bỏ dấu + chữ thường, chuỗi `[0-9a-z]+`, thêm ghép 2–3 token liền nhau ("BX-V7512" ⇒ `bxv7512`). Xếp hạng
+= `xepHangDoan` (hybrid vector + từ khoá y như agent CRM — `searchKnowledge`) trên MỌI ứng viên, rồi ưu tiên đoạn chứa nhiều token
+phân biệt (có chữ số) của câu tìm. Mỗi đoạn trả bị bỏ DÒNG có giá/tiền, SĐT, đường dẫn/email, số tồn, liên hệ mua bán (đoạn rỗng sau
+khi bỏ ⇒ không trả); bỏ đoạn trùng.
+
+`200 {ket_qua: [{tai_lieu_id, tieu_de, noi_dung, diem}]}` (≤ `so_doan`). Sai thân ⇒ `400 YEU_CAU_TIM_KHONG_HOP_LE`. CRM KHÔNG log
+`truy_van`. Bot: lỗi ⇒ "kho tài liệu đang lỗi", KHÔNG rơi về Odoo/nguồn khác; luôn kiểm LẠI neo định danh SP + bộ kiểm câu trả lời.

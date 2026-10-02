@@ -28,6 +28,13 @@ describe('locTaiLieu', () => {
   });
 });
 
+describe('coVeNoiBo — backend gửi dauHieuNoiBo (xét toàn văn) thì dùng nó', () => {
+  it('có lý do ⇒ true; mảng rỗng ⇒ false dù tiêu đề có chữ "bảng giá"', () => {
+    expect(coVeNoiBo(tl('x', 'Datasheet', { dauHieuNoiBo: ['2 dòng có giá/tiền'] }))).toBe(true);
+    expect(coVeNoiBo(tl('x', 'Bảng giá', { dauHieuNoiBo: [] }))).toBe(false);
+  });
+});
+
 describe('coVeNoiBo — nhắc người duyệt (KHÔNG chặn)', () => {
   it.each([
     ['Bảng giá đại lý 2026', true], ['bang gia', true], ['Chiết khấu Q3', true], ['Tài liệu NỘI BỘ', true], ['Công nợ khách', true],

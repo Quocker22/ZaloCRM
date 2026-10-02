@@ -2,7 +2,8 @@
 // bot-cho-khach.ts — API client tab "Cho khách" của trang Quyền bot (docs/79 T5).
 //
 // Khớp backend `backend/src/modules/bot-quyen/bot-cho-khach-routes.ts` (mount /bot-quyen, JWT, CHỈ owner/admin):
-//   GET  /bot-quyen/cho-khach/tai-lieu           -> { danhMuc, taiLieu: TaiLieuChoKhach[], duyetNgoaiDanhMuc: string[] }
+//   GET  /bot-quyen/cho-khach/tai-lieu           -> { kho, taiLieu: TaiLieuChoKhach[], duyetNgoaiDanhMuc: string[] }  (kho tri thức CRM)
+//   GET  /bot-quyen/cho-khach/tai-lieu/:id/toan-van -> { id, tieuDe, nguon, noiDungBam, doan: string[], dauHieuNoiBo }
 //   POST /bot-quyen/cho-khach/tai-lieu/duyet     {taiLieu: [{id, noiDungBam}], lyDo?} -> { doi }  (409 TAI_LIEU_DA_DOI)
 //   POST /bot-quyen/cho-khach/tai-lieu/bo-duyet  {ids, lyDo?} -> { doi }
 //   GET  /bot-quyen/cho-khach/mo-ta              ?loc=co_mo_ta|da_duyet|doi_sau_duyet|tat_ca -> { danhMuc, sanPham, dem }
@@ -33,7 +34,9 @@ export interface TaiLieuChoKhach {
   capNhatLuc: string | null;
   /** ≤ 300 ký tự đầu — để người duyệt nhìn. */
   mauNoiDung: string | null;
-  /** sha256 nội dung đầy đủ bot gửi (hợp đồng §3b); null = rỗng. Duyệt gửi ĐÚNG băm này. */
+  /** Lý do "có vẻ nội bộ" CRM xét trên TOÀN VĂN (vắng ở backend cũ ⇒ frontend tự xét tiêu đề + mẫu). */
+  dauHieuNoiBo?: string[];
+  /** sha256 nội dung đầy đủ CRM tính từ kho tri thức (hợp đồng §3b); null = rỗng. Duyệt gửi ĐÚNG băm này. */
   noiDungBam: string | null;
   trangThai: TrangThaiTaiLieu;
   noiDungBamDaDuyet: string | null;
@@ -43,11 +46,26 @@ export interface TaiLieuChoKhach {
   duyetLuc: string | null;
 }
 
+export interface KhoMoc {
+  soTaiLieu: number;
+  luc: string;
+}
+
 export interface DsTaiLieuChoKhach {
-  danhMuc: DanhMucMoc | null;
+  /** Kho tri thức CRM (null = chưa tải / backend cũ). */
+  kho: KhoMoc | null;
   taiLieu: TaiLieuChoKhach[];
-  /** Đã duyệt nhưng không còn trong danh mục bot gửi (bot không dùng nữa) — có thể bỏ duyệt. */
+  /** Đã duyệt nhưng không còn trong kho tri thức (bot không dùng nữa) — có thể bỏ duyệt. */
   duyetNgoaiDanhMuc: string[];
+}
+
+export interface ToanVanTaiLieu {
+  id: string;
+  tieuDe: string;
+  nguon: string;
+  noiDungBam: string | null;
+  doan: string[];
+  dauHieuNoiBo: string[];
 }
 
 export type TrangThaiMoTa = 'khong_mo_ta' | 'chua_duyet' | 'da_duyet' | 'doi_sau_duyet';
@@ -83,7 +101,15 @@ const CAU_HINH = { boQuaToast403: true } as const;
 
 export async function layTaiLieuChoKhach(): Promise<DsTaiLieuChoKhach> {
   const { data } = await api.get('/bot-quyen/cho-khach/tai-lieu', CAU_HINH);
-  return { danhMuc: data?.danhMuc ?? null, taiLieu: data?.taiLieu ?? [], duyetNgoaiDanhMuc: data?.duyetNgoaiDanhMuc ?? [] };
+  return { kho: data?.kho ?? null, taiLieu: data?.taiLieu ?? [], duyetNgoaiDanhMuc: data?.duyetNgoaiDanhMuc ?? [] };
+}
+
+export async function layToanVanTaiLieu(id: string): Promise<ToanVanTaiLieu> {
+  const { data } = await api.get(`/bot-quyen/cho-khach/tai-lieu/${encodeURIComponent(id)}/toan-van`, CAU_HINH);
+  return {
+    id: data?.id ?? id, tieuDe: data?.tieuDe ?? '', nguon: data?.nguon ?? '', noiDungBam: data?.noiDungBam ?? null,
+    doan: Array.isArray(data?.doan) ? data.doan : [], dauHieuNoiBo: Array.isArray(data?.dauHieuNoiBo) ? data.dauHieuNoiBo : [],
+  };
 }
 
 export async function duyetTaiLieuChoKhach(taiLieu: Array<{ id: string; noiDungBam: string }>, lyDo?: string): Promise<{ doi: number }> {
