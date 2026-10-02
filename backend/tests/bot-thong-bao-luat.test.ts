@@ -19,7 +19,7 @@ function loi(fn: () => unknown): { status: number; code: string } {
 
 const C = (id: string, kieu: ComposerAnh['kieu'], nhay_cam: string[] = []): ComposerAnh => ({
   id, ten: id, pha: 'chot', kieu, de_xuat: false, dich_goc: ['nhom_goc'], nhay_cam, khi_nao: null, vi_du: null, nguon_cau: null,
-  ghi_chu: null, dan_toi: [],
+  ghi_chu: null, dan_toi: [], ai_soan: 'ma', ly_do_khoa: null, goi_y: null,
 });
 const DM = new Map([C('xuat_hoa_don_tool', 'ban_sao', ['tien']), C('the_don', 'khoa', ['gia']), C('chao', 'thuan')].map((c) => [c.id, c]));
 
@@ -80,16 +80,16 @@ describe('docAnhChup — hợp đồng ảnh chụp (Codex v1 #7, hop-dong-ban-d
   const tot = {
     phien_ban: 'v1',
     composer: [
-      { id: 'chao', kieu: 'thuan', nhay_cam: ['gia', 'gia'], la: 'bỏ', dan_toi: [['in_sau_chot', 'nghiep_vu']] },
-      { id: 'in_sau_chot', kieu: 'ban_sao' },
+      { id: 'chao', kieu: 'thuan', ai_soan: 'ma', nhay_cam: ['gia', 'gia'], la: 'bỏ', dan_toi: [['in_sau_chot', 'nghiep_vu']] },
+      { id: 'in_sau_chot', kieu: 'ban_sao', ai_soan: 'ma' },
     ],
     dem: [dem1],
   };
   it('chuẩn hoá: bỏ trường lạ, khử trùng nhay_cam, dan_toi dạng cặp ⇒ {den, kieu}, dich_goc chuỗi ⇒ mảng', () => {
-    const a = docAnhChup({ ...tot, composer: [...tot.composer.slice(0, 1), { id: 'in_sau_chot', kieu: 'ban_sao', dich_goc: 'nhom_goc' }] });
+    const a = docAnhChup({ ...tot, composer: [...tot.composer.slice(0, 1), { id: 'in_sau_chot', kieu: 'ban_sao', ai_soan: 'ma', dich_goc: 'nhom_goc' }] });
     expect(a.composer[0]).toEqual({
       id: 'chao', ten: null, pha: null, kieu: 'thuan', de_xuat: false, dich_goc: [], nhay_cam: ['gia'], khi_nao: null, vi_du: null,
-      nguon_cau: null, ghi_chu: null, dan_toi: [{ den: 'in_sau_chot', kieu: 'nghiep_vu' }],
+      nguon_cau: null, ghi_chu: null, dan_toi: [{ den: 'in_sau_chot', kieu: 'nghiep_vu' }], ai_soan: 'ma', ly_do_khoa: null, goi_y: null,
     });
     expect(a.composer[1].dich_goc).toEqual(['nhom_goc']);
     expect(a.dem).toEqual([dem1]);
@@ -99,10 +99,10 @@ describe('docAnhChup — hợp đồng ảnh chụp (Codex v1 #7, hop-dong-ban-d
     const a = docAnhChup({
       ...tot,
       composer: [{
-        id: 'chao', ten: 'Chào', pha: 'hoi', kieu: 'thuan', de_xuat: true, dich_goc: ['nhom_goc', 'nv'], nhay_cam: [],
+        id: 'chao', ten: 'Chào', pha: 'hoi', kieu: 'thuan', ai_soan: 'ma', de_xuat: true, dich_goc: ['nhom_goc', 'nv'], nhay_cam: [],
         khi_nao: 'Khi NV chào', vi_du: 'Dạ chào anh', nguon_cau: 'adapter.py:1', ghi_chu: 'ghi chú',
         dan_toi: [{ den: 'in_sau_chot', kieu: 'hoi_lai', vi_sao: 'vì thế' }, ['in_sau_chot', 'nghiep_vu']],
-      }, { id: 'in_sau_chot', kieu: 'ban_sao' }],
+      }, { id: 'in_sau_chot', kieu: 'ban_sao', ai_soan: 'ma' }],
       nguon: [{ id: 'nguon_may_in', ten: 'Máy in', pha: 'in', mo_ta: 'CRM C1', dan_toi: [['in_sau_chot', 'su_kien']] }],
       pha: [{ id: 'hoi', ten: 'Hỏi' }], dich: ['nhom_goc'],
     });
@@ -110,8 +110,30 @@ describe('docAnhChup — hợp đồng ảnh chụp (Codex v1 #7, hop-dong-ban-d
       id: 'chao', ten: 'Chào', pha: 'hoi', kieu: 'thuan', de_xuat: true, dich_goc: ['nhom_goc', 'nv'], nhay_cam: [],
       khi_nao: 'Khi NV chào', vi_du: 'Dạ chào anh', nguon_cau: 'adapter.py:1', ghi_chu: 'ghi chú',
       dan_toi: [{ den: 'in_sau_chot', kieu: 'hoi_lai', vi_sao: 'vì thế' }, { den: 'in_sau_chot', kieu: 'nghiep_vu' }],
+      ai_soan: 'ma', ly_do_khoa: null, goi_y: null,
     });
     expect(a.nguon).toEqual([{ id: 'nguon_may_in', ten: 'Máy in', pha: 'in', mo_ta: 'CRM C1', dan_toi: [{ den: 'in_sau_chot', kieu: 'su_kien' }] }]);
+  });
+  it('bổ sung 02/10: giữ ai_soan / ly_do_khoa (chỉ composer khoá) / goi_y; rỗng ⇒ null', () => {
+    const a = docAnhChup({
+      ...tot,
+      composer: [
+        { id: 'the_don', kieu: 'khoa', ai_soan: 'mau', ly_do_khoa: 'Mã chốt chỉ ở nhóm gốc', goi_y: '' },
+        { id: 'chao', kieu: 'thuan', ai_soan: 'model', goi_y: 'Ứng viên: thêm nhóm Kế toán', ly_do_khoa: null },
+        { id: 'in_sau_chot', kieu: 'ban_sao', ai_soan: 'anh' },
+      ],
+    });
+    expect(a.composer.map((c) => [c.id, c.ai_soan, c.ly_do_khoa, c.goi_y])).toEqual([
+      ['the_don', 'mau', 'Mã chốt chỉ ở nhóm gốc', null],
+      ['chao', 'model', null, 'Ứng viên: thêm nhóm Kế toán'],
+      ['in_sau_chot', 'anh', null, null],
+    ]);
+  });
+  it('bổ sung 02/10: dòng đếm KHỐI GỐC (luat_id null, khoa_canh "…|goc") cho mọi mã hàng bản đồ; ket_qua "bo" nhận', () => {
+    const MA_HANG = ['nhom_goc', 'dm_nguoi_go', 'nguoi_giu_ma', 'chu_don', 'g_kho', 'g_admin', 'g_ketoan', 'g_sales', 'g_kythuat', 'nv', 'g_khach'];
+    const dem = MA_HANG.map((d) => ({ khoa_canh: `chao→${d}|goc`, composer: 'chao', dich_kieu: d, luat_id: null, ket_qua: 'da_gui', cua_so: '24h', so: 2 }));
+    dem.push({ ...dem[0], ket_qua: 'bo' });
+    expect(docAnhChup({ ...tot, dem }).dem).toEqual(dem);
   });
   it('khoaCanh = "<composer>→<dich_kieu>|<luat_id|goc>"', () => {
     expect(khoaCanh('chao', 'nhom_goc', null)).toBe('chao→nhom_goc|goc');
@@ -120,15 +142,24 @@ describe('docAnhChup — hợp đồng ảnh chụp (Codex v1 #7, hop-dong-ban-d
   it('sai hình ⇒ 400 ANH_CHUP_KHONG_HOP_LE (composer, dan_toi, nguon, dem)', () => {
     const sai: unknown[] = [
       null, { ...tot, phien_ban: '' }, { ...tot, composer: [] },
-      { ...tot, composer: [{ id: 'Chao', kieu: 'thuan' }] },
-      { ...tot, composer: [{ id: 'a', kieu: 'thuan' }, { id: 'a', kieu: 'khoa' }] },
-      { ...tot, composer: [{ id: 'a', kieu: 'bi_mat' }] },
-      { ...tot, composer: [{ id: 'a', kieu: 'thuan', nhay_cam: ['Giá'] }] },
+      { ...tot, composer: [{ id: 'Chao', kieu: 'thuan', ai_soan: 'ma' }] },
+      { ...tot, composer: [{ id: 'a', kieu: 'thuan', ai_soan: 'ma' }, { id: 'a', kieu: 'khoa', ai_soan: 'ma' }] },
+      { ...tot, composer: [{ id: 'a', kieu: 'bi_mat', ai_soan: 'ma' }] },
+      // bổ sung 02/10: ai_soan thiếu / ngoài 4 giá trị / sai kiểu; ly_do_khoa ở composer KHÔNG khoá; goi_y / ly_do_khoa sai kiểu
+      { ...tot, composer: [{ id: 'a', kieu: 'thuan' }] },
+      { ...tot, composer: [{ id: 'a', kieu: 'thuan', ai_soan: 'nguoi' }] },
+      { ...tot, composer: [{ id: 'a', kieu: 'thuan', ai_soan: 'MA' }] },
+      { ...tot, composer: [{ id: 'a', kieu: 'thuan', ai_soan: null }] },
+      { ...tot, composer: [{ id: 'a', kieu: 'thuan', ai_soan: ['ma'] }] },
+      { ...tot, composer: [{ id: 'a', kieu: 'thuan', ai_soan: 'ma', ly_do_khoa: 'không phải khoá' }] },
+      { ...tot, composer: [{ id: 'a', kieu: 'khoa', ai_soan: 'ma', ly_do_khoa: 3 }] },
+      { ...tot, composer: [{ id: 'a', kieu: 'thuan', ai_soan: 'ma', goi_y: { x: 1 } }] },
+      { ...tot, composer: [{ id: 'a', kieu: 'thuan', ai_soan: 'ma', nhay_cam: ['Giá'] }] },
       // dan_toi: đích không có trong ảnh chụp, kiểu cạnh lạ, hình lạ
-      { ...tot, composer: [{ id: 'a', kieu: 'thuan', dan_toi: [['khong_co', 'nghiep_vu']] }] },
-      { ...tot, composer: [{ id: 'a', kieu: 'thuan', dan_toi: [{ den: 'a', kieu: 'ban_sao' }] }] },
-      { ...tot, composer: [{ id: 'a', kieu: 'thuan', dan_toi: 'a' }] },
-      { ...tot, composer: [{ id: 'a', kieu: 'thuan', dich_goc: [3] }] },
+      { ...tot, composer: [{ id: 'a', kieu: 'thuan', ai_soan: 'ma', dan_toi: [['khong_co', 'nghiep_vu']] }] },
+      { ...tot, composer: [{ id: 'a', kieu: 'thuan', ai_soan: 'ma', dan_toi: [{ den: 'a', kieu: 'ban_sao' }] }] },
+      { ...tot, composer: [{ id: 'a', kieu: 'thuan', ai_soan: 'ma', dan_toi: 'a' }] },
+      { ...tot, composer: [{ id: 'a', kieu: 'thuan', ai_soan: 'ma', dich_goc: [3] }] },
       { ...tot, nguon: [{ id: 'chao', ten: 'trùng id composer' }] },
       // dem: thiếu khoá cạnh / cửa sổ, khoá cạnh không khớp, kết quả lạ, cửa sổ lạ, số âm, trường lạ, trùng
       { ...tot, dem: [{ so: 12 }] },
@@ -151,7 +182,7 @@ describe('danhMucHop — ảnh chụp hiện tại ∪ sổ dính (Codex v1 #1)'
     const m = danhMucHop([C('a', 'ban_sao', []), C('t', 'thuan')], { a: { nhay_cam: ['tien'], khoa: false }, k: { nhay_cam: ['gia'], khoa: true } });
     expect(m.get('a')).toMatchObject({ nhay_cam: ['tien'], kieu: 'ban_sao' });
     expect(m.get('a')?.chi_trong_so_dinh).toBeFalsy();
-    expect(m.get('k')).toMatchObject({ id: 'k', kieu: 'khoa', nhay_cam: ['gia'], chi_trong_so_dinh: true });
+    expect(m.get('k')).toMatchObject({ id: 'k', kieu: 'khoa', ai_soan: null, nhay_cam: ['gia'], chi_trong_so_dinh: true });
     expect(m.get('t')).toMatchObject({ nhay_cam: [], kieu: 'thuan' });
     expect(danhMucHop(null, null)).toBeNull();
     expect(danhMucHop(null, { k: { nhay_cam: ['gia'], khoa: false } })!.get('k')).toMatchObject({ chi_trong_so_dinh: true });
@@ -192,7 +223,9 @@ describe('ghepLuatCongKhai — payload bot', () => {
   });
   it('danhMucTuAnh chịu được jsonb hỏng', () => {
     expect(danhMucTuAnh(null).size).toBe(0);
-    expect(danhMucTuAnh([{ id: 'a', kieu: 'thuan', nhay_cam: [] }, 3]).size).toBe(1);
+    expect(danhMucTuAnh([{ id: 'a', kieu: 'thuan', ai_soan: 'ma', nhay_cam: [] }, 3]).size).toBe(1);
+    // bản lưu trước 02/10 (chưa có ai_soan/ly_do_khoa/goi_y) ⇒ null, không đoán
+    expect(danhMucTuAnh([{ id: 'cu', kieu: 'khoa', nhay_cam: [] }]).get('cu')).toMatchObject({ ai_soan: null, ly_do_khoa: null, goi_y: null });
   });
 });
 
