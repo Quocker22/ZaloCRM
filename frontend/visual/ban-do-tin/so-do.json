@@ -1,0 +1,527 @@
+{
+  "do_duoc": {
+    "01-desktop-light-default": {
+      "zoom": 0.521,
+      "khoi": [
+        150,
+        38
+      ],
+      "khoi_bo_goc": "8px",
+      "tieu_de_pha": [
+        150,
+        26
+      ],
+      "panel_rong": 368,
+      "thanh_tab_cao": 42,
+      "o_tim": [
+        320,
+        36
+      ],
+      "ban_do": [
+        1914,
+        1646
+      ]
+    },
+    "02-desktop-light-selected": {
+      "zoom": 0.521,
+      "khoi": [
+        150,
+        38
+      ],
+      "khoi_bo_goc": "8px",
+      "tieu_de_pha": [
+        150,
+        26
+      ],
+      "panel_rong": 368,
+      "thanh_tab_cao": 42,
+      "o_tim": [
+        320,
+        36
+      ],
+      "ban_do": [
+        1914,
+        1646
+      ]
+    },
+    "03-desktop-light-panel-row-hover": {
+      "zoom": 0.521,
+      "khoi": [
+        150,
+        38
+      ],
+      "khoi_bo_goc": "8px",
+      "tieu_de_pha": [
+        150,
+        26
+      ],
+      "panel_rong": 368,
+      "thanh_tab_cao": 42,
+      "o_tim": [
+        320,
+        36
+      ],
+      "ban_do": [
+        1914,
+        1646
+      ]
+    },
+    "04-desktop-light-block-hover": {
+      "zoom": 0.521,
+      "khoi": [
+        150,
+        38
+      ],
+      "khoi_bo_goc": "8px",
+      "tieu_de_pha": [
+        150,
+        26
+      ],
+      "panel_rong": 368,
+      "thanh_tab_cao": 42,
+      "o_tim": [
+        320,
+        36
+      ],
+      "ban_do": [
+        1914,
+        1646
+      ]
+    },
+    "05-desktop-light-legend-filter": {
+      "zoom": 0.521,
+      "khoi": [
+        150,
+        38
+      ],
+      "khoi_bo_goc": "8px",
+      "tieu_de_pha": [
+        150,
+        26
+      ],
+      "panel_rong": 368,
+      "thanh_tab_cao": 42,
+      "o_tim": [
+        320,
+        36
+      ],
+      "ban_do": [
+        1914,
+        1646
+      ]
+    },
+    "06-desktop-light-phase-selected": {
+      "zoom": 0.521,
+      "khoi": [
+        150,
+        38
+      ],
+      "khoi_bo_goc": "8px",
+      "tieu_de_pha": [
+        150,
+        26
+      ],
+      "panel_rong": 368,
+      "thanh_tab_cao": 42,
+      "o_tim": [
+        320,
+        36
+      ],
+      "ban_do": [
+        1914,
+        1646
+      ]
+    },
+    "07-desktop-light-row-selected": {
+      "zoom": 0.521,
+      "khoi": [
+        150,
+        38
+      ],
+      "khoi_bo_goc": "8px",
+      "tieu_de_pha": [
+        150,
+        26
+      ],
+      "panel_rong": 368,
+      "thanh_tab_cao": 42,
+      "o_tim": [
+        320,
+        36
+      ],
+      "ban_do": [
+        1914,
+        1646
+      ]
+    },
+    "08-desktop-light-link-selected": {
+      "zoom": 0.521,
+      "khoi": [
+        150,
+        38
+      ],
+      "khoi_bo_goc": "8px",
+      "tieu_de_pha": [
+        150,
+        26
+      ],
+      "panel_rong": 368,
+      "thanh_tab_cao": 42,
+      "o_tim": [
+        320,
+        36
+      ],
+      "ban_do": [
+        1914,
+        1646
+      ]
+    },
+    "09-desktop-light-all-groups-collapsed": {
+      "zoom": 0.521,
+      "khoi": null,
+      "khoi_bo_goc": null,
+      "tieu_de_pha": [
+        150,
+        26
+      ],
+      "panel_rong": 368,
+      "thanh_tab_cao": 42,
+      "o_tim": [
+        320,
+        36
+      ],
+      "ban_do": [
+        1914,
+        416
+      ]
+    },
+    "10-desktop-light-one-group-collapsed": {
+      "zoom": 0.521,
+      "khoi": [
+        150,
+        38
+      ],
+      "khoi_bo_goc": "8px",
+      "tieu_de_pha": [
+        150,
+        26
+      ],
+      "panel_rong": 368,
+      "thanh_tab_cao": 42,
+      "o_tim": [
+        320,
+        36
+      ],
+      "ban_do": [
+        1914,
+        1320
+      ]
+    },
+    "11-desktop-light-zoom-120": {
+      "zoom": 0.626,
+      "khoi": [
+        150,
+        38
+      ],
+      "khoi_bo_goc": "8px",
+      "tieu_de_pha": [
+        150,
+        26
+      ],
+      "panel_rong": 368,
+      "thanh_tab_cao": 42,
+      "o_tim": [
+        320,
+        36
+      ],
+      "ban_do": [
+        1914,
+        1646
+      ]
+    },
+    "12-desktop-light-zoom-min-67": {
+      "zoom": 0.5,
+      "khoi": [
+        150,
+        38
+      ],
+      "khoi_bo_goc": "8px",
+      "tieu_de_pha": [
+        150,
+        26
+      ],
+      "panel_rong": 368,
+      "thanh_tab_cao": 42,
+      "o_tim": [
+        320,
+        36
+      ],
+      "ban_do": [
+        1914,
+        1646
+      ]
+    },
+    "13-desktop-light-help-dialog": {
+      "zoom": 0.521,
+      "khoi": [
+        150,
+        38
+      ],
+      "khoi_bo_goc": "8px",
+      "tieu_de_pha": [
+        150,
+        26
+      ],
+      "panel_rong": 368,
+      "thanh_tab_cao": 42,
+      "o_tim": [
+        320,
+        36
+      ],
+      "ban_do": [
+        1914,
+        1646
+      ]
+    },
+    "14-desktop-light-search": {
+      "zoom": 0.521,
+      "khoi": [
+        150,
+        38
+      ],
+      "khoi_bo_goc": "8px",
+      "tieu_de_pha": [
+        150,
+        26
+      ],
+      "panel_rong": 368,
+      "thanh_tab_cao": 42,
+      "o_tim": [
+        320,
+        36
+      ],
+      "ban_do": [
+        1914,
+        1646
+      ]
+    },
+    "15-desktop-light-fullscreen": {
+      "zoom": 0.5,
+      "khoi": [
+        155,
+        38
+      ],
+      "khoi_bo_goc": "8px",
+      "tieu_de_pha": [
+        155,
+        26
+      ],
+      "panel_rong": 368,
+      "thanh_tab_cao": 42,
+      "o_tim": [
+        320,
+        36
+      ],
+      "ban_do": [
+        1996,
+        1646
+      ]
+    },
+    "16-desktop-light-fullscreen-noselect": {
+      "zoom": 0.5,
+      "khoi": [
+        155,
+        38
+      ],
+      "khoi_bo_goc": "8px",
+      "tieu_de_pha": [
+        155,
+        26
+      ],
+      "panel_rong": 368,
+      "thanh_tab_cao": 42,
+      "o_tim": [
+        320,
+        36
+      ],
+      "ban_do": [
+        1996,
+        1646
+      ]
+    },
+    "17-desktop-light-tab-theo-pha": {
+      "zoom": 1,
+      "khoi": null,
+      "khoi_bo_goc": null,
+      "tieu_de_pha": null,
+      "panel_rong": 368,
+      "thanh_tab_cao": 42,
+      "o_tim": [
+        320,
+        36
+      ],
+      "ban_do": null
+    },
+    "18-desktop-light-tab-lien-ket": {
+      "zoom": 1,
+      "khoi": null,
+      "khoi_bo_goc": null,
+      "tieu_de_pha": null,
+      "panel_rong": 368,
+      "thanh_tab_cao": 42,
+      "o_tim": [
+        320,
+        36
+      ],
+      "ban_do": null
+    },
+    "19-desktop-light-tab-ghi-chu": {
+      "zoom": 1,
+      "khoi": null,
+      "khoi_bo_goc": null,
+      "tieu_de_pha": null,
+      "panel_rong": 368,
+      "thanh_tab_cao": 42,
+      "o_tim": [
+        320,
+        36
+      ],
+      "ban_do": null
+    },
+    "20-desktop-dark-default": {
+      "zoom": 0.521,
+      "khoi": [
+        150,
+        38
+      ],
+      "khoi_bo_goc": "8px",
+      "tieu_de_pha": [
+        150,
+        26
+      ],
+      "panel_rong": 368,
+      "thanh_tab_cao": 42,
+      "o_tim": [
+        320,
+        36
+      ],
+      "ban_do": [
+        1914,
+        1646
+      ]
+    },
+    "21-desktop-dark-selected": {
+      "zoom": 0.521,
+      "khoi": [
+        150,
+        38
+      ],
+      "khoi_bo_goc": "8px",
+      "tieu_de_pha": [
+        150,
+        26
+      ],
+      "panel_rong": 368,
+      "thanh_tab_cao": 42,
+      "o_tim": [
+        320,
+        36
+      ],
+      "ban_do": [
+        1914,
+        1646
+      ]
+    },
+    "22-mobile-dark-gate": {
+      "zoom": 1,
+      "khoi": null,
+      "khoi_bo_goc": null,
+      "tieu_de_pha": null,
+      "panel_rong": null,
+      "thanh_tab_cao": 42,
+      "o_tim": [
+        155,
+        36
+      ],
+      "ban_do": null
+    },
+    "23-mobile-dark-compact": {
+      "zoom": 1,
+      "khoi": null,
+      "khoi_bo_goc": null,
+      "tieu_de_pha": null,
+      "panel_rong": null,
+      "thanh_tab_cao": 42,
+      "o_tim": [
+        155,
+        36
+      ],
+      "ban_do": null
+    },
+    "24-mobile-dark-bottom-sheet": {
+      "zoom": 1,
+      "khoi": null,
+      "khoi_bo_goc": null,
+      "tieu_de_pha": null,
+      "panel_rong": 390,
+      "thanh_tab_cao": 42,
+      "o_tim": [
+        155,
+        36
+      ],
+      "ban_do": null
+    },
+    "25-mobile-light-gate": {
+      "zoom": 1,
+      "khoi": null,
+      "khoi_bo_goc": null,
+      "tieu_de_pha": null,
+      "panel_rong": null,
+      "thanh_tab_cao": 42,
+      "o_tim": [
+        155,
+        36
+      ],
+      "ban_do": null
+    },
+    "26-mobile-light-compact": {
+      "zoom": 1,
+      "khoi": null,
+      "khoi_bo_goc": null,
+      "tieu_de_pha": null,
+      "panel_rong": null,
+      "thanh_tab_cao": 42,
+      "o_tim": [
+        155,
+        36
+      ],
+      "ban_do": null
+    },
+    "27-mobile-light-bottom-sheet": {
+      "zoom": 1,
+      "khoi": null,
+      "khoi_bo_goc": null,
+      "tieu_de_pha": null,
+      "panel_rong": 390,
+      "thanh_tab_cao": 42,
+      "o_tim": [
+        155,
+        36
+      ],
+      "ban_do": null
+    }
+  },
+  "thoi_gian": {
+    "bam_khoi_ms": {
+      "js": {
+        "lon_nhat": 9.2,
+        "trung_vi": 1.7
+      },
+      "den_khung_ke": {
+        "lon_nhat": 30.5,
+        "trung_vi": 8.9
+      },
+      "url": "http://localhost:5292/visual/ban-do-tin/xem.html"
+    }
+  }
+}
