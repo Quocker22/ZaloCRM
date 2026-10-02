@@ -9,7 +9,7 @@ import { PHA, NHOM_HANG } from './cau-hinh';
 import type { Khoi, MaHang, MaPha } from './kieu';
 
 const k = (id: string, pha: MaPha, hang: MaHang): Khoi =>
-  ({ id, ten: id, pha, hang, nguon_id: id, loai_nut: 'composer', ban_sao: false, che_do: 'bat', tags: [] });
+  ({ id, ten: id, pha, hang, nguon_id: id, loai_nut: 'composer', ban_sao: false, che_do: 'bat', tags: [], soan: null });
 
 describe('lưới', () => {
   it('cột: x = 150 + i·196, rộng 150; tiêu đề pha top 0 cao 26', () => {

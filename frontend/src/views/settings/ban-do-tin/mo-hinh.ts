@@ -48,12 +48,12 @@ export function dungMoHinh(anh: AnhChupBanDo): MoHinh {
     if (c.nhay_cam.length) tagsCo.push('Nhạy cảm');
     khoiGoc[c.id] = [];
     for (const d of goc) {
-      khoi.push({ id: idKhoi(c.id, d), ten: c.ten, pha: c.pha, hang: d, nguon_id: c.id, loai_nut: 'composer', ban_sao: false, che_do: 'bat', tags: [...tagsCo] });
+      khoi.push({ id: idKhoi(c.id, d), ten: c.ten, pha: c.pha, hang: d, nguon_id: c.id, loai_nut: 'composer', ban_sao: false, che_do: 'bat', tags: [...tagsCo], soan: c.ai_soan });
       khoiGoc[c.id].push(idKhoi(c.id, d));
     }
     for (const d of banSao) {
       const tags: TagKhoi[] = cheDo === 'bong' ? ['Bóng', ...tagsCo] : [...tagsCo];
-      khoi.push({ id: idKhoi(c.id, d), ten: c.ten, pha: c.pha, hang: d, nguon_id: c.id, loai_nut: 'composer', ban_sao: true, che_do: cheDo, tags });
+      khoi.push({ id: idKhoi(c.id, d), ten: c.ten, pha: c.pha, hang: d, nguon_id: c.id, loai_nut: 'composer', ban_sao: true, che_do: cheDo, tags, soan: c.ai_soan });
     }
   }
   for (const n of [...anh.nguon, ...anh.crm]) {
@@ -64,7 +64,7 @@ export function dungMoHinh(anh: AnhChupBanDo): MoHinh {
     const tat = laCrm && !n.crm!.bat;
     khoi.push({
       id: idKhoi(n.id, n.hang), ten: n.ten, pha: n.pha, hang: n.hang, nguon_id: n.id, loai_nut: laCrm ? 'crm' : 'nguon',
-      ban_sao: false, che_do: tat ? 'tat' : 'bat', tags: [laCrm ? 'CRM' : 'Nguồn', ...(tat ? ['Tắt' as const] : [])],
+      ban_sao: false, che_do: tat ? 'tat' : 'bat', tags: [laCrm ? 'CRM' : 'Nguồn', ...(tat ? ['Tắt' as const] : [])], soan: null,
     });
     khoiGoc[n.id] = [idKhoi(n.id, n.hang)];
   }
@@ -116,6 +116,13 @@ export function dungMoHinh(anh: AnhChupBanDo): MoHinh {
     .filter((g) => g.hang.length > 0);
 
   return { pha: PHA, nhom, hang: HANG, khoi, khoiTheoId, lienKet, lienKetTheoId, vao, ra, composer, nutPhu, demKhoi };
+}
+
+/** Số hiện TRÊN khối (bổ sung 02/10 — khối gốc cũng có số): 24h/7d = đã gửi + chạy bóng; `chu` = chú thích di chuột. */
+export function soTrenKhoi(d: DemCanh | undefined): { h24: number; d7: number; chu: string } | null {
+  if (!d) return null;
+  const mot = (x: DemCanh['h24']) => `${x.da_gui} đã gửi${x.bong ? ` · ${x.bong} chạy bóng` : ''}${x.chan_tam_im ? ` · ${x.chan_tam_im} bị chặn` : ''}${x.loi ? ` · ${x.loi} lỗi` : ''}`;
+  return { h24: d.h24.da_gui + d.h24.bong, d7: d.d7.da_gui + d.d7.bong, chu: `24 giờ: ${mot(d.h24)} — 7 ngày: ${mot(d.d7)}` };
 }
 
 /** Tổng số liên kết theo loại — số ở chú giải. */

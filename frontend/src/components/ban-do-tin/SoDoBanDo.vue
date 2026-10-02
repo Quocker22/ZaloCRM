@@ -69,7 +69,8 @@
           @click.stop="s.datChon({ kieu: 'khoi', id: k.id })"
           @mouseenter="s.tro.value = k.id" @mouseleave="s.tro.value = null"
         >
-          <span class="ten">{{ k.ten }}<span v-for="t in k.tags.slice(0, 2)" :key="t" class="bdt-tag" :class="LOP_TAG[t]">{{ t }}</span></span>
+          <span class="ten">{{ k.ten }}<span v-if="k.soan" class="bdt-tag" :class="LOP_SOAN[k.soan]" :data-soan="k.soan">{{ TEN_SOAN[k.soan] }}</span><span v-for="t in k.tags.slice(0, 2)" :key="t" class="bdt-tag" :class="LOP_TAG[t]">{{ t }}</span></span>
+          <span v-if="soKhoi[k.id]" class="bdt-dem-khoi" :title="soKhoi[k.id]!.chu" data-dem-khoi>{{ soKhoi[k.id]!.h24 }}<small>/24h</small></span>
           <span v-if="kq.badge[k.id]" class="bdt-badge" :class="kq.badge[k.id].kieu">{{ kq.badge[k.id].chu }}</span>
         </button>
         <button
@@ -143,7 +144,8 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { BookOpenText, ChevronDown, Layers, Minus, Plus, RotateCcw, Send } from 'lucide-vue-next';
 import IconBdt from './IconBdt.vue';
 import LopDuong from './LopDuong.vue';
-import { KIEU_DUONG, LOP_TAG } from '@/views/settings/ban-do-tin/cau-hinh';
+import { KIEU_DUONG, LOP_SOAN, LOP_TAG, TEN_SOAN } from '@/views/settings/ban-do-tin/cau-hinh';
+import { soTrenKhoi } from '@/views/settings/ban-do-tin/mo-hinh';
 import {
   COT_X0, DAI_NHOM_LE, HANG_DAU_TOP, zoomMacDinh, zoomVuaHaiChieu, zoomVuaKhung, ZOOM_MAX, ZOOM_MIN, type HinhChuNhat,
 } from '@/views/settings/ban-do-tin/bo-cuc';
@@ -164,12 +166,14 @@ const khoiHien = computed(() => mh.value.khoi.filter((k) => bc.value.khoi[k.id])
 const dsCoDuong = computed(() => mh.value.lienKet.filter((l) => duong.value[l.id]));
 const dsNoi = computed(() => mh.value.lienKet.filter((l) => kq.value.noi.has(l.id) && duong.value[l.id]));
 const tenKhoi = (id: string) => mh.value.khoiTheoId[id]?.ten ?? id;
+/** số 24h/7d trên khối — gồm khối GỐC (dòng đếm `luat_id=null`, hợp đồng bổ sung 02/10) */
+const soKhoi = computed(() => Object.fromEntries(Object.entries(mh.value.demKhoi).map(([id, d]) => [id, soTrenKhoi(d)])));
 const chanKhung = computed(() => {
   const a = s.anh.value;
   if (a?.mau) return 'Dữ liệu MẪU — danh mục 46 tin + cạnh viết tay, số đếm giả (adapter giả lập)';
   const luc = a?.luc ? new Date(a.luc) : null;
   const gio = luc && !isNaN(+luc) ? ` · bot gửi lúc ${luc.toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}` : '';
-  return `Danh mục bot phiên bản ${a?.phien_ban ?? '—'}${gio} · số đếm 7 ngày`;
+  return `Danh mục bot phiên bản ${a?.phien_ban ?? '—'}${gio} · số đếm 24 giờ / 7 ngày`;
 });
 
 /** lớp dính: cột nhãn hàng rộng tới mép dải hàng; hàng tiêu đề pha cao tới mép trên dải nhóm đầu */

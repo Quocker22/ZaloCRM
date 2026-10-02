@@ -8,7 +8,7 @@ import { anhChupMau } from './client-mau';
 import { dungMoHinh } from './mo-hinh';
 
 const k = (id: string, pha: MaPha, hang: MaHang): Khoi =>
-  ({ id, ten: id, pha, hang, nguon_id: id, loai_nut: 'composer', ban_sao: false, che_do: 'bat', tags: [] });
+  ({ id, ten: id, pha, hang, nguon_id: id, loai_nut: 'composer', ban_sao: false, che_do: 'bat', tags: [], soan: null });
 const nhom: NhomHang[] = [
   { id: 'g', ten: 'G', hang: ['nhom_goc', 'dm_nguoi_go', 'chu_don'], le: false },
   { id: 'l', ten: 'L', hang: ['g_kho'], le: true },

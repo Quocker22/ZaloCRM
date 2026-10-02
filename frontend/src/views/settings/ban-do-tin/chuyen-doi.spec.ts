@@ -13,11 +13,14 @@ const BAN_DO: BanDoApi = {
   composer: [
     { id: 'xuat_hoa_don_tool', kieu: 'ban_sao', nhay_cam: ['tien'], ten: 'Xuất hoá đơn', pha: 'xuat_hd', de_xuat: false,
       dich_goc: ['nhom_goc'], khi_nao: 'Khi xuất', vi_du: 'Đã xuất', nguon_cau: 'a.py:1', ghi_chu: null,
-      dan_toi: [{ den: 'in_sau_chot', kieu: 'nghiep_vu', vi_sao: 'in tiếp' }] },
+      dan_toi: [{ den: 'in_sau_chot', kieu: 'nghiep_vu', vi_sao: 'in tiếp' }], ai_soan: 'model', ly_do_khoa: null,
+      goi_y: 'Ứng viên: thêm nhóm Kế toán.' },
     { id: 'in_sau_chot', kieu: 'ban_sao', nhay_cam: [], ten: null, pha: 'pha_moi_chua_co', de_xuat: true,
-      dich_goc: ['g_kho', 'kenh_la'], khi_nao: null, vi_du: null, nguon_cau: null, ghi_chu: null, dan_toi: [] },
+      dich_goc: ['g_kho', 'kenh_la'], khi_nao: null, vi_du: null, nguon_cau: null, ghi_chu: null, dan_toi: [],
+      ai_soan: null, ly_do_khoa: null, goi_y: null }, // ảnh chụp lưu trước 02/10
     { id: 'the_don', kieu: 'khoa', nhay_cam: ['gia'], ten: 'Thẻ đơn', pha: 'len_don', de_xuat: false, dich_goc: [],
-      khi_nao: null, vi_du: null, nguon_cau: null, ghi_chu: null, dan_toi: [{ den: 'nguon_may_in', kieu: 'chan' }] },
+      khi_nao: null, vi_du: null, nguon_cau: null, ghi_chu: null, dan_toi: [{ den: 'nguon_may_in', kieu: 'chan' }],
+      ai_soan: 'mau', ly_do_khoa: 'Mang mã chốt — chỉ ở nơi gốc', goi_y: null },
   ],
   nguon: [
     { id: 'nguon_may_in', ten: 'Máy in', pha: 'in', mo_ta: null, dan_toi: [{ den: 'in_sau_chot', kieu: 'su_kien' }] },
@@ -60,6 +63,28 @@ describe('chuyen-doi', () => {
     expect(a.nguon.map((n) => [n.id, n.hang, n.ten])).toEqual([['nguon_may_in', 'n_may_in', 'Máy in'], ['nguon_zalo_oa', 'n_khac', 'nguon_zalo_oa']]);
     expect(a).toMatchObject({ phien_ban: 'a1b2c3d4e5f60718', luc: '2026-10-02T03:00:00.000Z', canh_bao: ['cb'], mau: false, crm: [], loi_crm: null });
     expect(a.dem_tho).toHaveLength(6);
+  });
+
+  it('bổ sung 02/10: ai_soan / ly_do_khoa / goi_y vào Composer; ảnh chụp cũ ⇒ ai_soan null, không có hai dòng kia', () => {
+    const [x, y, z] = dungAnhChup({ banDo: BAN_DO, luat: { luat: [], banDo: null, canhBao: [] }, crm: null }).composer;
+    expect([x.ai_soan, x.ly_do_khoa, x.goi_y]).toEqual(['model', undefined, 'Ứng viên: thêm nhóm Kế toán.']);
+    expect([y.ai_soan, 'ly_do_khoa' in y, 'goi_y' in y]).toEqual([null, false, false]);
+    expect([z.ai_soan, z.ly_do_khoa]).toEqual(['mau', 'Mang mã chốt — chỉ ở nơi gốc']);
+  });
+
+  it('bổ sung 02/10: dòng đếm KHỐI GỐC (luat_id null) — mọi mã dich_kieu của bot là đúng mã hàng, số vào gui:<khối>', () => {
+    const MA = ['nhom_goc', 'dm_nguoi_go', 'nguoi_giu_ma', 'chu_don', 'g_kho', 'g_admin', 'g_ketoan', 'g_sales', 'g_kythuat', 'nv', 'g_khach'];
+    for (const m of MA) expect(hangTuMaDich(m)).toBe(m);
+    const dem: DemApi[] = MA.flatMap((m, i) => [
+      { khoa_canh: `c→${m}|goc`, composer: 'c', dich_kieu: m, luat_id: null, ket_qua: 'da_gui', cua_so: '24h', so: i + 1 },
+      { khoa_canh: `c→${m}|goc`, composer: 'c', dich_kieu: m, luat_id: null, ket_qua: 'bo', cua_so: '7d', so: 2 },
+    ]);
+    const d = Object.fromEntries(gopDem(dem).map((x) => [x.canh_id, x]));
+    MA.forEach((m, i) => {
+      expect(d[`gui:c@${m}`].h24.da_gui).toBe(i + 1);
+      expect(d[`gui:c@${m}`].d7.bo).toBe(2);
+      expect(d[`luat:c@${m}`]).toBeUndefined();
+    });
   });
 
   it('luật: hàng bản sao + giữ dich_tho (zalo_uid) để sửa', () => {

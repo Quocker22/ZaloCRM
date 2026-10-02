@@ -21,6 +21,7 @@
       ><MauNet :loai="k.id" /><span class="ten">{{ k.ten }}</span><span class="so">{{ demLoai[k.id] }}</span></button>
       <h4 class="bdt-h4" style="margin-top: 16px">Nhãn khối</h4>
       <div class="bdt-nhan-khoi">
+        <span><span class="bdt-tag t-soan s-ma">Mã</span><span class="bdt-tag t-soan s-model">Model</span><span class="bdt-tag t-soan s-mau">Mẫu</span><span class="bdt-tag t-soan s-anh">Ảnh</span>ai soạn tin</span>
         <span><span class="bdt-tag t-nhay">Nhạy cảm</span>giá/SĐT/tiền/lãi</span>
         <span><span class="bdt-tag t-moi">Mới</span>đề xuất</span>
         <span><span class="bdt-tag t-bong">Bóng</span>ghi sổ, chưa gửi</span>
@@ -45,6 +46,7 @@
         </div>
         <h3>{{ khoi.ten }}</h3>
         <div class="tags">
+          <span v-if="comp?.ai_soan" class="bdt-tag" :class="LOP_SOAN[comp.ai_soan]" :title="MO_TA_SOAN[comp.ai_soan]" data-soan>Soạn: {{ TEN_SOAN[comp.ai_soan] }}</span>
           <span v-for="t in khoi.tags" :key="t" class="bdt-tag" :class="LOP_TAG[t]">{{ t }}</span>
           <span v-if="khoi.ban_sao" class="bdt-tag t-ban-sao">Bản sao theo luật</span>
           <span v-if="comp" class="bdt-tag t-khoa">{{ comp.kieu === 'khoa' ? '🔒 đích cố định' : comp.kieu === 'ban_sao' ? '✎ thêm bản sao' : '✎ tin thông báo' }}</span>
@@ -63,10 +65,11 @@
             <details v-if="comp.ghi_chu" class="bdt-bien-the"><summary>Biến thể &amp; ghi chú</summary><p class="bdt-nho">{{ comp.ghi_chu }}</p></details>
           </section>
           <section v-if="comp.nguon_cau"><h4 class="bdt-h4">Nguồn câu</h4><span class="bdt-code">{{ comp.nguon_cau }}</span></section>
+          <p v-if="comp.goi_y" class="bdt-goi-y" data-goi-y>💡 {{ comp.goi_y }}</p>
 
           <section data-dich>
             <h4 class="bdt-h4">Đích <span class="dem">{{ dichDangGui.length }}</span></h4>
-            <div v-if="comp.kieu === 'khoa'" class="bdt-khoa-ly-do"><Lock :size="13" style="flex: none; margin-top: 2px" />{{ dichKhoa(comp, comp.dich_goc[0]) }}</div>
+            <div v-if="comp.kieu === 'khoa'" class="bdt-khoa-ly-do" data-ly-do-khoa><Lock :size="13" style="flex: none; margin-top: 2px" />{{ dichKhoa(comp, comp.dich_goc[0]) }}</div>
             <p v-if="comp.dich_goc_la?.length" class="bdt-canh">Bot khai đích gốc chưa có hàng trên bản đồ: <b>{{ comp.dich_goc_la.join(', ') }}</b>.</p>
             <template v-for="d in dsDich" :key="d">
               <label class="bdt-dich" :class="{ khoa: !!dichKhoa(comp, d) }" :data-dich-dong="d">
@@ -122,12 +125,15 @@
             </div>
           </section>
 
-          <section v-if="demKhoi">
-            <h4 class="bdt-h4">7 ngày qua{{ khoi.ban_sao ? ' — bản sao này' : '' }}</h4>
-            <div class="bdt-so">
-              <span><b>{{ demKhoi.d7.da_gui }}</b> đã gửi</span><span><b>{{ demKhoi.d7.chan_tam_im }}</b> bị chặn</span>
-              <span><b>{{ demKhoi.d7.bong }}</b> chạy bóng</span><span v-if="demKhoi.d7.loi"><b>{{ demKhoi.d7.loi }}</b> lỗi</span>
-            </div>
+          <section v-if="demKhoi" data-so-khoi>
+            <template v-for="cs in CUA_SO" :key="cs.id">
+              <h4 class="bdt-h4">{{ cs.ten }}{{ khoi.ban_sao ? ' — bản sao này' : ' — nơi gốc' }}</h4>
+              <div class="bdt-so" :data-cua-so="cs.id">
+                <span><b>{{ demKhoi[cs.id].da_gui }}</b> đã gửi</span><span><b>{{ demKhoi[cs.id].chan_tam_im }}</b> bị chặn</span>
+                <span><b>{{ demKhoi[cs.id].bong }}</b> chạy bóng</span><span v-if="demKhoi[cs.id].loi"><b>{{ demKhoi[cs.id].loi }}</b> lỗi</span>
+                <span v-if="demKhoi[cs.id].bo"><b>{{ demKhoi[cs.id].bo }}</b> bỏ (rỗng)</span>
+              </div>
+            </template>
           </section>
         </template>
 
@@ -236,7 +242,7 @@ import IconBdt from './IconBdt.vue';
 import MauNet from './MauNet.vue';
 import SoTron from './SoTron.vue';
 import type { NvDich } from '@/api/ban-do-tin';
-import { KIEU_DUONG, KIEU_DUONG_THEO_ID, LOP_TAG, tenNhayCam } from '@/views/settings/ban-do-tin/cau-hinh';
+import { KIEU_DUONG, KIEU_DUONG_THEO_ID, LOP_SOAN, LOP_TAG, MO_TA_SOAN, TEN_SOAN, tenNhayCam } from '@/views/settings/ban-do-tin/cau-hinh';
 import { bong24hCuaLuat } from '@/views/settings/ban-do-tin/chuyen-doi';
 import { dichKhoa, dsDichPanel, kiemDich } from '@/views/settings/ban-do-tin/luat';
 import { demTheoLoai, dichHieuLuc } from '@/views/settings/ban-do-tin/mo-hinh';
@@ -248,6 +254,7 @@ defineProps<{ sheet?: boolean }>();
 const s = dungBanDoTin();
 const mh = computed(() => s.mh.value!);
 const chon = computed(() => s.chon.value);
+const CUA_SO: { id: 'h24' | 'd7'; ten: string }[] = [{ id: 'h24', ten: '24 giờ qua' }, { id: 'd7', ten: '7 ngày qua' }];
 const CHE_DO: { id: CheDo; ten: string }[] = [{ id: 'tat', ten: 'Tắt' }, { id: 'bong', ten: 'Chạy bóng' }, { id: 'bat', ten: 'Bật' }];
 const TEN_LOAI_DICH_CRM: Record<MucCrmApi['dich'][number]['loai'], string> = { nhom: 'nhóm Zalo', ca_nhan: 'tin riêng', ung_dung: 'trong app', bot: 'bot đọc' };
 /** Tab Nhật ký của trang Quyền bot — mọi thay đổi luật/ảnh chụp ghi ở bot_quyen_nhat_ky (luat_thong_bao, ban_do_tin). */

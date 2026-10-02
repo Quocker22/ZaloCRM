@@ -9,7 +9,9 @@
 //   • pha lạ / null ⇒ cột "Quyền · hệ thống · lỗi" (giữ mã lạ ở `pha_la` để panel nói thật);
 //   • `dich_goc` lạ bị bỏ (giữ ở `dich_goc_la`); rỗng ⇒ `nhom_goc` (bot không khai = gửi nơi người gõ);
 //   • đích luật → HÀNG bản sao: chuc_nang → g_*, nv → nv, nguoi_gay_ra → dm_nguoi_go (`dich_tho` giữ nguyên để sửa);
-//   • số đếm: `dich_kieu` quy về hàng như trên; gộp theo khối (`gui:`) và phần qua luật (`luat:`) cho cạnh bản sao.
+//   • số đếm: `dich_kieu` quy về hàng như trên; gộp theo khối (`gui:` — gồm dòng KHỐI GỐC `luat_id=null`, bổ sung 02/10)
+//     và phần qua luật (`luat:`) cho cạnh bản sao;
+//   • ai_soan / ly_do_khoa / goi_y (bổ sung 02/10) đi thẳng vào Composer — ảnh chụp cũ không có ⇒ null / vắng.
 import { HANG, HANG_THEO_CHUC_NANG, HANG_THEO_LOAI_DICH_CRM, PHA } from './cau-hinh';
 import type {
   AnhChupBanDo, CanhDanToi, Composer, DemCanh, Luat, MaDich, MaHangPhu, MaPha, NutPhu, SoDem,
@@ -50,7 +52,7 @@ export function hangNguon(id: string): MaHangPhu {
   return 'n_khac';
 }
 
-const soRong = (): SoDem => ({ da_gui: 0, chan_tam_im: 0, loi: 0, bong: 0, chua_ro: 0 });
+const soRong = (): SoDem => ({ da_gui: 0, chan_tam_im: 0, loi: 0, bong: 0, chua_ro: 0, bo: 0 });
 
 export function luatTuApi(l: LuatApi): Luat {
   const dich = [...new Set(l.dich.map(hangTuDichLuat).filter((h): h is MaDich => !!h))];
@@ -85,6 +87,9 @@ function composerTuApi(c: BanDoApi['composer'][number]): Composer {
     ...(c.ghi_chu ? { ghi_chu: c.ghi_chu } : {}),
     dan_toi: (c.dan_toi ?? []).map((d): CanhDanToi => ({ den: d.den, kieu: d.kieu, ...(d.vi_sao ? { vi_sao: d.vi_sao } : {}) })),
     de_xuat: !!c.de_xuat,
+    ai_soan: c.ai_soan ?? null,
+    ...(c.ly_do_khoa ? { ly_do_khoa: c.ly_do_khoa } : {}),
+    ...(c.goi_y ? { goi_y: c.goi_y } : {}),
   };
 }
 

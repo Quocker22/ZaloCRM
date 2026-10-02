@@ -16,7 +16,8 @@ interface ViDu { id: string; de_xuat: boolean; khi_nao: string; vi_du: string; n
 type NguoiSoan = 'ma' | 'model' | 'mau' | 'anh';
 type CheDoMau = 'tat' | 'bong' | 'bat';
 
-/** Bản mẫu chủ đã xem — ai soạn (`soan`, `ai`), lý do khoá (`k`), gợi ý (`g`) chỉ để đọc; hợp đồng không có các ô đó. */
+/** Bản mẫu chủ đã xem — ai soạn (`soan` ⇒ `ai_soan`; `ai` = chữ đầy đủ của bản mẫu, chỉ để đọc), lý do khoá (`k` ⇒
+ *  `ly_do_khoa`, chỉ composer khoá), gợi ý (`g` ⇒ `goi_y`) — ba ô hợp đồng "Bổ sung 02/10". */
 interface Meta {
   ten: string;
   pha: MaPha;
@@ -173,6 +174,7 @@ export function composerMau(): ComposerApi[] {
       id: v.id, kieu: m.kieu, nhay_cam: (m.n ?? []).map((n) => NHAN[n] ?? n).sort(), ten: m.ten, pha: m.pha,
       de_xuat: v.de_xuat, dich_goc: [...m.dich], khi_nao: v.khi_nao, vi_du: v.vi_du, nguon_cau: v.nguon_cau,
       ghi_chu: v.ghi_chu ?? null, dan_toi: (DAN_TOI[v.id] ?? []).map((c) => ({ ...c })),
+      ai_soan: m.soan, ly_do_khoa: m.kieu === 'khoa' ? (m.k ?? null) : null, goi_y: m.g ?? null,
     };
   });
 }

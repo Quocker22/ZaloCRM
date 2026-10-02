@@ -66,6 +66,26 @@ describe('BanDoTinPage — máy tính', () => {
     expect(p.text()).toContain('Đích cố định');
     for (const o of p.findAll('[data-dich] input')) expect((o.element as HTMLInputElement).disabled).toBe(true);
     expect(p.find('.bdt-che-do').exists()).toBe(false);
+    // bổ sung 02/10: dòng 🔒 = ly_do_khoa bot khai; nhãn Soạn; số khối gốc 24h + 7 ngày
+    expect(p.find('[data-ly-do-khoa]').text()).toBe("Đích cố định: Mã chốt gắn với làn hội thoại; gửi chỗ khác thì 'chốt' ở đó không tìm ra đơn.");
+    expect(p.find('[data-soan]').text()).toBe('Soạn: Mã');
+    expect(p.find('[data-so-khoi] [data-cua-so="h24"]').text()).toMatch(/\d+ đã gửi/);
+    expect(p.find('[data-so-khoi] [data-cua-so="d7"]').text()).toMatch(/\d+ đã gửi/);
+  });
+
+  it('bổ sung 02/10: khối mang nhãn Mã/Model/Mẫu/Ảnh theo ai_soan + số 24h của khối gốc; gợi ý 💡 trong panel', async () => {
+    const { w } = await mo();
+    const nhan = (id: string) => w.find(`[data-khoi="${id}"] [data-soan]`).text();
+    expect([nhan('the_xem_truoc@nhom_goc'), nhan('model_tra_loi@nhom_goc'), nhan('bao_cao_soan_tin@nhom_goc'), nhan('anh_bao_gia@nhom_goc')])
+      .toEqual(['Mã', 'Model', 'Mẫu', 'Ảnh']);
+    expect(w.find('[data-khoi="crm_su_kien_in@crm_bot"]').exists()).toBe(true);
+    expect(w.find('[data-khoi="crm_su_kien_in@crm_bot"] [data-soan]').exists()).toBe(false);
+    const so = w.find('[data-khoi="the_xem_truoc@nhom_goc"] [data-dem-khoi]');
+    expect(so.text()).toMatch(/^\d+\/24h$/);
+    expect(so.attributes('title')).toMatch(/^24 giờ: .* — 7 ngày: /);
+    await bamKhoi(w, 'xuat_hoa_don_tool@nhom_goc');
+    expect(panel(w).find('[data-goi-y]').text()).toBe('💡 Ứng viên: thêm nhóm Kế toán.');
+    expect(panel(w).find('[data-ly-do-khoa]').exists()).toBe(false);
   });
 
   it('tin ✎ chưa có luật: nơi gốc 🔒, khách bị chặn; tick Kế toán ⇒ POST luật (CRM mặc định chạy bóng) + khối bản sao "Bóng"', async () => {

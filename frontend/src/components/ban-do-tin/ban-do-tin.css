@@ -207,6 +207,16 @@
 .bdt-tag.t-bong { background: var(--bdt-coin-bg); color: var(--bdt-coin); }
 .bdt-tag.t-nguon { background: color-mix(in srgb, var(--bdt-brand-600) 14%, transparent); color: var(--bdt-brand-600); }
 .bdt-tag.t-crm { background: var(--bdt-success-bg); color: var(--bdt-success); }
+/* ai soạn (hợp đồng bổ sung 02/10): viền, nền trong — tách khỏi nhãn trạng thái nền đặc */
+.bdt-tag.t-soan { background: transparent; border: 1px solid currentColor; padding: 0 4px; }
+.bdt-tag.s-ma { color: var(--bdt-muted); }
+.bdt-tag.s-model { color: var(--bdt-brand); }
+.bdt-tag.s-mau { color: var(--bdt-accent); }
+.bdt-tag.s-anh { color: var(--bdt-success); }
+/* số 24h trên khối (khối gốc lẫn bản sao) */
+.bdt-dem-khoi { flex: none; margin-left: auto; padding-left: 4px; font-size: 10px; font-weight: 700; line-height: 12px; color: var(--bdt-text); font-variant-numeric: tabular-nums; }
+.bdt-dem-khoi small { font-size: 7.5px; font-weight: 600; color: var(--bdt-muted); }
+.bdt-goi-y { font-size: 12px; line-height: 17px; border-radius: 8px; padding: 7px 10px; margin-top: 8px; background: var(--bdt-coin-bg); color: var(--bdt-text); }
 .bdt-badge { position: absolute; top: -8px; right: 6px; font-size: 8px; font-weight: 600; line-height: 10px; padding: 1px 6px; border-radius: 5px; white-space: nowrap; pointer-events: none; }
 .bdt-badge.xem { background: var(--bdt-brand); color: #fff; }
 .bdt-badge.vao { background: var(--bdt-text); color: var(--bdt-surface); }

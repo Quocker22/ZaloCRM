@@ -2,7 +2,7 @@
 // cau-hinh.ts — khung cố định của bản đồ: pha (cột), hàng/nhóm hàng (đích), sáu loại đường nối.
 // Không chứa dữ liệu composer — cái đó đến từ client (bot đẩy danh mục, docs/78 B4).
 import type { Hang, LoaiLienKet, MaDich, MaHang, MaHangPhu, NhomHang, Pha, TagKhoi } from './kieu';
-import type { ChucNangNhom, MucCrmApi } from './hop-dong';
+import type { AiSoan, ChucNangNhom, MucCrmApi } from './hop-dong';
 
 export const PHA: Pha[] = [
   { id: 'hoi', ma: 'P1', ten: 'Hỏi & tra cứu', cau_hoi: 'NV hỏi gì thì bot trả lời ở đâu?' },
@@ -100,6 +100,13 @@ export const KIEU_DUONG: KieuDuong[] = [
 export const KIEU_DUONG_THEO_ID = Object.fromEntries(KIEU_DUONG.map((k) => [k.id, k])) as Record<LoaiLienKet, KieuDuong>;
 
 export const TEN_DICH = (h: string): string => HANG[h as MaHang]?.ten ?? h;
+
+/** Nhãn "ai soạn" (hợp đồng bổ sung 02/10, như bản mẫu chủ đã xem) + lớp CSS `.bdt-tag.t-soan.s-*`. */
+export const TEN_SOAN: Record<AiSoan, string> = { ma: 'Mã', model: 'Model', mau: 'Mẫu', anh: 'Ảnh' };
+export const MO_TA_SOAN: Record<AiSoan, string> = {
+  ma: 'chữ do mã viết sẵn', model: 'model AI diễn đạt', mau: 'khuôn mẫu điền số', anh: 'ảnh (Odoo / biểu đồ)',
+};
+export const LOP_SOAN: Record<AiSoan, string> = { ma: 't-soan s-ma', model: 't-soan s-model', mau: 't-soan s-mau', anh: 't-soan s-anh' };
 
 /** Lớp CSS của nhãn khối (ban-do-tin.css `.bdt-tag.t-*`). */
 export const LOP_TAG: Record<TagKhoi, string> = {

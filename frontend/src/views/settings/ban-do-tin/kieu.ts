@@ -4,7 +4,7 @@
 // Dữ liệu vào là ĐÚNG hợp đồng (hop-dong.ts: ảnh chụp bot + luật CRM + lớp CRM tự động); `chuyen-doi.ts` dựng
 // `AnhChupBanDo` dưới đây: mã pha/đích lạ quy về hàng đã biết, luật quy về hàng bản sao, số đếm gộp theo khối.
 
-import type { DemApi, DichLuatApi, MucCrmApi } from './hop-dong';
+import type { AiSoan, DemApi, DichLuatApi, MucCrmApi } from './hop-dong';
 
 /** Mã pha = mã cột trên sơ đồ, theo thứ tự trái → phải. */
 export type MaPha =
@@ -57,6 +57,12 @@ export interface Composer {
   ghi_chu?: string;
   dan_toi: CanhDanToi[];
   de_xuat: boolean;
+  /** ai soạn tin — nhãn khối Mã/Model/Mẫu/Ảnh; null = ảnh chụp cũ chưa khai */
+  ai_soan: AiSoan | null;
+  /** vì sao đích cố định (bot khai, chỉ composer khoá) — dòng 🔒 trong panel */
+  ly_do_khoa?: string;
+  /** gợi ý cấu hình bot khai — dòng 💡 trong panel */
+  goi_y?: string;
 }
 
 /** Khối nguồn (máy in, Odoo, lịch) hoặc khối CRM tự động — chỉ xem. */
@@ -86,7 +92,7 @@ export interface Luat {
   sua_luc?: string;
 }
 
-export interface SoDem { da_gui: number; chan_tam_im: number; loi: number; bong: number; chua_ro: number }
+export interface SoDem { da_gui: number; chan_tam_im: number; loi: number; bong: number; chua_ro: number; bo: number }
 
 /** Số đếm đã gộp: `gui:<khối>` (mọi lần gửi tới khối) · `luat:<khối>` (chỉ phần qua luật — cạnh bản sao). */
 export interface DemCanh {
@@ -156,6 +162,8 @@ export interface Khoi {
   ban_sao: boolean;
   che_do: CheDo;
   tags: TagKhoi[];
+  /** ai soạn (chỉ khối composer có khai) — nhãn riêng, luôn hiện, không tính vào `tags` */
+  soan: AiSoan | null;
 }
 
 export interface LienKet {

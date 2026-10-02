@@ -13,6 +13,10 @@ export interface CanhApi {
   vi_sao?: string;
 }
 
+/** Ai soạn tin (hợp đồng "Bổ sung 02/10") — nhãn khối Mã/Model/Mẫu/Ảnh. */
+export const AI_SOAN = ['ma', 'model', 'mau', 'anh'] as const;
+export type AiSoan = (typeof AI_SOAN)[number];
+
 export interface ComposerApi {
   id: string;
   kieu: 'khoa' | 'ban_sao' | 'thuan';
@@ -26,6 +30,12 @@ export interface ComposerApi {
   nguon_cau: string | null;
   ghi_chu: string | null;
   dan_toi: CanhApi[];
+  /** Bổ sung 02/10. `null` chỉ khi CRM còn giữ ảnh chụp gửi TRƯỚC 02/10 (CRM không đoán). */
+  ai_soan: AiSoan | null;
+  /** vì sao đích cố định — chỉ composer `kieu = khoa` */
+  ly_do_khoa: string | null;
+  /** gợi ý cấu hình, vd "Ứng viên: thêm nhóm Kế toán" */
+  goi_y: string | null;
 }
 
 export interface NguonApi {
@@ -36,10 +46,12 @@ export interface NguonApi {
   dan_toi: CanhApi[];
 }
 
-export const KET_QUA_DEM = ['da_gui', 'chan_tam_im', 'loi', 'bong', 'chua_ro'] as const;
+/** = CHECK tin_gui_so.ket_qua của bot; `bo` = nội dung rỗng cho đích (bỏ, không gửi). */
+export const KET_QUA_DEM = ['da_gui', 'chan_tam_im', 'loi', 'bong', 'chua_ro', 'bo'] as const;
 export type KetQuaDem = (typeof KET_QUA_DEM)[number];
 
-/** Một dòng số đếm — §4: một dòng mỗi (cạnh, kết quả, cửa sổ). */
+/** Một dòng số đếm — §4: một dòng mỗi (cạnh, kết quả, cửa sổ). `luat_id = null` (khoá "…|goc") = gửi ở nơi gốc — số của
+ *  KHỐI GỐC; `dich_kieu` là đúng mã hàng bản đồ (nhom_goc, dm_nguoi_go, nguoi_giu_ma, chu_don, g_*, nv, g_khach). */
 export interface DemApi {
   khoa_canh: string;
   composer: string;

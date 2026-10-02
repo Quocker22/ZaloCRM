@@ -31,7 +31,7 @@ export function dsDichPanel(c: Composer, banSao: readonly MaDich[]): MaDich[] {
 
 /** Một ô đích bị khoá trong panel (🔒) + lý do; null = tick được. */
 export function dichKhoa(c: Composer, d: MaDich): string | null {
-  if (c.kieu === 'khoa') return 'Đích cố định — tin gắn với lượt chat (mã chốt, câu hỏi neo vào tin gốc). Không định tuyến được.';
+  if (c.kieu === 'khoa') return c.ly_do_khoa ? `Đích cố định: ${c.ly_do_khoa}` : 'Đích cố định — tin gắn với lượt chat (mã chốt, câu hỏi neo vào tin gốc). Không định tuyến được.';
   if (c.dich_goc.includes(d)) return 'Nơi gốc luôn nhận tin như mã — luật chỉ THÊM bản sao.';
   if (!DICH_LUAT.includes(d)) return `${TEN_DICH(d)}: CRM chưa có kiểu đích này cho luật.`;
   return null;

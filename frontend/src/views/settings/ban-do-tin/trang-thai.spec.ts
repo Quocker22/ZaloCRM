@@ -101,7 +101,8 @@ describe('kiểm luật (tương đương rào server)', () => {
     expect(dichKhoa(c('da_chot'), 'nhom_goc')).toMatch(/Nơi gốc/);
     expect(dichKhoa(c('in_xong'), 'g_kho')).toMatch(/Nơi gốc/);
     expect(dichKhoa(c('da_chot'), 'g_kho')).toBeNull();
-    expect(dichKhoa(c('the_xem_truoc'), 'g_kho')).toMatch(/mã chốt/);
+    expect(dichKhoa(c('the_xem_truoc'), 'g_kho')).toBe("Đích cố định: Mã chốt gắn với làn hội thoại; gửi chỗ khác thì 'chốt' ở đó không tìm ra đơn."); // ly_do_khoa bot khai
+    expect(dichKhoa({ ...c('the_xem_truoc'), ly_do_khoa: undefined }, 'g_kho')).toMatch(/mã chốt/); // ảnh chụp cũ: câu chung
     expect(dichKhoa(c('da_chot'), 'g_kythuat')).toMatch(/chưa có kiểu đích/);
   });
 });

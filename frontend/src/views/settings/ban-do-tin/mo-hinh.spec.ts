@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { describe, it, expect } from 'vitest';
 import { anhChupMau } from './client-mau';
-import { dichHieuLuc, demTheoLoai, dungMoHinh } from './mo-hinh';
+import { dichHieuLuc, demTheoLoai, dungMoHinh, soTrenKhoi } from './mo-hinh';
 import type { Luat, MaDich } from './kieu';
 
 const luat = (loai: string, dich: MaDich[], che_do: Luat['che_do']): Luat => ({ id: 'x', loai, dich, dich_tho: [], che_do, phien_ban: 1 });
@@ -13,6 +13,27 @@ describe('mô hình bản đồ từ ảnh chụp mẫu (đi qua hợp đồng �
     const mh = dungMoHinh(a);
     for (const c of a.composer) expect(mh.khoi.some((k) => k.nguon_id === c.id)).toBe(true);
     expect(a.mau).toBe(true);
+  });
+
+  it('bổ sung 02/10: nhãn ai soạn trên MỌI khối composer (gốc lẫn bản sao), không trên khối nguồn/CRM; mẫu khai đủ 4 loại', () => {
+    const a = anhChupMau();
+    const mh = dungMoHinh(a);
+    for (const k of mh.khoi) expect(k.soan).toBe(k.loai_nut === 'composer' ? mh.composer[k.nguon_id].ai_soan : null);
+    expect(mh.khoiTheoId['in_sau_chot@g_kho']?.soan).toBe('ma');
+    expect(new Set(a.composer.map((c) => c.ai_soan))).toEqual(new Set(['ma', 'model', 'mau', 'anh']));
+    // ly_do_khoa chỉ ở composer khoá; goi_y đi theo bản mẫu chủ đã xem
+    for (const c of a.composer) if (c.ly_do_khoa) expect(c.kieu).toBe('khoa');
+    expect(a.composer.find((c) => c.id === 'xuat_hoa_don_tool')?.goi_y).toBe('Ứng viên: thêm nhóm Kế toán.');
+  });
+
+  it('bổ sung 02/10: số trên khối GỐC (24h + 7d, từ dòng đếm luat_id=null) và khối bản sao bóng', () => {
+    const mh = dungMoHinh(anhChupMau());
+    const goc = soTrenKhoi(mh.demKhoi['the_xem_truoc@nhom_goc'])!;
+    expect(goc.h24).toBeGreaterThan(0);
+    expect(goc.d7).toBeGreaterThanOrEqual(goc.h24);
+    expect(goc.chu).toMatch(/^24 giờ: \d+ đã gửi.* — 7 ngày: \d+ đã gửi/);
+    expect(soTrenKhoi(mh.demKhoi['in_sau_chot@g_kho'])!.chu).toMatch(/chạy bóng/);
+    expect(soTrenKhoi(undefined)).toBeNull();
   });
 
   it('hai luật chủ chọn 02/10 sinh khối bản sao Kế toán / Kho + đường "Bản sao theo luật"; luật bóng gắn nhãn Bóng', () => {

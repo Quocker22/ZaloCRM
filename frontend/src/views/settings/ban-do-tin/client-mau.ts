@@ -18,7 +18,8 @@ export interface TuyChonMau {
   loiCrm?: boolean;
 }
 
-/** Số đếm giả, tất định: gửi ở nơi gốc (7 ngày) + mỗi đích bản sao theo luật (bóng ⇒ ket_qua=bong, có cả 24h). */
+/** Số đếm giả, tất định: gửi ở nơi gốc — dòng KHỐI GỐC `luat_id=null` (bổ sung 02/10), 7 ngày + 24 giờ — và mỗi đích bản sao
+ *  theo luật (bóng ⇒ ket_qua=bong, có cả 24h). `dich_kieu` = mã hàng bản đồ như bot gửi. */
 export function demMau(composer: readonly ComposerApi[], luat: readonly LuatApi[]): DemApi[] {
   const ra: DemApi[] = [];
   const dong = (c: string, dk: string, luatId: string | null, kq: DemApi['ket_qua'], cs: DemApi['cua_so'], so: number) => {
@@ -26,8 +27,10 @@ export function demMau(composer: readonly ComposerApi[], luat: readonly LuatApi[
   };
   for (const c of composer) {
     for (const d of c.dich_goc) {
-      dong(c.id, d, null, 'da_gui', '7d', 5 + soGia(`${c.id}@${d}`, 300));
+      const so7 = 5 + soGia(`${c.id}@${d}`, 300);
+      dong(c.id, d, null, 'da_gui', '7d', so7);
       dong(c.id, d, null, 'chan_tam_im', '7d', soGia(`c${c.id}@${d}`, 4));
+      dong(c.id, d, null, 'da_gui', '24h', Math.round(so7 / 7));
     }
   }
   for (const l of luat) {

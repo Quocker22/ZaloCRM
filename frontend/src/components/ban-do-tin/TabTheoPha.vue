@@ -38,9 +38,9 @@
           <span class="o-ico"><IconBdt :ten="mh.hang[k.hang].icon" :size="16" /></span>
           <span style="min-width: 0">
             <span class="kenh">{{ mh.hang[k.hang].ten }}{{ k.ban_sao ? ' · bản sao' : '' }}</span>
-            <span class="ten" style="display: block">{{ k.ten }}<span v-for="t in k.tags.slice(0, 2)" :key="t" class="bdt-tag" :class="LOP_TAG[t]">{{ t }}</span></span>
+            <span class="ten" style="display: block">{{ k.ten }}<span v-if="k.soan" class="bdt-tag" :class="LOP_SOAN[k.soan]">{{ TEN_SOAN[k.soan] }}</span><span v-for="t in k.tags.slice(0, 2)" :key="t" class="bdt-tag" :class="LOP_TAG[t]">{{ t }}</span></span>
             <span class="mt">{{ moTa(k.nguon_id) }}</span>
-            <span class="cuoi"><span>Nhận {{ mh.vao[k.id].length }}</span><span>Đẩy {{ mh.ra[k.id].length }}</span></span>
+            <span class="cuoi"><span>Nhận {{ mh.vao[k.id].length }}</span><span>Đẩy {{ mh.ra[k.id].length }}</span><span v-if="soTrenKhoi(mh.demKhoi[k.id])" :title="soTrenKhoi(mh.demKhoi[k.id])!.chu">24h {{ soTrenKhoi(mh.demKhoi[k.id])!.h24 }} · 7 ngày {{ soTrenKhoi(mh.demKhoi[k.id])!.d7 }}</span></span>
           </span>
         </button>
       </div>
@@ -53,9 +53,9 @@ import { computed, ref } from 'vue';
 import { BookOpenText, Check } from 'lucide-vue-next';
 import IconBdt from './IconBdt.vue';
 import { dungBanDoTin } from '@/views/settings/ban-do-tin/use-ban-do-tin';
-import { viTriPha } from '@/views/settings/ban-do-tin/mo-hinh';
+import { soTrenKhoi, viTriPha } from '@/views/settings/ban-do-tin/mo-hinh';
 import type { Hang, MaPha } from '@/views/settings/ban-do-tin/kieu';
-import { LOP_TAG } from '@/views/settings/ban-do-tin/cau-hinh';
+import { LOP_SOAN, LOP_TAG, TEN_SOAN } from '@/views/settings/ban-do-tin/cau-hinh';
 
 defineProps<{ gon?: boolean }>();
 const emit = defineEmits<{ chonKhoi: [id: string] }>();
