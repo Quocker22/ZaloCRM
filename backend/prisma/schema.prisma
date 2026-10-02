@@ -62,6 +62,7 @@ model Organization {
   botBanDoTin                 BotBanDoTin?
   botChoKhachDanhMuc          BotChoKhachDanhMuc?
   botTaiLieuChoKhach          BotTaiLieuChoKhach[]
+  botTaiLieuLoaiTru           BotTaiLieuLoaiTru[]
   botMoTaDuyet                BotMoTaDuyet[]
   contacts                    Contact[]
   contactAccess               ContactAccess[]
@@ -4963,6 +4964,24 @@ model BotTaiLieuChoKhach {
 
   @@unique([orgId, taiLieuId])
   @@map("bot_tai_lieu_cho_khach")
+}
+
+/// Tài liệu kho tri thức KHÔNG dùng để trả lời khách (docs/79, chủ chốt 02/10 tối): đường khách dùng MỌI tài liệu của org trừ
+/// các dòng ở đây. Không có dòng = dùng. Lưới bỏ dòng giá/SĐT/link vẫn áp.
+model BotTaiLieuLoaiTru {
+  id        String   @id @default(uuid())
+  orgId     String   @map("org_id")
+  /// knowledge_documents.id
+  taiLieuId String   @map("tai_lieu_id")
+  lyDo      String?  @map("ly_do")
+  /// User CRM (hoặc "cli:…") loại trừ. Không FK.
+  boi       String
+  luc       DateTime @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, taiLieuId])
+  @@map("bot_tai_lieu_loai_tru")
 }
 
 /// Mô tả SP đã duyệt cho khách (docs/79 T5, K2) — duyệt gắn với ĐÚNG băm `moTaBam`: mô tả đổi (băm khác) ⇒ hết hiệu lực.

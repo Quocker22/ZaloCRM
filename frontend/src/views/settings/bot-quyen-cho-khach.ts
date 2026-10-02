@@ -1,17 +1,23 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Tab "Cho khách" của trang Quyền bot (docs/79 T5) — hàm thuần: tìm/lọc tài liệu, cờ "có vẻ nội bộ", nhãn trạng thái mô tả.
-import type { TaiLieuChoKhach, TrangThaiMoTa, TrangThaiTaiLieu } from '@/api/bot-cho-khach';
+import type { TaiLieuChoKhach, TrangThaiMoTa } from '@/api/bot-cho-khach';
 import { boDau } from './bot-quyen-nhom';
 
-export type LocTaiLieu = 'tat_ca' | 'cho_khach' | 'chua' | 'doi_sau_duyet';
+/**
+ * 02/10 tối (chủ chốt): bot dùng MỌI tài liệu trả lời khách, TRỪ tài liệu loại trừ.
+ *   dung     = bot đang dùng (có nội dung, không loại trừ)
+ *   loai_tru = admin đã loại trừ
+ *   de_xuat  = có dấu hiệu nội bộ mà CHƯA loại trừ (cần xem)
+ */
+export type LocTaiLieu = 'tat_ca' | 'dung' | 'loai_tru' | 'de_xuat';
 
 /** Tìm không dấu trong tiêu đề + mẫu nội dung, rồi lọc theo trạng thái. Giữ thứ tự danh mục. */
 export function locTaiLieu(ds: readonly TaiLieuChoKhach[], tuKhoa: string, loc: LocTaiLieu): TaiLieuChoKhach[] {
   const k = boDau(tuKhoa ?? '').trim();
   return ds.filter((t) => {
-    if (loc === 'cho_khach' && t.trangThai !== 'da_duyet') return false;
-    if (loc === 'chua' && t.trangThai !== 'chua_duyet' && t.trangThai !== 'khong_noi_dung') return false;
-    if (loc === 'doi_sau_duyet' && t.trangThai !== 'doi_sau_duyet') return false;
+    if (loc === 'dung' && !t.choKhach) return false;
+    if (loc === 'loai_tru' && !t.loaiTru) return false;
+    if (loc === 'de_xuat' && !(t.deXuatLoaiTru ?? (!t.loaiTru && coVeNoiBo(t)))) return false;
     if (!k) return true;
     return boDau(`${t.tieuDe} ${t.mauNoiDung ?? ''}`).includes(k);
   });
@@ -74,13 +80,11 @@ export async function chayTheoLo<T>(
   return kq;
 }
 
-export function nhanTrangThaiTaiLieu(t: TrangThaiTaiLieu): { chu: string; mau: 'xanh' | 'vang' | 'xam' | 'rong' } {
-  switch (t) {
-    case 'da_duyet': return { chu: 'Khách xem được', mau: 'xanh' };
-    case 'doi_sau_duyet': return { chu: 'Tài liệu đã đổi — cần duyệt lại', mau: 'vang' };
-    case 'chua_duyet': return { chu: 'Chưa cho khách', mau: 'xam' };
-    default: return { chu: 'Không có nội dung', mau: 'rong' };
-  }
+/** Nhãn cột "Khách" — theo loại trừ (02/10 tối), không theo duyệt. */
+export function nhanTaiLieu(t: Pick<TaiLieuChoKhach, 'loaiTru' | 'noiDungBam'>): { chu: string; mau: 'xanh' | 'vang' | 'xam' | 'rong' } {
+  if (t.loaiTru) return { chu: 'Không dùng cho khách', mau: 'xam' };
+  if (!t.noiDungBam) return { chu: 'Không có nội dung', mau: 'rong' };
+  return { chu: 'Bot dùng trả lời khách', mau: 'xanh' };
 }
 
 export function nhanTrangThaiMoTa(t: TrangThaiMoTa): { chu: string; mau: 'xanh' | 'vang' | 'xam' | 'rong' } {

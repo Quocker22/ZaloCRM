@@ -188,8 +188,15 @@ export interface TaiLieuView {
   trangThai: TrangThaiTaiLieu;
   /** Băm lúc duyệt (khác noiDungBam ⇔ doi_sau_duyet). */
   noiDungBamDaDuyet: string | null;
-  /** = trangThai 'da_duyet' (bot dùng được cho khách). */
+  /** Bot DÙNG tài liệu này để trả lời khách (chủ chốt 02/10 tối) = có nội dung VÀ không bị loại trừ. Không còn phụ thuộc duyệt. */
   choKhach: boolean;
+  /** Admin đã loại trừ khỏi đường khách (bot_tai_lieu_loai_tru). */
+  loaiTru: boolean;
+  loaiTruBoi: { id: string; fullName: string } | null;
+  loaiTruLuc: Date | null;
+  loaiTruLyDo: string | null;
+  /** Có dấu hiệu nội bộ mà CHƯA loại trừ — UI nhắc admin xem (không tự loại). */
+  deXuatLoaiTru: boolean;
   /** Lý do "có vẻ nội bộ" xét TOÀN VĂN (chỉ nhắc — không chặn). */
   dauHieuNoiBo: string[];
   duyetBoi: { id: string; fullName: string } | null;
@@ -199,20 +206,26 @@ export interface TaiLieuView {
 export async function danhSachTaiLieu(orgId: string): Promise<{
   kho: { soTaiLieu: number; luc: Date }; taiLieu: TaiLieuView[]; duyetNgoaiDanhMuc: string[];
 }> {
-  const [kho, duyet] = await Promise.all([
+  const [kho, duyet, loai] = await Promise.all([
     withTenant(orgId, () => docKho(prisma, orgId)),
     prisma.botTaiLieuChoKhach.findMany({ where: { orgId } }),
+    prisma.botTaiLieuLoaiTru.findMany({ where: { orgId } }),
   ]);
   const theoId = new Map(duyet.map((r) => [r.taiLieuId, r]));
-  const nguoi = await tenNguoi(orgId, duyet.map((r) => r.duyetBoi));
+  const loaiTheoId = new Map(loai.map((r) => [r.taiLieuId, r]));
+  const nguoi = await tenNguoi(orgId, [...duyet.map((r) => r.duyetBoi), ...loai.map((r) => r.boi)]);
   const taiLieu = kho.map((t): TaiLieuView => {
     const r = theoId.get(t.id);
     const trangThai: TrangThaiTaiLieu = !t.noiDungBam ? (r ? 'doi_sau_duyet' : 'khong_noi_dung')
       : !r ? 'chua_duyet' : r.noiDungBam === t.noiDungBam ? 'da_duyet' : 'doi_sau_duyet';
+    const lt = loaiTheoId.get(t.id);
+    const dau = dauHieuNoiBo(t.tieuDe, t.doan);
     return {
       id: t.id, tieuDe: t.tieuDe, loai: null, nguon: t.nguon, soDoan: t.doan.length, capNhatLuc: t.capNhatLuc.toISOString(),
       mauNoiDung: mauNoiDung(t.doan), noiDungBam: t.noiDungBam, trangThai, noiDungBamDaDuyet: r?.noiDungBam ?? null,
-      choKhach: trangThai === 'da_duyet', dauHieuNoiBo: dauHieuNoiBo(t.tieuDe, t.doan),
+      choKhach: !!t.noiDungBam && !lt, dauHieuNoiBo: dau,
+      loaiTru: !!lt, loaiTruBoi: lt ? (nguoi.get(lt.boi) ?? { id: lt.boi, fullName: '' }) : null, loaiTruLuc: lt?.luc ?? null,
+      loaiTruLyDo: lt?.lyDo ?? null, deXuatLoaiTru: !lt && dau.length > 0,
       duyetBoi: r ? (nguoi.get(r.duyetBoi) ?? { id: r.duyetBoi, fullName: '' }) : null, duyetLuc: r?.luc ?? null,
     };
   });
@@ -222,6 +235,79 @@ export async function danhSachTaiLieu(orgId: string): Promise<{
     taiLieu,
     duyetNgoaiDanhMuc: duyet.map((r) => r.taiLieuId).filter((id) => !coTrong.has(id)).sort(),
   };
+}
+
+/**
+ * Loại trừ tài liệu khỏi đường khách (chủ chốt 02/10 tối: mặc định MỌI tài liệu dùng được). Mỗi id phải còn trong kho tri thức
+ * (409 KHONG_CO_TRONG_DANH_MUC — cả lô hỏng). Đã loại trừ ⇒ không đổi. Mỗi mục đổi ghi một dòng nhật ký `tai_lieu_loai_tru`.
+ */
+export async function loaiTruTaiLieu(orgId: string, aiId: string, body: unknown): Promise<{ doi: number }> {
+  const b = laBody(body);
+  const ids = [...new Set(docLo(b.ids, 'ids', docIdTaiLieu))];
+  const lyDo = docLyDo(b.lyDo);
+  return tenantTransaction(async (tx) => {
+    await khoaOrg(tx, orgId);
+    const ten = new Map((await tx.knowledgeDocument.findMany({
+      where: { orgId, id: { in: ids } }, select: { id: true, title: true },
+    })).map((t) => [t.id, t.title]));
+    const thieu = ids.filter((id) => !ten.has(id));
+    if (thieu.length > 0) {
+      throw new LoiChoKhach(409, 'KHONG_CO_TRONG_DANH_MUC', `Tài liệu không còn trong kho tri thức: ${thieu.slice(0, 5).join(', ')} — tải lại trang`);
+    }
+    const da = new Set((await tx.botTaiLieuLoaiTru.findMany({ where: { orgId, taiLieuId: { in: ids } }, select: { taiLieuId: true } }))
+      .map((r) => r.taiLieuId));
+    const moi = ids.filter((id) => !da.has(id));
+    if (moi.length === 0) return { doi: 0 };
+    await tx.botTaiLieuLoaiTru.createMany({ data: moi.map((id) => ({ orgId, taiLieuId: id, lyDo, boi: aiId })) });
+    await ghiNhatKy(tx, moi.map((id) => ({
+      orgId, aiId, doiTuong: 'tai_lieu_loai_tru', doiTuongId: id, lyDo,
+      truoc: { tieuDe: ten.get(id)!, choKhach: true }, sau: { tieuDe: ten.get(id)!, choKhach: false },
+    })));
+    return { doi: moi.length };
+  });
+}
+
+/** Bỏ loại trừ ⇒ khách lại được dùng tài liệu. Được cả khi tài liệu đã rời kho (dọn dòng mồ côi). */
+export async function boLoaiTruTaiLieu(orgId: string, aiId: string, body: unknown): Promise<{ doi: number }> {
+  const b = laBody(body);
+  const ids = [...new Set(docLo(b.ids, 'ids', docIdTaiLieu))];
+  const lyDo = docLyDo(b.lyDo);
+  return tenantTransaction(async (tx) => {
+    await khoaOrg(tx, orgId);
+    const co = await tx.botTaiLieuLoaiTru.findMany({ where: { orgId, taiLieuId: { in: ids } }, select: { taiLieuId: true, lyDo: true } });
+    if (co.length === 0) return { doi: 0 };
+    const ten = new Map((await tx.knowledgeDocument.findMany({
+      where: { orgId, id: { in: co.map((r) => r.taiLieuId) } }, select: { id: true, title: true },
+    })).map((t) => [t.id, t.title]));
+    await tx.botTaiLieuLoaiTru.deleteMany({ where: { orgId, taiLieuId: { in: co.map((r) => r.taiLieuId) } } });
+    await ghiNhatKy(tx, co.map((r) => ({
+      orgId, aiId, doiTuong: 'tai_lieu_loai_tru', doiTuongId: r.taiLieuId, lyDo,
+      truoc: { tieuDe: ten.get(r.taiLieuId) ?? null, choKhach: false, lyDoLoaiTru: r.lyDo },
+      sau: { tieuDe: ten.get(r.taiLieuId) ?? null, choKhach: true },
+    })));
+    return { doi: co.length };
+  });
+}
+
+/**
+ * Loại trừ một lần các tài liệu có dấu hiệu nội bộ (bảng giá, giá đại lý, công nợ…) — dùng cho script chuyển đổi (chủ chốt: "loại
+ * sẵn tài liệu nội bộ"). Chỉ THÊM loại trừ; tài liệu admin đã bỏ loại trừ trước đó cũng bị loại lại ⇒ script chỉ chạy lúc chuyển.
+ * `ap=false` ⇒ chỉ liệt kê.
+ */
+export async function loaiTruTaiLieuNoiBo(orgId: string, aiId: string, ap: boolean): Promise<{
+  deXuat: Array<{ id: string; tieuDe: string; dauHieu: string[]; daLoaiTru: boolean }>; doi: number;
+}> {
+  const [kho, loai] = await withTenant(orgId, () => Promise.all([
+    docKho(prisma, orgId),
+    prisma.botTaiLieuLoaiTru.findMany({ where: { orgId }, select: { taiLieuId: true } }),
+  ]));
+  const da = new Set(loai.map((r) => r.taiLieuId));
+  const deXuat = kho.map((t) => ({ id: t.id, tieuDe: t.tieuDe, dauHieu: dauHieuNoiBo(t.tieuDe, t.doan), daLoaiTru: da.has(t.id) }))
+    .filter((t) => t.dauHieu.length > 0);
+  const can = deXuat.filter((t) => !t.daLoaiTru).map((t) => t.id);
+  if (!ap || can.length === 0) return { deXuat, doi: 0 };
+  const { doi } = await withTenant(orgId, () => loaiTruTaiLieu(orgId, aiId, { ids: can, lyDo: 'tự loại lúc chuyển: có dấu hiệu nội bộ' }));
+  return { deXuat, doi };
 }
 
 /** Toàn văn MỘT tài liệu (đoạn theo ord) — người duyệt đọc hết trước khi cho khách. Không có ⇒ 404. */

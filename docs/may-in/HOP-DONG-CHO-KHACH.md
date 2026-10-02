@@ -1,5 +1,15 @@
 # Hợp đồng "Cho khách": bot → CRM → bot (docs/79 T5, 02/10; sửa 02/10 tối — tài liệu = KHO TRI THỨC CRM)
 
+> **SỬA 02/10 khuya — chủ chốt, ĐÈ các mục bên dưới nói về "đã duyệt" cho TÀI LIỆU:** thông số kỹ thuật ai hỏi cũng trả lời
+> được ⇒ `POST /api/public/cho-khach/tim` dùng **MỌI tài liệu kho tri thức của org, TRỪ tài liệu loại trừ** (bảng
+> `bot_tai_lieu_loai_tru`, migration `20261002130000`). Không còn cổng duyệt-theo-băm cho tài liệu; neo SP + bỏ dòng
+> giá/SĐT/link/tồn GIỮ NGUYÊN. Quản trị: `POST /bot-quyen/cho-khach/tai-lieu/loai-tru` và `/bo-loai-tru` `{ids (1..500), lyDo?}` →
+> `{doi}` (id ngoài kho ⇒ `409 KHONG_CO_TRONG_DANH_MUC` cả lô; nhật ký `doi_tuong = 'tai_lieu_loai_tru'`). `GET /tai-lieu` thêm
+> `loaiTru, loaiTruBoi, loaiTruLuc, loaiTruLyDo, deXuatLoaiTru`; `choKhach` ⇔ có nội dung VÀ không loại trừ. Chuyển đổi một
+> lần: `node dist/scripts/loai-tru-tai-lieu-noi-bo.js --org <id> [--ap]` loại sẵn tài liệu có `dauHieuNoiBo`. Duyệt tài liệu
+> cũ (`/duyet`, `/bo-duyet`, `tai_lieu_cho_khach` ở `GET /api/public/cho-khach/duyet`) còn chạy nhưng KHÔNG quyết đường khách.
+> Mô tả SP vẫn gắn băm như cũ.
+
 Đường khách của bot (docs/79 T3/T4) chỉ được dùng **tài liệu kho tri thức (RAG) đã đánh dấu "khách xem được"** và **mô tả bán
 hàng (`description_sale`) đã duyệt**. Người giữ trang duyệt ở tab **"Cho khách"** của trang Quyền bot (CRM).
 

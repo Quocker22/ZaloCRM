@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Tab "Cho khách" của trang Quyền bot (docs/79 T5), gắn với API giả:
-//   • hai phần "Tài liệu khách xem được" + "Mô tả sản phẩm đã duyệt"; cảnh báo KHÔNG tick tài liệu nội bộ / bảng giá;
-//   • tick hàng loạt ⇒ hộp xác nhận nêu tên tài liệu "có vẻ nội bộ" ⇒ gửi đúng id + lý do; tìm kiếm; xem mẫu nội dung;
-//   • tài liệu gắn băm NỘI DUNG: chip "Tài liệu đã đổi — cần duyệt lại" + bộ lọc, duyệt gửi ĐÚNG băm đang hiển thị, 409 TAI_LIEU_DA_DOI;
+//   • hai phần "Tài liệu dùng trả lời khách" + "Mô tả sản phẩm đã duyệt"; cảnh báo hãy LOẠI TRỪ tài liệu nội bộ / bảng giá;
+//   • (02/10 tối) bot dùng MỌI tài liệu TRỪ loại trừ: tick hàng loạt ⇒ "Loại trừ" / "Dùng lại cho khách" ⇒ gửi đúng id + lý do;
+//     nút từng dòng; bộ lọc "Bot đang dùng / Đã loại trừ / Nên xem"; tìm kiếm; xem mẫu + toàn văn; lô 500;
 //   • mô tả: chip "Mô tả đã đổi — cần duyệt lại", duyệt gửi ĐÚNG băm đang hiển thị, 409 MO_TA_DA_DOI ⇒ hiện câu + tải lại;
 //   • trang Quyền bot có tab "Cho khách".
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -15,8 +15,8 @@ const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), warning: vi.
 vi.mock('@/composables/use-toast', () => ({ useToast: () => toast }));
 vi.mock('@/api/bot-cho-khach', () => ({
   layTaiLieuChoKhach: vi.fn(),
-  duyetTaiLieuChoKhach: vi.fn(),
-  boDuyetTaiLieuChoKhach: vi.fn(),
+  loaiTruTaiLieuChoKhach: vi.fn(),
+  boLoaiTruTaiLieuChoKhach: vi.fn(),
   layMoTaChoKhach: vi.fn(),
   duyetMoTaChoKhach: vi.fn(),
   boDuyetMoTaChoKhach: vi.fn(),
@@ -31,7 +31,7 @@ vi.mock('@/api/bot-quyen', () => ({
 }));
 
 import {
-  layTaiLieuChoKhach, duyetTaiLieuChoKhach, boDuyetTaiLieuChoKhach, layMoTaChoKhach, duyetMoTaChoKhach, boDuyetMoTaChoKhach,
+  layTaiLieuChoKhach, loaiTruTaiLieuChoKhach, boLoaiTruTaiLieuChoKhach, layMoTaChoKhach, duyetMoTaChoKhach, boDuyetMoTaChoKhach,
   layToanVanTaiLieu,
 } from '@/api/bot-cho-khach';
 import BotQuyenChoKhachTab from '@/components/bot-quyen/BotQuyenChoKhachTab.vue';
@@ -92,26 +92,27 @@ const N1 = '1'.repeat(64);
 const N2 = '2'.repeat(64);
 const N3 = '3'.repeat(64);
 const N4 = '4'.repeat(64);
-const N4_CU = '5'.repeat(64);
+const KHONG_LOAI = { loaiTru: false, loaiTruBoi: null, loaiTruLuc: null, loaiTruLyDo: null, deXuatLoaiTru: false };
 const TAI_LIEU: DsTaiLieuChoKhach = {
   kho: { soTaiLieu: 5, luc: '2026-10-02T02:00:00.000Z' },
   duyetNgoaiDanhMuc: [],
   taiLieu: [
     { id: 'doc-1', tieuDe: 'Datasheet P10', loai: 'pdf', nguon: 'file-zalo', soDoan: 12, capNhatLuc: '2026-09-30T02:00:00.000Z',
-      mauNoiDung: 'Module P10 full color 320x160', noiDungBam: N1, trangThai: 'da_duyet', noiDungBamDaDuyet: N1, choKhach: true,
-      duyetBoi: { id: 'u1', fullName: 'Nguyễn A' }, duyetLuc: '2026-10-01T02:00:00.000Z' },
+      mauNoiDung: 'Module P10 full color 320x160', noiDungBam: N1, trangThai: 'chua_duyet', noiDungBamDaDuyet: null, choKhach: true,
+      duyetBoi: null, duyetLuc: null, ...KHONG_LOAI },
     { id: 'doc-2', tieuDe: 'Bảng giá đại lý 2026', loai: 'pdf', nguon: 'file-zalo', soDoan: 4, capNhatLuc: null,
-      mauNoiDung: 'Led dây 12V giá 125.000đ/m', noiDungBam: N2, trangThai: 'chua_duyet', noiDungBamDaDuyet: null, choKhach: false,
-      duyetBoi: null, duyetLuc: null },
+      mauNoiDung: 'Led dây 12V giá 125.000đ/m', noiDungBam: N2, trangThai: 'chua_duyet', noiDungBamDaDuyet: null, choKhach: true,
+      duyetBoi: null, duyetLuc: null, ...KHONG_LOAI, deXuatLoaiTru: true },
     { id: 'doc-3', tieuDe: 'Hướng dẫn lắp', loai: null, nguon: 'nhap-tay', soDoan: 2, capNhatLuc: null,
-      mauNoiDung: 'Bước 1: cắt nguồn', noiDungBam: N3, trangThai: 'chua_duyet', noiDungBamDaDuyet: null, choKhach: false,
-      duyetBoi: null, duyetLuc: null },
+      mauNoiDung: 'Bước 1: cắt nguồn', noiDungBam: N3, trangThai: 'chua_duyet', noiDungBamDaDuyet: null, choKhach: true,
+      duyetBoi: null, duyetLuc: null, ...KHONG_LOAI },
     { id: 'doc-4', tieuDe: 'Catalogue 2026', loai: 'pdf', nguon: 'file-zalo', soDoan: 8, capNhatLuc: '2026-10-02T01:00:00.000Z',
-      mauNoiDung: 'Catalogue led dây', noiDungBam: N4, trangThai: 'doi_sau_duyet', noiDungBamDaDuyet: N4_CU, choKhach: false,
-      duyetBoi: { id: 'u1', fullName: 'Nguyễn A' }, duyetLuc: '2026-10-01T02:00:00.000Z' },
+      mauNoiDung: 'Catalogue led dây', noiDungBam: N4, trangThai: 'chua_duyet', noiDungBamDaDuyet: null, choKhach: false,
+      duyetBoi: null, duyetLuc: null, ...KHONG_LOAI,
+      loaiTru: true, loaiTruBoi: { id: 'u1', fullName: 'Nguyễn A' }, loaiTruLuc: '2026-10-02T03:00:00.000Z', loaiTruLyDo: 'bản cũ' },
     { id: 'doc-5', tieuDe: 'Ảnh chưa OCR', loai: 'jpg', nguon: 'file-zalo', soDoan: 0, capNhatLuc: null,
       mauNoiDung: null, noiDungBam: null, trangThai: 'khong_noi_dung', noiDungBamDaDuyet: null, choKhach: false,
-      duyetBoi: null, duyetLuc: null },
+      duyetBoi: null, duyetLuc: null, ...KHONG_LOAI },
   ],
 };
 const MO_TA: DsMoTa = {
@@ -132,8 +133,8 @@ beforeEach(() => {
   vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => {} });
   vi.mocked(layTaiLieuChoKhach).mockResolvedValue(structuredClone(TAI_LIEU));
   vi.mocked(layMoTaChoKhach).mockResolvedValue(structuredClone(MO_TA));
-  vi.mocked(duyetTaiLieuChoKhach).mockResolvedValue({ doi: 2 });
-  vi.mocked(boDuyetTaiLieuChoKhach).mockResolvedValue({ doi: 1 });
+  vi.mocked(loaiTruTaiLieuChoKhach).mockResolvedValue({ doi: 2 });
+  vi.mocked(boLoaiTruTaiLieuChoKhach).mockResolvedValue({ doi: 1 });
   vi.mocked(duyetMoTaChoKhach).mockResolvedValue({ doi: 1 });
   vi.mocked(boDuyetMoTaChoKhach).mockResolvedValue({ doi: 1 });
 });
@@ -152,16 +153,21 @@ const tlHang = (w: W, id: string) => w.find(`tr[data-tl="${id}"]`);
 const spHang = (w: W, id: number) => w.find(`tr[data-sp="${id}"]`);
 
 describe('Tab "Cho khách" — tài liệu', () => {
-  it('hai phần + cảnh báo nội bộ nguyên văn; trạng thái từng tài liệu; cờ "có vẻ nội bộ" ở bảng giá', async () => {
+  it('hai phần + cảnh báo nguyên văn; nhãn theo loại trừ (không theo duyệt); cờ "có vẻ nội bộ" ở bảng giá', async () => {
     const w = gan();
     await flushPromises();
-    expect(phan(w, 'tai-lieu').find('h2').text()).toBe('Tài liệu khách xem được');
+    expect(phan(w, 'tai-lieu').find('h2').text()).toBe('Tài liệu dùng trả lời khách');
     expect(phan(w, 'mo-ta').find('h2').text()).toBe('Mô tả sản phẩm đã duyệt');
-    expect(w.find('[data-o="canh-bao-noi-bo"]').text()).toContain(
-      'KHÔNG tick tài liệu nội bộ, bảng giá, báo giá, chiết khấu, công nợ',
-    );
-    expect(tlHang(w, 'doc-1').text()).toContain('Khách xem được');
-    expect(tlHang(w, 'doc-2').text()).toContain('Chưa cho khách');
+    const cb = w.find('[data-o="canh-bao-noi-bo"]').text();
+    expect(cb).toContain('Bot dùng mọi tài liệu');
+    expect(cb).toContain('trừ tài liệu bị loại trừ');
+    expect(cb).toContain('loại trừ tài liệu nội bộ, bảng giá, báo giá, chiết khấu, công nợ');
+    expect(w.find('.bq-ck-moc').text()).toContain('3 bot dùng trả lời khách · 1 loại trừ');
+    expect(tlHang(w, 'doc-1').find('[data-o="trang-thai-tl"]').text()).toBe('Bot dùng trả lời khách');
+    expect(tlHang(w, 'doc-4').find('[data-o="trang-thai-tl"]').text()).toBe('Không dùng cho khách');
+    expect(tlHang(w, 'doc-4').find('[data-o="trang-thai-tl"]').attributes('title')).toContain('Loại trừ bởi Nguyễn A');
+    expect(tlHang(w, 'doc-4').find('[data-o="trang-thai-tl"]').attributes('title')).toContain('bản cũ');
+    expect(tlHang(w, 'doc-5').find('[data-o="trang-thai-tl"]').text()).toBe('Không có nội dung');
     expect(tlHang(w, 'doc-2').find('[data-o="noi-bo"]').text()).toBe('Có vẻ tài liệu nội bộ');
     expect(tlHang(w, 'doc-1').find('[data-o="noi-bo"]').exists()).toBe(false);
     w.unmount();
@@ -179,69 +185,86 @@ describe('Tab "Cho khách" — tài liệu', () => {
     w.unmount();
   });
 
-  it('tick hàng loạt ⇒ hộp xác nhận nêu tài liệu có vẻ nội bộ ⇒ gửi đúng id + lý do ⇒ tải lại', async () => {
+  it('tick hàng loạt ⇒ "Loại trừ (2)" ⇒ hộp xác nhận ⇒ gửi đúng id + lý do ⇒ tải lại', async () => {
     const w = gan();
     await flushPromises();
-    expect(w.find('[data-nut="duyet-tai-lieu"]').exists()).toBe(false);
+    expect(w.find('[data-nut="loai-tru-tai-lieu"]').exists()).toBe(false);
     await tlHang(w, 'doc-2').find('input[type="checkbox"]').setValue(true);
     await tlHang(w, 'doc-3').find('input[type="checkbox"]').setValue(true);
-    await w.find('[data-nut="duyet-tai-lieu"]').trigger('click');
+    expect(w.find('[data-nut="loai-tru-tai-lieu"]').text()).toBe('Loại trừ (2)');
+    expect(w.find('[data-nut="dung-lai-tai-lieu"]').exists()).toBe(false);
+    await w.find('[data-nut="loai-tru-tai-lieu"]').trigger('click');
     const hop = w.find('.vo-dialog');
-    expect(hop.text()).toContain('Cho khách xem 2 tài liệu?');
-    expect(hop.text()).toContain('Bảng giá đại lý 2026');
-    await hop.find('[data-o="ly-do"] input').setValue('datasheet công khai');
+    expect(hop.text()).toContain('Loại trừ 2 tài liệu khỏi câu trả lời cho khách?');
+    expect(hop.text()).toContain('Nhân viên hỏi thì bot vẫn đọc');
+    await hop.find('[data-o="ly-do"] input').setValue('bảng giá');
     await hop.find('[data-nut="xac-nhan-ly-do"]').trigger('click');
     await flushPromises();
-    expect(duyetTaiLieuChoKhach).toHaveBeenCalledWith([{ id: 'doc-2', noiDungBam: N2 }, { id: 'doc-3', noiDungBam: N3 }], 'datasheet công khai');
+    expect(loaiTruTaiLieuChoKhach).toHaveBeenCalledWith(['doc-2', 'doc-3'], 'bảng giá');
     expect(layTaiLieuChoKhach).toHaveBeenCalledTimes(2);
     expect(toast.success).toHaveBeenCalled();
     w.unmount();
   });
 
-  it('chọn tất cả (đang hiện) rồi "Bỏ cho khách" ⇒ gửi mọi id ĐÃ duyệt (kể cả đã đổi sau duyệt)', async () => {
+  it('chọn tất cả ⇒ tách đúng "Loại trừ" (chưa loại) và "Dùng lại cho khách" (đã loại); dùng lại nêu tài liệu có vẻ nội bộ', async () => {
+    const ds = structuredClone(TAI_LIEU);
+    ds.taiLieu[1] = { ...ds.taiLieu[1], loaiTru: true, choKhach: false, deXuatLoaiTru: false };
+    vi.mocked(layTaiLieuChoKhach).mockResolvedValue(ds);
     const w = gan();
     await flushPromises();
     await phan(w, 'tai-lieu').find('input[data-o="chon-het"]').setValue(true);
-    // Duyệt hàng loạt: tài liệu rỗng (doc-5) và đang hiệu lực (doc-1) không tính.
-    expect(w.find('[data-nut="duyet-tai-lieu"]').text()).toBe('Cho khách xem (3)');
-    await w.find('[data-nut="bo-duyet-tai-lieu"]').trigger('click');
-    await w.find('.vo-dialog [data-nut="xac-nhan-ly-do"]').trigger('click');
+    expect(w.find('[data-nut="loai-tru-tai-lieu"]').text()).toBe('Loại trừ (3)');
+    expect(w.find('[data-nut="dung-lai-tai-lieu"]').text()).toBe('Dùng lại cho khách (2)');
+    await w.find('[data-nut="dung-lai-tai-lieu"]').trigger('click');
+    const hop = w.find('.vo-dialog');
+    expect(hop.text()).toContain('Dùng lại 2 tài liệu để trả lời khách?');
+    expect(hop.text()).toContain('Bảng giá đại lý 2026');
+    expect(hop.find('[data-o="xem-toan-van"]').text()).toContain('Xem toàn văn');
+    await hop.find('[data-nut="xac-nhan-ly-do"]').trigger('click');
     await flushPromises();
-    expect(boDuyetTaiLieuChoKhach).toHaveBeenCalledWith(['doc-1', 'doc-4'], undefined);
+    expect(boLoaiTruTaiLieuChoKhach).toHaveBeenCalledWith(['doc-2', 'doc-4'], undefined);
     w.unmount();
   });
 
-  it('nội dung đổi sau duyệt: chip "Tài liệu đã đổi — cần duyệt lại" + bộ lọc; "Duyệt lại" gửi ĐÚNG băm đang hiển thị', async () => {
+  it('bộ lọc: Bot đang dùng / Đã loại trừ / Nên xem (có vẻ nội bộ, chưa loại); nút từng dòng Loại trừ / Dùng lại', async () => {
     const w = gan();
     await flushPromises();
-    expect(tlHang(w, 'doc-4').find('[data-o="trang-thai-tl"]').text()).toBe('Tài liệu đã đổi — cần duyệt lại');
-    expect(tlHang(w, 'doc-1').find('[data-o="trang-thai-tl"]').text()).toBe('Khách xem được');
-    expect(tlHang(w, 'doc-5').find('[data-o="trang-thai-tl"]').text()).toBe('Không có nội dung');
-    expect(w.find('[data-loc-tl="doi_sau_duyet"]').text()).toContain('1');
-    await w.find('[data-loc-tl="doi_sau_duyet"]').trigger('click');
-    expect(w.findAll('tr[data-tl]').map((r) => r.attributes('data-tl'))).toEqual(['doc-4']);
-    expect(tlHang(w, 'doc-5').exists()).toBe(false);
-    await nut(tlHang(w, 'doc-4'), 'Duyệt lại').trigger('click');
+    const hien = () => w.findAll('tr[data-tl]').map((r) => r.attributes('data-tl'));
+    expect(w.find('[data-loc-tl="de_xuat"]').text()).toContain('1');
+    await w.find('[data-loc-tl="de_xuat"]').trigger('click');
+    expect(hien()).toEqual(['doc-2']);
+    await w.find('[data-loc-tl="loai_tru"]').trigger('click');
+    expect(hien()).toEqual(['doc-4']);
+    await w.find('[data-loc-tl="dung"]').trigger('click');
+    expect(hien()).toEqual(['doc-1', 'doc-2', 'doc-3']);
+    await tlHang(w, 'doc-1').find('[data-nut="loai-tru-mot"]').trigger('click');
+    await w.find('.vo-dialog [data-nut="xac-nhan-ly-do"]').trigger('click');
     await flushPromises();
-    expect(duyetTaiLieuChoKhach).toHaveBeenCalledWith([{ id: 'doc-4', noiDungBam: N4 }]);
-    expect(layTaiLieuChoKhach).toHaveBeenCalledTimes(2);
+    expect(loaiTruTaiLieuChoKhach).toHaveBeenCalledWith(['doc-1'], undefined);
+    await w.find('[data-loc-tl="tat_ca"]').trigger('click');
+    expect(tlHang(w, 'doc-4').find('[data-nut="loai-tru-mot"]').exists()).toBe(false);
+    await tlHang(w, 'doc-4').find('[data-nut="dung-lai-mot"]').trigger('click');
+    await w.find('.vo-dialog [data-nut="xac-nhan-ly-do"]').trigger('click');
+    await flushPromises();
+    expect(boLoaiTruTaiLieuChoKhach).toHaveBeenCalledWith(['doc-4'], undefined);
     w.unmount();
   });
 
-  it('409 TAI_LIEU_DA_DOI ⇒ hiện nguyên câu + tải lại danh mục', async () => {
-    vi.mocked(duyetTaiLieuChoKhach).mockRejectedValue({
-      response: { status: 409, data: { error: 'Nội dung tài liệu đã đổi hoặc tài liệu rỗng (“Catalogue 2026”) — tải lại, xem nội dung mới rồi duyệt', code: 'TAI_LIEU_DA_DOI' } },
+  it('409 KHONG_CO_TRONG_DANH_MUC ⇒ hiện nguyên câu + tải lại danh mục', async () => {
+    vi.mocked(loaiTruTaiLieuChoKhach).mockRejectedValue({
+      response: { status: 409, data: { error: 'Tài liệu không còn trong kho tri thức: doc-1 — tải lại trang', code: 'KHONG_CO_TRONG_DANH_MUC' } },
     });
     const w = gan();
     await flushPromises();
-    await nut(tlHang(w, 'doc-4'), 'Duyệt lại').trigger('click');
+    await tlHang(w, 'doc-1').find('[data-nut="loai-tru-mot"]').trigger('click');
+    await w.find('.vo-dialog [data-nut="xac-nhan-ly-do"]').trigger('click');
     await flushPromises();
-    expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('Nội dung tài liệu đã đổi'), 6000);
+    expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('không còn trong kho tri thức'), 8000);
     expect(layTaiLieuChoKhach).toHaveBeenCalledTimes(2);
     w.unmount();
   });
 
-  it('hộp duyệt nhắc đọc TOÀN VĂN; nút "Xem toàn văn" tải đoạn của đúng tài liệu, bấm lại thì ẩn', async () => {
+  it('nút "Xem toàn văn" tải đoạn của đúng tài liệu, bấm lại thì ẩn; không đoạn ⇒ không nút', async () => {
     vi.mocked(layToanVanTaiLieu).mockResolvedValue({
       id: 'doc-3', tieuDe: 'Hướng dẫn lắp', nguon: 'nhap-tay', noiDungBam: N3, doan: ['Bước 1: cắt nguồn', 'Bước 2: đấu dây'],
       dauHieuNoiBo: [],
@@ -249,18 +272,13 @@ describe('Tab "Cho khách" — tài liệu', () => {
     const w = gan();
     await flushPromises();
     expect(nut(tlHang(w, 'doc-3'), 'Xem mẫu').exists()).toBe(true);
-    expect(tlHang(w, 'doc-5').find('[data-nut="toan-van"]').exists()).toBe(false); // không đoạn ⇒ không nút
+    expect(tlHang(w, 'doc-5').find('[data-nut="toan-van"]').exists()).toBe(false);
     await tlHang(w, 'doc-3').find('[data-nut="toan-van"]').trigger('click');
     await flushPromises();
     expect(layToanVanTaiLieu).toHaveBeenCalledWith('doc-3');
     expect(tlHang(w, 'doc-3').find('[data-o="toan-van"]').text()).toContain('Bước 2: đấu dây');
     await tlHang(w, 'doc-3').find('[data-nut="toan-van"]').trigger('click');
     expect(tlHang(w, 'doc-3').find('[data-o="toan-van"]').exists()).toBe(false);
-    await tlHang(w, 'doc-3').find('input[type="checkbox"]').setValue(true);
-    await w.find('[data-nut="duyet-tai-lieu"]').trigger('click');
-    const hop = w.find('.vo-dialog');
-    expect(hop.find('[data-o="chi-xem-mau"]').exists()).toBe(false);
-    expect(hop.find('[data-o="xem-toan-van"]').text()).toContain('Xem toàn văn');
     w.unmount();
   });
 
@@ -285,25 +303,25 @@ describe('Tab "Cho khách" — tài liệu', () => {
     };
     vi.mocked(layTaiLieuChoKhach).mockResolvedValue(nhieu);
     let lan = 0;
-    vi.mocked(duyetTaiLieuChoKhach).mockImplementation(async (ds) => {
+    vi.mocked(loaiTruTaiLieuChoKhach).mockImplementation(async (ds) => {
       lan++;
-      if (lan === 2) throw { response: { status: 409, data: { error: 'Nội dung tài liệu đã đổi', code: 'TAI_LIEU_DA_DOI' } } };
+      if (lan === 2) throw { response: { status: 409, data: { error: 'Tài liệu không còn trong kho tri thức', code: 'KHONG_CO_TRONG_DANH_MUC' } } };
       return { doi: ds.length };
     });
     const w = gan();
     await flushPromises();
     await phan(w, 'tai-lieu').find('input[data-o="chon-het"]').setValue(true);
-    expect(w.find('[data-nut="duyet-tai-lieu"]').text()).toBe('Cho khách xem (1201)');
-    await w.find('[data-nut="duyet-tai-lieu"]').trigger('click');
+    expect(w.find('[data-nut="loai-tru-tai-lieu"]').text()).toBe('Loại trừ (1201)');
+    await w.find('[data-nut="loai-tru-tai-lieu"]').trigger('click');
     expect(w.find('.vo-dialog').text()).toContain('gửi thành 3 lần (mỗi lần tối đa 500)');
     await w.find('.vo-dialog [data-nut="xac-nhan-ly-do"]').trigger('click');
     await flushPromises();
-    expect(vi.mocked(duyetTaiLieuChoKhach).mock.calls.map((c) => c[0].length)).toEqual([500, 500, 201]);
+    expect(vi.mocked(loaiTruTaiLieuChoKhach).mock.calls.map((c) => c[0].length)).toEqual([500, 500, 201]);
     expect(toast.success).toHaveBeenCalledWith(expect.stringContaining('701'));
     const hop = w.find('.vo-dialog');
     expect(hop.exists()).toBe(true); // còn lô lỗi ⇒ hộp giữ mở với báo cáo
-    expect(hop.text()).toContain('Lô 2/3 (500 mục): Nội dung tài liệu đã đổi');
-    expect(w.find('[data-nut="duyet-tai-lieu"]').text()).toBe('Cho khách xem (500)');
+    expect(hop.text()).toContain('Lô 2/3 (500 mục): Tài liệu không còn trong kho tri thức');
+    expect(w.find('[data-nut="loai-tru-tai-lieu"]').text()).toBe('Loại trừ (500)');
     w.unmount();
   });
 

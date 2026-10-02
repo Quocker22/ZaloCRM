@@ -321,33 +321,24 @@ async function xepVaLoc(
 const CHON_DOAN = { id: true, documentId: true, ord: true, content: true, embedding: true, embedDim: true } as const;
 
 /**
- * KHÁCH: chỉ tài liệu ĐÃ DUYỆT mà băm nội dung hiện tại == băm lúc duyệt. Băm tính trên CHÍNH các hàng vừa đọc để xếp hạng
- * (một lần đọc) ⇒ nội dung chưa duyệt không bao giờ lọt dù kho nạp lại giữa chừng. Org lấy từ khoá (người gọi).
+ * KHÁCH (chủ chốt 02/10 tối): thông số kỹ thuật ai hỏi cũng trả lời được ⇒ MỌI tài liệu kho tri thức của org, TRỪ tài liệu admin
+ * loại trừ (bot_tai_lieu_loai_tru). Không còn cổng duyệt-theo-băm. Cùng lưới neo SP + bỏ dòng giá/SĐT/link như đường NV.
  */
 export async function timChoKhach(orgId: string, body: unknown, deps: DepsTim = depsTuEnv()): Promise<{ ket_qua: DoanTim[] }> {
   const yc = docYeuCauTim(body);
   return withTenant(orgId, async () => {
-    const duyet = await prisma.botTaiLieuChoKhach.findMany({ where: { orgId }, select: { taiLieuId: true, noiDungBam: true } });
-    if (duyet.length === 0) return { ket_qua: [] };
-    const bamDuyet = new Map(duyet.map((d) => [d.taiLieuId, d.noiDungBam]));
-    const ids = [...bamDuyet.keys()];
+    const loaiTru = new Set((await prisma.botTaiLieuLoaiTru.findMany({ where: { orgId }, select: { taiLieuId: true } }))
+      .map((r) => r.taiLieuId));
+    const ngoai = loaiTru.size > 0 ? { id: { notIn: [...loaiTru] } } : {};
     const [docs, rows] = await Promise.all([
-      prisma.knowledgeDocument.findMany({ where: { orgId, id: { in: ids } }, select: { id: true, title: true } }),
-      prisma.knowledgeChunk.findMany({ where: { orgId, documentId: { in: ids } }, select: CHON_DOAN }),
+      prisma.knowledgeDocument.findMany({ where: { orgId, ...ngoai }, select: { id: true, title: true } }),
+      prisma.knowledgeChunk.findMany({
+        where: { orgId, ...(loaiTru.size > 0 ? { documentId: { notIn: [...loaiTru] } } : {}) }, select: CHON_DOAN,
+      }),
     ]);
-    const theoDoc = new Map<string, HangDoan[]>();
-    for (const r of rows) {
-      const a = theoDoc.get(r.documentId) ?? [];
-      a.push(r);
-      theoDoc.set(r.documentId, a);
-    }
-    const dung = new Set([...theoDoc.entries()].filter(([id, ds]) => {
-      const b = bamTuDoan(ds);
-      return b !== null && b === bamDuyet.get(id);
-    }).map(([id]) => id));
-    const tieuDe = new Map(docs.filter((d) => dung.has(d.id)).map((d) => [d.id, d.title]));
-    const ket_qua = await xepVaLoc(yc, rows.filter((r) => dung.has(r.documentId) && tieuDe.has(r.documentId)), tieuDe, deps);
-    logger.info({ orgId, soTaiLieuDung: tieuDe.size, soTra: ket_qua.length }, '[cho-khach] tìm thông số cho khách');
+    const tieuDe = new Map(docs.map((d) => [d.id, d.title]));
+    const ket_qua = await xepVaLoc(yc, rows.filter((r) => tieuDe.has(r.documentId) && !loaiTru.has(r.documentId)), tieuDe, deps);
+    logger.info({ orgId, soTaiLieuDung: tieuDe.size, soLoaiTru: loaiTru.size, soTra: ket_qua.length }, '[cho-khach] tìm thông số cho khách');
     return { ket_qua };
   });
 }

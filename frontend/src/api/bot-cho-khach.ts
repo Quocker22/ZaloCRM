@@ -6,6 +6,8 @@
 //   GET  /bot-quyen/cho-khach/tai-lieu/:id/toan-van -> { id, tieuDe, nguon, noiDungBam, doan: string[], dauHieuNoiBo }
 //   POST /bot-quyen/cho-khach/tai-lieu/duyet     {taiLieu: [{id, noiDungBam}], lyDo?} -> { doi }  (409 TAI_LIEU_DA_DOI)
 //   POST /bot-quyen/cho-khach/tai-lieu/bo-duyet  {ids, lyDo?} -> { doi }
+//   POST /bot-quyen/cho-khach/tai-lieu/loai-tru     {ids, lyDo?} -> { doi }  (chủ chốt 02/10 tối: khách dùng MỌI tài liệu TRỪ loại trừ)
+//   POST /bot-quyen/cho-khach/tai-lieu/bo-loai-tru  {ids, lyDo?} -> { doi }
 //   GET  /bot-quyen/cho-khach/mo-ta              ?loc=co_mo_ta|da_duyet|doi_sau_duyet|tat_ca -> { danhMuc, sanPham, dem }
 //   POST /bot-quyen/cho-khach/mo-ta/duyet        {sanPham: [{productId, moTaBam}], lyDo?} -> { doi }  (409 MO_TA_DA_DOI)
 //   POST /bot-quyen/cho-khach/mo-ta/bo-duyet     {productIds, lyDo?} -> { doi }
@@ -40,8 +42,15 @@ export interface TaiLieuChoKhach {
   noiDungBam: string | null;
   trangThai: TrangThaiTaiLieu;
   noiDungBamDaDuyet: string | null;
-  /** = trangThai 'da_duyet'. */
+  /** Bot DÙNG tài liệu này trả lời khách = có nội dung VÀ không bị loại trừ (02/10 tối — không còn phụ thuộc duyệt). */
   choKhach: boolean;
+  /** Admin đã loại trừ khỏi đường khách. */
+  loaiTru?: boolean;
+  loaiTruBoi?: NguoiDuyet | null;
+  loaiTruLuc?: string | null;
+  loaiTruLyDo?: string | null;
+  /** Có dấu hiệu nội bộ mà chưa loại trừ — nhắc admin xem. */
+  deXuatLoaiTru?: boolean;
   duyetBoi: NguoiDuyet | null;
   duyetLuc: string | null;
 }
@@ -119,6 +128,16 @@ export async function duyetTaiLieuChoKhach(taiLieu: Array<{ id: string; noiDungB
 
 export async function boDuyetTaiLieuChoKhach(ids: string[], lyDo?: string): Promise<{ doi: number }> {
   const { data } = await api.post('/bot-quyen/cho-khach/tai-lieu/bo-duyet', { ids, ...(lyDo ? { lyDo } : {}) }, CAU_HINH);
+  return { doi: Number(data?.doi ?? 0) };
+}
+
+export async function loaiTruTaiLieuChoKhach(ids: string[], lyDo?: string): Promise<{ doi: number }> {
+  const { data } = await api.post('/bot-quyen/cho-khach/tai-lieu/loai-tru', { ids, ...(lyDo ? { lyDo } : {}) }, CAU_HINH);
+  return { doi: Number(data?.doi ?? 0) };
+}
+
+export async function boLoaiTruTaiLieuChoKhach(ids: string[], lyDo?: string): Promise<{ doi: number }> {
+  const { data } = await api.post('/bot-quyen/cho-khach/tai-lieu/bo-loai-tru', { ids, ...(lyDo ? { lyDo } : {}) }, CAU_HINH);
   return { doi: Number(data?.doi ?? 0) };
 }
 

@@ -35,5 +35,5 @@ export const ORG_SCOPED_MODELS: ReadonlySet<string> = new Set([
   // Thông báo chủ động (docs/78 C2, 02/10).
   'BotLuatThongBao', 'BotBanDoTin',
   // Cho khách (docs/79 T5, 02/10).
-  'BotChoKhachDanhMuc', 'BotTaiLieuChoKhach', 'BotMoTaDuyet',
+  'BotChoKhachDanhMuc', 'BotTaiLieuChoKhach', 'BotMoTaDuyet', 'BotTaiLieuLoaiTru',
 ]);
