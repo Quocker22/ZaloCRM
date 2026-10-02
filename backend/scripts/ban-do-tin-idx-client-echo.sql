@@ -10,7 +10,7 @@
 -- indisvalid = f ⇒ DROP INDEX CONCURRENTLY IF EXISTS "messages_client_echo_id_idx"; rồi chạy lại file này. Nếu migration đã
 -- ghi là failed: npx prisma migrate resolve --rolled-back 20261002090600_messages_idx_client_echo (rồi deploy lại).
 --
--- Chỉ mục này KHÔNG khai trong schema.prisma (Prisma không diễn tả được WHERE) ⇒ `prisma migrate dev` sẽ đòi DROP nó: xoá
--- dòng DROP khỏi migration sinh ra (tests/migration-chi-muc-concurrently.test.ts canh).
+-- Chỉ mục này KHÔNG khai trong schema.prisma (Prisma không diễn tả được WHERE). Prisma 7.5 bỏ qua nó khi diff (đo 02/10);
+-- nếu bản sau `prisma migrate dev` đòi DROP thì xoá dòng đó khỏi migration sinh ra (tests/migration-chi-muc-concurrently.test.ts canh).
 SET statement_timeout = 0;
 CREATE INDEX CONCURRENTLY IF NOT EXISTS "messages_client_echo_id_idx" ON "messages" ("client_echo_id") WHERE "client_echo_id" IS NOT NULL;
