@@ -96,6 +96,8 @@ describe('nenLoaiTru — chỉ tín hiệu MẠNH (đề xuất nhầm 23/29 dat
     expect(nenLoaiTru('Catalog LEDNELIA (giá + nhóm + tồn)', ['P10 | 120k', 'P5 | 200k', 'P3 | 300k', 'P4 | 250k', 'P2 | 500k'])).not.toEqual([]);
     expect(nenLoaiTru('Catalog (giá + tồn)', ['Tên: P10', 'Giá bán: 120.000đ'])).toEqual(['tiêu đề nói giá/tồn']);
     expect(nenLoaiTru('OVP-K2', ['Tài liệu nội bộ — không gửi khách'])).toEqual(['chữ “nội bộ”']);
+    expect(nenLoaiTru('OVP-K2', ['Hỗ trợ playback nội bộ', 'Kết nối mạng nội bộ'])).toEqual([]);
+    expect(tieuDeSach('Catalog LEDNELIA (giá + nhóm + tồn)')).toBe('Tài liệu kỹ thuật');
   });
 });
 

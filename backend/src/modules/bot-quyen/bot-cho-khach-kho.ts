@@ -118,7 +118,8 @@ export function lamSachChoKhach(noiDung: string): string {
 
 /** Tiêu đề tài liệu cũng tới khách/NV — có giá/SĐT/link/tồn ⇒ thay bằng nhãn trung tính. */
 export function tieuDeSach(tieuDe: string): string {
-  return tieuDe && !dongBan(tieuDe) ? tieuDe : 'Tài liệu kỹ thuật';
+  // Có chữ giá/tồn/catalog nội bộ dù không kèm số ("Catalog LEDNELIA (giá + nhóm + tồn)") cũng thay
+  return tieuDe && !dongBan(tieuDe) && !/\b(gia|ton|ton kho|noi bo)\b/.test(boDau(tieuDe)) ? tieuDe : 'Tài liệu kỹ thuật';
 }
 
 /**
@@ -155,7 +156,9 @@ export function dauHieuNoiBo(tieuDe: string, doan: readonly string[]): string[] 
 export function nenLoaiTru(tieuDe: string, doan: readonly string[]): string[] {
   const ra: string[] = [];
   const k = ` ${boDau(`${tieuDe}\n${doan.join('\n')}`).replace(/[^a-z0-9]+/g, ' ')} `;
-  for (const [c, hien] of CHU_NOI_BO) if (k.includes(` ${c} `)) ra.push(`chữ “${hien}”`);
+  // "nội bộ" đứng một mình KHÔNG tính: datasheet viết "playback nội bộ", "mạng nội bộ", "bảng tin nội bộ" (staging 02/10 khuya)
+  for (const [c, hien] of CHU_NOI_BO) if (c !== 'noi bo' && k.includes(` ${c} `)) ra.push(`chữ “${hien}”`);
+  if (/\b(tai lieu|thong tin|gia|bang gia) noi bo\b|\bnoi bo\s*(?:[-:—]|khong gui|khong chia se)/.test(k)) ra.push('chữ “nội bộ”');
   const dong = doan.join('\n').split('\n').filter((d) => d.trim());
   const ban = dong.filter((d) => dongCoGia(d) || RE_TON.test(boDau(d))).length;
   const tieuDeBan = /\b(gia|ton)\b/.test(boDau(tieuDe));
