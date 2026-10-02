@@ -1,5 +1,5 @@
 // Chụp trang "Bản đồ tin" (dữ liệu giả lập) ở đúng các trạng thái của ảnh tham chiếu go.noti.vn, rồi dựng
-// so-sanh.html đặt hai ảnh cạnh nhau + bảng số đo hình học (SPEC §3) đo từ DOM.
+// so-sanh.html đặt hai ảnh cạnh nhau (28–33: trạng thái riêng của vòng 2, không có tham chiếu) + bảng số đo hình học (SPEC §3) đo từ DOM.
 //
 // Chạy (cần vite dev đang chạy ở frontend/):
 //   cd frontend && npx vite --port 5291 &
@@ -59,6 +59,13 @@ const CANH = [
   ['25-mobile-light-gate', DT, 'light', '', null],
   ['26-mobile-light-compact', DT, 'light', '', async (p) => { await p.click('[data-rut-gon]'); }],
   ['27-mobile-light-bottom-sheet', DT, 'light', '', async (p) => { await p.click('[data-rut-gon]'); await p.click('[data-the] >> nth=0'); }],
+  // ── vòng 2 (API thật): không có ảnh tham chiếu tương ứng ──
+  ['28-desktop-light-cuon-dinh', MAY, 'light', '', async (p) => { await p.evaluate(() => { const v = document.querySelector('.bdt-vung-xem'); v.scrollLeft = 520; v.scrollTop = 380; }); }],
+  ['29-desktop-light-vua-khung', MAY, 'light', '', async (p) => { await p.click('[data-vua-khung]'); }],
+  ['30-desktop-light-luat-bong', MAY, 'light', '#khoi=in_sau_chot@nhom_goc', null],
+  ['31-desktop-light-crm-tu-dong', MAY, 'light', '#khoi=crm_lich_hen_nhac@crm_sale', null],
+  ['32-desktop-light-chua-co-ban-do', MAY, 'light', '?trong=1', null],
+  ['33-desktop-dark-cuon-dinh', MAY, 'dark', '', async (p) => { await p.evaluate(() => { const v = document.querySelector('.bdt-vung-xem'); v.scrollLeft = 520; v.scrollTop = 380; }); }],
 ];
 
 /** Số đo DOM so với SPEC §3/§6 (toạ độ gốc — chia cho zoom). */
@@ -92,7 +99,7 @@ for (const [id, kho, theme, hash, lam] of CANH) {
   await ctx.addInitScript((t) => { try { localStorage.setItem('bdt-theme', t); localStorage.removeItem('bdt-tab'); sessionStorage.clear(); } catch {} }, theme);
   const p = await ctx.newPage();
   await p.goto(URL_GOC + hash);
-  await p.waitForSelector('.bdt-tabs');
+  await p.waitForSelector('.bdt-tabs, [data-chua-co-ban-do]');
   await p.waitForTimeout(400);
   if (lam) await lam(p);
   await p.waitForTimeout(450);

@@ -1,7 +1,7 @@
 {
   "do_duoc": {
     "01-desktop-light-default": {
-      "zoom": 0.521,
+      "zoom": 0.75,
       "khoi": [
         150,
         38
@@ -19,11 +19,11 @@
       ],
       "ban_do": [
         1914,
-        1646
+        1696
       ]
     },
     "02-desktop-light-selected": {
-      "zoom": 0.521,
+      "zoom": 0.75,
       "khoi": [
         150,
         38
@@ -41,11 +41,11 @@
       ],
       "ban_do": [
         1914,
-        1646
+        1696
       ]
     },
     "03-desktop-light-panel-row-hover": {
-      "zoom": 0.521,
+      "zoom": 0.75,
       "khoi": [
         150,
         38
@@ -63,11 +63,11 @@
       ],
       "ban_do": [
         1914,
-        1646
+        1696
       ]
     },
     "04-desktop-light-block-hover": {
-      "zoom": 0.521,
+      "zoom": 0.75,
       "khoi": [
         150,
         38
@@ -85,11 +85,11 @@
       ],
       "ban_do": [
         1914,
-        1646
+        1696
       ]
     },
     "05-desktop-light-legend-filter": {
-      "zoom": 0.521,
+      "zoom": 0.75,
       "khoi": [
         150,
         38
@@ -107,11 +107,11 @@
       ],
       "ban_do": [
         1914,
-        1646
+        1696
       ]
     },
     "06-desktop-light-phase-selected": {
-      "zoom": 0.521,
+      "zoom": 0.75,
       "khoi": [
         150,
         38
@@ -129,11 +129,11 @@
       ],
       "ban_do": [
         1914,
-        1646
+        1696
       ]
     },
     "07-desktop-light-row-selected": {
-      "zoom": 0.521,
+      "zoom": 0.75,
       "khoi": [
         150,
         38
@@ -151,11 +151,11 @@
       ],
       "ban_do": [
         1914,
-        1646
+        1696
       ]
     },
     "08-desktop-light-link-selected": {
-      "zoom": 0.521,
+      "zoom": 0.75,
       "khoi": [
         150,
         38
@@ -173,11 +173,11 @@
       ],
       "ban_do": [
         1914,
-        1646
+        1696
       ]
     },
     "09-desktop-light-all-groups-collapsed": {
-      "zoom": 0.521,
+      "zoom": 0.75,
       "khoi": null,
       "khoi_bo_goc": null,
       "tieu_de_pha": [
@@ -196,7 +196,7 @@
       ]
     },
     "10-desktop-light-one-group-collapsed": {
-      "zoom": 0.521,
+      "zoom": 0.75,
       "khoi": [
         150,
         38
@@ -214,11 +214,11 @@
       ],
       "ban_do": [
         1914,
-        1320
+        1370
       ]
     },
     "11-desktop-light-zoom-120": {
-      "zoom": 0.626,
+      "zoom": 0.9,
       "khoi": [
         150,
         38
@@ -236,7 +236,7 @@
       ],
       "ban_do": [
         1914,
-        1646
+        1696
       ]
     },
     "12-desktop-light-zoom-min-67": {
@@ -258,11 +258,11 @@
       ],
       "ban_do": [
         1914,
-        1646
+        1696
       ]
     },
     "13-desktop-light-help-dialog": {
-      "zoom": 0.521,
+      "zoom": 0.75,
       "khoi": [
         150,
         38
@@ -280,11 +280,11 @@
       ],
       "ban_do": [
         1914,
-        1646
+        1696
       ]
     },
     "14-desktop-light-search": {
-      "zoom": 0.521,
+      "zoom": 0.75,
       "khoi": [
         150,
         38
@@ -302,11 +302,11 @@
       ],
       "ban_do": [
         1914,
-        1646
+        1696
       ]
     },
     "15-desktop-light-fullscreen": {
-      "zoom": 0.5,
+      "zoom": 0.75,
       "khoi": [
         155,
         38
@@ -324,11 +324,11 @@
       ],
       "ban_do": [
         1996,
-        1646
+        1696
       ]
     },
     "16-desktop-light-fullscreen-noselect": {
-      "zoom": 0.5,
+      "zoom": 0.75,
       "khoi": [
         155,
         38
@@ -346,7 +346,7 @@
       ],
       "ban_do": [
         1996,
-        1646
+        1696
       ]
     },
     "17-desktop-light-tab-theo-pha": {
@@ -389,7 +389,7 @@
       "ban_do": null
     },
     "20-desktop-dark-default": {
-      "zoom": 0.521,
+      "zoom": 0.75,
       "khoi": [
         150,
         38
@@ -407,11 +407,11 @@
       ],
       "ban_do": [
         1914,
-        1646
+        1696
       ]
     },
     "21-desktop-dark-selected": {
-      "zoom": 0.521,
+      "zoom": 0.75,
       "khoi": [
         150,
         38
@@ -429,7 +429,7 @@
       ],
       "ban_do": [
         1914,
-        1646
+        1696
       ]
     },
     "22-mobile-dark-gate": {
@@ -509,19 +509,139 @@
         36
       ],
       "ban_do": null
+    },
+    "28-desktop-light-cuon-dinh": {
+      "zoom": 0.75,
+      "khoi": [
+        150,
+        38
+      ],
+      "khoi_bo_goc": "8px",
+      "tieu_de_pha": [
+        150,
+        26
+      ],
+      "panel_rong": 368,
+      "thanh_tab_cao": 42,
+      "o_tim": [
+        320,
+        36
+      ],
+      "ban_do": [
+        1914,
+        1696
+      ]
+    },
+    "29-desktop-light-vua-khung": {
+      "zoom": 0.521,
+      "khoi": [
+        150,
+        38
+      ],
+      "khoi_bo_goc": "8px",
+      "tieu_de_pha": [
+        150,
+        26
+      ],
+      "panel_rong": 368,
+      "thanh_tab_cao": 42,
+      "o_tim": [
+        320,
+        36
+      ],
+      "ban_do": [
+        1914,
+        1696
+      ]
+    },
+    "30-desktop-light-luat-bong": {
+      "zoom": 0.75,
+      "khoi": [
+        150,
+        38
+      ],
+      "khoi_bo_goc": "8px",
+      "tieu_de_pha": [
+        150,
+        26
+      ],
+      "panel_rong": 368,
+      "thanh_tab_cao": 42,
+      "o_tim": [
+        320,
+        36
+      ],
+      "ban_do": [
+        1914,
+        1696
+      ]
+    },
+    "31-desktop-light-crm-tu-dong": {
+      "zoom": 0.75,
+      "khoi": [
+        150,
+        38
+      ],
+      "khoi_bo_goc": "8px",
+      "tieu_de_pha": [
+        150,
+        26
+      ],
+      "panel_rong": 368,
+      "thanh_tab_cao": 42,
+      "o_tim": [
+        320,
+        36
+      ],
+      "ban_do": [
+        1914,
+        1696
+      ]
+    },
+    "32-desktop-light-chua-co-ban-do": {
+      "zoom": 1,
+      "khoi": null,
+      "khoi_bo_goc": null,
+      "tieu_de_pha": null,
+      "panel_rong": null,
+      "thanh_tab_cao": 42,
+      "o_tim": null,
+      "ban_do": null
+    },
+    "33-desktop-dark-cuon-dinh": {
+      "zoom": 0.75,
+      "khoi": [
+        150,
+        38
+      ],
+      "khoi_bo_goc": "8px",
+      "tieu_de_pha": [
+        150,
+        26
+      ],
+      "panel_rong": 368,
+      "thanh_tab_cao": 42,
+      "o_tim": [
+        320,
+        36
+      ],
+      "ban_do": [
+        1914,
+        1696
+      ]
     }
   },
   "thoi_gian": {
     "bam_khoi_ms": {
       "js": {
-        "lon_nhat": 9.2,
-        "trung_vi": 1.7
+        "lon_nhat": 11.3,
+        "trung_vi": 2.1
       },
       "den_khung_ke": {
-        "lon_nhat": 30.5,
-        "trung_vi": 8.9
+        "lon_nhat": 32.7,
+        "trung_vi": 8.7
       },
-      "url": "http://localhost:5292/visual/ban-do-tin/xem.html"
+      "url": "http://localhost:5291/visual/ban-do-tin/xem.html"
     }
   }
 }

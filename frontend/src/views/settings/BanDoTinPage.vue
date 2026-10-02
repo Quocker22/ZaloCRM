@@ -28,7 +28,7 @@
         <button type="button" class="bdt-nut-tron" :aria-label="s.theme.value === 'dark' ? 'Giao diện sáng' : 'Giao diện tối'" data-doi-theme @click="doiTheme">
           <Sun v-if="s.theme.value === 'dark'" :size="15" /><Moon v-else :size="15" />
         </button>
-        <button type="button" class="bdt-nut-tron" aria-label="Tải lại" title="Tải lại bản đồ" data-tai-lai :disabled="s.dangTai.value" @click="s.tai()">
+        <button v-if="manHinh !== 'dt'" type="button" class="bdt-nut-tron" aria-label="Tải lại" title="Tải lại bản đồ" data-tai-lai :disabled="s.dangTai.value" @click="s.tai()">
           <RefreshCw :size="15" />
         </button>
         <OTimKiem v-if="s.mh.value" />
