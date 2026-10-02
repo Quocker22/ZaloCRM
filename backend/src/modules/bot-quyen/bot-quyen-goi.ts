@@ -3,13 +3,15 @@
 //
 // Nguồn sự thật DUY NHẤT cho NHÂN VIÊN là ô `BotNhanVien.goi` (anh | chi | null) do người giữ trang Quyền bot chọn. CRM chỉ
 // GỢI Ý từ `Contact.gender` của các Contact khớp mọi uid của người đó — KHÔNG BAO GIỜ tự ghi `goi`:
-//   • giá trị NV đã SỬA TAY (Contact.genderLocked — contact-routes.ts PUT đặt genderLocked = !!gender) thắng giá trị Zalo
-//     tự điền (SDK chỉ điền khi trống; Zalo có thể trả 0 = "Nam" mặc định cho người lạ — docs/79 nghiên cứu §6);
+//   • giá trị NV đã XÁC NHẬN (Contact.gioiTinhXacNhanLuc — contact-routes.ts PUT CHỈ đặt khi giá trị giới tính THỰC ĐỔI hoặc
+//     nút "Xác nhận", gioi-tinh-xac-nhan.ts) thắng giá trị Zalo tự điền (SDK chỉ điền khi trống; Zalo có thể trả 0 = "Nam" mặc
+//     định cho người lạ — docs/79 nghiên cứu §6). genderLocked KHÔNG có dấu (khoá cũ: form lưu cả form từng đặt khoá ở MỌI lần
+//     bấm Lưu) KHÔNG được tin ⇒ xếp cùng hạng Zalo tự điền. Nhãn nguồn vẫn là 'khoa_tay' (giữ hợp đồng) = "đã xác nhận";
 //   • hai giá trị khác nhau ở CÙNG mức ⇒ không gợi ý (null + lý do) — gọi sai giới tệ hơn gọi trung tính.
 //
 // Với NGƯỜI ZALO bất kỳ (khách trong nhóm — đường khách của bot, docs/79 T4): API công khai
-// GET /api/public/nguoi-zalo/goi chỉ trả anh/chị khi Contact của (nick, uid) đã KHOÁ TAY (chủ chốt 02/10: "gọi khách anh/chị
-// khi giới tính đã được NV xác nhận"); còn lại null ⇒ bot xưng "mình".
+// GET /api/public/nguoi-zalo/goi chỉ trả anh/chị khi Contact của (nick, uid) có DẤU XÁC NHẬN (chủ chốt 02/10: "gọi khách
+// anh/chị khi giới tính đã được NV xác nhận"); còn lại null ⇒ bot xưng "mình".
 //
 // Contact của một uid: (a) Contact.zaloUid = uid (uid Zalo là theo nick nhìn, nên chuỗi uid đã chỉ đúng một người), và
 // (b) Contact của hội thoại 1-1 (threadType user) trên nick đó có external_thread_id = uid. Contact đã gộp (mergedInto) ⇒
@@ -25,6 +27,8 @@ export type LyDoKhongGoiY = 'chua_co_gioi' | 'mau_thuan_khoa_tay' | 'mau_thuan_z
 export interface GioiContact {
   gender: string | null;
   genderLocked: boolean;
+  /** Dấu NV xác nhận (null = chưa ai xác nhận — kể cả khi genderLocked từ bản cũ). */
+  gioiTinhXacNhanLuc: Date | null;
 }
 
 export interface GoiGoiY {
@@ -43,9 +47,9 @@ export function goiTuGioi(gender: string | null | undefined): GoiNv | null {
   return g === 'male' ? 'anh' : g === 'female' ? 'chi' : null;
 }
 
-/** Contact có giới đã khoá tay thật (khoá + có giá trị; sửa tay bỏ trống là MỞ khoá). */
+/** Contact có giới NV đã XÁC NHẬN (có dấu + có giá trị). genderLocked không dấu KHÔNG tính (khoá cũ không tin được). */
 function laKhoaTay(c: GioiContact): boolean {
-  return c.genderLocked && !!(c.gender ?? '').trim();
+  return !!c.gioiTinhXacNhanLuc && !!(c.gender ?? '').trim();
 }
 
 /** Tập giá trị khoá tay: 'anh' | 'chi' | 'khac' (giới khoá tay không phải nam/nữ). */
@@ -67,7 +71,7 @@ export function tinhGoiGoiY(ds: readonly GioiContact[]): GoiGoiY {
   return { goi: null, nguon: null, lyDo: 'chua_co_gioi' };
 }
 
-/** API công khai: CHỈ giá trị khoá tay, không mâu thuẫn; còn lại null. Thuần. */
+/** API công khai: CHỈ giá trị đã XÁC NHẬN (có dấu), không mâu thuẫn; còn lại null. Thuần. */
 export function tinhGoiKhoaTay(ds: readonly GioiContact[]): { goi: GoiNv | null; nguon: 'khoa_tay' | null } {
   const g = tinhGoiGoiY(ds);
   return g.nguon === 'khoa_tay' ? { goi: g.goi, nguon: 'khoa_tay' } : { goi: null, nguon: null };
@@ -97,7 +101,7 @@ export async function gioiTheoUid(orgId: string, can: readonly UidCanTra[]): Pro
     nickCua.set(c.uid, new Set([...(cu ?? []), ...c.nickIds]));
   }
 
-  const CHON = { id: true, zaloUid: true, gender: true, genderLocked: true, mergedInto: true } as const;
+  const CHON = { id: true, zaloUid: true, gender: true, genderLocked: true, gioiTinhXacNhanLuc: true, mergedInto: true } as const;
   // uid đã biết nick ⇒ tra theo (zalo_account_id, external_thread_id) — dùng index unique, không quét bảng hội thoại (đường
   // công khai bot gọi theo từng tin khách). uid chưa biết nick ⇒ theo external_thread_id ở mọi nick của org.
   const coNick = [...nickCua].filter((x): x is [string, Set<string>] => x[1] !== null);
@@ -138,7 +142,7 @@ export async function gioiTheoUid(orgId: string, can: readonly UidCanTra[]): Pro
       if (m && contact.has(m)) tat.add(m);
     }
     kq.set(uid, [...tat].map((id) => contact.get(id)).filter((c): c is NonNullable<typeof c> => !!c)
-      .map((c) => ({ gender: c.gender, genderLocked: c.genderLocked })));
+      .map((c) => ({ gender: c.gender, genderLocked: c.genderLocked, gioiTinhXacNhanLuc: c.gioiTinhXacNhanLuc })));
   }
   return kq;
 }
@@ -163,7 +167,7 @@ export async function goiGoiYChoNhanVien(
 
 /**
  * GET /api/public/nguoi-zalo/goi — (nick_uid, uid) ⇒ {goi, nguon}. nick_uid = ZaloAccount.zaloUid của nick nhìn uid (trong
- * org của khoá); nick lạ ⇒ null. CHỈ trả anh/chị khi đã khoá tay. Không trả gì khác (không tên, không id Contact).
+ * org của khoá); nick lạ ⇒ null. CHỈ trả anh/chị khi đã có dấu xác nhận. Không trả gì khác (không tên, không id Contact).
  */
 export async function docGoiNguoiZalo(
   orgId: string, nickUid: string, uid: string,

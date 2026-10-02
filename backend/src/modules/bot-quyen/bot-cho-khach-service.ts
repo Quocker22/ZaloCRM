@@ -106,7 +106,7 @@ async function ghiNhatKy(tx: Tx, rows: Array<{
 // ── Công khai (bot) ─────────────────────────────────────────────────────────
 
 /**
- * Lưu danh mục MỚI NHẤT (thay bản cũ). Nhật ký `danh_muc_cho_khach` (ai = api_key:<id>) khi lần đầu hoặc khi tập tài liệu /
+ * Lưu danh mục MỚI NHẤT (thay bản cũ); phien_ban trùng bản đang giữ ⇒ không ghi (vẫn kiểm hình). Nhật ký `danh_muc_cho_khach` (ai = api_key:<id>) khi lần đầu hoặc khi tập tài liệu /
  * băm mô tả đổi — số lượng + tối đa 50 id mỗi loại (không chép nội dung).
  */
 export async function luuDanhMuc(
@@ -116,6 +116,10 @@ export async function luuDanhMuc(
   const aiId = `api_key:${apiKeyId ?? 'khong_ro'}`;
   await withTenant(orgId, () => tenantTransaction(async (tx) => {
     await khoaOrg(tx, orgId);
+    // phien_ban KHÔNG đổi ⇒ cùng nội dung (hợp đồng §2: đổi nội dung PHẢI đổi phien_ban) ⇒ không đọc / viết lại jsonb (tới
+    // 8 MB) mỗi lần bot đẩy lại lúc khởi động / đồng bộ. Đọc DƯỚI khoá org — hai lần đẩy song song không lọt nhau.
+    const pb = await tx.botChoKhachDanhMuc.findUnique({ where: { orgId }, select: { phienBan: true } });
+    if (pb?.phienBan === d.phien_ban) return;
     const cu = await docDanhMucLuu(tx, orgId);
     const data = {
       phienBan: d.phien_ban,

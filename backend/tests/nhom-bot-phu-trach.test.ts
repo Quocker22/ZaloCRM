@@ -37,6 +37,35 @@ describe('chucNangHieuLucCuaNhom', () => {
   });
 });
 
+describe('chucNangHieuLucCuaNhom — single-flight khi đệm hết hạn', () => {
+  it('nhiều tin cùng lúc (đệm trống / hết hạn) ⇒ CHỈ MỘT lần đọc, mọi lời gọi nhận cùng kết quả', async () => {
+    let tha!: () => void;
+    const cho = new Promise<void>((r) => { tha = r; });
+    const goc = cauHinh([{ conversation_id: 'c1', chuc_nang: 'sales' }]);
+    const doc = vi.fn(async (o: string) => { await cho; return goc(o); });
+    const p = ['c1', 'c2', 'c1'].map((c) => chucNangHieuLucCuaNhom('o1', c, { doc }));
+    tha();
+    expect(await Promise.all(p)).toEqual(['sales', null, 'sales']);
+    expect(doc).toHaveBeenCalledTimes(1);
+  });
+
+  it('lần đọc chung LỖI ⇒ mọi lời gọi đang chờ cùng nhận lỗi; lần sau đọc lại (lỗi không bị đệm, không kẹt)', async () => {
+    let lan = 0;
+    const doc = vi.fn(async () => { lan++; if (lan === 1) throw new Error('db sập'); return cauHinh([{ conversation_id: 'c1', chuc_nang: 'kho' }])(); });
+    const kq = await Promise.allSettled([chucNangHieuLucCuaNhom('o1', 'c1', { doc }), chucNangHieuLucCuaNhom('o1', 'c1', { doc })]);
+    expect(kq.map((k) => k.status)).toEqual(['rejected', 'rejected']);
+    expect(doc).toHaveBeenCalledTimes(1);
+    expect(await chucNangHieuLucCuaNhom('o1', 'c1', { doc })).toBe('kho');
+    expect(doc).toHaveBeenCalledTimes(2);
+  });
+
+  it('org khác không dùng chung lần đọc', async () => {
+    const doc = vi.fn(cauHinh([{ conversation_id: 'c1', chuc_nang: 'khach' }]));
+    await Promise.all([chucNangHieuLucCuaNhom('o1', 'c1', { doc }), chucNangHieuLucCuaNhom('o2', 'c1', { doc })]);
+    expect(doc.mock.calls.map((c) => c[0]).sort()).toEqual(['o1', 'o2']);
+  });
+});
+
 describe('aiKhachPhaiImONhom', () => {
   it.each(['khach', 'sales', 'kho', 'ke_toan', 'admin'])('nhóm có chức năng "%s" ⇒ im + log/đếm lý do', async (cn) => {
     const info = vi.spyOn(logger, 'info').mockImplementation(() => {});

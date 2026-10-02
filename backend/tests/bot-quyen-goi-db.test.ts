@@ -76,12 +76,16 @@ async function taoNv(orgId: string, id: string, tenGoi: string, uids: Array<[str
 }
 
 let soContact = 0;
-async function taoContact(orgId: string, d: { zaloUid?: string; gender?: string | null; genderLocked?: boolean; mergedInto?: string; id?: string }) {
+/** `xacNhan` = NV đã đổi ô giới tính (dấu gioi_tinh_xac_nhan_luc); genderLocked không dấu = khoá CŨ, không được tin. */
+async function taoContact(orgId: string, d: {
+  zaloUid?: string; gender?: string | null; genderLocked?: boolean; xacNhan?: boolean; mergedInto?: string; id?: string;
+}) {
   const id = d.id ?? `test-bqg-ct-${++soContact}`;
   await prisma.contact.create({
     data: {
       id, orgId, fullName: `KH ${id}`, zaloUid: d.zaloUid ?? null, gender: d.gender ?? null,
       genderLocked: d.genderLocked ?? false, mergedInto: d.mergedInto ?? null,
+      gioiTinhXacNhanLuc: d.xacNhan ? new Date() : null, gioiTinhXacNhanBoi: d.xacNhan ? OWNER : null,
     } as never,
   });
   return id;
@@ -111,23 +115,26 @@ describeCanDb('bot-quyen — xưng hô (docs/79 T1)', () => {
     // ── Contact (org A) ──
     // Hùng: uid HN (Contact theo zaloUid, Zalo tự điền NAM) + uid HCM (Contact của hội thoại 1-1 trên nick HCM, NV khoá tay NỮ).
     await taoContact(ORG_A, { zaloUid: 'u-hung', gender: 'male' });
-    await taoHoiThoai(ORG_A, NICK_A2, 'u-hung2', await taoContact(ORG_A, { gender: 'female', genderLocked: true }));
+    await taoHoiThoai(ORG_A, NICK_A2, 'u-hung2', await taoContact(ORG_A, { gender: 'female', genderLocked: true, xacNhan: true }));
     // Lan: Zalo tự điền NỮ. Một hội thoại ở nick KHÁC (HCM) cùng chuỗi uid trỏ Contact khoá NAM — uid của Lan là theo nick HN
     // nên hội thoại đó KHÔNG được tính.
     await taoContact(ORG_A, { zaloUid: 'u-lan', gender: 'female' });
-    await taoHoiThoai(ORG_A, NICK_A2, 'u-lan', await taoContact(ORG_A, { gender: 'male', genderLocked: true }));
+    await taoHoiThoai(ORG_A, NICK_A2, 'u-lan', await taoContact(ORG_A, { gender: 'male', genderLocked: true, xacNhan: true }));
     // Minh: hai giá trị khoá tay mâu thuẫn.
-    await taoContact(ORG_A, { zaloUid: 'u-minh', gender: 'male', genderLocked: true });
-    await taoHoiThoai(ORG_A, NICK_A, 'u-minh', await taoContact(ORG_A, { gender: 'female', genderLocked: true }));
+    await taoContact(ORG_A, { zaloUid: 'u-minh', gender: 'male', genderLocked: true, xacNhan: true });
+    await taoHoiThoai(ORG_A, NICK_A, 'u-minh', await taoContact(ORG_A, { gender: 'female', genderLocked: true, xacNhan: true }));
     // Quân: bản phụ (đã gộp, chưa có giới) ⇒ bản chính khoá NAM.
-    const chinh = await taoContact(ORG_A, { gender: 'male', genderLocked: true });
+    const chinh = await taoContact(ORG_A, { gender: 'male', genderLocked: true, xacNhan: true });
     await taoContact(ORG_A, { zaloUid: 'u-quan', mergedInto: chinh });
     // Tú (org A): không có Contact. Org B có Contact khoá tay cùng chuỗi uid — KHÔNG được lẫn sang.
-    await taoContact(ORG_B, { zaloUid: 'u-tu', gender: 'female', genderLocked: true });
+    await taoContact(ORG_B, { zaloUid: 'u-tu', gender: 'female', genderLocked: true, xacNhan: true });
     // Khách (không phải NV) cho API công khai.
-    await taoHoiThoai(ORG_A, NICK_A, 'u-khach-khoa', await taoContact(ORG_A, { gender: 'female', genderLocked: true }));
+    await taoHoiThoai(ORG_A, NICK_A, 'u-khach-khoa', await taoContact(ORG_A, { gender: 'female', genderLocked: true, xacNhan: true }));
     await taoHoiThoai(ORG_A, NICK_A, 'u-khach-tu', await taoContact(ORG_A, { gender: 'male' }));
-    await taoContact(ORG_B, { zaloUid: 'u-khach-b', gender: 'male', genderLocked: true });
+    await taoContact(ORG_B, { zaloUid: 'u-khach-b', gender: 'male', genderLocked: true, xacNhan: true });
+    // Khoá CŨ không có dấu xác nhận (form lưu cả form từng khoá giới ở MỌI lần bấm Lưu) ⇒ hạng Zalo tự điền, API ⇒ null.
+    await taoHoiThoai(ORG_A, NICK_A, 'u-khach-khoa-cu', await taoContact(ORG_A, { gender: 'female', genderLocked: true }));
+    await taoContact(ORG_A, { zaloUid: 'u-cu', gender: 'male', genderLocked: true });
 
     app = Fastify({ logger: false });
     await app.register(fastifyJwt, { secret: config.jwtSecret });
@@ -152,6 +159,7 @@ describeCanDb('bot-quyen — xưng hô (docs/79 T1)', () => {
     await taoNv(ORG_A, 'test-bqg-nv-minh', 'Minh', [['u-minh', NICK_A]]);
     await taoNv(ORG_A, 'test-bqg-nv-quan', 'Quân', [['u-quan', null]]);
     await taoNv(ORG_A, 'test-bqg-nv-tu', 'Tú', [['u-tu', NICK_A]]);
+    await taoNv(ORG_A, 'test-bqg-nv-cu', 'Cũ', [['u-cu', NICK_A]]);
   });
 
   async function dsNv() {
@@ -171,6 +179,8 @@ describeCanDb('bot-quyen — xưng hô (docs/79 T1)', () => {
     expect(goiY('Minh')).toEqual({ goi: null, goiGoiY: null, goiNguon: null, goiGoiYLyDo: 'mau_thuan_khoa_tay' });
     expect(goiY('Quân')).toEqual({ goi: null, goiGoiY: 'anh', goiNguon: 'khoa_tay', goiGoiYLyDo: null });
     expect(goiY('Tú')).toEqual({ goi: null, goiGoiY: null, goiNguon: null, goiGoiYLyDo: 'chua_co_gioi' });
+    // Khoá cũ không dấu xác nhận ⇒ chỉ là gợi ý hạng Zalo tự điền (KHÔNG vào "Áp gợi ý đã xác nhận").
+    expect(goiY('Cũ')).toEqual({ goi: null, goiGoiY: 'anh', goiNguon: 'zalo_tu_dien', goiGoiYLyDo: null });
     // Đọc KHÔNG ghi: cột goi vẫn null, không có dòng nhật ký.
     expect(await prisma.botNhanVien.count({ where: { orgId: ORG_A, goi: { not: null } } })).toBe(0);
     expect(await prisma.botQuyenNhatKy.count({ where: { orgId: ORG_A, doiTuong: 'nhan_vien' } })).toBe(0);
@@ -248,6 +258,8 @@ describeCanDb('bot-quyen — xưng hô (docs/79 T1)', () => {
     expect(r.json()).toEqual({ goi: 'chi', nguon: 'khoa_tay' });
     expect(Object.keys(r.json())).toEqual(['goi', 'nguon']);
     expect((await hoiGoi(KHOA_A, { nick_uid: UID_NICK_A, uid: 'u-khach-tu' })).json()).toEqual({ goi: null, nguon: null });
+    // Khoá CŨ không có dấu xác nhận ⇒ null.
+    expect((await hoiGoi(KHOA_A, { nick_uid: UID_NICK_A, uid: 'u-khach-khoa-cu' })).json()).toEqual({ goi: null, nguon: null });
     expect((await hoiGoi(KHOA_A, { nick_uid: UID_NICK_A, uid: 'u-khong-co' })).json()).toEqual({ goi: null, nguon: null });
     expect((await hoiGoi(KHOA_A, { nick_uid: 'nick-la', uid: 'u-khach-khoa' })).json()).toEqual({ goi: null, nguon: null });
     // Hội thoại của uid nằm ở nick HN — hỏi theo nick HCM thì không thấy Contact đó.

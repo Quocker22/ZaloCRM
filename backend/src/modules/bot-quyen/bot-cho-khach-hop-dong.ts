@@ -87,6 +87,16 @@ function sai(msg: string): never {
   throw new LoiChoKhach(400, 'DANH_MUC_KHONG_HOP_LE', msg);
 }
 
+/**
+ * Độ dài theo CODE POINT (hợp đồng §2) — khớp `len()` / cắt chuỗi của Python bên bot. `String.length` của JS đếm đơn vị UTF-16
+ * (emoji ngoài BMP = 2) ⇒ bot cắt đúng 500 ký tự có emoji sẽ bị CRM bác oan.
+ */
+export function soKyTu(s: string): number {
+  let n = 0;
+  for (const _ of s) n++;
+  return n;
+}
+
 function laObj(x: unknown): x is Record<string, unknown> {
   return !!x && typeof x === 'object' && !Array.isArray(x);
 }
@@ -95,7 +105,7 @@ function chuoiTuyChon(x: unknown, ten: string, toiDa: number): string | null {
   if (x === undefined || x === null) return null;
   if (typeof x !== 'string') sai(`${ten} phải là chuỗi hoặc null`);
   const t = x.trim();
-  if (t.length > toiDa) sai(`${ten} dài quá ${toiDa} ký tự`);
+  if (soKyTu(t) > toiDa) sai(`${ten} dài quá ${toiDa} ký tự`);
   return t || null;
 }
 
@@ -153,7 +163,7 @@ function docSanPham(x: unknown, i: number): SanPhamDanhMuc {
   let moTa: string | null = null;
   if (x.mo_ta_ban !== undefined && x.mo_ta_ban !== null) {
     if (typeof x.mo_ta_ban !== 'string') sai(`san_pham[${i}].mo_ta_ban phải là chuỗi hoặc null`);
-    if (x.mo_ta_ban.length > TOI_DA_MO_TA) sai(`san_pham[${i}].mo_ta_ban dài quá ${TOI_DA_MO_TA} ký tự`);
+    if (soKyTu(x.mo_ta_ban) > TOI_DA_MO_TA) sai(`san_pham[${i}].mo_ta_ban dài quá ${TOI_DA_MO_TA} ký tự`);
     moTa = x.mo_ta_ban;
   }
   const bamGui = x.mo_ta_bam === undefined ? null : x.mo_ta_bam;
@@ -180,7 +190,7 @@ function docSanPham(x: unknown, i: number): SanPhamDanhMuc {
 export function docDanhMuc(body: unknown): DanhMucChoKhach {
   if (!laObj(body)) sai('Thân phải là object JSON');
   const phienBan = body.phien_ban;
-  if (typeof phienBan !== 'string' || phienBan.length < 1 || phienBan.length > 128) sai('phien_ban là chuỗi 1–128 ký tự');
+  if (typeof phienBan !== 'string' || phienBan.length < 1 || soKyTu(phienBan) > 128) sai('phien_ban là chuỗi 1–128 ký tự');
   if (!Array.isArray(body.tai_lieu)) sai('tai_lieu phải là mảng');
   if (!Array.isArray(body.san_pham)) sai('san_pham phải là mảng');
   if (body.tai_lieu.length > TOI_DA_TAI_LIEU) sai(`tai_lieu tối đa ${TOI_DA_TAI_LIEU} phần tử`);

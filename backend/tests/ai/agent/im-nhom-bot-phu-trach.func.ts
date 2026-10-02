@@ -79,6 +79,12 @@ vi.mock('../../../src/modules/ai/ai-service.js', () => ({
   getProviderApiKey: vi.fn(async () => 'k'),
 }));
 vi.mock('../../../src/modules/ai/provider-registry.js', () => ({ getProviderBaseUrl: vi.fn(async () => undefined) }));
+// Đọc ảnh (OCR) — giữ hàm thật, chỉ thay lời gọi model nhìn ảnh để đếm (nhóm bot phụ trách ⇒ KHÔNG được gọi: tốn tiền vô ích).
+vi.mock('../../../src/modules/ai/agent/noi-zalo/doc-anh.js', async (goc) => ({
+  ...(await goc<typeof import('../../../src/modules/ai/agent/noi-zalo/doc-anh.js')>()),
+  docAnh: vi.fn(async () => 'module P10 full color'),
+  docPdf: vi.fn(async () => 'phiếu nhập P04520'),
+}));
 
 import { docCauHinhCongKhai } from '../../../src/modules/bot-quyen/bot-quyen-cong-khai.js';
 import { _xoaChoTest, demAiKhachBoQua } from '../../../src/modules/bot-quyen/nhom-bot-phu-trach.js';
@@ -89,6 +95,9 @@ import { xuLyTinKhach } from '../../../src/modules/ai/agent/noi-zalo/luong-khach
 import { xuLyTinMedia } from '../../../src/modules/ai/agent/noi-zalo/luong-media.js';
 import { chaoNhomKhiThem } from '../../../src/modules/ai/agent/noi-zalo/chao-nhom.js';
 import { runAutoReplyForMessage } from '../../../src/modules/ai/knowledge/auto-reply-wiring.js';
+import { xuLyTinNhanVien } from '../../../src/modules/ai/agent/noi-zalo/luong-nhan-vien.js';
+import { docAnh } from '../../../src/modules/ai/agent/noi-zalo/doc-anh.js';
+import { timDich } from '../../../src/modules/ai/agent/noi-zalo/gui-zalo.js';
 import { _resetKhoaViecChoTest } from '../../../src/modules/ai/agent/noi-zalo/khoa-viec.js';
 import { prisma } from '../../../src/shared/database/prisma-client.js';
 import { logger } from '../../../src/shared/utils/logger.js';
@@ -113,6 +122,7 @@ let warn: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
   goc = { ...process.env };
   process.env.AI_AGENT_KHACH = '1';
+  process.env.AI_AGENT_NHANVIEN = '1';
   process.env.ODOO_URL = 'http://localhost:8069';
   process.env.ODOO_DB = 'db';
   process.env.ODOO_USERNAME = 'u';
@@ -264,6 +274,90 @@ describe('chào nhóm — chaoNhomKhiThem', () => {
   it('tra lỗi ⇒ không chào', async () => {
     datNhom('loi');
     expect(await chao()).toBe(true);
+    expect(guiTin).not.toHaveBeenCalled();
+  });
+});
+
+// ─── 5. Luồng NHÂN VIÊN của CRM (luong-nhan-vien.ts — agent NV + máy gom đơn) ──
+// Nhóm bot phụ trách: bot (Hermes) nhận lệnh NV ở đó — agent NV của CRM chạy song song là NV nhận HAI câu (và hai đơn).
+describe('agent nhân viên — xuLyTinNhanVien', () => {
+  let so = 0;
+  // Tag trống ("@bot" không nội dung, không có tin trước) ⇒ đường rẻ nhất có GỬI: "Dạ em đây…".
+  const tin = (laNhom: boolean) => ({
+    orgId: 'o1', bizName: 'Shop', conversationId: 'c1', messageId: `nv${++so}`, content: '',
+    senderUid: 'nv-1', isSelf: true, laNhom, daTagBot: true,
+  });
+  const cauDaEmDay = () => vi.mocked(guiTin).mock.calls.filter((c) => String(c[1]).includes('Dạ em đây'));
+
+  it('nhóm đã xếp + tag ⇒ IM, trả TRUE, không tra đích / không gửi', async () => {
+    datNhom('da_xep', 'sales');
+    expect(await xuLyTinNhanVien(tin(true))).toBe(true);
+    expect(timDich).not.toHaveBeenCalled();
+    expect(guiTin).not.toHaveBeenCalled();
+    expect(demAiKhachBoQua('o1').nhom_do_bot_phu_trach).toBe(1);
+  });
+
+  it('nhóm chưa xếp ⇒ như cũ (một câu "Dạ em đây")', async () => {
+    datNhom('chua_xep');
+    expect(await xuLyTinNhanVien(tin(true))).toBe(true);
+    expect(cauDaEmDay()).toHaveLength(1);
+  });
+
+  it('DM ⇒ như cũ, không tra trang Quyền bot', async () => {
+    datNhom('da_xep');
+    expect(await xuLyTinNhanVien(tin(false))).toBe(true);
+    expect(cauDaEmDay()).toHaveLength(1);
+    expect(docCauHinhCongKhai).not.toHaveBeenCalled();
+  });
+
+  it('tra lỗi ⇒ IM ở nhóm', async () => {
+    datNhom('loi');
+    expect(await xuLyTinNhanVien(tin(true))).toBe(true);
+    expect(guiTin).not.toHaveBeenCalled();
+  });
+
+  it('nhóm đã xếp, NV KHÔNG tag ⇒ cổng tag chặn trước (false), không cần tra', async () => {
+    datNhom('da_xep');
+    expect(await xuLyTinNhanVien({ ...tin(true), content: 'tán gẫu', daTagBot: false })).toBe(false);
+    expect(docCauHinhCongKhai).not.toHaveBeenCalled();
+  });
+});
+
+// ─── 6. Media: ĐỌC ẢNH (OCR) rồi chuyển luồng NV/khách (luong-media.ts docVaChuyenTiep) ──
+describe('media — đọc ảnh rồi chuyển tiếp', () => {
+  const anhCoUrl = (laNhom: boolean, daTagBot = true) => xuLyTinMedia(
+    {
+      orgId: 'o1', conversationId: 'c1', messageId: 'ma1', laNhom, daTagBot, senderUid: 'nv-1', isSelf: false,
+      content: JSON.stringify({ href: 'https://zalo.example/anh.jpg', title: 'lên đơn này' }),
+    },
+    'image',
+  );
+
+  it('nhóm đã xếp ⇒ KHÔNG đọc ảnh (không tốn OCR), không gửi, trả TRUE — kể cả ảnh không tag', async () => {
+    datNhom('da_xep');
+    expect(await anhCoUrl(true)).toBe(true);
+    expect(await anhCoUrl(true, false)).toBe(true);
+    expect(docAnh).not.toHaveBeenCalled();
+    expect(guiTin).not.toHaveBeenCalled();
+  });
+
+  it('nhóm chưa xếp ⇒ như cũ (đọc ảnh)', async () => {
+    datNhom('chua_xep');
+    await anhCoUrl(true);
+    expect(docAnh).toHaveBeenCalledTimes(1);
+  });
+
+  it('DM ⇒ như cũ (đọc ảnh), không tra', async () => {
+    datNhom('da_xep');
+    await anhCoUrl(false);
+    expect(docAnh).toHaveBeenCalledTimes(1);
+    expect(docCauHinhCongKhai).not.toHaveBeenCalled();
+  });
+
+  it('tra lỗi ⇒ không đọc ảnh, IM', async () => {
+    datNhom('loi');
+    expect(await anhCoUrl(true)).toBe(true);
+    expect(docAnh).not.toHaveBeenCalled();
     expect(guiTin).not.toHaveBeenCalled();
   });
 });

@@ -70,6 +70,8 @@ export interface Contact {
 
   // Demographic / personal
   gender?: string | null;
+  /** docs/79 T1: lúc NV xác nhận giới tính (đổi ô giới tính / nút "Xác nhận"); null = chưa ai xác nhận. */
+  gioiTinhXacNhanLuc?: string | null;
   birthYear?: number | null;
   birthDate?: string | null;
   occupation?: string | null;

@@ -239,6 +239,50 @@ describe('Tab "Cho khách" — tài liệu', () => {
     w.unmount();
   });
 
+  it('hộp duyệt nói rõ: người duyệt mới xem MẪU 300 ký tự (CRM không có toàn văn) + chỉ chỗ xem toàn văn', async () => {
+    const w = gan();
+    await flushPromises();
+    expect(nut(tlHang(w, 'doc-3'), 'Xem mẫu').exists()).toBe(true);
+    await tlHang(w, 'doc-3').find('input[type="checkbox"]').setValue(true);
+    await w.find('[data-nut="duyet-tai-lieu"]').trigger('click');
+    const hop = w.find('.vo-dialog');
+    expect(hop.find('[data-o="chi-xem-mau"]').text()).toContain('Bạn mới xem mẫu 300 ký tự đầu');
+    expect(hop.find('[data-o="xem-toan-van"]').text()).toContain('Xem toàn văn');
+    expect(hop.find('[data-o="xem-toan-van"]').text()).toContain('kho tri thức');
+    w.unmount();
+  });
+
+  it('"Chọn hết" > 500 ⇒ gửi theo lô 500 lần lượt + tiến độ; lô lỗi ⇒ báo lô nào, số mục, giữ chọn đúng các mục chưa lưu', async () => {
+    const nhieu: DsTaiLieuChoKhach = {
+      ...structuredClone(TAI_LIEU),
+      taiLieu: Array.from({ length: 1201 }, (_, i) => ({
+        ...structuredClone(TAI_LIEU.taiLieu[2]), id: `d-${i}`, tieuDe: `Tài liệu ${i}`, noiDungBam: N3,
+      })),
+    };
+    vi.mocked(layTaiLieuChoKhach).mockResolvedValue(nhieu);
+    let lan = 0;
+    vi.mocked(duyetTaiLieuChoKhach).mockImplementation(async (ds) => {
+      lan++;
+      if (lan === 2) throw { response: { status: 409, data: { error: 'Nội dung tài liệu đã đổi', code: 'TAI_LIEU_DA_DOI' } } };
+      return { doi: ds.length };
+    });
+    const w = gan();
+    await flushPromises();
+    await phan(w, 'tai-lieu').find('input[data-o="chon-het"]').setValue(true);
+    expect(w.find('[data-nut="duyet-tai-lieu"]').text()).toBe('Cho khách xem (1201)');
+    await w.find('[data-nut="duyet-tai-lieu"]').trigger('click');
+    expect(w.find('.vo-dialog').text()).toContain('gửi thành 3 lần (mỗi lần tối đa 500)');
+    await w.find('.vo-dialog [data-nut="xac-nhan-ly-do"]').trigger('click');
+    await flushPromises();
+    expect(vi.mocked(duyetTaiLieuChoKhach).mock.calls.map((c) => c[0].length)).toEqual([500, 500, 201]);
+    expect(toast.success).toHaveBeenCalledWith(expect.stringContaining('701'));
+    const hop = w.find('.vo-dialog');
+    expect(hop.exists()).toBe(true); // còn lô lỗi ⇒ hộp giữ mở với báo cáo
+    expect(hop.text()).toContain('Lô 2/3 (500 mục): Nội dung tài liệu đã đổi');
+    expect(w.find('[data-nut="duyet-tai-lieu"]').text()).toBe('Cho khách xem (500)');
+    w.unmount();
+  });
+
   it('chưa có danh mục ⇒ câu "Bot chưa gửi danh mục"', async () => {
     vi.mocked(layTaiLieuChoKhach).mockResolvedValue({ danhMuc: null, taiLieu: [], duyetNgoaiDanhMuc: [] });
     vi.mocked(layMoTaChoKhach).mockResolvedValue({ danhMuc: null, sanPham: [], dem: { coMoTa: 0, daDuyet: 0, doiSauDuyet: 0, chuaDuyet: 0, tong: 0 } });

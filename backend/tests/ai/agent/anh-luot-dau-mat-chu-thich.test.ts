@@ -27,6 +27,8 @@ vi.mock('../../../src/modules/ai/agent/noi-zalo/gui-zalo.js', () => ({
 }));
 
 // Chặn đúng hai luồng nhận chữ để SOI câu mà `docVaChuyenTiep` ném sang.
+// Nhóm CHƯA xếp loại trên trang Quyền bot (cổng "nhóm bot phụ trách" docs/79 T6 — test riêng: im-nhom-bot-phu-trach.func.ts).
+vi.mock('../../../src/modules/bot-quyen/nhom-bot-phu-trach.js', () => ({ aiKhachPhaiImONhom: vi.fn(async () => false) }));
 vi.mock('../../../src/modules/ai/agent/noi-zalo/luong-nhan-vien.js', () => ({
   xuLyTinNhanVien: vi.fn(async () => true),
   laLenhNhanVien: vi.fn(() => true),

@@ -105,6 +105,23 @@ describe('docDanhMuc — kiểm danh mục bot đẩy lên', () => {
     expect(loi(() => docDanhMuc({ phien_ban: 'v', tai_lieu: [], san_pham: [sp({ mo_ta_ban: '  ', mo_ta_bam: 'a'.repeat(64) })] })).code)
       .toBe('MO_TA_BAM_LECH');
   });
+  it('độ dài đếm theo CODE POINT (khớp len() của Python bên bot): emoji ngoài BMP = 1 ký tự, đúng biên', () => {
+    const e = '😀'; // U+1F600 — 2 đơn vị UTF-16, 1 code point
+    const moTa = (n: number) => e.repeat(n);
+    // mo_ta_ban ≤ 20000: đúng 20000 emoji (40000 đơn vị UTF-16) ⇒ nhận; 20001 ⇒ 400.
+    expect(docDanhMuc({ phien_ban: 'v', tai_lieu: [], san_pham: [sp({ mo_ta_ban: moTa(20000), mo_ta_bam: bamMoTa(moTa(20000)) })] })
+      .san_pham[0].mo_ta_ban).toHaveLength(40000);
+    expect(loi(() => docDanhMuc({ phien_ban: 'v', tai_lieu: [], san_pham: [sp({ mo_ta_ban: moTa(20001), mo_ta_bam: bamMoTa(moTa(20001)) })] })).code)
+      .toBe('DANH_MUC_KHONG_HOP_LE');
+    // tieu_de ≤ 500, ten ≤ 500.
+    expect(docDanhMuc({ phien_ban: 'v', tai_lieu: [tl({ tieu_de: moTa(500) })], san_pham: [sp({ ten: moTa(500) })] }).tai_lieu[0].tieu_de)
+      .toBe(moTa(500));
+    expect(loi(() => docDanhMuc({ phien_ban: 'v', tai_lieu: [tl({ tieu_de: moTa(501) })], san_pham: [] })).code).toBe('DANH_MUC_KHONG_HOP_LE');
+    expect(loi(() => docDanhMuc({ phien_ban: 'v', tai_lieu: [], san_pham: [sp({ ten: moTa(501) })] })).code).toBe('DANH_MUC_KHONG_HOP_LE');
+    // phien_ban 1–128.
+    expect(docDanhMuc({ phien_ban: moTa(128), tai_lieu: [], san_pham: [] }).phien_ban).toBe(moTa(128));
+    expect(loi(() => docDanhMuc({ phien_ban: moTa(129), tai_lieu: [], san_pham: [] })).code).toBe('DANH_MUC_KHONG_HOP_LE');
+  });
   it.each([
     ['thiếu phien_ban', { tai_lieu: [], san_pham: [] }],
     ['phien_ban rỗng', { phien_ban: '', tai_lieu: [], san_pham: [] }],

@@ -706,6 +706,7 @@ import { useRouter } from 'vue-router';
 import { api } from '@/api/index';
 import { useToast } from '@/composables/use-toast';
 import type { Contact } from '@/composables/use-contacts';
+import { truongGioiDeGui } from '@/composables/gioi-tinh-xac-nhan';
 import { formatInOrgTz } from '@/composables/use-org-timezone';
 import AppointmentEditor from '@/components/appointments/AppointmentEditor.vue';
 import {
@@ -1101,7 +1102,9 @@ async function onSave() {
     notes: form.value.notes || null,
     tags: form.value.tags,
 
-    gender: form.value.gender || null,
+    // docs/79 T1: chỉ gửi gender khi ô giới tính ĐỔI (tạo mới thì luôn gửi) — gửi kèm mọi lần lưu là "xác nhận" giới Zalo tự
+    // điền mà NV chưa nhìn; bot gọi khách anh/chị theo dấu xác nhận đó.
+    ...(isNew.value ? { gender: form.value.gender || null } : truongGioiDeGui(form.value.gender, props.contact?.gender)),
     birthYear: form.value.birthYear ?? null,
     birthDate: form.value.birthDate
       ? new Date(form.value.birthDate + 'T00:00:00').toISOString()

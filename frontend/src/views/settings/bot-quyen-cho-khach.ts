@@ -22,10 +22,55 @@ const CHU_NOI_BO = ['bang gia', 'gia von', 'gia dai ly', 'gia si', 'chiet khau',
 // Số tiền trong mẫu nội dung: "125.000đ", "1,2tr", "500k", "vnd".
 const SO_TIEN = /\d[\d.,]*\s*(?:đ|vnđ|vnd|k\b|tr\b|triệu|nghìn|ngàn)/i;
 
+/**
+ * Xét CẢ tiêu đề lẫn mẫu nội dung (chữ nội bộ + số tiền ở mỗi chỗ). GIỚI HẠN: CRM chỉ có tiêu đề + 300 ký tự đầu bot gửi —
+ * bảng giá nằm ở trang 3 thì cờ này KHÔNG thấy. Người duyệt phải xem toàn văn ở kho tri thức của bot trước khi tick.
+ */
 export function coVeNoiBo(t: Pick<TaiLieuChoKhach, 'tieuDe' | 'mauNoiDung'>): boolean {
-  const ten = ` ${boDau(t.tieuDe)} `;
-  if (CHU_NOI_BO.some((c) => ten.includes(` ${c}`))) return true;
-  return !!t.mauNoiDung && SO_TIEN.test(t.mauNoiDung);
+  for (const chu of [t.tieuDe, t.mauNoiDung ?? '']) {
+    if (!chu) continue;
+    const k = ` ${boDau(chu).replace(/[^a-z0-9]+/g, ' ')} `;
+    if (CHU_NOI_BO.some((c) => k.includes(` ${c}`))) return true;
+    if (SO_TIEN.test(chu)) return true;
+  }
+  return false;
+}
+
+/** Backend nhận tối đa chừng này mục một lần duyệt / bỏ duyệt (TOI_DA_MOT_LO). */
+export const LO_TOI_DA = 500;
+
+export function chiaLo<T>(ds: readonly T[], n = LO_TOI_DA): T[][] {
+  const kq: T[][] = [];
+  for (let i = 0; i < ds.length; i += n) kq.push(ds.slice(i, i + n));
+  return kq;
+}
+
+export interface KetQuaTheoLo<T> {
+  doi: number;
+  soLo: number;
+  /** Lô hỏng (đánh số từ 1) — các lô khác vẫn chạy; `muc` để chọn lại đúng những mục chưa lưu. */
+  loLoi: Array<{ lo: number; soMuc: number; chu: string; muc: T[] }>;
+}
+
+/**
+ * "Chọn hết" > 500: gửi LẦN LƯỢT từng lô ≤ 500 (backend hỏng cả lô nếu một mục hỏng — lô khác không liên quan), báo tiến độ,
+ * lô lỗi không chặn lô sau; trả tổng `doi` + danh sách lô lỗi.
+ */
+export async function chayTheoLo<T>(
+  ds: readonly T[], goi: (lo: T[]) => Promise<{ doi: number }>, docLoi: (e: unknown) => string,
+  baoTienDo?: (xong: number, tong: number) => void,
+): Promise<KetQuaTheoLo<T>> {
+  const lo = chiaLo(ds);
+  const kq: KetQuaTheoLo<T> = { doi: 0, soLo: lo.length, loLoi: [] };
+  for (let i = 0; i < lo.length; i++) {
+    try {
+      kq.doi += (await goi(lo[i])).doi;
+    } catch (e) {
+      kq.loLoi.push({ lo: i + 1, soMuc: lo[i].length, chu: docLoi(e), muc: lo[i] });
+    }
+    baoTienDo?.(i + 1, lo.length);
+  }
+  return kq;
 }
 
 export function nhanTrangThaiTaiLieu(t: TrangThaiTaiLieu): { chu: string; mau: 'xanh' | 'vang' | 'xam' | 'rong' } {

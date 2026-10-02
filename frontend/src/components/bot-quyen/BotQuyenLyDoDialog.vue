@@ -1,7 +1,8 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!--
   Hộp xác nhận có ô LÝ DO (trang Quyền bot, docs/77 §8b-an-toàn): gỡ uid, "Nối" / "Không phải" một đề xuất, gỡ nick CRM.
-  `batBuoc` ⇒ nút xác nhận chỉ bật khi đã ghi lý do. Lỗi backend hiện nguyên câu trong hộp.
+  `batBuoc` ⇒ nút xác nhận chỉ bật khi đã ghi lý do. Lỗi backend hiện nguyên câu trong hộp. Slot mặc định: nội dung thêm
+  (danh sách người được áp gợi ý "Gọi là", lưu ý duyệt tài liệu…).
 -->
 <template>
   <v-dialog :model-value="modelValue" max-width="520" @update:model-value="(v: boolean) => emit('update:modelValue', v)">
@@ -9,6 +10,8 @@
       <v-card-title class="bq-dlg-tieu-de">{{ tieuDe }}</v-card-title>
       <v-card-text>
         <p v-if="moTa" class="bq-nho">{{ moTa }}</p>
+        <!-- Nội dung thêm (danh sách người / tài liệu, lưu ý) — tuỳ nơi gọi. -->
+        <slot />
         <v-text-field
           v-model="lyDo"
           class="mt-2"

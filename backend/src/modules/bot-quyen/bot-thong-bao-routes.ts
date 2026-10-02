@@ -88,14 +88,14 @@ export async function xacThucKhoa(request: FastifyRequest, reply: FastifyReply) 
   r.khoaRieng = setting.settingKey === KHOA_RIENG_BOT;
 }
 
-/** POST ảnh chụp: org đã có khoá riêng của bot ⇒ chỉ nhận khoá đó. */
+/** Mọi route công khai của bot (ảnh chụp, cho-khach, nguoi-zalo…): org đã có khoá riêng của bot ⇒ chỉ nhận khoá đó. */
 export async function canKhoaRiengNeuCo(request: FastifyRequest, reply: FastifyReply) {
   const r = request as YeuCauCoKhoa;
   if (r.khoaRieng) return;
   const co = await prisma.appSetting.findFirst({ where: { orgId: r.orgId!, settingKey: KHOA_RIENG_BOT }, select: { id: true } });
   if (co) {
     return reply.status(403).send({
-      error: 'Tổ chức này đã đặt khoá riêng cho bot (bot_ban_do_tin_api_key) — ảnh chụp bản đồ tin phải gửi bằng khoá đó',
+      error: 'Tổ chức này đã đặt khoá riêng cho bot (bot_ban_do_tin_api_key) — phải gọi bằng khoá đó',
       code: 'CAN_KHOA_RIENG_BOT',
     });
   }

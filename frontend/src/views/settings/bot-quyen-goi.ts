@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // bot-quyen-goi.ts — hàm THUẦN cho ô "Gọi là" (anh / chị) của nhân viên (tab Nhân viên, docs/79 T1).
 // `goi` là giá trị NGƯỜI GIỮ TRANG đã chọn (bot dùng). `goiGoiY` chỉ là GỢI Ý CRM đọc từ giới tính Zalo của mọi uid người đó:
-//   khoa_tay      = NV đã sửa tay giới tính trên CRM (đáng tin) — được "Áp gợi ý đã xác nhận" hàng loạt;
+//   khoa_tay      = NV đã XÁC NHẬN giới tính trên CRM (đổi ô giới tính / nút "Xác nhận" — có dấu gioi_tinh_xac_nhan_luc;
+//                   khoá cũ không dấu KHÔNG tính) — được "Áp gợi ý đã xác nhận" hàng loạt (qua hộp liệt kê từng người);
 //   zalo_tu_dien  = Zalo tự điền, chưa ai xác nhận (Zalo có thể trả "Nam" mặc định) — chỉ bấm "Dùng" từng người.
 // Không bao giờ tự áp; áp hàng loạt KHÔNG đè người đã chọn.
 import type { GoiNv, NhanVien } from '@/api/bot-quyen';

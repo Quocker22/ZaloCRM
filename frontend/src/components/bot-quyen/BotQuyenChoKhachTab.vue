@@ -97,7 +97,10 @@
                   v-if="t.mauNoiDung" variant="text" size="x-small" class="bq-ck-xem"
                   @click="doiMo(t.id)"
                 >{{ tl.mo.includes(t.id) ? 'Ẩn mẫu' : 'Xem mẫu' }}</v-btn>
-                <p v-if="tl.mo.includes(t.id)" class="bq-ck-mau" data-o="mau">{{ t.mauNoiDung }}</p>
+                <template v-if="tl.mo.includes(t.id)">
+                  <p class="bq-ck-mau" data-o="mau">{{ t.mauNoiDung }}</p>
+                  <p class="bq-ck-mau-chu bq-mo">{{ CAU_CHI_MAU }}</p>
+                </template>
               </td>
               <td data-nhan="Đoạn"><span class="bq-nho">{{ t.soDoan }}</span></td>
               <td data-nhan="Cập nhật"><span class="bq-nho bq-mo">{{ t.capNhatLuc ? gio(t.capNhatLuc) : '—' }}</span></td>
@@ -218,7 +221,22 @@
     <BotQuyenLyDoDialog
       v-model="hop.mo" :tieu-de="hop.tieuDe" :mo-ta="hop.moTa" :nut-chu="hop.nutChu" :dang-lam="hop.dangLam"
       :loi="hop.loi" :nguy-hiem="hop.nguyHiem" @xac-nhan="xacNhanHop"
-    />
+    >
+      <template v-if="hop.loai === 'duyet-tl'">
+        <p class="bq-nho bq-ck-luu-y" data-o="chi-xem-mau">
+          <b>Bạn mới xem mẫu {{ CAT_MAU }} ký tự đầu</b> của mỗi tài liệu — CRM không giữ toàn văn, nên bảng giá / chiết khấu nằm ở
+          trang sau thì cờ "Có vẻ tài liệu nội bộ" KHÔNG thấy.
+        </p>
+        <p class="bq-nho bq-ck-luu-y" data-o="xem-toan-van">
+          <v-icon size="14" icon="mdi-book-open-page-variant-outline" /> <b>Xem toàn văn</b> trước khi duyệt: mở tài liệu trong
+          kho tri thức của bot (hỏi bot trong nhóm nội bộ “mở tài liệu &lt;tên&gt;”, hoặc tệp gốc ở nguồn đã ghi cạnh tên).
+        </p>
+      </template>
+      <p v-if="hop.ids.length > LO_TOI_DA && !hop.dangLam" class="bq-nho bq-ck-luu-y" data-o="theo-lo">
+        {{ hop.ids.length }} mục — gửi thành {{ Math.ceil(hop.ids.length / LO_TOI_DA) }} lần (mỗi lần tối đa {{ LO_TOI_DA }}).
+      </p>
+      <p v-if="hop.tienDo" class="bq-nho bq-ck-luu-y" data-o="tien-do" aria-live="polite">{{ hop.tienDo }}</p>
+    </BotQuyenLyDoDialog>
   </div>
 </template>
 
@@ -233,12 +251,14 @@ import { loiApi } from '@/views/settings/bot-quyen-loi';
 import { dinhDangGioVN } from '@/views/settings/may-in-nhat-ky';
 import { boDau } from '@/views/settings/bot-quyen-nhom';
 import {
-  coVeNoiBo, locTaiLieu, nhanTrangThaiMoTa, nhanTrangThaiTaiLieu, type LocTaiLieu,
+  coVeNoiBo, locTaiLieu, nhanTrangThaiMoTa, nhanTrangThaiTaiLieu, chayTheoLo, LO_TOI_DA, type LocTaiLieu,
 } from '@/views/settings/bot-quyen-cho-khach';
 import BotQuyenLyDoDialog from './BotQuyenLyDoDialog.vue';
 
 const toast = useToast();
-
+/** CRM chỉ nhận mẫu này (hợp đồng §2, CAT_MAU_NOI_DUNG) — không có toàn văn. */
+const CAT_MAU = 300;
+const CAU_CHI_MAU = `Chỉ ${CAT_MAU} ký tự đầu — toàn văn xem trong kho tri thức của bot.`;
 
 function gio(luc: string): string {
   return dinhDangGioVN(luc, { coNam: true }).slice(0, 16);
@@ -365,11 +385,10 @@ function doiLocMoTa(v: LocMoTa) {
 }
 
 /** Lỗi ghi: báo nguyên câu; 409 (mô tả đổi / danh mục đổi) ⇒ tải lại để người duyệt thấy bản mới. */
-async function baoLoiGhi(e: unknown, macDinh: string, taiLai: () => Promise<void>): Promise<string> {
+async function baoLoiGhi(e: unknown, macDinh: string, taiLai: () => Promise<void>): Promise<void> {
   const l = loiApi(e, macDinh);
   if (!l.daBao) toast.error(l.chu, 6000);
   if (l.status === 409) await taiLai();
-  return l.chu;
 }
 
 async function duyetMot(s: MoTaSanPham) {
@@ -390,13 +409,14 @@ async function duyetMot(s: MoTaSanPham) {
 type LoaiHop = 'duyet-tl' | 'bo-tl' | 'duyet-mt' | 'bo-mt';
 const hop = reactive({
   mo: false, loai: 'duyet-tl' as LoaiHop, ids: [] as Array<string | number>, tieuDe: '', moTa: '', nutChu: 'Xác nhận',
-  nguyHiem: false, dangLam: false, loi: '',
+  nguyHiem: false, dangLam: false, loi: '', tienDo: '',
 });
 
 function moHop(loai: LoaiHop, ids: Array<string | number>) {
   hop.loai = loai;
   hop.ids = [...ids];
   hop.loi = '';
+  hop.tienDo = '';
   hop.nguyHiem = loai.startsWith('bo-');
   if (loai === 'duyet-tl') {
     const nghi = ids.map((id) => tlTheoId.value.get(id as string)).filter((t): t is TaiLieuChoKhach => !!t && coVeNoiBo(t));
@@ -424,27 +444,46 @@ function moHop(loai: LoaiHop, ids: Array<string | number>) {
 async function xacNhanHop(lyDo: string) {
   hop.dangLam = true;
   hop.loi = '';
+  hop.tienDo = '';
   const ly = lyDo || undefined;
   const laTl = hop.loai.endsWith('-tl');
+  // "Chọn hết" có thể > 500 mục — backend nhận tối đa 500 một lần ⇒ gửi LẦN LƯỢT từng lô, lô lỗi không chặn lô sau.
+  let goi: (lo: Array<string | number>) => Promise<{ doi: number }>;
+  let muc: Array<string | number>;
+  if (hop.loai === 'duyet-tl') {
+    // Gửi ĐÚNG băm nội dung đang hiển thị — bot nạp lại nội dung khác trong lúc đó ⇒ 409 TAI_LIEU_DA_DOI, không duyệt hộ.
+    muc = (hop.ids as string[]).filter((id) => !!tlTheoId.value.get(id)?.noiDungBam);
+    goi = (lo) => duyetTaiLieuChoKhach((lo as string[]).map((id) => ({ id, noiDungBam: tlTheoId.value.get(id)!.noiDungBam! })), ly);
+  } else if (hop.loai === 'bo-tl') {
+    muc = hop.ids;
+    goi = (lo) => boDuyetTaiLieuChoKhach(lo as string[], ly);
+  } else if (hop.loai === 'duyet-mt') {
+    muc = (hop.ids as number[]).filter((id) => !!mtTheoId.value.get(id)?.moTaBam);
+    goi = (lo) => duyetMoTaChoKhach((lo as number[]).map((id) => ({ productId: id, moTaBam: mtTheoId.value.get(id)!.moTaBam! })), ly);
+  } else {
+    muc = hop.ids;
+    goi = (lo) => boDuyetMoTaChoKhach(lo as number[], ly);
+  }
   try {
-    let doi = 0;
-    if (hop.loai === 'duyet-tl') {
-      // Gửi ĐÚNG băm nội dung đang hiển thị — bot nạp lại nội dung khác trong lúc đó ⇒ 409 TAI_LIEU_DA_DOI, không duyệt hộ.
-      const ds = (hop.ids as string[]).map((id) => tlTheoId.value.get(id)).filter((t): t is TaiLieuChoKhach => !!t?.noiDungBam);
-      doi = (await duyetTaiLieuChoKhach(ds.map((t) => ({ id: t.id, noiDungBam: t.noiDungBam! })), ly)).doi;
+    const kq = await chayTheoLo(muc, goi, (e) => loiApi(e, 'Không lưu được').chu, (xong, tong) => { if (tong > 1) hop.tienDo = `Đang lưu… ${xong}/${tong} lần`; });
+    if (kq.doi > 0 || kq.loLoi.length === 0) toast.success(kq.doi > 0 ? `Đã cập nhật ${kq.doi} mục` : 'Không có gì thay đổi');
+    if (kq.loLoi.length === 0) {
+      hop.mo = false;
+      if (laTl) tl.chon = []; else mt.chon = [];
+    } else {
+      // Báo lô nào lỗi + giữ chọn ĐÚNG các mục chưa lưu (để thử lại sau khi tải lại).
+      const soLoi = kq.loLoi.reduce((n, l) => n + l.soMuc, 0);
+      hop.loi = `${soLoi} mục chưa lưu — ${kq.loLoi.map((l) => `Lô ${l.lo}/${kq.soLo} (${l.soMuc} mục): ${l.chu}`).join(' · ')}`;
+      const conLai = kq.loLoi.flatMap((l) => l.muc);
+      hop.ids = conLai;
+      if (laTl) tl.chon = conLai as string[]; else mt.chon = conLai as number[];
+      toast.error(hop.loi, 8000);
     }
-    else if (hop.loai === 'bo-tl') doi = (await boDuyetTaiLieuChoKhach(hop.ids as string[], ly)).doi;
-    else if (hop.loai === 'duyet-mt') {
-      const sp = (hop.ids as number[]).map((id) => mtTheoId.value.get(id)).filter((s): s is MoTaSanPham => !!s?.moTaBam);
-      doi = (await duyetMoTaChoKhach(sp.map((s) => ({ productId: s.productId, moTaBam: s.moTaBam! })), ly)).doi;
-    } else doi = (await boDuyetMoTaChoKhach(hop.ids as number[], ly)).doi;
-    toast.success(doi > 0 ? `Đã cập nhật ${doi} mục` : 'Không có gì thay đổi');
-    hop.mo = false;
-    if (laTl) { tl.chon = []; await taiTaiLieu(); } else { mt.chon = []; await taiMoTa(); }
-  } catch (e) {
-    hop.loi = await baoLoiGhi(e, 'Không lưu được', laTl ? taiTaiLieu : taiMoTa);
+    // Luôn tải lại: lô 409 (nội dung đổi) ⇒ người duyệt thấy bản mới; lô đã lưu ⇒ trạng thái mới.
+    if (laTl) await taiTaiLieu(); else await taiMoTa();
   } finally {
     hop.dangLam = false;
+    hop.tienDo = '';
   }
 }
 
@@ -489,6 +528,8 @@ onMounted(() => {
   font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; max-width: 60ch;
 }
 .bq-ck-mo-ta { margin: 0; max-height: 9.5em; overflow: auto; }
+.bq-ck-mau-chu { margin: 2px 0 0; font-size: 12px; }
+.bq-ck-luu-y { margin: 8px 0 0; line-height: 1.5; }
 @media (max-width: 700px) {
   .bq-ck-cot-tick { width: auto; }
   .bq-ck-tim { flex-basis: 100%; }

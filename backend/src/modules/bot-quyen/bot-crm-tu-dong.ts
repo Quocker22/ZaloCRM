@@ -15,7 +15,8 @@
 //   • chuyển sale (RAG)           — ai/knowledge/auto-reply-wiring.ts (AiConfig.autoReplyEnabled; UID sale từ env AI_HANDOFF_SALE_ZALO_UID);
 //   • trợ lý AI trả lời khách     — ai/agent/noi-zalo/luong-khach.ts (agent khách) → ai/knowledge/auto-reply-wiring.ts (RAG cũ);
 //     cả hai cần AiConfig.autoReplyEnabled. IM ở nhóm bot phụ trách (docs/79 T6 — bot-quyen/nhom-bot-phu-trach.ts), cùng
-//     câu báo ảnh hỏng trong nhóm (luong-media.ts) và chào nhóm; số tin đã im đếm trong tiến trình (demAiKhachBoQua);
+//     câu báo ảnh hỏng trong nhóm (luong-media.ts), chào nhóm, agent NHÂN VIÊN + máy gom đơn (luong-nhan-vien.ts) và đọc
+//     ảnh/PDF trong nhóm (luong-media.ts docVaChuyenTiep — không tốn OCR); số tin đã im đếm trong tiến trình (demAiKhachBoQua);
 //   • thông báo đẩy               — push/push-service.ts (env FIREBASE_SERVICE_ACCOUNT_JSON|PATH — toàn máy chủ);
 //   • máy in                      — ai/may-in/su-kien-in.ts: CRM KHÔNG gửi tin sự cố; chỉ ghi print_su_kien/print_su_co cho bot đọc.
 //
@@ -104,7 +105,8 @@ function mucTroLyKhach(du: DuLieuCrm, mt: MoiTruongCrm): MucCrmTuDong {
     bat,
     ly_do_tat: bat ? null : 'Tự trả lời AI đang tắt (Cài đặt AI › tự trả lời)',
     khi_nao: `Khách nhắn riêng, hoặc tag nick trong nhóm CHƯA xếp loại ⇒ ${agent ? 'agent khách (tool-calling)' : 'RAG cũ'} trả lời. `
-      + 'Im ở nhóm bot phụ trách: nhóm có chức năng trên trang Quyền bot (chủ xếp hoặc mặc định) thì bot trả lời, trợ lý CRM im.',
+      + 'Im ở nhóm bot phụ trách: nhóm có chức năng trên trang Quyền bot (chủ xếp hoặc mặc định) thì bot trả lời, trợ lý CRM im '
+      + '— cả agent nhân viên / máy gom đơn và đọc ảnh của CRM trong nhóm đó.',
     nguon_ma: 'backend/src/modules/ai/agent/noi-zalo/luong-khach.ts (xuLyTinKhach) · ai/knowledge/auto-reply-wiring.ts '
       + '(runAutoReplyForMessage) · bot-quyen/nhom-bot-phu-trach.ts (aiKhachPhaiImONhom)',
     chinh_o: '/settings/crm/ai-assistant',
@@ -113,7 +115,8 @@ function mucTroLyKhach(du: DuLieuCrm, mt: MoiTruongCrm): MucCrmTuDong {
       { ten: 'Nhóm chưa xếp loại (khi tag nick) — im ở nhóm bot phụ trách', loai: 'nhom', bat },
     ],
     ghi_chu: `${IM_NHOM_BOT} Không tra được trang Quyền bot ⇒ cũng im ở nhóm (không bao giờ trả lời đôi). `
-      + `Từ lúc máy chủ chạy: đã im ${bo.nhom_do_bot_phu_trach} tin ở nhóm bot phụ trách, ${bo.tra_cuu_loi} tin vì tra lỗi `
+      + `Từ lúc máy chủ chạy: đã im ${bo.nhom_do_bot_phu_trach} tin ở nhóm bot phụ trách (mọi đường: khách, nhân viên, đọc ảnh), `
+      + `${bo.tra_cuu_loi} tin vì tra lỗi `
       + '(log ai_khach_bo_qua).',
     dan_toi: [],
   };

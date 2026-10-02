@@ -38,6 +38,7 @@ import { gopTinTruocKhiTag } from './gop-tin.js';
 import { thuGiuViec } from './khoa-viec.js';
 import { taoDung, taoMoc, chayCoHanGio, chotLuot } from './dung.js';
 import { laXacNhanNgan } from './cam-xuc.js';
+import { aiKhachPhaiImONhom } from '../../../bot-quyen/nhom-bot-phu-trach.js';
 import type { NgữCanhTin } from './types.js';
 
 // Prisma sinh kiểu `create` chặt hơn `PrismaGhiLog` (vốn chỉ cần hàm nhận
@@ -176,6 +177,16 @@ async function xuLyTinNhanVienTuanTu(ctx: NgữCanhTin): Promise<boolean> {
     return dung('không qua cổng nhận lệnh', {
       senderUid: ctx.senderUid, isSelf: ctx.isSelf, noiDung: ctx.content?.slice(0, 40),
     });
+  }
+
+  // NHÓM BOT PHỤ TRÁCH (docs/79 T6, tự soát P2): nhóm có chức năng trên trang Quyền bot ⇒ bot (Hermes) nhận lệnh NV ở đó —
+  // agent NV + máy gom đơn của CRM chạy song song là NV nhận HAI câu (hai đơn). Đứng SAU cổng tag rẻ (tin nhóm không tag
+  // không tra), TRƯỚC mọi việc gửi / tốn tiền (tra đích, đọc lịch sử, ghép ảnh, LLM, gom đơn). Tra lỗi ⇒ im. Trả TRUE: đã xử
+  // (im có chủ đích) — message-handler không có đường nào khác cho tin NV.
+  if (ctx.laNhom && await aiKhachPhaiImONhom({
+    orgId: ctx.orgId, conversationId: ctx.conversationId, laNhom: true, duong: 'agent_nhan_vien',
+  })) {
+    return true;
   }
 
   const dich = await timDich(ctx.conversationId);

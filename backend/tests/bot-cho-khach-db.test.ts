@@ -201,6 +201,20 @@ describeCanDb('bot-cho-khach — duyệt tài liệu RAG + mô tả SP cho khác
     expect(nk[1].sau).toMatchObject({ phienBan: 'dm-2', themTaiLieu: ['doc-4'], boTaiLieu: ['doc-2', 'doc-3'], moTaDoi: [11], soMoTaDoi: 1 });
   });
 
+  it('phien_ban KHÔNG đổi ⇒ CRM không ghi lại (không viết lại tới 8 MB jsonb), luc giữ nguyên; vẫn kiểm hình (400 khi sai)', async () => {
+    await guiDanhMuc(KHOA_A);
+    const truoc = await prisma.botChoKhachDanhMuc.findUniqueOrThrow({ where: { orgId: ORG_A } });
+    // Cùng phien_ban nhưng (giả sử bot sai) nội dung khác ⇒ 200, KHÔNG ghi: hợp đồng §2 — đổi nội dung PHẢI đổi phien_ban.
+    const r = await guiDanhMuc(KHOA_A, danhMuc({ tai_lieu: [tl('doc-1', 'Datasheet P10')] }));
+    expect(r.json()).toEqual({ ok: true, phien_ban: 'dm-1', so_tai_lieu: 1, so_san_pham: 3 });
+    const sau = await prisma.botChoKhachDanhMuc.findUniqueOrThrow({ where: { orgId: ORG_A } });
+    expect(sau.luc.getTime()).toBe(truoc.luc.getTime());
+    expect((sau.taiLieu as unknown[]).length).toBe(3);
+    expect(await nhatKy('danh_muc_cho_khach')).toHaveLength(1);
+    // Sai hình vẫn 400 dù phien_ban trùng.
+    expect((await guiDanhMuc(KHOA_A, { phien_ban: 'dm-1', tai_lieu: 'x', san_pham: [] })).statusCode).toBe(400);
+  });
+
   // ── Tài liệu ────────────────────────────────────────────────────────────────
 
   it('chưa có danh mục ⇒ duyệt 409 CHUA_CO_DANH_MUC; GET duyệt công khai rỗng (mặc định đóng)', async () => {

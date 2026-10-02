@@ -433,6 +433,7 @@ import PrivateBlur from '@/components/privacy/PrivateBlur.vue';
 import TagCrmBar from '@/components/chat/TagCrmBar.vue';
 import { TEMPLATE_VARIABLES } from '@/constants/template-variables';
 import type { Contact } from '@/composables/use-contacts';
+import { truongGioiDeGui } from '@/composables/gioi-tinh-xac-nhan';
 
 const props = withDefaults(defineProps<{
   modelValue: boolean;
@@ -681,7 +682,6 @@ async function save() {
   const by = typeof form.value.birthYear === 'string' ? parseInt(form.value.birthYear) : form.value.birthYear;
   const payload: Record<string, any> = {
     fullName: form.value.fullName,
-    gender: form.value.gender,
     birthYear: Number.isFinite(by) ? by : null,
     phone: form.value.phone,
     phonesExtra: form.value.extraPhones.filter((p) => p.phone?.trim()),
@@ -701,7 +701,7 @@ async function save() {
     saving.value = true;
     try {
       const res = await api.post<{ id: string; fullName: string | null; phone: string | null }>(
-        '/contacts', { ...payload, tags: form.value.tags },
+        '/contacts', { ...payload, gender: form.value.gender, tags: form.value.tags },
       );
       toast.success('Đã thêm khách hàng mới');
       emit('created', { id: res.data.id, fullName: res.data.fullName, phone: res.data.phone });
@@ -720,7 +720,8 @@ async function save() {
   if (!id) return;
   saving.value = true;
   try {
-    await api.put(`/contacts/${id}`, payload);
+    // docs/79 T1: chỉ gửi gender khi ô giới tính ĐỔI — bot gọi khách anh/chị theo dấu "NV đã xác nhận" backend đóng khi đổi.
+    await api.put(`/contacts/${id}`, { ...payload, ...truongGioiDeGui(form.value.gender, c.value?.gender) });
     // Tag per-nick (TagV2) đã tự lưu ngay qua TagCrmBar (POST/DELETE /friends/:id/tags) —
     // không ghi đè field tags legacy ở đây nữa (anh chốt: Tổng quan dùng getFriendTags).
     toast.success('Đã lưu hồ sơ khách hàng');

@@ -207,7 +207,7 @@ export interface NhanVien {
   soDienThoai?: string | null;
   /** Xưng hô đã chọn — bot dùng. null = chưa chọn (bot gọi "anh/chị"). */
   goi?: GoiNv | null;
-  /** GỢI Ý từ giới tính Zalo (KHÔNG tự áp): khoa_tay = NV đã sửa tay trên CRM · zalo_tu_dien = Zalo tự điền. */
+  /** GỢI Ý từ giới tính Zalo (KHÔNG tự áp): khoa_tay = NV đã XÁC NHẬN trên CRM (có dấu) · zalo_tu_dien = Zalo tự điền / khoá cũ. */
   goiGoiY?: GoiNv | null;
   goiNguon?: 'khoa_tay' | 'zalo_tu_dien' | null;
   /** Vì sao không gợi ý: chua_co_gioi · mau_thuan_khoa_tay · mau_thuan_zalo · khoa_tay_khac. */

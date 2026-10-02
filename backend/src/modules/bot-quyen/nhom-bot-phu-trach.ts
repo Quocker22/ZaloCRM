@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// NHÓM BOT PHỤ TRÁCH (docs/79 T6, 02/10) — trợ lý AI khách của CRM IM ở nhóm có chức năng trên trang Quyền bot.
+// NHÓM BOT PHỤ TRÁCH (docs/79 T6, 02/10) — trợ lý AI khách VÀ agent nhân viên của CRM IM ở nhóm có chức năng trên trang
+// Quyền bot (bot nghe nhóm đó — CRM nói song song là trả lời đôi / đọc ảnh tốn tiền vô ích).
 //
 // Vì sao: ở nhóm, trợ lý khách của CRM (luong-khach.ts) và đường khách của bot (Hermes, docs/79 T3) cùng nổ khi nick bị
 // TAG — cùng một nick sẽ trả lời khách HAI lần, và lần của CRM có thể nói giá / gửi PDF (trái rào K3 "không giá"). Chủ
@@ -13,7 +14,8 @@
 // đây (không tra). Nhóm chưa xếp loại ⇒ như cũ.
 //
 // Đệm 30 s theo org (cùng nhịp công tắc agent cong-tac.ts): đường RAG gọi cổng này ở MỌI tin nhóm khi auto-reply bật.
-// Chỉ đệm bản đọc THÀNH CÔNG. Nhóm vừa xếp loại ⇒ tối đa 30 s CRM còn nói — bridge của bot cũng poll ~60 s.
+// Chỉ đệm bản đọc THÀNH CÔNG; đệm hết hạn ⇒ MỘT lần đọc chung cho mọi tin đang chờ (single-flight). Nhóm vừa xếp loại
+// ⇒ tối đa 30 s CRM còn nói — bridge của bot cũng poll ~60 s.
 //
 // Lý do bỏ qua ghi log dạng `ai_khach_bo_qua: <lý do>` + đếm theo org trong tiến trình (trang Bản đồ tin › CRM tự động
 // hiện số đếm — bot-crm-tu-dong.ts).
@@ -31,6 +33,8 @@ export interface PhuThuocNhomBot {
 
 const dem = new Map<string, Record<LyDoAiKhachBoQua, number>>();
 const boNhoNhom = new Map<string, { luc: number; nhom: Map<string, string> }>();
+/** Lần đọc ĐANG CHẠY theo org (single-flight): đệm hết hạn giữa lúc nhóm đông tin ⇒ mọi tin chờ CHUNG một lần đọc. */
+const dangDoc = new Map<string, Promise<Map<string, string>>>();
 
 /** Chức năng HIỆU LỰC của nhóm (null = chưa xếp loại ⇒ bot im nhóm đó). Lỗi tra NÉM ra — caller quyết. */
 export async function chucNangHieuLucCuaNhom(
@@ -39,10 +43,17 @@ export async function chucNangHieuLucCuaNhom(
   const bayGio = (pt.bayGio ?? Date.now)();
   const cu = boNhoNhom.get(orgId);
   if (cu && bayGio - cu.luc < TTL_NHOM_BOT_MS) return cu.nhom.get(conversationId) ?? null;
-  const ch = await (pt.doc ?? docCauHinhCongKhai)(orgId);
-  const nhom = new Map(ch.nhom.map((n) => [n.conversation_id, n.chuc_nang]));
-  boNhoNhom.set(orgId, { luc: bayGio, nhom });
-  return nhom.get(conversationId) ?? null;
+  let p = dangDoc.get(orgId);
+  if (!p) {
+    p = (async () => {
+      const ch = await (pt.doc ?? docCauHinhCongKhai)(orgId);
+      const nhom = new Map(ch.nhom.map((n) => [n.conversation_id, n.chuc_nang]));
+      boNhoNhom.set(orgId, { luc: bayGio, nhom }); // chỉ đệm bản đọc THÀNH CÔNG
+      return nhom;
+    })().finally(() => { dangDoc.delete(orgId); });
+    dangDoc.set(orgId, p);
+  }
+  return (await p).get(conversationId) ?? null;
 }
 
 function tang(orgId: string, lyDo: LyDoAiKhachBoQua): void {
@@ -52,7 +63,8 @@ function tang(orgId: string, lyDo: LyDoAiKhachBoQua): void {
 }
 
 /**
- * Cổng của MỌI đường CRM tự trả lời khách (agent khách, RAG auto-reply, câu báo ảnh hỏng, chào nhóm): true ⇒ PHẢI IM.
+ * Cổng của MỌI đường CRM tự nói trong nhóm (agent khách, RAG auto-reply, câu báo ảnh hỏng, chào nhóm, agent NHÂN VIÊN + máy gom
+ * đơn, đọc ảnh/PDF rồi chuyển tiếp): true ⇒ PHẢI IM.
  * `duong` = tên đường gọi (ghi vào log để biết ai bị chặn).
  */
 export async function aiKhachPhaiImONhom(
@@ -87,4 +99,5 @@ export function demAiKhachBoQua(orgId: string): Record<LyDoAiKhachBoQua, number>
 export function _xoaChoTest(): void {
   dem.clear();
   boNhoNhom.clear();
+  dangDoc.clear();
 }

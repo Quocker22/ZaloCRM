@@ -2,7 +2,7 @@
 // Tab "Cho khách" (docs/79 T5) — hàm thuần: tìm tài liệu (bỏ dấu), cờ "có vẻ nội bộ", nhãn trạng thái mô tả.
 import { describe, it, expect } from 'vitest';
 import type { TaiLieuChoKhach } from '@/api/bot-cho-khach';
-import { locTaiLieu, coVeNoiBo, nhanTrangThaiMoTa, nhanTrangThaiTaiLieu } from './bot-quyen-cho-khach';
+import { locTaiLieu, coVeNoiBo, nhanTrangThaiMoTa, nhanTrangThaiTaiLieu, chiaLo, chayTheoLo, LO_TOI_DA } from './bot-quyen-cho-khach';
 
 const tl = (id: string, tieuDe: string, them: Partial<TaiLieuChoKhach> = {}): TaiLieuChoKhach => ({
   id, tieuDe, loai: 'pdf', nguon: 'file-zalo', soDoan: 2, capNhatLuc: null, mauNoiDung: null, noiDungBam: 'a'.repeat(64),
@@ -39,6 +39,12 @@ describe('coVeNoiBo — nhắc người duyệt (KHÔNG chặn)', () => {
     expect(coVeNoiBo(tl('x', 'Catalogue', { mauNoiDung: 'Led dây 12V giá 125.000đ/m' }))).toBe(true);
     expect(coVeNoiBo(tl('x', 'Catalogue', { mauNoiDung: 'Led dây 12V 60 bóng/m' }))).toBe(false);
   });
+  it('xét CẢ tiêu đề lẫn mẫu: chữ nội bộ trong mẫu, số tiền trong tiêu đề', () => {
+    expect(coVeNoiBo(tl('x', 'Catalogue', { mauNoiDung: 'Áp dụng chiết khấu 5% cho đại lý' }))).toBe(true);
+    expect(coVeNoiBo(tl('x', 'Catalogue', { mauNoiDung: 'Tài liệu nội bộ — không gửi khách' }))).toBe(true);
+    expect(coVeNoiBo(tl('x', 'Led dây 125.000đ'))).toBe(true);
+    expect(coVeNoiBo(tl('x', 'Catalogue', { mauNoiDung: 'Hướng dẫn đấu nối nguồn 12V' }))).toBe(false);
+  });
 });
 
 describe('nhanTrangThaiTaiLieu', () => {
@@ -56,5 +62,36 @@ describe('nhanTrangThaiMoTa', () => {
     expect(nhanTrangThaiMoTa('doi_sau_duyet')).toEqual({ chu: 'Mô tả đã đổi — cần duyệt lại', mau: 'vang' });
     expect(nhanTrangThaiMoTa('chua_duyet')).toEqual({ chu: 'Chưa duyệt', mau: 'xam' });
     expect(nhanTrangThaiMoTa('khong_mo_ta')).toEqual({ chu: 'Không có mô tả', mau: 'rong' });
+  });
+});
+
+describe('chiaLo / chayTheoLo — "Chọn hết" > 500 mục (backend nhận tối đa 500 mỗi lần)', () => {
+  it('chia theo 500, giữ thứ tự; rỗng ⇒ không lô nào', () => {
+    expect(LO_TOI_DA).toBe(500);
+    const ds = Array.from({ length: 1201 }, (_, i) => i);
+    const lo = chiaLo(ds);
+    expect(lo.map((l) => l.length)).toEqual([500, 500, 201]);
+    expect(lo.flat()).toEqual(ds);
+    expect(chiaLo([])).toEqual([]);
+  });
+
+  it('chạy LẦN LƯỢT từng lô, báo tiến độ; lô lỗi KHÔNG chặn lô sau; báo lại lô nào lỗi + số mục', async () => {
+    const goi: number[][] = [];
+    const tienDo: Array<[number, number]> = [];
+    const kq = await chayTheoLo(
+      Array.from({ length: 1201 }, (_, i) => i),
+      async (lo) => {
+        goi.push(lo);
+        if (goi.length === 2) throw new Error('409 Tài liệu đã đổi');
+        return { doi: lo.length };
+      },
+      (e) => (e as Error).message,
+      (xong, tong) => tienDo.push([xong, tong]),
+    );
+    expect(goi.map((l) => l.length)).toEqual([500, 500, 201]);
+    expect(tienDo).toEqual([[1, 3], [2, 3], [3, 3]]);
+    expect(kq).toEqual({
+      doi: 701, soLo: 3, loLoi: [{ lo: 2, soMuc: 500, chu: '409 Tài liệu đã đổi', muc: goi[1] }],
+    });
   });
 });

@@ -714,7 +714,16 @@ describe('BotQuyenPage — tab Nhân viên: "Gọi là" anh/chị (docs/79 T1)',
     const soLanTai = vi.mocked(layDanhSachNhanVien).mock.calls.length;
     await bulk.trigger('click');
     await flushPromises();
-    expect(vi.mocked(suaNhanVien).mock.calls).toEqual([['n1', { goi: 'anh' }], ['n5', { goi: 'chi' }]]);
+    // Hộp xác nhận liệt kê TỪNG người + gợi ý; chưa bấm xác nhận thì chưa ghi gì.
+    expect(suaNhanVien).not.toHaveBeenCalled();
+    const hopAp = w.find('[data-o="ds-ap-goi-y"]');
+    expect(hopAp.findAll('li').map((li) => li.text())).toEqual(['Quyết → Anh', 'Hà → Chị']);
+    await w.find('.vo-dialog [data-o="ly-do"] input').setValue('đã xác nhận trên CRM');
+    await w.find('.vo-dialog [data-nut="xac-nhan-ly-do"]').trigger('click');
+    await flushPromises();
+    expect(vi.mocked(suaNhanVien).mock.calls).toEqual([
+      ['n1', { goi: 'anh', lyDo: 'đã xác nhận trên CRM' }], ['n5', { goi: 'chi', lyDo: 'đã xác nhận trên CRM' }],
+    ]);
     expect(toast.success).toHaveBeenCalledWith(expect.stringContaining('2 người'));
     expect(vi.mocked(layDanhSachNhanVien).mock.calls.length).toBeGreaterThan(soLanTai);
     w.unmount();

@@ -6,8 +6,9 @@
  * - Save contact info
  * - Fetch appointments for contact
  */
-import { ref, watch, reactive } from 'vue';
+import { ref, watch, reactive, computed } from 'vue';
 import { useContacts, type Contact } from '@/composables/use-contacts';
+import { truongGioiDeGui, trangThaiGioi } from '@/composables/gioi-tinh-xac-nhan';
 import { api } from '@/api/index';
 import type { Appointment } from '@/components/chat/ChatAppointments.vue';
 
@@ -22,6 +23,11 @@ export function useChatContactPanel(
   const saveSuccess = ref(false);
   const saveError = ref(false);
   const contactAppointments = ref<Appointment[]>([]);
+  // docs/79 T1: giới tính lúc nạp + dấu xác nhận — saveContact chỉ gửi `gender` khi ô giới tính ĐỔI (form lưu cả form; gửi
+  // kèm mọi lần là "xác nhận" giới Zalo tự điền mà NV chưa hề nhìn).
+  const gioiGoc = ref<string | null>(null);
+  const gioiXacNhanLuc = ref<string | null>(null);
+  const trangThaiGioiTinh = computed(() => trangThaiGioi(form.gender, gioiGoc.value === (form.gender || null) ? gioiXacNhanLuc.value : null));
 
   const form = reactive({
     fullName: '',
@@ -69,6 +75,8 @@ export function useChatContactPanel(
     }
     form.email = c.email ?? '';
     form.gender = c.gender ?? null;
+    gioiGoc.value = c.gender ?? null;
+    gioiXacNhanLuc.value = c.gioiTinhXacNhanLuc ?? null;
     form.birthDate = c.birthDate ? c.birthDate.slice(0, 10) : '';
     form.addressLine = c.addressLine ?? '';
     form.occupation = c.occupation ?? '';
@@ -151,7 +159,7 @@ export function useChatContactPanel(
       phone2: null,
       phone3: null,
       email: form.email || null,
-      gender: form.gender || null,
+      ...truongGioiDeGui(form.gender, gioiGoc.value),
       birthDate: form.birthDate
         ? new Date(form.birthDate + 'T00:00:00').toISOString()
         : null,
@@ -181,10 +189,21 @@ export function useChatContactPanel(
     }
   }
 
+  /** Nút "Xác nhận" cạnh ô giới tính: giới Zalo tự điền đúng ⇒ NV xác nhận tường minh (backend đóng dấu). */
+  async function xacNhanGioiTinh() {
+    const contactId = getContactId();
+    if (!contactId || !form.gender) return;
+    const ok = await updateContact(contactId, { gender: form.gender, xacNhanGioi: true } as Partial<Contact>);
+    if (!ok) { saveError.value = true; return; }
+    const fresh = await fetchContact(contactId);
+    if (fresh) populateForm(fresh);
+  }
+
   return {
     form,
     saving, saveSuccess, saveError,
     contactAppointments,
-    saveContact, reloadAppointments,
+    trangThaiGioiTinh,
+    saveContact, reloadAppointments, xacNhanGioiTinh,
   };
 }

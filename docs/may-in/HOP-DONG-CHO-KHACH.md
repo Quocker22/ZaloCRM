@@ -49,6 +49,11 @@ Thân ≤ **8 MB**. CRM giữ **một** danh mục mỗi org (bản mới nhất
 ```
 
 - Trường lạ: bỏ qua (không lưu).
+- **Mọi giới hạn độ dài đếm theo CODE POINT** (= `len()` của Python; emoji ngoài BMP = 1) — `phien_ban`, `tieu_de`, `ten`,
+  `ma`, `loai`, `nguon`, `mo_ta_ban`, và cắt `mau_noi_dung`. (Sửa 02/10: trước đó CRM đếm đơn vị UTF-16 ⇒ chuỗi đúng trần có
+  emoji bị `400` oan.)
+- **`phien_ban` trùng bản CRM đang giữ ⇒ CRM KHÔNG ghi lại** (vẫn kiểm hình, vẫn `200` cùng thân trả lời; `luc` không đổi, không
+  nhật ký) — tránh viết lại tới 8 MB mỗi lần đẩy lại. Bot **PHẢI** đổi `phien_ban` mỗi khi nội dung đổi (vd sha256 nội dung).
 - `noi_dung_bam` vắng, hoặc không phải 64 hex thường / `null` ⇒ `400 DANH_MUC_KHONG_HOP_LE`. CRM **không** có nội dung đầy đủ nên
   không tự tính lại được (khác `mo_ta_bam`) — bot chịu trách nhiệm tính đúng §3b; lệch cách tính chỉ làm tài liệu "không dùng
   được" (bot so băm của chính nó, §4 luật 2), không bao giờ làm lộ tài liệu chưa duyệt.
@@ -165,5 +170,10 @@ trước/sau `{tieuDe, choKhach, noiDungBam?}` — duyệt lại sau khi đổi:
 
 - ~~Duyệt tài liệu gắn id, không gắn nội dung~~ — **đã đóng 02/10**: duyệt gắn `noi_dung_bam` (§3b, §4 luật 2). Còn lại: CRM
   không kiểm được bot tính băm đúng (không có nội dung đầy đủ) — tính sai chỉ làm tài liệu không dùng được, không làm lộ.
-- Cờ "Có vẻ tài liệu nội bộ" trên giao diện chỉ là NHẮC (chữ "bảng giá", "chiết khấu", "nội bộ", số tiền trong mẫu…) — không chặn. Bộ
-  kiểm câu trả lời của bot (không giá/tiền/SĐT, số phải có trong đoạn nguồn) vẫn là lưới cuối.
+- Cờ "Có vẻ tài liệu nội bộ" trên giao diện chỉ là NHẮC (chữ "bảng giá", "chiết khấu", "nội bộ"…, số tiền — xét CẢ tiêu đề lẫn
+  mẫu) — không chặn. Bộ kiểm câu trả lời của bot (không giá/tiền/SĐT, số phải có trong đoạn nguồn) vẫn là lưới cuối.
+- **CRM chỉ có mẫu 300 ký tự đầu, không có toàn văn** (cố ý — không thêm route đọc toàn văn từ bot). Hộp duyệt nói rõ "Bạn mới
+  xem mẫu 300 ký tự đầu" + chỉ chỗ "Xem toàn văn" (kho tri thức của bot / tệp gốc); bảng giá nằm sau 300 ký tự đầu thì cờ nội bộ
+  KHÔNG thấy — người duyệt phải đọc toàn văn ở đó.
+- Giao diện "Chọn hết" > 500 mục: gửi lần lượt từng lô ≤ 500 (route giữ trần 500), báo tiến độ; lô lỗi (vd 409) không chặn lô
+  sau, hộp báo lô nào lỗi + giữ chọn đúng các mục chưa lưu. Mỗi lô vẫn "cả lô hoặc không".

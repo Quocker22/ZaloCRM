@@ -418,6 +418,15 @@ async function docVaChuyenTiep(
     return false;
   }
 
+  // NHÓM BOT PHỤ TRÁCH (docs/79 T6, tự soát P2): ảnh / PDF đọc xong chỉ để chuyển sang luồng NV / khách của CRM — cả hai đều
+  // IM ở nhóm bot phụ trách ⇒ đọc là tốn tiền model nhìn vô ích (mọi ảnh nhóm đều đọc, không cần tag). Chặn TRƯỚC khi tải /
+  // đọc. Trả TRUE ⇒ không rơi xuống câu báo ảnh hỏng. Tra lỗi ⇒ im (không đọc).
+  if (ctx.laNhom && await aiKhachPhaiImONhom({
+    orgId: ctx.orgId, conversationId: ctx.conversationId, laNhom: true, duong: laPdf ? 'media_doc_pdf' : 'media_doc_anh',
+  })) {
+    return true;
+  }
+
   // ── NHÁNH PDF (13/08) ──────────────────────────────────────────────────
   // Khác ảnh một điểm cốt tử: `title` của tin file là TÊN FILE ("Phiếu nhập
   // hàng P04520.pdf"), KHÔNG phải lời nhắn — Zalo không cho caption khi gửi

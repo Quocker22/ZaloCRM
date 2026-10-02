@@ -28,6 +28,7 @@ import { runAutomationRules } from '../../shared/ee-registry/automation.js';
 import { normalizePhone } from '../../shared/utils/phone.js';
 import { logActivity, computeDiff } from '../activity/activity-logger.js';
 import { emitWebhook } from '../api/webhook-service.js';
+import { patchGioiTinh } from './gioi-tinh-xac-nhan.js';
 
 type QueryParams = Record<string, string>;
 
@@ -1139,10 +1140,9 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       // multi-phone từ UI hồ sơ. Chỉ patch khi field xuất hiện trong body (undefined → giữ nguyên).
       // Sale chỉnh giới tính TAY → khoá để sync SDK (zinstant/cron) không đè ngược (#2 2026-06-18).
       // Bỏ trống = mở khoá lại (cho SDK tự điền).
-      if (body.gender !== undefined) {
-        updateData.gender = body.gender || null;
-        updateData.genderLocked = !!body.gender;
-      }
+      // docs/79 T1 (02/10): form lưu CẢ form (kể cả khi chỉ sửa SĐT / ghi chú) nên `gender` có mặt ≠ NV xác nhận giới tính.
+      // Khoá + dấu xác nhận CHỈ khi giá trị THỰC ĐỔI so với giá trị đang lưu, hoặc nút "Xác nhận" tường minh (xacNhanGioi).
+      Object.assign(updateData, patchGioiTinh(existing, body, user.id));
       if (body.occupation !== undefined) updateData.occupation = body.occupation || null;
       if (body.addressLine !== undefined) updateData.addressLine = body.addressLine || null;
       if (body.province !== undefined) updateData.province = body.province || null;

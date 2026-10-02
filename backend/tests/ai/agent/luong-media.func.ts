@@ -13,6 +13,9 @@ vi.mock('../../../src/modules/ai/agent/noi-zalo/gui-zalo.js', () => ({
   })),
   guiTin: vi.fn(async () => {}),
 }));
+// Nhóm ở file này là nhóm CHƯA xếp loại trên trang Quyền bot (cổng "nhóm bot phụ trách" docs/79 T6 có test riêng:
+// im-nhom-bot-phu-trach.func.ts) — không mock thì tra DB thật hỏng ⇒ cổng IM mọi đường nhóm.
+vi.mock('../../../src/modules/bot-quyen/nhom-bot-phu-trach.js', () => ({ aiKhachPhaiImONhom: vi.fn(async () => false) }));
 
 import { timDich, guiTin } from '../../../src/modules/ai/agent/noi-zalo/gui-zalo.js';
 import { xuLyTinMedia, moTaDanhThiep } from '../../../src/modules/ai/agent/noi-zalo/luong-media.js';

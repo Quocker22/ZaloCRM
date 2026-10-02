@@ -144,7 +144,7 @@
               <span class="ip-label">Ngày sinh</span>
               <input type="date" v-model="form.birthDate" @blur="saveContact" />
             </div>
-            <div class="ip-form-row">
+            <div class="ip-form-row ip-form-row--gioi">
               <span class="ip-icon">⚧</span>
               <span class="ip-label">Giới tính</span>
               <select v-model="form.gender" @change="saveContact">
@@ -153,6 +153,16 @@
                 <option value="male">Nam</option>
                 <option value="other">Khác</option>
               </select>
+              <!-- docs/79 T1: bot gọi khách anh/chị CHỈ khi giới tính đã được NV xác nhận (đổi ô này, hoặc bấm "Xác nhận"). -->
+              <span
+                v-if="trangThaiGioiTinh === 'da_xac_nhan'" class="ip-gioi-xn" data-o="gioi-da-xac-nhan"
+                title="NV đã xác nhận giới tính — bot gọi khách anh/chị theo giá trị này"
+              >✓ đã xác nhận</span>
+              <button
+                v-else-if="trangThaiGioiTinh === 'chua_xac_nhan'" type="button" class="ip-gioi-nut" data-nut="xac-nhan-gioi"
+                title="Giới tính do Zalo tự điền, chưa ai xác nhận — bot xưng “mình” với khách tới khi có người xác nhận"
+                @click="xacNhanGioiTinh"
+              >Xác nhận</button>
             </div>
             <!-- SĐT phụ — list động nhãn tự nhập (phụ/vợ/viber...) + số. Anh chốt 2026-06-06.
                  Thay 2 ô cố định SĐT 2/3 (vỡ UI). Lưu vào contacts.phonesExtra (JSON). -->
@@ -654,8 +664,8 @@ function onDealStageUpdatedPanel(newStatusId: string | null) {
 
 const {
   form, saveSuccess, saveError,
-  contactAppointments,
-  saveContact, reloadAppointments,
+  contactAppointments, trangThaiGioiTinh,
+  saveContact, reloadAppointments, xacNhanGioiTinh,
 } = useChatContactPanel(
   () => props.contactId,
   () => props.contact,
@@ -1584,6 +1594,13 @@ async function onRegenerateHandoff() {
 .ip-form-row:last-child { border-bottom: none; }
 .ip-icon { font-size: 14px; opacity: 0.85; text-align: center; }
 .ip-label { font-size: 12px; color: var(--smax-grey-700); }
+.ip-form-row--gioi { grid-template-columns: 22px 80px 1fr auto; }
+.ip-gioi-xn { flex-shrink: 0; font-size: 11px; font-weight: 600; color: rgb(var(--v-theme-success)); white-space: nowrap; }
+.ip-gioi-nut {
+  flex-shrink: 0; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 9999px; cursor: pointer; white-space: nowrap;
+  border: 1px solid currentColor; background: transparent; color: rgb(var(--v-theme-primary));
+}
+.ip-gioi-nut:focus-visible { outline: 2px solid rgb(var(--v-theme-primary)); outline-offset: 2px; }
 .ip-form-row input,
 .ip-form-row select {
   border: none; outline: none;
