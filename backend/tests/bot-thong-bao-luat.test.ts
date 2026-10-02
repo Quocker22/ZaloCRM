@@ -2,7 +2,8 @@
 // Thông báo chủ động (docs/78 C2) — luật THUẦN: kiểm cứng đích + ảnh chụp + payload bot (không DB).
 import { describe, it, expect } from 'vitest';
 import {
-  docDich, docLuatVao, docAnhChup, danhMucTuAnh, kiemTheoDanhMuc, ghepLuatCongKhai, LoiLuatThongBao,
+  docDich, docLuatVao, docAnhChup, danhMucTuAnh, kiemTheoDanhMuc, ghepLuatCongKhai, LoiLuatThongBao, docThamSoGieo,
+  LUAT_CHU_CHON_02_10,
   type ComposerAnh,
 } from '../src/modules/bot-quyen/bot-thong-bao-luat.js';
 
@@ -117,5 +118,22 @@ describe('ghepLuatCongKhai — payload bot', () => {
   it('danhMucTuAnh chịu được jsonb hỏng', () => {
     expect(danhMucTuAnh(null).size).toBe(0);
     expect(danhMucTuAnh([{ id: 'a', kieu: 'thuan', nhay_cam: [] }, 3]).size).toBe(1);
+  });
+});
+
+describe('gieo luật chủ chọn 02/10 — tham số script', () => {
+  it('--org bắt buộc; --che-do mặc định bong; chế độ lạ / cờ lạ ⇒ lỗi', () => {
+    expect(docThamSoGieo(['--org', 'o1'])).toEqual({ orgId: 'o1', cheDo: 'bong' });
+    expect(docThamSoGieo(['--org=o1', '--che-do=bat'])).toEqual({ orgId: 'o1', cheDo: 'bat' });
+    expect(docThamSoGieo(['--che-do', 'tat', '--org', 'o2'])).toEqual({ orgId: 'o2', cheDo: 'tat' });
+    expect(() => docThamSoGieo([])).toThrow(/--org/);
+    expect(() => docThamSoGieo(['--org', 'o1', '--che-do', 'mo'])).toThrow(/che-do/);
+    expect(() => docThamSoGieo(['--org', 'o1', '--xoa'])).toThrow(/--xoa/);
+  });
+  it('đúng hai luật chủ chọn: hoá đơn → kế toán, in → kho; không nhom_goc', () => {
+    expect(LUAT_CHU_CHON_02_10).toEqual([
+      { loai: 'xuat_hoa_don_tool', dich: [{ kieu: 'chuc_nang', gia_tri: 'ke_toan' }] },
+      { loai: 'in_sau_chot', dich: [{ kieu: 'chuc_nang', gia_tri: 'kho' }] },
+    ]);
   });
 });

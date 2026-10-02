@@ -316,3 +316,34 @@ export function ghepLuatCongKhai(
   const phien_ban = createHash('sha256').update(jsonChuan({ luat, canh_bao })).digest('hex');
   return { phien_ban, luat, canh_bao };
 }
+
+// ── Gieo luật chủ chọn 02/10 (script quản trị — scripts/gieo-luat-thong-bao.ts) ──
+
+/**
+ * Luật chủ chọn 02/10 (docs/78 luat-chu-chon-02-10.json, dịch theo thuc-thi.md §5 P0-5): bản sao hoá đơn → nhóm kế toán,
+ * bản sao in → nhóm kho. `nhom_goc` của bản mẫu BỎ (nơi gốc luôn ngầm định). KHÔNG gieo bằng migration: migration chạy
+ * trước khi bot gửi ảnh chụp (không kiểm cứng được), chạm MỌI org, và bật thẳng `bat` — ở đây đi qua ĐÚNG service
+ * (kiểm theo ảnh chụp + nhật ký), từng org, mặc định `bong` để chủ xem số bóng rồi mới bật.
+ */
+export const LUAT_CHU_CHON_02_10: ReadonlyArray<{ loai: string; dich: Dich[] }> = [
+  { loai: 'xuat_hoa_don_tool', dich: [{ kieu: 'chuc_nang', gia_tri: 'ke_toan' }] },
+  { loai: 'in_sau_chot', dich: [{ kieu: 'chuc_nang', gia_tri: 'kho' }] },
+];
+
+/** `--org <id> [--che-do tat|bong|bat]` (cả dạng `--org=<id>`). Mặc định `bong`. Ném Error khi thiếu/sai. */
+export function docThamSoGieo(argv: readonly string[]): { orgId: string; cheDo: CheDo } {
+  const gt = new Map<string, string>();
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    const m = /^--(org|che-do)(?:=(.*))?$/.exec(a);
+    if (!m) throw new Error(`Tham số lạ: ${a.slice(0, 40)} — dùng --org <id> [--che-do tat|bong|bat]`);
+    const v = m[2] ?? argv[++i];
+    if (v === undefined || v.startsWith('--')) throw new Error(`--${m[1]} thiếu giá trị`);
+    gt.set(m[1], v.trim());
+  }
+  const orgId = gt.get('org');
+  if (!orgId) throw new Error('Thiếu --org <id>');
+  const cheDo = gt.get('che-do') ?? 'bong';
+  if (!(CHE_DO as readonly string[]).includes(cheDo)) throw new Error(`--che-do phải là ${CHE_DO.join('|')}`);
+  return { orgId, cheDo: cheDo as CheDo };
+}

@@ -4869,7 +4869,7 @@ model BotLuatThongBao {
   lich     Json?
   /// Tăng mỗi lần sửa — PUT gửi kèm để chặn ghi đè đồng thời (409).
   phienBan Int      @default(1) @map("phien_ban")
-  /// User CRM sửa cuối — null = dòng gieo từ migration (luật chủ chọn 02/10).
+  /// User CRM sửa cuối (`cli:gieo-luat-thong-bao` = script gieo luật chủ chọn 02/10); null = dòng SQL tay.
   suaBoi   String?  @map("sua_boi")
   suaLuc   DateTime @default(now()) @map("sua_luc")
 

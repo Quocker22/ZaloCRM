@@ -11,7 +11,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma, tenantTransaction } from '../../shared/database/prisma-client.js';
 import { withTenant } from '../../shared/tenant/tenant-context.js';
 import {
-  LoiLuatThongBao, docLuatVao, docAnhChup, danhMucTuAnh, kiemTheoDanhMuc, ghepLuatCongKhai,
+  LoiLuatThongBao, docLuatVao, docAnhChup, danhMucTuAnh, kiemTheoDanhMuc, ghepLuatCongKhai, LUAT_CHU_CHON_02_10,
   type Dich, type LuatBotDoc, type CheDo,
 } from './bot-thong-bao-luat.js';
 
@@ -230,4 +230,41 @@ export async function luuAnhChup(orgId: string, body: unknown): Promise<{ ok: tr
     },
   }));
   return { ok: true, phien_ban: a.phien_ban, so_composer: a.composer.length };
+}
+
+// ── Gieo luật chủ chọn 02/10 (scripts/gieo-luat-thong-bao.ts) ─────────────────
+
+export interface KetQuaGieo {
+  loai: string;
+  /** tao = vừa tạo · da_co = org đã có luật cho loại này (KHÔNG đè — chủ có thể đã sửa/xoá đích). */
+  ketQua: 'tao' | 'da_co';
+  id: string;
+}
+
+/**
+ * Tạo hai luật chủ chọn 02/10 cho MỘT org qua đúng `taoLuat` (kiểm cứng theo ảnh chụp + nhật ký + khoá org). Kiểm cả hai
+ * TRƯỚC khi ghi luật nào: thiếu ảnh chụp (409) / thiếu composer (400) ⇒ không ghi gì. Mặc định `bong`.
+ */
+export async function gieoLuatChuChon(orgId: string, o: { aiId: string; cheDo?: CheDo }): Promise<KetQuaGieo[]> {
+  const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { id: true } });
+  if (!org) throw new LoiLuatThongBao(404, 'KHONG_TIM_THAY', `Không có tổ chức ${orgId}`);
+  return withTenant(orgId, async () => {
+    const anhChup = await prisma.botBanDoTin.findUnique({ where: { orgId }, select: { composer: true } });
+    const danhMuc = anhChup ? danhMucTuAnh(anhChup.composer) : null;
+    for (const l of LUAT_CHU_CHON_02_10) kiemTheoDanhMuc(l.loai, l.dich, danhMuc, new Set());
+    const ra: KetQuaGieo[] = [];
+    for (const l of LUAT_CHU_CHON_02_10) {
+      try {
+        const v = await taoLuat(orgId, o.aiId, {
+          loai: l.loai, dich: l.dich, cheDo: o.cheDo ?? 'bong', lyDo: 'Gieo luật chủ chọn 02/10 (docs/78)',
+        });
+        ra.push({ loai: l.loai, ketQua: 'tao', id: v.id });
+      } catch (err) {
+        if (!(err instanceof LoiLuatThongBao) || err.code !== 'DA_CO_LUAT') throw err;
+        const co = await prisma.botLuatThongBao.findUniqueOrThrow({ where: { orgId_loai: { orgId, loai: l.loai } }, select: { id: true } });
+        ra.push({ loai: l.loai, ketQua: 'da_co', id: co.id });
+      }
+    }
+    return ra;
+  });
 }

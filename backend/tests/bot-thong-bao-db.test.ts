@@ -3,10 +3,9 @@
 //   • quản trị /api/v1/bot-quyen/luat-thong-bao: 401 không token, 403 NV thường (mọi route), kiểm cứng theo ảnh chụp,
 //     chưa có ảnh chụp ⇒ 409, nhật ký trước/sau cùng giao dịch, phienBan chống ghi đè, cách ly org;
 //   • công khai (x-api-key): GET luật (phien_ban ổn định/đổi đúng lúc, áp lại luật cứng), POST ảnh chụp (kiểm hình, thay bản cũ);
-//   • migration gieo luật chủ chọn 02/10: chạy lặp không nhân đôi, không đè luật chủ đã sửa.
+//   • gieo luật chủ chọn 02/10 (script quản trị qua service): cần ảnh chụp, bong mặc định, chạy lặp không nhân đôi/không đè.
 // Chạy: CO_DB_TEST=1 DATABASE_URL=<db test đã migrate> npm run test:db
 import { it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { readFileSync } from 'node:fs';
 import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyJwt from '@fastify/jwt';
 import { describeCanDb } from './helpers/can-db.js';
@@ -14,6 +13,7 @@ import { prisma } from '../src/shared/database/prisma-client.js';
 import { config } from '../src/config/index.js';
 import { registerBotQuyenRoutes } from '../src/modules/bot-quyen/bot-quyen-routes.js';
 import { botThongBaoPublicRoutes } from '../src/modules/bot-quyen/bot-thong-bao-routes.js';
+import { gieoLuatChuChon } from '../src/modules/bot-quyen/bot-thong-bao-service.js';
 
 const ORG_A = 'test-btb-org-a';
 const ORG_B = 'test-btb-org-b';
@@ -283,27 +283,40 @@ describeCanDb('bot-thong-bao — luật thông báo + bản đồ tin (DB)', () 
     expect((await nhatKy(ORG_B))).toHaveLength(0);
   });
 
-  // ── Gieo luật chủ chọn 02/10 ───────────────────────────────────────────────
+  // ── Gieo luật chủ chọn 02/10 (script quản trị, KHÔNG migration) ─────────
 
-  it('migration gieo: hai luật (ke_toan / kho, bat, không nhom_goc); chạy lặp không nhân đôi, không đè luật chủ đã sửa', async () => {
-    const sql = readFileSync(new URL('../prisma/migrations/20261002090200_bot_luat_thong_bao_gieo/migration.sql', import.meta.url), 'utf8');
-    const cau = sql.split('\n').filter((d) => !d.trim().startsWith('--')).join('\n').split(/;\s*\n/).map((c) => c.trim()).filter(Boolean);
-    // Gieo chạm MỌI org trong DB test ⇒ chạy trong giao dịch rồi huỷ (không để lại dòng cho file test khác).
-    const HUY = new Error('huy');
-    await expect(prisma.$transaction(async (tx) => {
-      for (const c of cau) await tx.$executeRawUnsafe(c);
-      const dau = await tx.botLuatThongBao.findMany({ where: { orgId: ORG_A }, orderBy: { loai: 'asc' } });
-      expect(dau.map((r) => [r.loai, r.dich, r.cheDo, r.suaBoi])).toEqual([
-        ['in_sau_chot', [{ kieu: 'chuc_nang', gia_tri: 'kho' }], 'bat', null],
-        ['xuat_hoa_don_tool', [{ kieu: 'chuc_nang', gia_tri: 'ke_toan' }], 'bat', null],
-      ]);
-      await tx.botLuatThongBao.update({ where: { id: dau[0].id }, data: { cheDo: 'tat' } });
-      for (const c of cau) await tx.$executeRawUnsafe(c);
-      const sau = await tx.botLuatThongBao.findMany({ where: { orgId: { in: ORGS } } });
-      expect(sau).toHaveLength(4); // 2 org × 2 luật — không nhân đôi
-      expect(sau.find((r) => r.id === dau[0].id)?.cheDo).toBe('tat'); // không đè
-      throw HUY;
-    })).rejects.toBe(HUY);
-    expect(await prisma.botLuatThongBao.count({ where: { orgId: { in: ORGS } } })).toBe(0);
+  it('gieo luật chủ chọn: chưa có ảnh chụp ⇒ từ chối, không ghi; có ảnh chụp ⇒ hai luật qua ĐÚNG service (bong mặc định, nhật ký); chạy lặp không nhân đôi, không đè', async () => {
+    await expect(gieoLuatChuChon(ORG_A, { aiId: 'cli:test' })).rejects.toMatchObject({ status: 409, code: 'CHUA_CO_BAN_DO' });
+    expect(await prisma.botLuatThongBao.count({ where: { orgId: ORG_A } })).toBe(0);
+    expect(await nhatKy()).toHaveLength(0);
+
+    await guiAnh(KHOA_A);
+    const kq = await gieoLuatChuChon(ORG_A, { aiId: 'cli:test' });
+    expect(kq.map((k) => [k.loai, k.ketQua])).toEqual([['xuat_hoa_don_tool', 'tao'], ['in_sau_chot', 'tao']]);
+    const dau = await prisma.botLuatThongBao.findMany({ where: { orgId: ORG_A }, orderBy: { loai: 'asc' } });
+    expect(dau.map((r) => [r.loai, r.dich, r.cheDo, r.suaBoi])).toEqual([
+      ['in_sau_chot', [{ kieu: 'chuc_nang', gia_tri: 'kho' }], 'bong', 'cli:test'],
+      ['xuat_hoa_don_tool', [{ kieu: 'chuc_nang', gia_tri: 'ke_toan' }], 'bong', 'cli:test'],
+    ]);
+    expect((await nhatKy()).map((r) => [r.aiId, r.truoc, r.lyDo])).toEqual([
+      ['cli:test', null, expect.stringMatching(/chủ chọn 02\/10/)], ['cli:test', null, expect.stringMatching(/chủ chọn 02\/10/)],
+    ]);
+    // Chủ sửa một luật rồi chạy lại ⇒ không đè, không nhân đôi.
+    await prisma.botLuatThongBao.update({ where: { id: dau[0].id }, data: { cheDo: 'tat' } });
+    const lai = await gieoLuatChuChon(ORG_A, { aiId: 'cli:test', cheDo: 'bat' });
+    expect(lai.map((k) => k.ketQua)).toEqual(['da_co', 'da_co']);
+    expect(await prisma.botLuatThongBao.count({ where: { orgId: ORG_A } })).toBe(2);
+    expect((await prisma.botLuatThongBao.findUniqueOrThrow({ where: { id: dau[0].id } })).cheDo).toBe('tat');
+    expect(await prisma.botLuatThongBao.count({ where: { orgId: ORG_B } })).toBe(0); // chỉ org được nêu
+  });
+
+  it('gieo luật chủ chọn: ảnh chụp thiếu một composer ⇒ từ chối CẢ HAI (không gieo nửa vời); chế độ bat khi nêu rõ', async () => {
+    await guiAnh(KHOA_A, { ...ANH, composer: ANH.composer.filter((c) => c.id !== 'in_sau_chot') });
+    await expect(gieoLuatChuChon(ORG_A, { aiId: 'cli:test' })).rejects.toMatchObject({ status: 400, code: 'COMPOSER_LA' });
+    expect(await prisma.botLuatThongBao.count({ where: { orgId: ORG_A } })).toBe(0);
+    await guiAnh(KHOA_A);
+    await gieoLuatChuChon(ORG_A, { aiId: 'cli:test', cheDo: 'bat' });
+    expect((await prisma.botLuatThongBao.findMany({ where: { orgId: ORG_A } })).map((r) => r.cheDo)).toEqual(['bat', 'bat']);
+    await expect(gieoLuatChuChon('org-khong-co', { aiId: 'cli:test' })).rejects.toMatchObject({ status: 404 });
   });
 });
