@@ -25,6 +25,7 @@ import {
 import { modelCuaReport } from './ten-file-in.js';
 import { ghiNhatKy, donNhatKyCu, SO_NGAY_GIU_NHAT_KY } from './nhat-ky.js';
 import { donNhatKyAppCu } from './nhat-ky-app.js';
+import { ghiSuCoIn } from './su-kien-in.js';
 
 let task: ReturnType<typeof cron.schedule> | null = null;
 let dangChay = false;
@@ -211,6 +212,8 @@ export function startMayInCron(): void {
     // Mỗi lần ghi print_jobs thành công → app của máy đó nhận snapshot `hang-doi` mới
     // (hợp đồng hàng đợi/huỷ v5.1 §8.7; bộ gửi mỗi socket tự gộp + so trùng, ≤ 1 lần/giây).
     baoDoiHangDoi: (agentToken) => agentRegistry.baoDoiHangDoi(tokenMayCua(agentToken)),
+    // Sự cố máy in BỀN (docs/78 C1) — `tam_giu` khi cầu dao ngắt; token quy về máy (null = máy mặc định env).
+    ghiSuCo: (sc) => ghiSuCoIn({ ...sc, agentToken: tokenMayCua(sc.agentToken ?? null) }),
     // Chỉ kênh app PC biết "app có đang kết nối không"; kênh IPP luôn coi là có.
     coMay: (agentToken) => {
       const t = tokenMayCua(agentToken);

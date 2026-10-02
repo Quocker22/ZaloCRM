@@ -4485,6 +4485,50 @@ model PrintJob {
   @@map("print_jobs")
 }
 
+/// Sự kiện ĐỔI TRẠNG THÁI print_jobs (docs/78 C1, 02/10) — nguồn BỀN cho trạm thông báo của bot (in xong / in thất
+/// bại / không rõ / huỷ…). Ghi CÙNG GIAO DỊCH với UPDATE có điều kiện của job và CHỈ khi UPDATE đổi đúng một dòng
+/// (su-kien-in.ts `capNhatJobCoSuKien`) — không dựa nhật ký print_logs (fire-and-forget). Dòng tạo job: tuTrangThai null.
+/// Bot đọc `WHERE bot_nhan_luc IS NULL ORDER BY id`, ghi sự kiện của nó rồi đặt `bot_nhan_luc` (xác nhận TỪNG HÀNG — không
+/// dùng con trỏ id: id cấp lúc INSERT, commit có thể đảo thứ tự). Không FK sang print_jobs: sự kiện sống lâu hơn job.
+model PrintSuKien {
+  id            BigInt    @id @default(autoincrement())
+  orgId         String    @map("org_id")
+  jobId         String    @map("job_id")
+  /// null = dòng tạo job (cho_in đầu tiên)
+  tuTrangThai   String?   @map("tu_trang_thai")
+  sangTrangThai String    @map("sang_trang_thai")
+  /// Mã ngắn vì sao (mã sự cố app/IPP như het_giay, hoặc qua_lan_thu/app_offline/odoo_pdf/mo_coi/…); null = bình thường.
+  maLoi         String?   @map("ma_loi")
+  luc           DateTime  @default(now())
+  botNhanLuc    DateTime? @map("bot_nhan_luc")
+
+  @@index([orgId, luc(sort: Desc)])
+  @@index([jobId])
+  @@map("print_su_kien")
+}
+
+/// Sự cố MÁY IN (docs/78 C1) — luồng RIÊNG, không gắn đổi trạng thái job: app báo `su-co` (agent-ws.ts) và cầu dao
+/// ngắt `tam_giu` (hang-doi-in.ts / agent-ws.ts). Ghi bền (await, thử lại một lần) lúc nhận. KHÔNG lưu token máy in
+/// (luật 2 nhat-ky.ts) — chỉ id + tên dòng print_agents (null = máy mặc định env).
+model PrintSuCo {
+  id         BigInt    @id @default(autoincrement())
+  orgId      String    @map("org_id")
+  mayInId    String?   @map("may_in_id")
+  mayInTen   String?   @map("may_in_ten")
+  printJobId String?   @map("print_job_id")
+  soHoaDon   String?   @map("so_hoa_don")
+  /// Mã sự cố (nhat-ky.ts MA_SU_CO) hoặc `tam_giu` (cầu dao giữ các hoá đơn sau).
+  maSuCo     String    @map("ma_su_co")
+  /// `tam_giu`: mã sự cố gây ngắt (null = app không trả lời). Mã sự cố trơn: null.
+  maGoc      String?   @map("ma_goc")
+  chiTiet    String?   @map("chi_tiet")
+  luc        DateTime  @default(now())
+  botNhanLuc DateTime? @map("bot_nhan_luc")
+
+  @@index([orgId, luc(sort: Desc)])
+  @@map("print_su_co")
+}
+
 /// Nhiều máy in theo chi nhánh (gen token ZaloCRM) — mỗi dòng 1 máy in đã đăng
 /// ký. warehouseIds = danh sách kho máy này phục vụ (HN ôm [2,4], HCM=[3]);
 /// laMacDinh = máy nhận đơn không khớp kho nào (đúng 1 máy = true, hiện = HN).

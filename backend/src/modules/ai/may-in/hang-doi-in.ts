@@ -15,6 +15,7 @@ import { LoiIpp, LoiKhongRo } from './ipp-client.js';
 import { taoTenFileIn } from './ten-file-in.js';
 import { laMaChanIn, laMaChoMayKhongTieuLuot, nhanCua } from './nhat-ky.js';
 import type { XetCauDao } from './agent-registry.js';
+import { capNhatJobCoSuKien, taoJobCoSuKien, type PrismaSuKienIn, type SuCoIn } from './su-kien-in.js';
 
 /** Quá số lần này mà máy in vẫn từ chối/không tới được → loi, chờ người xem. */
 export const MAX_LAN_THU = 5;
@@ -60,6 +61,12 @@ export interface PrismaHangDoiIn {
      */
     updateMany: (a: { where: Record<string, unknown>; data: Record<string, unknown> }) => Promise<{ count: number }>;
   };
+  /**
+   * Sự kiện in bền (docs/78 C1, su-kien-in.ts): Prisma thật có cả hai — mọi lần đổi trạng thái ghi `print_su_kien` CÙNG
+   * giao dịch. Bản giả cũ trong test có thể thiếu (khi đó chỉ updateMany như trước).
+   */
+  printSuKien?: PrismaSuKienIn['printSuKien'];
+  $transaction?: PrismaSuKienIn['$transaction'];
 }
 
 /**
@@ -90,19 +97,17 @@ export interface ThamSoThemJob {
   agentToken?: string;
 }
 
-/** Xếp một hoá đơn vào hàng in. Không đụng máy in — cron lo. */
+/** Xếp một hoá đơn vào hàng in. Không đụng máy in — cron lo. Sự kiện tạo (→ cho_in) ghi cùng giao dịch. */
 export async function themJobIn(prisma: PrismaHangDoiIn, p: ThamSoThemJob): Promise<void> {
-  await prisma.printJob.create({
-    data: {
-      orgId: p.orgId,
-      conversationId: p.conversationId ?? null,
-      hoaDonId: p.hoaDonId,
-      soHoaDon: p.soHoaDon,
-      report: p.report,
-      trangThai: 'cho_in',
-      lanThu: 0,
-      agentToken: p.agentToken ?? null,
-    },
+  await taoJobCoSuKien(prisma, {
+    orgId: p.orgId,
+    conversationId: p.conversationId ?? null,
+    hoaDonId: p.hoaDonId,
+    soHoaDon: p.soHoaDon,
+    report: p.report,
+    trangThai: 'cho_in',
+    lanThu: 0,
+    agentToken: p.agentToken ?? null,
   });
 }
 
@@ -212,6 +217,11 @@ export interface DepsChayLuot {
    * (hợp đồng v5.1 §8.7). `agentToken` = giá trị cột (null = máy mặc định). Không bao giờ ném.
    */
   baoDoiHangDoi?: (agentToken: string | null) => void;
+  /**
+   * Sự cố máy in BỀN (docs/78 C1): cầu dao vừa ngắt ⇒ một dòng `print_su_co` `tam_giu` (su-kien-in.ts ghiSuCoIn — có
+   * chờ, thử lại, không bao giờ ném). `agentToken` = giá trị cột (null = máy mặc định) — cron quy về token máy.
+   */
+  ghiSuCo?: (sc: SuCoIn) => Promise<unknown>;
   /** Trần job mỗi lượt — vòng nền không được biến thành trận in ồ ạt. */
   gioiHan?: number;
   onLoi?: (jobId: string, err: unknown) => void;
@@ -335,7 +345,7 @@ async function xuLyMotJob(deps: DepsChayLuot, job: JobIn): Promise<void> {
   if (job.lanThu >= MAX_LAN_THU) {
     const loiCuoi = `Quá ${MAX_LAN_THU} lần thử: ${job.loiCuoi ?? 'không rõ'}`;
     // [G1] cho_in → loi. Vừa bị huỷ (da_huy) thì dừng: không ghi "In thất bại".
-    if (!(await ghiCoDieuKien(deps, job, 'cho_in', { trangThai: 'loi', loiCuoi }))) return;
+    if (!(await ghiCoDieuKien(deps, job, 'cho_in', { trangThai: 'loi', loiCuoi }, 'qua_lan_thu'))) return;
     baoNhatKy(deps, {
       loai: 'that_bai',
       noiDung: `In thất bại hoá đơn ${job.soHoaDon}. ${loiCuoi}`,
@@ -397,7 +407,7 @@ async function xuLyMotJob(deps: DepsChayLuot, job: JobIn): Promise<void> {
     // [G2] cho_in → cho_in (lanThu+1). Vừa bị huỷ thì dừng: không hứa "chờ thử lại".
     const daGhi = await ghiCoDieuKien(deps, job, 'cho_in', {
       trangThai: 'cho_in', lanThu: job.lanThu + 1, loiCuoi: 'App máy in chưa kết nối',
-    });
+    }, 'app_offline');
     if (!daGhi) return;
     baoNhatKy(deps, {
       loai: 'app_offline_thu_lai',
@@ -416,7 +426,7 @@ async function xuLyMotJob(deps: DepsChayLuot, job: JobIn): Promise<void> {
     // [G3] cho_in → cho_in (lanThu+1). Vừa bị huỷ (tải PDF có thể mất vài giây) thì dừng.
     const daGhi = await ghiCoDieuKien(deps, job, 'cho_in', {
       trangThai: 'cho_in', lanThu: job.lanThu + 1, loiCuoi: `Odoo không trả PDF: ${loi(err)}`,
-    });
+    }, 'odoo_pdf');
     if (!daGhi) return;
     baoNhatKy(deps, {
       loai: 'loi_odoo',
@@ -480,7 +490,7 @@ async function xuLyMotJob(deps: DepsChayLuot, job: JobIn): Promise<void> {
   } catch (err) {
     if (err instanceof LoiKhongRo) {
       // [G7] dang_gui → khong_ro. count 0 → DỪNG: không nhật ký "không rõ", không ngắt cầu dao.
-      if (!(await ghiCoDieuKien(deps, job, 'dang_gui', { trangThai: 'khong_ro', loiCuoi: loi(err) }))) return;
+      if (!(await ghiCoDieuKien(deps, job, 'dang_gui', { trangThai: 'khong_ro', loiCuoi: loi(err) }, err.ma ?? 'khong_ro'))) return;
       // Máy in đang chặn in: hoá đơn nằm trong hàng đợi/bộ nhớ máy in, TỰ RA
       // khi khắc phục (app theo dõi tiếp và báo trễ "đã in"). Không thì hướng
       // dẫn kiểm tay. Không bao giờ bảo "in lại" khi chưa kiểm — in đôi.
@@ -494,7 +504,7 @@ async function xuLyMotJob(deps: DepsChayLuot, job: JobIn): Promise<void> {
           ? { suCo: err.ma ?? null, ...(err.conTrongHangDoi !== undefined ? { conTrongHangDoi: err.conTrongHangDoi } : {}) }
           : undefined,
       });
-      if (err.ma === 'het_gio_cho' || laMaChanIn(err.ma)) ngatCauDao(deps, job, err.ma ?? null, loi(err), tenKhach);
+      if (err.ma === 'het_gio_cho' || laMaChanIn(err.ma)) await ngatCauDao(deps, job, err.ma ?? null, loi(err), tenKhach);
       return;
     }
     if (err instanceof LoiIpp) {
@@ -506,9 +516,9 @@ async function xuLyMotJob(deps: DepsChayLuot, job: JobIn): Promise<void> {
       const khongTieuLuot = err.guiDuoc && laMaChoMayKhongTieuLuot(err.ma);
       const lanThu = khongTieuLuot ? job.lanThu : job.lanThu + 1;
       // [G8] dang_gui → cho_in (thử lại). count 0 → DỪNG: không ngắt cầu dao, không hứa "sẽ thử lại".
-      if (!(await ghiCoDieuKien(deps, job, 'dang_gui', { trangThai: 'cho_in', lanThu, loiCuoi: loi(err) }))) return;
+      if (!(await ghiCoDieuKien(deps, job, 'dang_gui', { trangThai: 'cho_in', lanThu, loiCuoi: loi(err) }, err.ma ?? (err.guiDuoc ? 'may_in_tu_choi' : 'chua_gui_duoc')))) return;
       const lan = khongTieuLuot ? '(máy in lỗi — không tính lượt thử)' : `(lần ${lanThu}/${MAX_LAN_THU})`;
-      if (doMayIn) ngatCauDao(deps, job, err.ma ?? null, loi(err), tenKhach);
+      if (doMayIn) await ngatCauDao(deps, job, err.ma ?? null, loi(err), tenKhach);
       baoNhatKy(deps, err.guiDuoc
         ? {
             loai: 'loi_thu_lai',
@@ -547,7 +557,7 @@ async function xacMinh(deps: DepsChayLuot, job: JobIn): Promise<void> {
   if (jobState === JOB_STATE.completed) {
     await ghiCoDieuKien(deps, job, TRANG_THAI_DA_GUI, { trangThai: 'da_in', loiCuoi: null });
   } else if (jobState === JOB_STATE.canceled || jobState === JOB_STATE.aborted) {
-    await ghiCoDieuKien(deps, job, TRANG_THAI_DA_GUI, { trangThai: 'loi', loiCuoi: `Máy in huỷ job (job-state=${jobState})` });
+    await ghiCoDieuKien(deps, job, TRANG_THAI_DA_GUI, { trangThai: 'loi', loiCuoi: `Máy in huỷ job (job-state=${jobState})` }, 'may_in_huy_job');
   }
   // pending/processing → giữ nguyên, lượt sau hỏi tiếp.
 }
@@ -603,11 +613,14 @@ export async function donJobMoCoi(
       // [G11] CÓ ĐIỀU KIỆN vẫn `dang_gui`: giữa lúc đọc danh sách và lúc ghi, kết quả
       // TRỄ của app (agent-ws, job mồ côi) có thể đã chốt da_in / đưa về cho_in —
       // ghi đè là mất kết quả thật (giám sát vòng 3, đo trên Postgres thật).
-      const r = await deps.prisma.printJob.updateMany({
+      const doi = await capNhatJobCoSuKien(deps.prisma, {
+        id: job.id,
         where: { id: job.id, trangThai: 'dang_gui', ippJobId: null },
         data,
+        maLoi: 'mo_coi',
+        goiY: { tu: 'dang_gui', orgId: job.orgId },
       });
-      if (r.count === 0) continue;
+      if (doi === 0) continue;
       baoDoi(deps as DepsChayLuot, job);
       n += 1;
       baoNhatKy(deps as DepsChayLuot, {
@@ -655,10 +668,18 @@ async function ghiCoDieuKien(
   job: JobIn,
   dangLa: TrangThaiJob | TrangThaiJob[],
   data: Record<string, unknown>,
+  maLoi: string | null = null,
 ): Promise<boolean> {
   const trangThai = Array.isArray(dangLa) ? { in: dangLa } : dangLa;
-  const r = await deps.prisma.printJob.updateMany({ where: { id: job.id, trangThai }, data });
-  if (r.count === 0) return false;
+  // docs/78 C1: UPDATE có điều kiện + print_su_kien CÙNG giao dịch, chỉ khi đổi đúng một dòng.
+  const n = await capNhatJobCoSuKien(deps.prisma, {
+    id: job.id,
+    where: { id: job.id, trangThai },
+    data,
+    maLoi,
+    goiY: { tu: job.trangThai, orgId: job.orgId },
+  });
+  if (n === 0) return false;
   baoDoi(deps, job);
   return true;
 }
@@ -672,7 +693,7 @@ function baoDoi(deps: DepsChayLuot, job: JobIn): void {
   }
 }
 
-function ngatCauDao(deps: DepsChayLuot, job: JobIn, ma: string | null, lyDo: string, tenKhach: string | null): void {
+async function ngatCauDao(deps: DepsChayLuot, job: JobIn, ma: string | null, lyDo: string, tenKhach: string | null): Promise<void> {
   if (!deps.cauDao) return;
   let moi = false;
   try {
@@ -681,6 +702,15 @@ function ngatCauDao(deps: DepsChayLuot, job: JobIn, ma: string | null, lyDo: str
     return;
   }
   if (!moi) return;
+  // Bền TRƯỚC nhật ký: dòng `tam_giu` là thứ trạm thông báo đọc (kho/admin được báo máy in đang giữ hoá đơn).
+  try {
+    await deps.ghiSuCo?.({
+      maSuCo: 'tam_giu', maGoc: ma, agentToken: job.agentToken ?? null, orgId: job.orgId,
+      printJobId: job.id, soHoaDon: job.soHoaDon, chiTiet: lyDo,
+    });
+  } catch {
+    /* ghiSuCoIn không ném; lưới cuối — sự cố không được chặn việc in */
+  }
   baoNhatKy(deps, {
     loai: 'tam_giu',
     noiDung: `Tạm giữ các hoá đơn gửi tới máy in này (${ma ? nhanCua(ma) : 'app không trả lời'}, từ hoá đơn ${job.soHoaDon}) — hệ thống tự in tiếp khi máy in hết lỗi, không cần in tay`,

@@ -57,6 +57,7 @@ import {
   type PhamViHangDoi,
 } from './huy-lenh-in.js';
 import { taoBoGuiHangDoi, MS_GUI_HANG_DOI_TOI_THIEU } from './hang-doi-app.js';
+import { capNhatJobCoSuKien, ghiSuCoIn, type PrismaSuKienIn, type SuCoIn } from './su-kien-in.js';
 
 interface KetQuaTuAgent {
   jobId: string;
@@ -124,7 +125,14 @@ export interface AgentWsDeps {
    *     Bản trước ghi `loi` CUỐI CÙNG: hoá đơn không bao giờ in trong khi app
    *     bảo NV "hệ thống sẽ TỰ gửi in lại" (giám sát vòng 2, V2).
    */
-  capNhatJobTre?: (printJobId: string, kq: KetQuaTre, loiCuoi: string | null, tuy?: { choPhepDangGui?: boolean }) => Promise<number>;
+  capNhatJobTre?: (
+    printJobId: string, kq: KetQuaTre, loiCuoi: string | null, tuy?: { choPhepDangGui?: boolean; maLoi?: string | null },
+  ) => Promise<number>;
+  /**
+   * Sự cố máy in BỀN (docs/78 C1): `su-co` từ app và `tam_giu` khi kết quả trễ ngắt cầu dao ⇒ `print_su_co`.
+   * Mặc định su-kien-in.ts ghiSuCoIn (Prisma thật, có chờ, thử lại, không ném).
+   */
+  ghiSuCo?: (sc: SuCoIn) => Promise<unknown>;
   /**
    * Tra print_jobs theo id — dựng lại ngữ cảnh khi bộ nhớ đã mất (backend khởi
    * động lại giữa lúc in: mỗi lần deploy). Mặc định Prisma thật.
@@ -167,11 +175,11 @@ export type KetQuaTre =
   /** `loi` trễ mà hoá đơn đã có lệnh in mới hơn → chốt `loi`, không gửi lại. */
   | { trangThai: 'loi' };
 
-async function capNhatJobTreThat(
+export async function capNhatJobTreThat(
   printJobId: string,
   kq: KetQuaTre,
   loiCuoi: string | null,
-  tuy: { choPhepDangGui?: boolean } = {},
+  tuy: { choPhepDangGui?: boolean; maLoi?: string | null } = {},
 ): Promise<number> {
   const data = kq.trangThai === 'da_in'
     ? { trangThai: 'da_in', loiCuoi: null }
@@ -179,8 +187,10 @@ async function capNhatJobTreThat(
       ? { trangThai: 'loi', loiCuoi }
       : { trangThai: 'cho_in', loiCuoi, ...(kq.tangLanThu ? { lanThu: { increment: 1 } } : {}) };
   const trangThai = tuy.choPhepDangGui ? { in: ['khong_ro', 'dang_gui'] } : 'khong_ro';
-  const r = await prisma.printJob.updateMany({ where: { id: printJobId, trangThai }, data });
-  return r.count;
+  // docs/78 C1: đổi trạng thái + print_su_kien CÙNG giao dịch (kể cả phục hồi job mồ côi `dang_gui` sau khởi động lại).
+  return capNhatJobCoSuKien(prisma as unknown as PrismaSuKienIn, {
+    id: printJobId, where: { id: printJobId, trangThai }, data, maLoi: tuy.maLoi ?? null,
+  });
 }
 
 async function layJobTheoIdThat(printJobId: string): Promise<JobTraLai | null> {
@@ -267,6 +277,7 @@ export function registerAgentWs(io: Server, registry: AgentRegistry, deps: Agent
   const layMayInTheoToken = deps.layMayInTheoToken ?? layMayInTuDb;
   const ghiNhatKy: (m: MucNhatKy) => void = deps.ghiNhatKy ?? ghiNhatKyThat;
   const capNhatJobTre = deps.capNhatJobTre ?? capNhatJobTreThat;
+  const ghiSuCo = deps.ghiSuCo ?? ((sc: SuCoIn) => ghiSuCoIn(sc, { orgMacDinh: deps.orgMacDinh ?? orgMacDinhTuEnv }));
   const layJobTheoId = deps.layJobTheoId ?? layJobTheoIdThat;
   const coLenhInMoiHon = deps.coLenhInMoiHon ?? coLenhInMoiHonThat;
   const nhanNhatKyApp = deps.nhanNhatKyApp ?? nhanNhatKyAppThat;
@@ -530,7 +541,10 @@ export function registerAgentWs(io: Server, registry: AgentRegistry, deps: Agent
             : { trangThai: 'thu_lai', tangLanThu: !laMaChoMayKhongTieuLuot(kq.loai) };
         // Job mồ côi của tiến trình trước (backend vừa khởi động lại) còn
         // `dang_gui`: nhận kết quả thật luôn, khỏi chờ dọn mồ côi 15 phút.
-        const tuy = { choPhepDangGui: tim?.moCoi === true };
+        const tuy = {
+          choPhepDangGui: tim?.moCoi === true,
+          maLoi: kq.trangThai === 'da_in' ? null : kq.loai ?? (coMoiHon ? 'co_lenh_in_moi_hon' : 'app_bao_loi'),
+        };
         const capNhat = async (): Promise<number> => {
           try {
             return await capNhatJobTre(nc.printJobId, ketQuaTre, loiCuoi, tuy);
@@ -557,6 +571,11 @@ export function registerAgentWs(io: Server, registry: AgentRegistry, deps: Agent
       if (doMayIn && nc && daCapNhat > 0 && !coMoiHon) {
         const { moi } = registry.ngatCauDao(token, kq.loai ?? null, kq.loiCuoi ?? nhanCua(kq.loai));
         if (moi) {
+          // Bền (docs/78 C1) — không chờ ở đây: câu nhật ký `ket_qua_tre` phía sau không phụ thuộc lần ghi này.
+          void ghiSuCo({
+            maSuCo: 'tam_giu', maGoc: kq.loai ?? null, agentToken: token, orgId: nc.orgId,
+            printJobId: nc.printJobId, soHoaDon: nc.soHoaDon, chiTiet: kq.loiCuoi ?? nhanCua(kq.loai),
+          }).catch(() => undefined);
           ghiNhatKy({
             loai: 'tam_giu',
             noiDung: `Tạm giữ các hoá đơn gửi tới máy in này (${nhanCua(kq.loai)}, từ hoá đơn ${nc.soHoaDon}) — hệ thống tự in tiếp khi máy in hết lỗi, không cần in tay`,
@@ -640,6 +659,11 @@ export function registerAgentWs(io: Server, registry: AgentRegistry, deps: Agent
           agentJobId: jobId,
           chiTiet: { mayIn, chiTiet, lucApp: chuTuApp(o.luc, 40) },
         });
+        // Bền (docs/78 C1) — trạm thông báo đọc print_su_co (có chờ, thử lại). Sau nhật ký: nhật ký không chờ DB này.
+        await ghiSuCo({
+          maSuCo: loai, agentToken: token, orgId: nc?.orgId ?? null, printJobId: nc?.printJobId ?? null,
+          soHoaDon: nc?.soHoaDon ?? null, chiTiet: [mayIn && `máy in "${mayIn}"`, chiTiet].filter(Boolean).join(' — ') || null,
+        }).catch(() => undefined);
       })();
     });
 
