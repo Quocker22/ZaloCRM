@@ -8,6 +8,7 @@
 //   PUT    /luat-thong-bao/:id          {phienBan, dich?, cheDo?, dieuKien?, gomGiay?, lich?, lyDo?}  (thiếu phienBan ⇒ 400, cũ ⇒ 409)
 //   DELETE /luat-thong-bao/:id          {lyDo?}
 //   GET    /ban-do-tin                  — ảnh chụp mới nhất (danh mục composer + số đếm) cho trang Bản đồ tin
+//   GET    /ban-do-tin/crm-tu-dong      — {crm: MucCrmTuDong[]} lớp "CRM tự động" (CHỈ ĐỌC, bot-crm-tu-dong.ts)
 // `dich` = [{kieu: chuc_nang|nv|nguoi_gay_ra, gia_tri}] — kiểm cứng ở bot-thong-bao-luat.ts. Đích nv/nguoi_gay_ra bot KIỂM LẠI
 // quyền + tạm im của người nhận lúc gửi (CRM chỉ kiểm lúc lưu).
 //
@@ -23,6 +24,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
 import { LoiLuatThongBao } from './bot-thong-bao-luat.js';
+import { docCrmTuDong } from './bot-crm-tu-dong.js';
 import { danhSachLuat, docBanDo, taoLuat, suaLuat, xoaLuat, docLuatChoBot, luuAnhChup } from './bot-thong-bao-service.js';
 
 /** Thân POST ảnh chụp tối đa — 300 composer × ~4 KB chữ + 5.000 dòng đếm. */
@@ -58,6 +60,8 @@ export function dangKyLuatThongBao(app: FastifyInstance): void {
   });
 
   app.get('/ban-do-tin', async (req: FastifyRequest) => ({ banDo: await docBanDo(req.user!.orgId) }));
+
+  app.get('/ban-do-tin/crm-tu-dong', async (req: FastifyRequest) => docCrmTuDong(req.user!.orgId));
 }
 
 /** app_settings.setting_key của khoá riêng bot (đẩy ảnh chụp bản đồ tin). */
