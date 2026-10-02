@@ -10,9 +10,10 @@
 import type { Prisma } from '@prisma/client';
 import { prisma, tenantTransaction } from '../../shared/database/prisma-client.js';
 import { withTenant } from '../../shared/tenant/tenant-context.js';
+import { logger } from '../../shared/utils/logger.js';
 import {
   LoiLuatThongBao, docLuatVao, docAnhChup, danhMucTuAnh, danhMucHop, kiemTheoDanhMuc, ghepLuatCongKhai, LUAT_CHU_CHON_02_10,
-  kiemNhayCamDinh,
+  kiemNhayCamDinh, chuanLuatIdDem, docDoiSoatEcho,
   type ComposerAnh,
   type Dich, type LuatBotDoc, type CheDo,
 } from './bot-thong-bao-luat.js';
@@ -221,12 +222,38 @@ export async function docLuatChoBot(orgId: string): Promise<LuatBotDoc> {
     const [rows, a] = await Promise.all([
       prisma.botLuatThongBao.findMany({
         where: { orgId },
-        select: { loai: true, dich: true, cheDo: true, dieuKien: true, gomGiay: true, lich: true, phienBan: true },
+        select: { id: true, loai: true, dich: true, cheDo: true, dieuKien: true, gomGiay: true, lich: true, phienBan: true },
       }),
       prisma.botBanDoTin.findUnique({ where: { orgId }, select: { composer: true, composerDinh: true } }),
     ]);
     return ghepLuatCongKhai(rows, a ? danhMucHop(a.composer, a.composerDinh) : null);
   });
+}
+
+/**
+ * Đối soát tin bot `chua_ro` (docs/78 thuc-thi P0-1): echo nào đã có tin GỬI ĐI (`messages.client_echo_id`, senderType
+ * `self`) trong hội thoại của org này. CHỈ ĐỌC. Tin Zalo từ chối cũng được lưu (metadata.sendStatus = 'failed') ⇒ tách riêng
+ * `that_bai` — không được coi là đã gửi. Echo có ở org khác ⇒ `khong`. Thứ tự = thứ tự gửi lên (đã khử trùng).
+ */
+export async function doiSoatEcho(orgId: string, body: unknown): Promise<{ co: string[]; that_bai: string[]; khong: string[] }> {
+  const ids = docDoiSoatEcho(body);
+  if (ids.length === 0) return { co: [], that_bai: [], khong: [] };
+  const rows = await withTenant(orgId, () => prisma.message.findMany({
+    where: { clientEchoId: { in: ids }, senderType: 'self', conversation: { orgId } },
+    select: { clientEchoId: true, metadata: true },
+  }));
+  // Cùng echo ở nhiều hội thoại (UNIQUE chỉ theo hội thoại): một bản gửi được là "co".
+  const ok = new Set<string>();
+  const hong = new Set<string>();
+  for (const r of rows) {
+    const m = r.metadata as { sendStatus?: unknown } | null;
+    (m && typeof m === 'object' && m.sendStatus === 'failed' ? hong : ok).add(r.clientEchoId!);
+  }
+  return {
+    co: ids.filter((e) => ok.has(e)),
+    that_bai: ids.filter((e) => !ok.has(e) && hong.has(e)),
+    khong: ids.filter((e) => !ok.has(e) && !hong.has(e)),
+  };
 }
 
 /** Tóm tắt danh mục cho nhật ký — id → kieu + nhãn (không lưu tên/mô tả dài). */
@@ -259,11 +286,15 @@ export async function luuAnhChup(
           `Ảnh chụp bị từ chối — không được gỡ nhạy cảm/mở khoá loại tin đã biết: ${viPham.slice(0, 5).join('; ')}`,
         );
       }
+      // luat_id của số đếm = id luật; bot cũ gửi `loai` ⇒ đổi sang id (tương thích MỘT bản — hợp đồng §4).
+      const luatOrg = await tx.botLuatThongBao.findMany({ where: { orgId }, select: { id: true, loai: true } });
+      const { dem, doiTuLoai } = chuanLuatIdDem(a.dem, luatOrg);
+      if (doiTuLoai > 0) logger.warn(`[ban-do-tin] org ${orgId}: ${doiTuLoai} dòng dem gửi luat_id = loai (dạng cũ) — đã đổi sang id luật`);
       const data = {
         phienBan: a.phien_ban,
         composer: a.composer as unknown as Prisma.InputJsonValue,
         nguon: a.nguon as unknown as Prisma.InputJsonValue,
-        dem: a.dem as unknown as Prisma.InputJsonValue,
+        dem: dem as unknown as Prisma.InputJsonValue,
         composerDinh: dinh as unknown as Prisma.InputJsonValue,
       };
       const r = await tx.botBanDoTin.upsert({ where: { orgId }, create: { orgId, ...data }, update: { ...data, luc: new Date() } });

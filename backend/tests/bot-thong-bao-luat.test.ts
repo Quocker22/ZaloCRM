@@ -3,8 +3,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   docDich, docLuatVao, docAnhChup, danhMucTuAnh, danhMucHop, kiemTheoDanhMuc, ghepLuatCongKhai, LoiLuatThongBao, docThamSoGieo,
-  LUAT_CHU_CHON_02_10, kiemNhayCamDinh, khoaCanh,
-  type ComposerAnh,
+  LUAT_CHU_CHON_02_10, kiemNhayCamDinh, khoaCanh, chuanLuatIdDem, docDoiSoatEcho,
+  type ComposerAnh, type DemCanh,
 } from '../src/modules/bot-quyen/bot-thong-bao-luat.js';
 
 function loi(fn: () => unknown): { status: number; code: string } {
@@ -194,8 +194,8 @@ describe('danhMucHop — ảnh chụp hiện tại ∪ sổ dính (Codex v1 #1)'
 });
 
 describe('ghepLuatCongKhai — payload bot', () => {
-  const dong = (o: Partial<{ loai: string; dich: unknown; cheDo: string; phienBan: number }> = {}) => ({
-    loai: 'xuat_hoa_don_tool', dich: [{ kieu: 'chuc_nang', gia_tri: 'ke_toan' }], cheDo: 'bat', dieuKien: {}, gomGiay: 0,
+  const dong = (o: Partial<{ id: string; loai: string; dich: unknown; cheDo: string; phienBan: number }> = {}) => ({
+    id: `id-${o.loai ?? 'xuat_hoa_don_tool'}`, loai: 'xuat_hoa_don_tool', dich: [{ kieu: 'chuc_nang', gia_tri: 'ke_toan' }], cheDo: 'bat', dieuKien: {}, gomGiay: 0,
     lich: null, phienBan: 1, ...o,
   });
   it('phien_ban ổn định theo nội dung (thứ tự dòng không ảnh hưởng), đổi khi một ô đổi', () => {
@@ -204,6 +204,10 @@ describe('ghepLuatCongKhai — payload bot', () => {
     expect(a.phien_ban).toBe(b.phien_ban);
     expect(a.luat.map((l) => l.loai)).toEqual(['chao', 'xuat_hoa_don_tool']);
     expect(ghepLuatCongKhai([dong({ cheDo: 'bong' })], DM).phien_ban).not.toBe(ghepLuatCongKhai([dong()], DM).phien_ban);
+  });
+  it('mỗi luật mang `id` (khoá số đếm luat_id) cạnh `loai`', () => {
+    const r = ghepLuatCongKhai([dong(), dong({ loai: 'chao', dich: [] })], DM);
+    expect(r.luat.map((l) => [l.id, l.loai])).toEqual([['id-chao', 'chao'], ['id-xuat_hoa_don_tool', 'xuat_hoa_don_tool']]);
   });
   it('áp lại luật cứng với ảnh chụp HIỆN TẠI: bỏ nhom_goc, bỏ nhóm khách nhạy cảm, bỏ luật composer khoá', () => {
     const r = ghepLuatCongKhai([
@@ -263,5 +267,49 @@ describe('kiemNhayCamDinh — nhạy cảm DÍNH theo id composer (tự rà P1-5
     const them = kiemNhayCamDinh(dinh, [C('a', 'khoa', ['gia', 'tien']), C('k', 'khoa')]);
     expect(them.viPham).toEqual([]);
     expect(them.dinh.a).toEqual({ nhay_cam: ['gia', 'tien'], khoa: true });
+  });
+});
+
+describe('chuanLuatIdDem — luat_id của số đếm là id luật; nhận `loai` (tương thích một bản)', () => {
+  const D = (luat_id: string | null, so: number, ket_qua: DemCanh['ket_qua'] = 'bong', dich_kieu = 'g_kho'): DemCanh => ({
+    khoa_canh: khoaCanh('in_sau_chot', dich_kieu, luat_id), composer: 'in_sau_chot', dich_kieu, luat_id, ket_qua, cua_so: '24h', so,
+  });
+  const LUAT = [{ id: '0b9a-uuid', loai: 'in_sau_chot' }, { id: '7c1d-uuid', loai: 'xuat_hoa_don_tool' }];
+  it('id luật ⇒ giữ nguyên; null (gốc) ⇒ giữ nguyên', () => {
+    const vao = [D('0b9a-uuid', 3), D(null, 2, 'da_gui', 'nhom_goc')];
+    expect(chuanLuatIdDem(vao, LUAT)).toEqual({ dem: vao, doiTuLoai: 0 });
+  });
+  it('luat_id = loai ⇒ đổi sang id + khoa_canh viết lại theo id', () => {
+    const r = chuanLuatIdDem([D('in_sau_chot', 7)], LUAT);
+    expect(r.dem).toEqual([D('0b9a-uuid', 7)]);
+    expect(r.dem[0].khoa_canh).toBe('in_sau_chot→g_kho|0b9a-uuid');
+    expect(r.doiTuLoai).toBe(1);
+  });
+  it('luat_id lạ (luật đã xoá, số đếm 7 ngày còn) ⇒ giữ nguyên, không bỏ số', () => {
+    expect(chuanLuatIdDem([D('luat-da-xoa', 1)], LUAT).dem).toEqual([D('luat-da-xoa', 1)]);
+  });
+  it('id thắng loai khi trùng chuỗi (id của luật khác bằng đúng loai của luật này)', () => {
+    const r = chuanLuatIdDem([D('in_sau_chot', 1)], [{ id: 'in_sau_chot', loai: 'x' }, { id: 'u2', loai: 'in_sau_chot' }]);
+    expect(r.dem[0].luat_id).toBe('in_sau_chot');
+  });
+  it('một ảnh chụp lẫn hai dạng cho CÙNG cạnh ⇒ gộp một dòng (cộng `so`), vị trí lần đầu', () => {
+    const r = chuanLuatIdDem([D('0b9a-uuid', 3), D(null, 1, 'da_gui', 'nhom_goc'), D('in_sau_chot', 4)], LUAT);
+    expect(r.dem).toEqual([D('0b9a-uuid', 7), D(null, 1, 'da_gui', 'nhom_goc')]);
+  });
+});
+
+describe('docDoiSoatEcho — thân POST /api/public/ban-do-tin/doi-soat-echo', () => {
+  it('nhận mảng chuỗi, khử trùng giữ thứ tự, cắt khoảng trắng', () => {
+    expect(docDoiSoatEcho({ echo_ids: ['tb:1:0', ' tb:2:0 ', 'tb:1:0'] })).toEqual(['tb:1:0', 'tb:2:0']);
+    expect(docDoiSoatEcho({ echo_ids: [] })).toEqual([]);
+  });
+  it('sai hình ⇒ 400 DOI_SOAT_KHONG_HOP_LE: thiếu, không phải mảng, > 200, phần tử rỗng/không phải chuỗi/> 200 ký tự', () => {
+    for (const b of [
+      null, {}, { echo_ids: 'tb:1:0' }, { echo_ids: Array.from({ length: 201 }, (_, i) => `tb:${i}:0`) },
+      { echo_ids: [''] }, { echo_ids: ['  '] }, { echo_ids: [1] }, { echo_ids: ['x'.repeat(201)] },
+    ]) {
+      expect(loi(() => docDoiSoatEcho(b))).toEqual({ status: 400, code: 'DOI_SOAT_KHONG_HOP_LE' });
+    }
+    expect(docDoiSoatEcho({ echo_ids: Array.from({ length: 200 }, (_, i) => `tb:${i}:0`) })).toHaveLength(200);
   });
 });

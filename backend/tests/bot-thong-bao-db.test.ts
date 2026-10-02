@@ -5,7 +5,7 @@
 //   • công khai (x-api-key): GET luật (phien_ban ổn định/đổi đúng lúc, áp lại luật cứng), POST ảnh chụp (kiểm hình, thay bản cũ);
 //   • gieo luật chủ chọn 02/10 (script quản trị qua service): cần ảnh chụp, bong mặc định, chạy lặp không nhân đôi/không đè.
 // Chạy: CO_DB_TEST=1 DATABASE_URL=<db test đã migrate> npm run test:db
-import { it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { it, expect, beforeAll, afterAll, beforeEach, describe } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyJwt from '@fastify/jwt';
 import { describeCanDb } from './helpers/can-db.js';
@@ -41,6 +41,9 @@ const ANH = {
 const KHOA_BOT_A = 'test-btb-khoa-bot-a';
 
 async function donDep() {
+  await prisma.message.deleteMany({ where: { conversation: { orgId: { in: ORGS } } } });
+  await prisma.conversation.deleteMany({ where: { orgId: { in: ORGS } } });
+  await prisma.zaloAccount.deleteMany({ where: { orgId: { in: ORGS } } });
   await prisma.botQuyenNhatKy.deleteMany({ where: { orgId: { in: ORGS } } });
   await prisma.botLuatThongBao.deleteMany({ where: { orgId: { in: ORGS } } });
   await prisma.botBanDoTin.deleteMany({ where: { orgId: { in: ORGS } } });
@@ -330,7 +333,7 @@ describeCanDb('bot-thong-bao — luật thông báo + bản đồ tin (DB)', () 
     expect(t.statusCode, t.body).toBe(201);
     const a = await docLuat(KHOA_A);
     expect(a.luat).toEqual([{
-      loai: 'in_sau_chot', che_do: 'bat', dieu_kien: {}, gom_giay: 0, lich: null, phien_ban: 1,
+      id: t.json().luat.id, loai: 'in_sau_chot', che_do: 'bat', dieu_kien: {}, gom_giay: 0, lich: null, phien_ban: 1,
       dich: [{ kieu: 'chuc_nang', gia_tri: 'khach' }, { kieu: 'chuc_nang', gia_tri: 'kho' }],
     }]);
     expect((await docLuat(KHOA_A)).phien_ban).toBe(a.phien_ban);
@@ -473,5 +476,87 @@ describeCanDb('bot-thong-bao — luật thông báo + bản đồ tin (DB)', () 
     await gieoLuatChuChon(ORG_A, { aiId: 'cli:test', cheDo: 'bat' });
     expect((await prisma.botLuatThongBao.findMany({ where: { orgId: ORG_A } })).map((r) => r.cheDo)).toEqual(['bat', 'bat']);
     await expect(gieoLuatChuChon('org-khong-co', { aiId: 'cli:test' })).rejects.toMatchObject({ status: 404 });
+  });
+
+  // ── 02/10 (sau vòng giao diện): luat_id của số đếm = id luật; nhận loai một bản ──────────────────────────────────────
+
+  it('GET luật trả `id`; ảnh chụp: dem.luat_id = id giữ nguyên, = loai (bot cũ) ⇒ lưu thành id + khoa_canh theo id, lạ ⇒ giữ nguyên', async () => {
+    await guiAnh(KHOA_A);
+    const t = await goi('POST', '/luat-thong-bao', OWNER, { loai: 'in_sau_chot', dich: [{ kieu: 'chuc_nang', gia_tri: 'kho' }] });
+    expect(t.statusCode, t.body).toBe(201);
+    const id = t.json().luat.id as string;
+    const l = await docLuat(KHOA_A);
+    expect(l.luat.map((x) => [x.id, x.loai])).toEqual([[id, 'in_sau_chot']]);
+    const D = (luat: string | null, so: number, ket_qua = 'bong', cua_so = '24h') => ({
+      khoa_canh: `in_sau_chot→g_kho|${luat ?? 'goc'}`, composer: 'in_sau_chot', dich_kieu: 'g_kho', luat_id: luat, ket_qua, cua_so, so,
+    });
+    const r = await guiAnh(KHOA_A, { ...ANH, phien_ban: 'dm-id', dem: [D(id, 3), D('in_sau_chot', 4, 'bong', '7d'), D('luat-da-xoa', 1), D('in_sau_chot', 2)] });
+    expect(r.statusCode, r.body).toBe(200);
+    const bd = (await goi('GET', '/ban-do-tin', OWNER)).json().banDo;
+    expect(bd.dem).toEqual([D(id, 5), D(id, 4, 'bong', '7d'), D('luat-da-xoa', 1)]);
+  });
+
+  it('ảnh chụp org A gửi luat_id = loai của luật org B ⇒ KHÔNG đổi (chỉ luật cùng org)', async () => {
+    await guiAnh(KHOA_A);
+    await guiAnh(KHOA_B);
+    const tb = await goi('POST', '/luat-thong-bao', OWNER_B, { loai: 'in_sau_chot', dich: [{ kieu: 'chuc_nang', gia_tri: 'kho' }] });
+    expect(tb.statusCode, tb.body).toBe(201);
+    const d = { khoa_canh: 'in_sau_chot→g_kho|in_sau_chot', composer: 'in_sau_chot', dich_kieu: 'g_kho', luat_id: 'in_sau_chot', ket_qua: 'bong', cua_so: '24h', so: 1 };
+    expect((await guiAnh(KHOA_A, { ...ANH, phien_ban: 'dm-x', dem: [d] })).statusCode).toBe(200);
+    expect((await goi('GET', '/ban-do-tin', OWNER)).json().banDo.dem).toEqual([d]);
+  });
+
+  // ── Đối soát chua_ro: POST /api/public/ban-do-tin/doi-soat-echo ────────────────────────────────────────────────────
+
+  describe('đối soát echo (tin bot chua_ro)', () => {
+    const doiSoat = (khoa: string, body: unknown) =>
+      pub.inject({ method: 'POST', url: '/api/public/ban-do-tin/doi-soat-echo', headers: { 'x-api-key': khoa }, payload: body as object });
+
+    beforeAll(async () => {
+      for (const [org, nick] of [[ORG_A, 'test-btb-nick-a'], [ORG_B, 'test-btb-nick-b']] as const) {
+        await prisma.zaloAccount.create({ data: { id: nick, orgId: org, ownerUserId: org === ORG_A ? OWNER : OWNER_B, zaloUid: `${nick}-uid` } });
+        await prisma.conversation.create({ data: { id: `${nick}-conv`, orgId: org, zaloAccountId: nick, threadType: 'group', externalThreadId: `${nick}-g` } });
+      }
+      let n = 0;
+      const tin = (conv: string, echo: string | null, metadata?: object) => prisma.message.create({
+        data: {
+          conversationId: conv, zaloMsgId: `btb-echo-${++n}`, senderType: 'self', senderUid: 'x', content: 'tin', sentAt: new Date(),
+          clientEchoId: echo, ...(metadata ? { metadata } : {}),
+        },
+      });
+      await tin('test-btb-nick-a-conv', 'tb:1:0');
+      await tin('test-btb-nick-a-conv', 'tb:1:1', { sender: { kind: 'user_crm' } });
+      await tin('test-btb-nick-a-conv', 'tb:2:0', { sendStatus: 'failed', failReason: 'Zalo từ chối' });
+      await tin('test-btb-nick-a-conv', null);
+      await tin('test-btb-nick-b-conv', 'tb:9:0');
+    });
+
+    it('có / thất bại / không — theo thứ tự gửi lên, khử trùng; tin org khác là "khong"', async () => {
+      const r = await doiSoat(KHOA_A, { echo_ids: ['tb:1:0', 'tb:3:0', 'tb:2:0', 'tb:1:1', 'tb:9:0', 'tb:1:0'] });
+      expect(r.statusCode, r.body).toBe(200);
+      expect(r.json()).toEqual({ co: ['tb:1:0', 'tb:1:1'], that_bai: ['tb:2:0'], khong: ['tb:3:0', 'tb:9:0'] });
+      const b = await doiSoat(KHOA_B, { echo_ids: ['tb:1:0', 'tb:9:0'] });
+      expect(b.json()).toEqual({ co: ['tb:9:0'], that_bai: [], khong: ['tb:1:0'] });
+    });
+
+    it('rỗng ⇒ ba mảng rỗng; > 200 / sai hình ⇒ 400; thiếu/sai khoá ⇒ 401', async () => {
+      expect((await doiSoat(KHOA_A, { echo_ids: [] })).json()).toEqual({ co: [], that_bai: [], khong: [] });
+      const qua = await doiSoat(KHOA_A, { echo_ids: Array.from({ length: 201 }, (_, i) => `tb:${i}:0`) });
+      expect([qua.statusCode, qua.json().code]).toEqual([400, 'DOI_SOAT_KHONG_HOP_LE']);
+      expect((await doiSoat(KHOA_A, { echo_ids: [42] })).statusCode).toBe(400);
+      expect((await doiSoat('khoa-sai', { echo_ids: ['tb:1:0'] })).statusCode).toBe(401);
+      const khong = await pub.inject({ method: 'POST', url: '/api/public/ban-do-tin/doi-soat-echo', payload: { echo_ids: [] } });
+      expect(khong.statusCode).toBe(401);
+    });
+
+    it('org đã đặt khoá RIÊNG của bot ⇒ chỉ nhận khoá đó (như POST ảnh chụp)', async () => {
+      await prisma.appSetting.create({ data: { orgId: ORG_A, settingKey: 'bot_ban_do_tin_api_key', valuePlain: KHOA_BOT_A } });
+      try {
+        expect((await doiSoat(KHOA_A, { echo_ids: ['tb:1:0'] })).statusCode).toBe(403);
+        expect((await doiSoat(KHOA_BOT_A, { echo_ids: ['tb:1:0'] })).json().co).toEqual(['tb:1:0']);
+      } finally {
+        await prisma.appSetting.deleteMany({ where: { orgId: ORG_A, settingKey: 'bot_ban_do_tin_api_key' } });
+      }
+    });
   });
 });
