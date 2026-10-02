@@ -2,6 +2,7 @@
 <!--
   Tab "Cho khách" của trang Quyền bot (docs/79 T5): người giữ trang quyết bot được dùng gì khi KHÁCH hỏi thông số trong nhóm khách.
     • Tài liệu khách xem được — danh mục kho tri thức (RAG) do bot gửi lên; tick hàng loạt. MẶC ĐỊNH không tài liệu nào được dùng.
+      Duyệt gắn với ĐÚNG nội dung (băm) lúc duyệt: kho nạp lại tài liệu với nội dung khác ⇒ chip "Tài liệu đã đổi — cần duyệt lại".
     • Mô tả sản phẩm đã duyệt — "Mô tả bán hàng" trên Odoo; duyệt gắn với ĐÚNG nội dung đang thấy: sửa mô tả sau đó ⇒ chip
       "Mô tả đã đổi — cần duyệt lại" và bot thôi dùng tới khi duyệt lại (K2).
   Bot đọc duyệt qua bridge trong khoảng 1 phút. Thông số đọc từ TÊN sản phẩm không cần duyệt (không hiện ở đây).
@@ -35,9 +36,10 @@
           />
           <div class="bq-ck-nhom-nut" role="group" aria-label="Lọc tài liệu">
             <button
-              v-for="l in LOC_TL" :key="l.v" type="button" class="bq-ck-loc-nut" :class="{ 'is-on': tl.loc === l.v }"
+              v-for="l in locTlNut" :key="l.v" type="button" class="bq-ck-loc-nut"
+              :class="{ 'is-on': tl.loc === l.v, 'is-vang': l.v === 'doi_sau_duyet' && l.so > 0 }"
               :aria-pressed="tl.loc === l.v" :data-loc-tl="l.v" @click="tl.loc = l.v"
-            >{{ l.chu }}</button>
+            >{{ l.chu }} <span class="bq-ck-so">{{ l.so }}</span></button>
           </div>
         </div>
         <p v-if="tl.ngoaiDanhMuc.length > 0" class="bq-ck-ngoai">
@@ -73,6 +75,7 @@
               <th>Đoạn</th>
               <th>Cập nhật</th>
               <th>Khách</th>
+              <th class="bq-cot-nut"><span class="d-sr-only">Thao tác</span></th>
             </tr>
           </thead>
           <tbody>
@@ -88,7 +91,7 @@
                   <span
                     v-if="coVeNoiBo(t)" class="bq-chip bq-chip--do" data-o="noi-bo"
                     title="Tên hoặc nội dung có chữ/số tiền hay gặp ở tài liệu nội bộ — kiểm lại trước khi cho khách"
-                  ><v-icon size="12" icon="mdi-alert-outline" />Có vẻ nội bộ</span>
+                  ><v-icon size="12" icon="mdi-alert-outline" />Có vẻ tài liệu nội bộ</span>
                 </div>
                 <v-btn
                   v-if="t.mauNoiDung" variant="text" size="x-small" class="bq-ck-xem"
@@ -99,8 +102,16 @@
               <td data-nhan="Đoạn"><span class="bq-nho">{{ t.soDoan }}</span></td>
               <td data-nhan="Cập nhật"><span class="bq-nho bq-mo">{{ t.capNhatLuc ? gio(t.capNhatLuc) : '—' }}</span></td>
               <td data-nhan="Khách">
-                <span v-if="t.choKhach" class="bq-chip bq-chip--xanh" :title="nguoiDuyetChu(t.duyetBoi, t.duyetLuc)">Khách xem được</span>
-                <span v-else class="bq-chip bq-chip--xam">Chưa cho khách</span>
+                <span
+                  class="bq-chip" :class="`bq-chip--${nhanTrangThaiTaiLieu(t.trangThai).mau}`" data-o="trang-thai-tl"
+                  :title="nguoiDuyetChu(t.duyetBoi, t.duyetLuc)"
+                >{{ nhanTrangThaiTaiLieu(t.trangThai).chu }}</span>
+              </td>
+              <td class="bq-cot-nut">
+                <v-btn
+                  v-if="t.trangThai === 'doi_sau_duyet' && t.noiDungBam" size="small" color="primary" variant="tonal"
+                  :loading="tl.dangLam === t.id" @click="duyetLaiTl(t)"
+                >Duyệt lại</v-btn>
               </td>
             </tr>
           </tbody>
@@ -221,14 +232,13 @@ import { useToast } from '@/composables/use-toast';
 import { loiApi } from '@/views/settings/bot-quyen-loi';
 import { dinhDangGioVN } from '@/views/settings/may-in-nhat-ky';
 import { boDau } from '@/views/settings/bot-quyen-nhom';
-import { coVeNoiBo, locTaiLieu, nhanTrangThaiMoTa, type LocTaiLieu } from '@/views/settings/bot-quyen-cho-khach';
+import {
+  coVeNoiBo, locTaiLieu, nhanTrangThaiMoTa, nhanTrangThaiTaiLieu, type LocTaiLieu,
+} from '@/views/settings/bot-quyen-cho-khach';
 import BotQuyenLyDoDialog from './BotQuyenLyDoDialog.vue';
 
 const toast = useToast();
 
-const LOC_TL: Array<{ v: LocTaiLieu; chu: string }> = [
-  { v: 'tat_ca', chu: 'Tất cả' }, { v: 'cho_khach', chu: 'Khách xem được' }, { v: 'chua', chu: 'Chưa cho khách' },
-];
 
 function gio(luc: string): string {
   return dinhDangGioVN(luc, { coNam: true }).slice(0, 16);
@@ -242,13 +252,22 @@ function nguoiDuyetChu(ai: NguoiDuyet | null, luc: string | null): string {
 const tl = reactive({
   ds: [] as TaiLieuChoKhach[], danhMuc: null as DanhMucMoc | null, ngoaiDanhMuc: [] as string[],
   dangTai: false, da: false, loi: '', tuKhoa: '' as string | null, loc: 'tat_ca' as LocTaiLieu, chon: [] as string[], mo: [] as string[],
+  dangLam: null as string | null,
 });
+const locTlNut = computed((): Array<{ v: LocTaiLieu; chu: string; so: number }> => [
+  { v: 'tat_ca', chu: 'Tất cả', so: tl.ds.length },
+  { v: 'cho_khach', chu: 'Khách xem được', so: locTaiLieu(tl.ds, '', 'cho_khach').length },
+  { v: 'chua', chu: 'Chưa cho khách', so: locTaiLieu(tl.ds, '', 'chua').length },
+  { v: 'doi_sau_duyet', chu: 'Tài liệu đổi sau duyệt', so: locTaiLieu(tl.ds, '', 'doi_sau_duyet').length },
+]);
 const tlHien = computed(() => locTaiLieu(tl.ds, tl.tuKhoa ?? '', tl.loc));
-const soChoKhach = computed(() => tl.ds.filter((t) => t.choKhach).length);
+const soChoKhach = computed(() => tl.ds.filter((t) => t.trangThai === 'da_duyet').length);
 const tlTheoId = computed(() => new Map(tl.ds.map((t) => [t.id, t])));
 const tlChon = computed(() => tl.chon.filter((id) => tlTheoId.value.has(id)));
-const tlChonChua = computed(() => tlChon.value.filter((id) => !tlTheoId.value.get(id)!.choKhach));
-const tlChonDa = computed(() => tlChon.value.filter((id) => tlTheoId.value.get(id)!.choKhach));
+/** Duyệt được: có nội dung (băm) và chưa hiệu lực với ĐÚNG nội dung đó (chưa duyệt / đổi sau duyệt). */
+const coTheDuyetTl = (t: TaiLieuChoKhach) => !!t.noiDungBam && t.trangThai !== 'da_duyet';
+const tlChonChua = computed(() => tlChon.value.filter((id) => coTheDuyetTl(tlTheoId.value.get(id)!)));
+const tlChonDa = computed(() => tlChon.value.filter((id) => !!tlTheoId.value.get(id)!.noiDungBamDaDuyet));
 const tlChonHet = computed(() => tlHien.value.length > 0 && tlHien.value.every((t) => tl.chon.includes(t.id)));
 
 function chonHetTl(bat: boolean) {
@@ -274,6 +293,20 @@ async function taiTaiLieu() {
     if (!l.daBao) toast.error(l.chu, 6000);
   } finally {
     tl.dangTai = false;
+  }
+}
+
+async function duyetLaiTl(t: TaiLieuChoKhach) {
+  if (!t.noiDungBam) return;
+  tl.dangLam = t.id;
+  try {
+    await duyetTaiLieuChoKhach([{ id: t.id, noiDungBam: t.noiDungBam }]);
+    toast.success(`Đã duyệt lại “${t.tieuDe}”`);
+    await taiTaiLieu();
+  } catch (e) {
+    await baoLoiGhi(e, 'Không duyệt được tài liệu', taiTaiLieu);
+  } finally {
+    tl.dangLam = null;
   }
 }
 
@@ -395,7 +428,11 @@ async function xacNhanHop(lyDo: string) {
   const laTl = hop.loai.endsWith('-tl');
   try {
     let doi = 0;
-    if (hop.loai === 'duyet-tl') doi = (await duyetTaiLieuChoKhach(hop.ids as string[], ly)).doi;
+    if (hop.loai === 'duyet-tl') {
+      // Gửi ĐÚNG băm nội dung đang hiển thị — bot nạp lại nội dung khác trong lúc đó ⇒ 409 TAI_LIEU_DA_DOI, không duyệt hộ.
+      const ds = (hop.ids as string[]).map((id) => tlTheoId.value.get(id)).filter((t): t is TaiLieuChoKhach => !!t?.noiDungBam);
+      doi = (await duyetTaiLieuChoKhach(ds.map((t) => ({ id: t.id, noiDungBam: t.noiDungBam! })), ly)).doi;
+    }
     else if (hop.loai === 'bo-tl') doi = (await boDuyetTaiLieuChoKhach(hop.ids as string[], ly)).doi;
     else if (hop.loai === 'duyet-mt') {
       const sp = (hop.ids as number[]).map((id) => mtTheoId.value.get(id)).filter((s): s is MoTaSanPham => !!s?.moTaBam);

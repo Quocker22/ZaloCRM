@@ -3,7 +3,8 @@
 //
 // QUẢN TRỊ (đăng ký BÊN TRONG registerBotQuyenRoutes ⇒ JWT + CHỈ owner/admin + requireActiveUser), prefix /api/v1/bot-quyen:
 //   GET  /cho-khach/tai-lieu            → {danhMuc: {phienBan, luc} | null, taiLieu: TaiLieuView[], duyetNgoaiDanhMuc: string[]}
-//   POST /cho-khach/tai-lieu/duyet      {ids: string[1..500], lyDo?} → {doi}   (id phải có trong danh mục; chưa có ⇒ 409)
+//   POST /cho-khach/tai-lieu/duyet      {taiLieu: [{id, noiDungBam}] (1..500), lyDo?} → {doi}  (id phải có trong danh mục; chưa có
+//                                       ⇒ 409; băm khác danh mục / tài liệu rỗng ⇒ 409 TAI_LIEU_DA_DOI)
 //   POST /cho-khach/tai-lieu/bo-duyet   {ids: string[1..500], lyDo?} → {doi}   (luôn được)
 //   GET  /cho-khach/mo-ta               ?loc=co_mo_ta|da_duyet|doi_sau_duyet|tat_ca (mặc định co_mo_ta) → {danhMuc, sanPham, dem}
 //   POST /cho-khach/mo-ta/duyet         {sanPham: [{productId, moTaBam}] (1..500), lyDo?} → {doi}  (băm khác danh mục ⇒ 409 MO_TA_DA_DOI)
@@ -13,7 +14,7 @@
 // CÔNG KHAI cho bridge của bot (x-api-key — khoá chung `public_api_key` hoặc khoá riêng `bot_ban_do_tin_api_key`; org đã đặt
 // khoá riêng ⇒ CHỈ khoá riêng, 403 CAN_KHOA_RIENG_BOT — như POST /api/public/ban-do-tin):
 //   POST /api/public/cho-khach/danh-muc  {phien_ban, tai_lieu, san_pham} (≤ 8 MB) → {ok, phien_ban, so_tai_lieu, so_san_pham}
-//   GET  /api/public/cho-khach/duyet     → {phien_ban, danh_muc_phien_ban, tai_lieu_cho_khach: string[], mo_ta_da_duyet: [{product_id, mo_ta_bam}]}
+//   GET  /api/public/cho-khach/duyet     → {phien_ban, danh_muc_phien_ban, tai_lieu_cho_khach: [{id, noi_dung_bam}], mo_ta_da_duyet: [{product_id, mo_ta_bam}]}
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { logger } from '../../shared/utils/logger.js';
 import { xacThucKhoa, canKhoaRiengNeuCo } from './bot-thong-bao-routes.js';

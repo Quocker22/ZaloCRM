@@ -3,6 +3,7 @@
 // Tab "Cho khách" của trang Quyền bot (docs/79 T5), gắn với API giả:
 //   • hai phần "Tài liệu khách xem được" + "Mô tả sản phẩm đã duyệt"; cảnh báo KHÔNG tick tài liệu nội bộ / bảng giá;
 //   • tick hàng loạt ⇒ hộp xác nhận nêu tên tài liệu "có vẻ nội bộ" ⇒ gửi đúng id + lý do; tìm kiếm; xem mẫu nội dung;
+//   • tài liệu gắn băm NỘI DUNG: chip "Tài liệu đã đổi — cần duyệt lại" + bộ lọc, duyệt gửi ĐÚNG băm đang hiển thị, 409 TAI_LIEU_DA_DOI;
 //   • mô tả: chip "Mô tả đã đổi — cần duyệt lại", duyệt gửi ĐÚNG băm đang hiển thị, 409 MO_TA_DA_DOI ⇒ hiện câu + tải lại;
 //   • trang Quyền bot có tab "Cho khách".
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -85,16 +86,30 @@ const VUETIFY_VO = {
 const B1 = 'a'.repeat(64);
 const B2 = 'b'.repeat(64);
 const B3 = 'c'.repeat(64);
+const N1 = '1'.repeat(64);
+const N2 = '2'.repeat(64);
+const N3 = '3'.repeat(64);
+const N4 = '4'.repeat(64);
+const N4_CU = '5'.repeat(64);
 const TAI_LIEU: DsTaiLieuChoKhach = {
   danhMuc: { phienBan: 'dm-1', luc: '2026-10-02T02:00:00.000Z' },
   duyetNgoaiDanhMuc: [],
   taiLieu: [
     { id: 'doc-1', tieuDe: 'Datasheet P10', loai: 'pdf', nguon: 'file-zalo', soDoan: 12, capNhatLuc: '2026-09-30T02:00:00.000Z',
-      mauNoiDung: 'Module P10 full color 320x160', choKhach: true, duyetBoi: { id: 'u1', fullName: 'Nguyễn A' }, duyetLuc: '2026-10-01T02:00:00.000Z' },
+      mauNoiDung: 'Module P10 full color 320x160', noiDungBam: N1, trangThai: 'da_duyet', noiDungBamDaDuyet: N1, choKhach: true,
+      duyetBoi: { id: 'u1', fullName: 'Nguyễn A' }, duyetLuc: '2026-10-01T02:00:00.000Z' },
     { id: 'doc-2', tieuDe: 'Bảng giá đại lý 2026', loai: 'pdf', nguon: 'file-zalo', soDoan: 4, capNhatLuc: null,
-      mauNoiDung: 'Led dây 12V giá 125.000đ/m', choKhach: false, duyetBoi: null, duyetLuc: null },
+      mauNoiDung: 'Led dây 12V giá 125.000đ/m', noiDungBam: N2, trangThai: 'chua_duyet', noiDungBamDaDuyet: null, choKhach: false,
+      duyetBoi: null, duyetLuc: null },
     { id: 'doc-3', tieuDe: 'Hướng dẫn lắp', loai: null, nguon: 'nhap-tay', soDoan: 2, capNhatLuc: null,
-      mauNoiDung: 'Bước 1: cắt nguồn', choKhach: false, duyetBoi: null, duyetLuc: null },
+      mauNoiDung: 'Bước 1: cắt nguồn', noiDungBam: N3, trangThai: 'chua_duyet', noiDungBamDaDuyet: null, choKhach: false,
+      duyetBoi: null, duyetLuc: null },
+    { id: 'doc-4', tieuDe: 'Catalogue 2026', loai: 'pdf', nguon: 'file-zalo', soDoan: 8, capNhatLuc: '2026-10-02T01:00:00.000Z',
+      mauNoiDung: 'Catalogue led dây', noiDungBam: N4, trangThai: 'doi_sau_duyet', noiDungBamDaDuyet: N4_CU, choKhach: false,
+      duyetBoi: { id: 'u1', fullName: 'Nguyễn A' }, duyetLuc: '2026-10-01T02:00:00.000Z' },
+    { id: 'doc-5', tieuDe: 'Ảnh chưa OCR', loai: 'jpg', nguon: 'file-zalo', soDoan: 0, capNhatLuc: null,
+      mauNoiDung: null, noiDungBam: null, trangThai: 'khong_noi_dung', noiDungBamDaDuyet: null, choKhach: false,
+      duyetBoi: null, duyetLuc: null },
   ],
 };
 const MO_TA: DsMoTa = {
@@ -145,7 +160,7 @@ describe('Tab "Cho khách" — tài liệu', () => {
     );
     expect(tlHang(w, 'doc-1').text()).toContain('Khách xem được');
     expect(tlHang(w, 'doc-2').text()).toContain('Chưa cho khách');
-    expect(tlHang(w, 'doc-2').find('[data-o="noi-bo"]').exists()).toBe(true);
+    expect(tlHang(w, 'doc-2').find('[data-o="noi-bo"]').text()).toBe('Có vẻ tài liệu nội bộ');
     expect(tlHang(w, 'doc-1').find('[data-o="noi-bo"]').exists()).toBe(false);
     w.unmount();
   });
@@ -175,20 +190,52 @@ describe('Tab "Cho khách" — tài liệu', () => {
     await hop.find('[data-o="ly-do"] input').setValue('datasheet công khai');
     await hop.find('[data-nut="xac-nhan-ly-do"]').trigger('click');
     await flushPromises();
-    expect(duyetTaiLieuChoKhach).toHaveBeenCalledWith(['doc-2', 'doc-3'], 'datasheet công khai');
+    expect(duyetTaiLieuChoKhach).toHaveBeenCalledWith([{ id: 'doc-2', noiDungBam: N2 }, { id: 'doc-3', noiDungBam: N3 }], 'datasheet công khai');
     expect(layTaiLieuChoKhach).toHaveBeenCalledTimes(2);
     expect(toast.success).toHaveBeenCalled();
     w.unmount();
   });
 
-  it('chọn tất cả (đang hiện) rồi "Bỏ cho khách" ⇒ chỉ gửi id đang cho khách', async () => {
+  it('chọn tất cả (đang hiện) rồi "Bỏ cho khách" ⇒ gửi mọi id ĐÃ duyệt (kể cả đã đổi sau duyệt)', async () => {
     const w = gan();
     await flushPromises();
     await phan(w, 'tai-lieu').find('input[data-o="chon-het"]').setValue(true);
+    // Duyệt hàng loạt: tài liệu rỗng (doc-5) và đang hiệu lực (doc-1) không tính.
+    expect(w.find('[data-nut="duyet-tai-lieu"]').text()).toBe('Cho khách xem (3)');
     await w.find('[data-nut="bo-duyet-tai-lieu"]').trigger('click');
     await w.find('.vo-dialog [data-nut="xac-nhan-ly-do"]').trigger('click');
     await flushPromises();
-    expect(boDuyetTaiLieuChoKhach).toHaveBeenCalledWith(['doc-1'], undefined);
+    expect(boDuyetTaiLieuChoKhach).toHaveBeenCalledWith(['doc-1', 'doc-4'], undefined);
+    w.unmount();
+  });
+
+  it('nội dung đổi sau duyệt: chip "Tài liệu đã đổi — cần duyệt lại" + bộ lọc; "Duyệt lại" gửi ĐÚNG băm đang hiển thị', async () => {
+    const w = gan();
+    await flushPromises();
+    expect(tlHang(w, 'doc-4').find('[data-o="trang-thai-tl"]').text()).toBe('Tài liệu đã đổi — cần duyệt lại');
+    expect(tlHang(w, 'doc-1').find('[data-o="trang-thai-tl"]').text()).toBe('Khách xem được');
+    expect(tlHang(w, 'doc-5').find('[data-o="trang-thai-tl"]').text()).toBe('Không có nội dung');
+    expect(w.find('[data-loc-tl="doi_sau_duyet"]').text()).toContain('1');
+    await w.find('[data-loc-tl="doi_sau_duyet"]').trigger('click');
+    expect(w.findAll('tr[data-tl]').map((r) => r.attributes('data-tl'))).toEqual(['doc-4']);
+    expect(tlHang(w, 'doc-5').exists()).toBe(false);
+    await nut(tlHang(w, 'doc-4'), 'Duyệt lại').trigger('click');
+    await flushPromises();
+    expect(duyetTaiLieuChoKhach).toHaveBeenCalledWith([{ id: 'doc-4', noiDungBam: N4 }]);
+    expect(layTaiLieuChoKhach).toHaveBeenCalledTimes(2);
+    w.unmount();
+  });
+
+  it('409 TAI_LIEU_DA_DOI ⇒ hiện nguyên câu + tải lại danh mục', async () => {
+    vi.mocked(duyetTaiLieuChoKhach).mockRejectedValue({
+      response: { status: 409, data: { error: 'Nội dung tài liệu đã đổi hoặc tài liệu rỗng (“Catalogue 2026”) — tải lại, xem nội dung mới rồi duyệt', code: 'TAI_LIEU_DA_DOI' } },
+    });
+    const w = gan();
+    await flushPromises();
+    await nut(tlHang(w, 'doc-4'), 'Duyệt lại').trigger('click');
+    await flushPromises();
+    expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('Nội dung tài liệu đã đổi'), 6000);
+    expect(layTaiLieuChoKhach).toHaveBeenCalledTimes(2);
     w.unmount();
   });
 

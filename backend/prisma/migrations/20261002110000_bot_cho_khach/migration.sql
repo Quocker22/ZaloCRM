@@ -1,6 +1,7 @@
 -- 02/10/2026: CHO KHÁCH (docs/79 T5) — duyệt tài liệu RAG + mô tả SP cho đường khách của bot.
 --   bot_cho_khach_danh_muc   danh mục MỚI NHẤT mỗi org bot đẩy lên (POST /api/public/cho-khach/danh-muc).
---   bot_tai_lieu_cho_khach   tài liệu "khách xem được" (không có dòng = không cho khách).
+--   bot_tai_lieu_cho_khach   tài liệu "khách xem được" (không có dòng = không cho khách), gắn với băm sha256 NỘI DUNG đầy đủ
+--                            lúc duyệt (nạp lại cùng id mà nội dung đổi ⇒ hết hiệu lực).
 --   bot_mo_ta_duyet          mô tả SP đã duyệt, gắn với băm sha256 của mô tả đã chuẩn hoá (K2: đổi mô tả ⇒ hết hiệu lực).
 --   bot_quyen_nhat_ky        nhận doi_tuong 'tai_lieu_cho_khach' | 'mo_ta_duyet' | 'danh_muc_cho_khach'.
 -- Chỉ THÊM bảng + nới CHECK doi_tuong của nhật ký (bảng nhỏ — kiểm lại tức thì). Không đụng dữ liệu cũ.
@@ -21,6 +22,7 @@ CREATE TABLE "bot_tai_lieu_cho_khach" (
     "id" TEXT NOT NULL,
     "org_id" TEXT NOT NULL,
     "tai_lieu_id" TEXT NOT NULL,
+    "noi_dung_bam" TEXT NOT NULL,
     "duyet_boi" TEXT NOT NULL,
     "luc" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -51,6 +53,7 @@ ALTER TABLE "bot_mo_ta_duyet" ADD CONSTRAINT "bot_mo_ta_duyet_org_id_fkey"
 
 -- Lần chặn thứ hai (SQL tay): băm sai dạng không bao giờ tới bot.
 ALTER TABLE "bot_mo_ta_duyet" ADD CONSTRAINT "bot_mo_ta_duyet_mo_ta_bam_check" CHECK ("mo_ta_bam" ~ '^[0-9a-f]{64}$');
+ALTER TABLE "bot_tai_lieu_cho_khach" ADD CONSTRAINT "bot_tai_lieu_cho_khach_noi_dung_bam_check" CHECK ("noi_dung_bam" ~ '^[0-9a-f]{64}$');
 ALTER TABLE "bot_mo_ta_duyet" ADD CONSTRAINT "bot_mo_ta_duyet_product_id_check" CHECK ("product_id" > 0);
 
 ALTER TABLE "bot_quyen_nhat_ky" DROP CONSTRAINT "bot_quyen_nhat_ky_doi_tuong_check";

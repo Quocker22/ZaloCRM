@@ -4943,13 +4943,15 @@ model BotChoKhachDanhMuc {
 
 /// Tài liệu RAG được đánh dấu "khách xem được" (docs/79 T5). Không có dòng = KHÔNG cho khách (mặc định đóng).
 model BotTaiLieuChoKhach {
-  id        String   @id @default(uuid())
-  orgId     String   @map("org_id")
+  id         String   @id @default(uuid())
+  orgId      String   @map("org_id")
   /// kb_documents.id bên DB bot.
-  taiLieuId String   @map("tai_lieu_id")
+  taiLieuId  String   @map("tai_lieu_id")
+  /// sha256 (hợp đồng §3b) nội dung đầy đủ LÚC DUYỆT — khác băm trong danh mục ⇒ hết hiệu lực (CHECK hex 64 ở migration).
+  noiDungBam String   @map("noi_dung_bam")
   /// User CRM duyệt. Không FK — sống lâu hơn tài khoản.
-  duyetBoi  String   @map("duyet_boi")
-  luc       DateTime @default(now())
+  duyetBoi   String   @map("duyet_boi")
+  luc        DateTime @default(now())
 
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 

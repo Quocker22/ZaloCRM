@@ -3,7 +3,7 @@
 // Hợp đồng: docs/may-in/HOP-DONG-CHO-KHACH.md. Vector băm ở đây phải TRÙNG vector trong hợp đồng (bot kiểm cùng vector).
 import { describe, it, expect } from 'vitest';
 import {
-  chuanMoTa, bamMoTa, docDanhMuc, dungDuyetCongKhai, LoiChoKhach, CAT_MAU_NOI_DUNG,
+  chuanMoTa, bamMoTa, bamNoiDungTaiLieu, docDanhMuc, dungDuyetCongKhai, LoiChoKhach, CAT_MAU_NOI_DUNG,
 } from '../src/modules/bot-quyen/bot-cho-khach-hop-dong.js';
 
 const BAM_RONG = /^[0-9a-f]{64}$/;
@@ -15,7 +15,7 @@ function sp(them: Record<string, unknown> = {}) {
 function tl(them: Record<string, unknown> = {}) {
   return {
     id: '0b6a3c1e-1111-4a4a-9c9c-000000000001', tieu_de: 'Datasheet P10', loai: 'pdf', nguon: 'file-zalo', so_doan: 12,
-    cap_nhat_luc: '2026-09-30T02:00:00.000Z', mau_noi_dung: 'Module P10 full color…', ...them,
+    cap_nhat_luc: '2026-09-30T02:00:00.000Z', mau_noi_dung: 'Module P10 full color…', noi_dung_bam: 'd'.repeat(64), ...them,
   };
 }
 function loi(f: () => unknown): LoiChoKhach {
@@ -49,8 +49,25 @@ describe('chuanMoTa / bamMoTa — chuẩn hoá trước khi băm (K2)', () => {
   });
 });
 
+describe('bamNoiDungTaiLieu — băm nội dung tài liệu (duyệt tài liệu gắn NỘI DUNG, hợp đồng §3b)', () => {
+  it('nối kb_chunks.noi_dung theo ord bằng "\\n" rồi chuẩn hoá + sha256 như mô tả', () => {
+    expect(bamNoiDungTaiLieu(['Điện áp 12V', 'IP65'])).toBe(VECTOR);
+    expect(bamNoiDungTaiLieu([' Điện  áp 12V \r\n', '', '\u00a0IP65 '])).toBe(VECTOR);
+  });
+  it('thứ tự đoạn khác ⇒ băm khác; không có đoạn / toàn khoảng trắng ⇒ null', () => {
+    expect(bamNoiDungTaiLieu(['IP65', 'Điện áp 12V'])).not.toBe(VECTOR);
+    expect(bamNoiDungTaiLieu([])).toBeNull();
+    expect(bamNoiDungTaiLieu(['  ', '\t'])).toBeNull();
+  });
+  it('vector hai đoạn cố định (in trong hợp đồng §3b)', () => {
+    expect(bamNoiDungTaiLieu(['Module P10 full color', 'Điện áp 5V\nCông suất 30W'])).toBe(VECTOR_TL);
+  });
+});
+
 // Giá trị tính một lần bằng sha256(utf8("Điện áp 12V\nIP65")) — in nguyên văn trong HOP-DONG-CHO-KHACH.md §3.
 const VECTOR = 'cff3e472b1116ef9867dc369dad46aa544120d98453a1caa159daef1b39442a9';
+// sha256(utf8("Module P10 full color\nĐiện áp 5V\nCông suất 30W")) — in nguyên văn trong hợp đồng §3b.
+const VECTOR_TL = '954417e52b60aaf91952023735fbdc9c657abde3387872de1d285fc05ba34c45';
 
 describe('docDanhMuc — kiểm danh mục bot đẩy lên', () => {
   it('hợp lệ ⇒ chuẩn hoá: trường lạ bỏ, mẫu nội dung cắt 300 ký tự, null cho ô vắng', () => {
@@ -65,12 +82,23 @@ describe('docDanhMuc — kiểm danh mục bot đẩy lên', () => {
     expect(d.tai_lieu[0]).not.toHaveProperty('them');
     expect(d.tai_lieu[1]).toEqual({
       id: 'doc-2', tieu_de: 'Datasheet P10', loai: null, nguon: null, so_doan: 12, cap_nhat_luc: null, mau_noi_dung: null,
+      noi_dung_bam: 'd'.repeat(64),
     });
     expect(d.san_pham[1]).toEqual({ product_id: 12, ma: null, ten: 'Led dây 12V', mo_ta_ban: null, mo_ta_bam: null });
   });
   it('mo_ta_bam phải KHỚP băm CRM tự tính (cùng cách chuẩn hoá) ⇒ lệch = 400 MO_TA_BAM_LECH', () => {
     const e = loi(() => docDanhMuc({ phien_ban: 'v', tai_lieu: [], san_pham: [sp({ mo_ta_bam: 'a'.repeat(64) })] }));
     expect([e.status, e.code]).toEqual([400, 'MO_TA_BAM_LECH']);
+  });
+  it('noi_dung_bam BẮT BUỘC có mặt: null (tài liệu rỗng) được, vắng / sai dạng ⇒ 400', () => {
+    expect(docDanhMuc({ phien_ban: 'v', tai_lieu: [tl({ noi_dung_bam: null })], san_pham: [] }).tai_lieu[0].noi_dung_bam).toBeNull();
+    const vang = tl();
+    delete (vang as Record<string, unknown>).noi_dung_bam;
+    expect(loi(() => docDanhMuc({ phien_ban: 'v', tai_lieu: [vang], san_pham: [] })).code).toBe('DANH_MUC_KHONG_HOP_LE');
+    expect(loi(() => docDanhMuc({ phien_ban: 'v', tai_lieu: [tl({ noi_dung_bam: 'D'.repeat(64) })], san_pham: [] })).code)
+      .toBe('DANH_MUC_KHONG_HOP_LE');
+    expect(loi(() => docDanhMuc({ phien_ban: 'v', tai_lieu: [tl({ noi_dung_bam: 'abc' })], san_pham: [] })).code)
+      .toBe('DANH_MUC_KHONG_HOP_LE');
   });
   it('có mô tả mà thiếu băm / không có mô tả mà có băm ⇒ 400', () => {
     expect(loi(() => docDanhMuc({ phien_ban: 'v', tai_lieu: [], san_pham: [sp({ mo_ta_bam: null })] })).code).toBe('MO_TA_BAM_LECH');
@@ -98,14 +126,18 @@ describe('docDanhMuc — kiểm danh mục bot đẩy lên', () => {
 
 describe('dungDuyetCongKhai — payload GET /api/public/cho-khach/duyet', () => {
   it('sắp xếp tất định; phien_ban = sha256 hex của JSON chuẩn; đổi một băm ⇒ phien_ban đổi', () => {
-    const a = dungDuyetCongKhai(['b', 'a'], [{ productId: 12, moTaBam: 'f'.repeat(64) }, { productId: 3, moTaBam: 'e'.repeat(64) }], 'dm1');
-    expect(a.tai_lieu_cho_khach).toEqual(['a', 'b']);
+    const a = dungDuyetCongKhai([{ taiLieuId: 'b', noiDungBam: 'b'.repeat(64) }, { taiLieuId: 'a', noiDungBam: 'a'.repeat(64) }], [{ productId: 12, moTaBam: 'f'.repeat(64) }, { productId: 3, moTaBam: 'e'.repeat(64) }], 'dm1');
+    expect(a.tai_lieu_cho_khach).toEqual([{ id: 'a', noi_dung_bam: 'a'.repeat(64) }, { id: 'b', noi_dung_bam: 'b'.repeat(64) }]);
     expect(a.mo_ta_da_duyet.map((m) => m.product_id)).toEqual([3, 12]);
     expect(a.phien_ban).toMatch(BAM_RONG);
     expect(a.danh_muc_phien_ban).toBe('dm1');
-    const b = dungDuyetCongKhai(['a', 'b'], [{ productId: 3, moTaBam: 'e'.repeat(64) }, { productId: 12, moTaBam: 'f'.repeat(64) }], 'dm1');
+    const tlAB = [{ taiLieuId: 'a', noiDungBam: 'a'.repeat(64) }, { taiLieuId: 'b', noiDungBam: 'b'.repeat(64) }];
+    const b = dungDuyetCongKhai(tlAB, [{ productId: 3, moTaBam: 'e'.repeat(64) }, { productId: 12, moTaBam: 'f'.repeat(64) }], 'dm1');
     expect(b.phien_ban).toBe(a.phien_ban);
-    const c = dungDuyetCongKhai(['a', 'b'], [{ productId: 3, moTaBam: 'e'.repeat(64) }, { productId: 12, moTaBam: 'd'.repeat(64) }], 'dm1');
+    const c = dungDuyetCongKhai(tlAB, [{ productId: 3, moTaBam: 'e'.repeat(64) }, { productId: 12, moTaBam: 'd'.repeat(64) }], 'dm1');
     expect(c.phien_ban).not.toBe(a.phien_ban);
+    // Băm nội dung tài liệu đổi ⇒ phien_ban đổi (bot biết phải áp lại).
+    const d = dungDuyetCongKhai([tlAB[0], { taiLieuId: 'b', noiDungBam: 'c'.repeat(64) }], b.mo_ta_da_duyet.map((m) => ({ productId: m.product_id, moTaBam: m.mo_ta_bam })), 'dm1');
+    expect(d.phien_ban).not.toBe(b.phien_ban);
   });
 });

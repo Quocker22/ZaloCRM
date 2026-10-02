@@ -186,9 +186,14 @@ function cauBanDoTin(ai: string, e: NhatKy): string {
   return `${ai} cập nhật bản đồ tin ${chuoi(e.sau, 'phienBan') ?? ''}${so}${phan.length ? ` — ${phan.join('; ')}` : ''}`;
 }
 
-/** Cho khách (docs/79 T5): tài liệu RAG khách xem được — truoc/sau = {tieuDe, choKhach}. */
+/** Cho khách (docs/79 T5): tài liệu RAG khách xem được — truoc/sau = {tieuDe, choKhach, noiDungBam?}. */
 function cauTaiLieuChoKhach(ai: string, e: NhatKy): string {
   const ten = `tài liệu “${e.tenDoiTuong?.trim() || e.doiTuongId}”`;
+  const bamTruoc = e.truoc ? chuoi(e.truoc, 'noiDungBam') : null;
+  const bamSau = e.sau ? chuoi(e.sau, 'noiDungBam') : null;
+  if (e.truoc?.choKhach === true && e.sau?.choKhach === true && bamTruoc && bamSau) {
+    return `${ai} duyệt lại nội dung mới của ${ten} cho khách (bản ${bamTruoc.slice(0, 8)} → ${bamSau.slice(0, 8)})`;
+  }
   return e.sau?.choKhach === true ? `${ai} cho khách xem ${ten}` : `${ai} bỏ cho khách xem ${ten}`;
 }
 

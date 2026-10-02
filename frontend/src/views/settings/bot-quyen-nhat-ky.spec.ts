@@ -185,6 +185,13 @@ describe('cauNhatKy — cho khách (docs/79 T5)', () => {
       truoc: { tieuDe: null, choKhach: true }, sau: { tieuDe: null, choKhach: false },
     }))).toBe('Nguyễn A bỏ cho khách xem tài liệu “doc-1”');
   });
+  it('tài liệu: duyệt lại sau khi nội dung đổi — nêu hai bản (8 ký tự đầu băm nội dung)', () => {
+    expect(cauNhatKy(nk({
+      doiTuong: 'tai_lieu_cho_khach', doiTuongId: 'doc-1', tenDoiTuong: 'Datasheet P10',
+      truoc: { tieuDe: 'Datasheet P10', choKhach: true, noiDungBam: 'a'.repeat(64) },
+      sau: { tieuDe: 'Datasheet P10', choKhach: true, noiDungBam: 'b'.repeat(64) },
+    }))).toBe('Nguyễn A duyệt lại nội dung mới của tài liệu “Datasheet P10” cho khách (bản aaaaaaaa → bbbbbbbb)');
+  });
   it('mô tả: duyệt / duyệt lại sau khi đổi / bỏ duyệt', () => {
     const b1 = 'a'.repeat(64);
     const b2 = 'b'.repeat(64);

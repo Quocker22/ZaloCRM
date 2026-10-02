@@ -3,7 +3,7 @@
 //
 // Khớp backend `backend/src/modules/bot-quyen/bot-cho-khach-routes.ts` (mount /bot-quyen, JWT, CHỈ owner/admin):
 //   GET  /bot-quyen/cho-khach/tai-lieu           -> { danhMuc, taiLieu: TaiLieuChoKhach[], duyetNgoaiDanhMuc: string[] }
-//   POST /bot-quyen/cho-khach/tai-lieu/duyet     {ids, lyDo?} -> { doi }
+//   POST /bot-quyen/cho-khach/tai-lieu/duyet     {taiLieu: [{id, noiDungBam}], lyDo?} -> { doi }  (409 TAI_LIEU_DA_DOI)
 //   POST /bot-quyen/cho-khach/tai-lieu/bo-duyet  {ids, lyDo?} -> { doi }
 //   GET  /bot-quyen/cho-khach/mo-ta              ?loc=co_mo_ta|da_duyet|doi_sau_duyet|tat_ca -> { danhMuc, sanPham, dem }
 //   POST /bot-quyen/cho-khach/mo-ta/duyet        {sanPham: [{productId, moTaBam}], lyDo?} -> { doi }  (409 MO_TA_DA_DOI)
@@ -21,6 +21,9 @@ export interface NguoiDuyet {
   fullName: string;
 }
 
+/** khong_noi_dung = tài liệu rỗng (không duyệt được); doi_sau_duyet = nội dung khác lúc duyệt (bot thôi dùng). */
+export type TrangThaiTaiLieu = 'khong_noi_dung' | 'chua_duyet' | 'da_duyet' | 'doi_sau_duyet';
+
 export interface TaiLieuChoKhach {
   id: string;
   tieuDe: string;
@@ -30,6 +33,11 @@ export interface TaiLieuChoKhach {
   capNhatLuc: string | null;
   /** ≤ 300 ký tự đầu — để người duyệt nhìn. */
   mauNoiDung: string | null;
+  /** sha256 nội dung đầy đủ bot gửi (hợp đồng §3b); null = rỗng. Duyệt gửi ĐÚNG băm này. */
+  noiDungBam: string | null;
+  trangThai: TrangThaiTaiLieu;
+  noiDungBamDaDuyet: string | null;
+  /** = trangThai 'da_duyet'. */
   choKhach: boolean;
   duyetBoi: NguoiDuyet | null;
   duyetLuc: string | null;
@@ -78,8 +86,8 @@ export async function layTaiLieuChoKhach(): Promise<DsTaiLieuChoKhach> {
   return { danhMuc: data?.danhMuc ?? null, taiLieu: data?.taiLieu ?? [], duyetNgoaiDanhMuc: data?.duyetNgoaiDanhMuc ?? [] };
 }
 
-export async function duyetTaiLieuChoKhach(ids: string[], lyDo?: string): Promise<{ doi: number }> {
-  const { data } = await api.post('/bot-quyen/cho-khach/tai-lieu/duyet', { ids, ...(lyDo ? { lyDo } : {}) }, CAU_HINH);
+export async function duyetTaiLieuChoKhach(taiLieu: Array<{ id: string; noiDungBam: string }>, lyDo?: string): Promise<{ doi: number }> {
+  const { data } = await api.post('/bot-quyen/cho-khach/tai-lieu/duyet', { taiLieu, ...(lyDo ? { lyDo } : {}) }, CAU_HINH);
   return { doi: Number(data?.doi ?? 0) };
 }
 

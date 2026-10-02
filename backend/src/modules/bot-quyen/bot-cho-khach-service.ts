@@ -2,10 +2,11 @@
 // CHO KHÁCH (docs/79 T5) — nghiệp vụ: danh mục bot đẩy lên + duyệt tài liệu RAG / mô tả SP cho đường khách của bot.
 //
 // Bất biến:
-//   • MẶC ĐỊNH ĐÓNG: tài liệu chỉ "khách xem được" khi có dòng duyệt VÀ còn trong danh mục mới nhất; mô tả chỉ dùng được khi
-//     băm hiện tại == băm đã duyệt (bot so — K2). Chưa có danh mục ⇒ không duyệt được gì (409) và bot nhận danh sách tài liệu rỗng.
-//   • Duyệt mô tả phải mang băm người duyệt ĐANG NHÌN: khác băm trong danh mục hiện tại (bot vừa đẩy mô tả mới) ⇒ 409
-//     MO_TA_DA_DOI — không bao giờ duyệt hộ một mô tả chưa ai đọc. Cả lô hỏng nếu một mục hỏng (không duyệt nửa vời).
+//   • MẶC ĐỊNH ĐÓNG: tài liệu chỉ "khách xem được" khi có dòng duyệt VÀ còn trong danh mục mới nhất VÀ băm nội dung trong danh
+//     mục == băm lúc duyệt (bot so thêm với băm nội dung hiện tại của nó); mô tả chỉ dùng được khi băm hiện tại == băm đã duyệt
+//     (bot so — K2). Chưa có danh mục ⇒ không duyệt được gì (409) và bot nhận danh sách tài liệu rỗng.
+//   • Duyệt mô tả / tài liệu phải mang băm người duyệt ĐANG NHÌN: khác băm trong danh mục hiện tại (bot vừa đẩy nội dung mới)
+//     ⇒ 409 MO_TA_DA_DOI / TAI_LIEU_DA_DOI — không bao giờ duyệt hộ một nội dung chưa ai đọc. Cả lô hỏng nếu một mục hỏng (không duyệt nửa vời).
 //   • MỖI mục duyệt / bỏ duyệt ghi MỘT dòng BotQuyenNhatKy trong CÙNG giao dịch; ghi của một org nối đuôi nhau
 //     (pg_advisory_xact_lock) — danh mục đọc TRONG giao dịch đó.
 //   • Mọi truy vấn lọc theo orgId; route công khai chạy trong withTenant(org của KHOÁ).
@@ -49,6 +50,12 @@ function docLo<T>(x: unknown, ten: string, docMuc: (v: unknown, i: number) => T)
 const docIdTaiLieu = (v: unknown, i: number): string => {
   if (typeof v !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(v)) sai(`ids[${i}] không hợp lệ`);
   return v;
+};
+const docMucTaiLieu = (v: unknown, i: number): { id: string; noiDungBam: string } => {
+  const o = laBody(v);
+  const id = docIdTaiLieu(o.id, i);
+  if (typeof o.noiDungBam !== 'string' || !DANG_BAM.test(o.noiDungBam)) sai(`taiLieu[${i}].noiDungBam phải là 64 ký tự hex`);
+  return { id, noiDungBam: o.noiDungBam };
 };
 const docProductId = (v: unknown, i: number): number => {
   if (typeof v !== 'number' || !Number.isSafeInteger(v) || v < 1) sai(`productIds[${i}] phải là số nguyên dương`);
@@ -141,22 +148,25 @@ export async function luuDanhMuc(
 }
 
 /**
- * Bot đọc duyệt. `tai_lieu_cho_khach` = tài liệu đã duyệt CÒN trong danh mục mới nhất (không có danh mục ⇒ rỗng — mặc định
- * đóng). `mo_ta_da_duyet` = mọi duyệt kèm ĐÚNG băm lúc duyệt — bot chỉ dùng mô tả khi băm mô tả hiện tại của nó trùng.
+ * Bot đọc duyệt. `tai_lieu_cho_khach` = tài liệu đã duyệt CÒN trong danh mục mới nhất VỚI ĐÚNG băm nội dung lúc duyệt (không có
+ * danh mục / nội dung đổi ⇒ không trả — mặc định đóng), kèm băm đó để bot so với nội dung hiện tại của nó. `mo_ta_da_duyet` = mọi duyệt kèm ĐÚNG băm lúc duyệt — bot chỉ dùng mô tả khi băm mô tả hiện tại của nó trùng.
  */
 export async function docDuyetChoBot(orgId: string): Promise<DuyetCongKhai> {
   return withTenant(orgId, async () => {
     const [dm, tl, mt] = await Promise.all([
       docDanhMucLuu(prisma, orgId),
-      prisma.botTaiLieuChoKhach.findMany({ where: { orgId }, select: { taiLieuId: true } }),
+      prisma.botTaiLieuChoKhach.findMany({ where: { orgId }, select: { taiLieuId: true, noiDungBam: true } }),
       prisma.botMoTaDuyet.findMany({ where: { orgId }, select: { productId: true, moTaBam: true } }),
     ]);
-    const coTrong = new Set((dm?.taiLieu ?? []).map((t) => t.id));
-    return dungDuyetCongKhai(tl.map((r) => r.taiLieuId).filter((id) => coTrong.has(id)), mt, dm?.phienBan ?? null);
+    const bamDm = new Map((dm?.taiLieu ?? []).map((t) => [t.id, t.noi_dung_bam]));
+    return dungDuyetCongKhai(tl.filter((r) => !!r.noiDungBam && bamDm.get(r.taiLieuId) === r.noiDungBam), mt, dm?.phienBan ?? null);
   });
 }
 
 // ── Quản trị: tài liệu ──────────────────────────────────────────────────────
+
+/** `khong_noi_dung` = tài liệu rỗng (băm null) — không duyệt được. `doi_sau_duyet` = nội dung (hoặc rỗng) khác lúc duyệt. */
+export type TrangThaiTaiLieu = 'khong_noi_dung' | 'chua_duyet' | 'da_duyet' | 'doi_sau_duyet';
 
 export interface TaiLieuView {
   id: string;
@@ -166,6 +176,11 @@ export interface TaiLieuView {
   soDoan: number;
   capNhatLuc: string | null;
   mauNoiDung: string | null;
+  noiDungBam: string | null;
+  trangThai: TrangThaiTaiLieu;
+  /** Băm lúc duyệt (khác noiDungBam ⇔ doi_sau_duyet). */
+  noiDungBamDaDuyet: string | null;
+  /** = trangThai 'da_duyet' (bot dùng được). */
   choKhach: boolean;
   duyetBoi: { id: string; fullName: string } | null;
   duyetLuc: Date | null;
@@ -182,9 +197,12 @@ export async function danhSachTaiLieu(orgId: string): Promise<{
   const nguoi = await tenNguoi(orgId, duyet.map((r) => r.duyetBoi));
   const taiLieu = (dm?.taiLieu ?? []).map((t): TaiLieuView => {
     const r = theoId.get(t.id);
+    const trangThai: TrangThaiTaiLieu = !t.noi_dung_bam ? (r ? 'doi_sau_duyet' : 'khong_noi_dung')
+      : !r ? 'chua_duyet' : r.noiDungBam === t.noi_dung_bam ? 'da_duyet' : 'doi_sau_duyet';
     return {
       id: t.id, tieuDe: t.tieu_de, loai: t.loai, nguon: t.nguon, soDoan: t.so_doan, capNhatLuc: t.cap_nhat_luc,
-      mauNoiDung: t.mau_noi_dung, choKhach: !!r,
+      mauNoiDung: t.mau_noi_dung, noiDungBam: t.noi_dung_bam, trangThai, noiDungBamDaDuyet: r?.noiDungBam ?? null,
+      choKhach: trangThai === 'da_duyet',
       duyetBoi: r ? (nguoi.get(r.duyetBoi) ?? { id: r.duyetBoi, fullName: '' }) : null, duyetLuc: r?.luc ?? null,
     };
   });
@@ -196,29 +214,53 @@ export async function danhSachTaiLieu(orgId: string): Promise<{
   };
 }
 
+/**
+ * Duyệt tài liệu: mỗi mục {id, noiDungBam} — noiDungBam là băm nội dung người duyệt ĐANG NHÌN, phải bằng băm trong danh mục hiện
+ * tại (409 TAI_LIEU_DA_DOI nếu bot vừa nạp lại nội dung mới, hoặc tài liệu rỗng). Đã duyệt đúng băm đó ⇒ không đổi; duyệt lại sau
+ * khi nội dung đổi ⇒ ghi băm mới. Cả lô hỏng nếu một mục hỏng.
+ */
 export async function duyetTaiLieu(orgId: string, aiId: string, body: unknown): Promise<{ doi: number }> {
   const b = laBody(body);
-  const ids = [...new Set(docLo(b.ids, 'ids', docIdTaiLieu))];
+  const muc = docLo(b.taiLieu, 'taiLieu', docMucTaiLieu);
   const lyDo = docLyDo(b.lyDo);
+  const theoIdGui = new Map<string, string>();
+  for (const m of muc) {
+    if (theoIdGui.has(m.id) && theoIdGui.get(m.id) !== m.noiDungBam) sai(`Tài liệu ${m.id} lặp với hai băm khác nhau`);
+    theoIdGui.set(m.id, m.noiDungBam);
+  }
   return tenantTransaction(async (tx) => {
     await khoaOrg(tx, orgId);
     const dm = await docDanhMucLuu(tx, orgId);
     if (!dm) throw new LoiChoKhach(409, 'CHUA_CO_DANH_MUC', 'Bot chưa gửi danh mục tài liệu — chưa duyệt được');
     const theoId = new Map(dm.taiLieu.map((t) => [t.id, t]));
+    const ids = [...theoIdGui.keys()];
     const thieu = ids.filter((id) => !theoId.has(id));
     if (thieu.length > 0) {
       throw new LoiChoKhach(409, 'KHONG_CO_TRONG_DANH_MUC', `Tài liệu không còn trong danh mục bot gửi: ${thieu.slice(0, 5).join(', ')} — tải lại trang`);
     }
-    const co = new Set((await tx.botTaiLieuChoKhach.findMany({ where: { orgId, taiLieuId: { in: ids } }, select: { taiLieuId: true } }))
-      .map((r) => r.taiLieuId));
-    const moi = ids.filter((id) => !co.has(id));
-    if (moi.length === 0) return { doi: 0 };
-    await tx.botTaiLieuChoKhach.createMany({ data: moi.map((taiLieuId) => ({ orgId, taiLieuId, duyetBoi: aiId })) });
-    await ghiNhatKy(tx, moi.map((id) => ({
-      orgId, aiId, doiTuong: 'tai_lieu_cho_khach', doiTuongId: id, lyDo,
-      truoc: { tieuDe: theoId.get(id)!.tieu_de, choKhach: false }, sau: { tieuDe: theoId.get(id)!.tieu_de, choKhach: true },
-    })));
-    return { doi: moi.length };
+    const lech = ids.filter((id) => { const t = theoId.get(id)!; return !t.noi_dung_bam || t.noi_dung_bam !== theoIdGui.get(id); });
+    if (lech.length > 0) {
+      throw new LoiChoKhach(
+        409, 'TAI_LIEU_DA_DOI',
+        `Nội dung tài liệu đã đổi hoặc tài liệu rỗng (${lech.slice(0, 5).map((id) => `“${theoId.get(id)!.tieu_de}”`).join(', ')}) — tải lại, xem nội dung mới rồi duyệt`,
+      );
+    }
+    const cu = new Map((await tx.botTaiLieuChoKhach.findMany({ where: { orgId, taiLieuId: { in: ids } } })).map((r) => [r.taiLieuId, r]));
+    const nhat: Parameters<typeof ghiNhatKy>[1] = [];
+    for (const [id, bam] of theoIdGui) {
+      const r = cu.get(id);
+      if (r?.noiDungBam === bam) continue;
+      const tieuDe = theoId.get(id)!.tieu_de;
+      if (r) await tx.botTaiLieuChoKhach.update({ where: { id: r.id }, data: { noiDungBam: bam, duyetBoi: aiId, luc: new Date() } });
+      else await tx.botTaiLieuChoKhach.create({ data: { orgId, taiLieuId: id, noiDungBam: bam, duyetBoi: aiId } });
+      nhat.push({
+        orgId, aiId, doiTuong: 'tai_lieu_cho_khach', doiTuongId: id, lyDo,
+        truoc: r ? { tieuDe, choKhach: true, noiDungBam: r.noiDungBam } : { tieuDe, choKhach: false },
+        sau: { tieuDe, choKhach: true, noiDungBam: bam },
+      });
+    }
+    await ghiNhatKy(tx, nhat);
+    return { doi: nhat.length };
   });
 }
 

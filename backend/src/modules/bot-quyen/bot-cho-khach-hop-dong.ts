@@ -3,6 +3,8 @@
 //   • chuanMoTa / bamMoTa: chuẩn hoá `description_sale` rồi sha256 — duyệt mô tả gắn với ĐÚNG băm này (K2: sửa mô tả sau khi
 //     duyệt ⇒ băm khác ⇒ duyệt không còn hiệu lực). Bot và CRM PHẢI chuẩn hoá giống hệt — CRM tự tính lại băm của mọi SP bot gửi
 //     và từ chối danh mục khi lệch (400 MO_TA_BAM_LECH), nên cách chuẩn hoá lệch lộ ra ngay ở lần đẩy đầu, không âm thầm.
+//   • bamNoiDungTaiLieu: băm NỘI DUNG đầy đủ của một tài liệu RAG (kb_chunks.noi_dung theo ord, nối "\n", rồi như bamMoTa) —
+//     duyệt tài liệu gắn với băm này: nạp lại cùng id mà nội dung đổi ⇒ hết hiệu lực (CRM không có nội dung, chỉ kiểm dạng).
 //   • docDanhMuc: kiểm hình danh mục bot đẩy (POST /api/public/cho-khach/danh-muc) — sai ở BẤT KỲ đâu ⇒ 400, giữ bản cũ.
 //   • dungDuyetCongKhai: payload GET /api/public/cho-khach/duyet (sắp tất định, phien_ban = sha256 JSON chuẩn).
 import { createHash } from 'node:crypto';
@@ -46,6 +48,15 @@ export function bamMoTa(s: string | null | undefined): string | null {
   return c ? createHash('sha256').update(c, 'utf8').digest('hex') : null;
 }
 
+/**
+ * Băm nội dung tài liệu (hợp đồng §3b): các đoạn `kb_chunks.noi_dung` sắp theo `ord` tăng dần, nối bằng "\n", rồi chuẩn hoá +
+ * sha256 y như mô tả. Không có đoạn / rỗng sau chuẩn hoá ⇒ null (tài liệu đó không duyệt được). CRM dùng hàm này chỉ cho test
+ * vector — bot tự tính và gửi `noi_dung_bam`.
+ */
+export function bamNoiDungTaiLieu(doan: readonly string[]): string | null {
+  return bamMoTa(doan.join('\n'));
+}
+
 export interface TaiLieuDanhMuc {
   id: string;
   tieu_de: string;
@@ -54,6 +65,8 @@ export interface TaiLieuDanhMuc {
   so_doan: number;
   cap_nhat_luc: string | null;
   mau_noi_dung: string | null;
+  /** sha256 §3b nội dung đầy đủ; null = tài liệu rỗng (không duyệt được). */
+  noi_dung_bam: string | null;
 }
 
 export interface SanPhamDanhMuc {
@@ -116,6 +129,11 @@ function docTaiLieu(x: unknown, i: number): TaiLieuDanhMuc {
     if (typeof x.mau_noi_dung !== 'string') sai(`tai_lieu[${i}].mau_noi_dung phải là chuỗi hoặc null`);
     mau = catKyTu(x.mau_noi_dung.trim(), CAT_MAU_NOI_DUNG) || null;
   }
+  if (!('noi_dung_bam' in x)) sai(`tai_lieu[${i}].noi_dung_bam bắt buộc (64 ký tự hex thường, hoặc null khi tài liệu rỗng)`);
+  const bamNd = x.noi_dung_bam;
+  if (bamNd !== null && (typeof bamNd !== 'string' || !DANG_BAM.test(bamNd))) {
+    sai(`tai_lieu[${i}].noi_dung_bam phải là 64 ký tự hex thường hoặc null`);
+  }
   return {
     id: x.id,
     tieu_de: chuoiBatBuoc(x.tieu_de, `tai_lieu[${i}].tieu_de`, 500),
@@ -124,6 +142,7 @@ function docTaiLieu(x: unknown, i: number): TaiLieuDanhMuc {
     so_doan: soDoan as number,
     cap_nhat_luc: capNhat,
     mau_noi_dung: mau,
+    noi_dung_bam: bamNd as string | null,
   };
 }
 
@@ -185,15 +204,18 @@ export interface DuyetCongKhai {
   phien_ban: string;
   /** phien_ban của danh mục CRM đang giữ (bot so để biết CRM đã có danh mục mới nhất chưa); null = chưa nhận danh mục nào. */
   danh_muc_phien_ban: string | null;
-  tai_lieu_cho_khach: string[];
+  /** Tài liệu đã duyệt kèm băm nội dung LÚC DUYỆT — bot chỉ dùng khi băm nội dung hiện tại của nó trùng. */
+  tai_lieu_cho_khach: Array<{ id: string; noi_dung_bam: string }>;
   mo_ta_da_duyet: Array<{ product_id: number; mo_ta_bam: string }>;
 }
 
 /** Payload công khai — sắp tất định để phien_ban chỉ đổi khi nội dung đổi. */
 export function dungDuyetCongKhai(
-  taiLieu: readonly string[], moTa: ReadonlyArray<{ productId: number; moTaBam: string }>, danhMucPhienBan: string | null,
+  taiLieu: ReadonlyArray<{ taiLieuId: string; noiDungBam: string }>, moTa: ReadonlyArray<{ productId: number; moTaBam: string }>, danhMucPhienBan: string | null,
 ): DuyetCongKhai {
-  const tl = [...new Set(taiLieu)].sort();
+  const tl = [...new Map(taiLieu.map((t) => [t.taiLieuId, t.noiDungBam])).entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([id, noi_dung_bam]) => ({ id, noi_dung_bam }));
   const mt = moTa.map((m) => ({ product_id: m.productId, mo_ta_bam: m.moTaBam })).sort((a, b) => a.product_id - b.product_id);
   const phien_ban = createHash('sha256').update(jsonChuan({ tai_lieu_cho_khach: tl, mo_ta_da_duyet: mt })).digest('hex');
   return { phien_ban, danh_muc_phien_ban: danhMucPhienBan, tai_lieu_cho_khach: tl, mo_ta_da_duyet: mt };
