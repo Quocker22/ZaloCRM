@@ -2476,14 +2476,14 @@
   "thoi_gian": {
     "bam_khoi_ms": {
       "js": {
-        "lon_nhat": 8.5,
-        "trung_vi": 1.7
+        "lon_nhat": 9.4,
+        "trung_vi": 2.2
       },
       "den_khung_ke": {
-        "lon_nhat": 28,
-        "trung_vi": 9.1
+        "lon_nhat": 31.6,
+        "trung_vi": 8.5
       },
-      "url": "http://localhost:5293/visual/ban-do-tin/xem.html"
+      "url": "http://localhost:5291/visual/ban-do-tin/xem.html"
     }
   }
 }

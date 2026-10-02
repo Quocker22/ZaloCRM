@@ -85,7 +85,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { routeLocationKey } from 'vue-router';
 import { Layers, LayoutGrid, Link as LinkIcon, Lock, Map as MapIcon, Maximize, Minimize, MonitorSmartphone, Moon, RefreshCw, Send, StickyNote, Sun, X } from 'lucide-vue-next';
 import '@/components/ban-do-tin/ban-do-tin.css';
 import SoDoBanDo from '@/components/ban-do-tin/SoDoBanDo.vue';
@@ -166,6 +167,10 @@ function cuonToi(c: LuaChon) {
     ?? [...goc.value.querySelectorAll<HTMLElement>('[data-the]')].find((x) => x.getAttribute('data-the') === id);
   el?.scrollIntoView?.({ block: 'center', inline: 'center' });
 }
+// Đổi hash khi trang ĐANG mở (giám sát docs/78 D5): `hashchange` (gõ/dán URL, location.hash =) + route.hash (router.push
+// có hash dùng pushState ⇒ KHÔNG có hashchange). Không có router (test, khung so ảnh) ⇒ chỉ hashchange.
+const route = inject(routeLocationKey, null);
+if (route) watch(() => route.hash, (h, cu) => { if (h !== cu && h === location.hash) void apHash(); }, { flush: 'post' });
 watch(s.chon, (c) => {
   const h = vietHash(c);
   if (h === location.hash || (!h && !location.hash)) return;
@@ -173,8 +178,12 @@ watch(s.chon, (c) => {
 });
 
 // ── Esc đóng từng lớp: hộp xác nhận / hộp thoại → bỏ chọn → toàn màn hình ──
+// DefaultLayout `cleanupAfterNav` (router.afterEach) phát Escape GIẢ, KHÔNG nổi bọt lên document sau MỌI lần điều hướng —
+// kể cả đổi hash (popstate ⇒ afterEach) — để đóng menu Vuetify. Đó không phải người bấm Esc: bỏ qua, nếu không nó bỏ chọn
+// khối vừa chọn theo hash rồi xoá hash (giám sát docs/78 D5, đo trên staging 02/10). Phím thật luôn isTrusted + bubbles.
+const laEscDieuHuong = (e: KeyboardEvent) => !e.isTrusted && !e.bubbles;
 function phimEsc(e: KeyboardEvent) {
-  if (e.key !== 'Escape' || e.defaultPrevented) return;
+  if (e.key !== 'Escape' || e.defaultPrevented || laEscDieuHuong(e)) return;
   if (s.xacNhan.value) s.xacNhan.value.tra(false);
   else if (s.hopHuongDan.value) s.hopHuongDan.value = false;
   else if (s.chon.value) s.datChon(null);

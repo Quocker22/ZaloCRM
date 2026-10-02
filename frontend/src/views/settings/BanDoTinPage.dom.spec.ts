@@ -256,10 +256,45 @@ describe('BanDoTinPage — máy tính', () => {
   it('Esc bỏ chọn và xoá hash; hash lúc mở trang được áp', async () => {
     const { w } = await mo(1440, '#pha=chot');
     expect(panel(w).text()).toMatch(/P3 · Chốt/);
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await flushPromises();
     expect(location.hash).toBe('');
     expect(panel(w).text()).toContain('Bấm vào sơ đồ để bắt đầu');
+  });
+});
+
+describe('BanDoTinPage — giám sát docs/78 D5: đổi hash khi trang đang mở', () => {
+  it('hashchange (dán/gõ URL) ⇒ chọn khối; Escape GIẢ của DefaultLayout sau điều hướng KHÔNG bỏ chọn', async () => {
+    const { w } = await mo();
+    expect(w.find('[data-khoi].chon').exists()).toBe(false);
+    history.replaceState(history.state, '', '/settings/ban-do-tin#khoi=the_xem_truoc@nhom_goc');
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    // DefaultLayout.cleanupAfterNav: router.afterEach ⇒ document.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape'}))
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await flushPromises();
+    expect(w.find('[data-khoi="the_xem_truoc@nhom_goc"]').classes()).toContain('chon');
+    expect(location.hash).toBe('#khoi=the_xem_truoc@nhom_goc');
+    expect(panel(w).text()).toContain('Khi nào gửi');
+    // Esc THẬT (nổi bọt) vẫn bỏ chọn
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await flushPromises();
+    expect(w.find('[data-khoi].chon').exists()).toBe(false);
+    expect(location.hash).toBe('');
+  });
+
+  it('router.push có hash (pushState — không có hashchange) ⇒ route.hash ⇒ chọn khối', async () => {
+    const { createRouter, createWebHistory } = await import('vue-router');
+    history.replaceState(null, '', '/settings/ban-do-tin');
+    const router = createRouter({ history: createWebHistory(), routes: [{ path: '/settings/ban-do-tin', component: { render: () => null } }] });
+    await router.push('/settings/ban-do-tin');
+    await router.isReady();
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1440 });
+    w = mount(BanDoTinPage, { props: { client: taoClientMau() }, attachTo: document.body, global: { plugins: [router] } });
+    await flushPromises();
+    await router.push({ path: '/settings/ban-do-tin', hash: '#khoi=kho_cong@nhom_goc' });
+    await flushPromises();
+    expect(location.hash).toBe('#khoi=kho_cong@nhom_goc');
+    expect(w.find('[data-khoi="kho_cong@nhom_goc"]').classes()).toContain('chon');
   });
 });
 
@@ -391,7 +426,7 @@ describe('BanDoTinPage — tự rà vòng 2', () => {
     expect(hop.text()).toContain('Mỗi loại tin một luật; tick cập nhật luật đó');
     expect(hop.text()).toContain('khi đích không phải Admin');
     expect(hop.element.contains(document.activeElement)).toBe(true);
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await flushPromises();
     expect(w.find('.bdt-hop').exists()).toBe(false);
     expect(document.activeElement).toBe(nut.element);
@@ -611,7 +646,7 @@ describe('BanDoTinPage — điện thoại', () => {
     expect(location.hash).toMatch(/^#khoi=/);
     // bottom sheet: focus vào sheet, Esc đóng và trả focus về thẻ đã mở
     expect(w.find('.bdt-panel.sheet').element.contains(document.activeElement)).toBe(true);
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await flushPromises();
     expect(w.find('.bdt-panel.sheet').exists()).toBe(false);
     expect(document.activeElement).toBe(w.find('[data-the]').element);

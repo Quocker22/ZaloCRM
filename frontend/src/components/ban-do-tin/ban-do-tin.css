@@ -96,7 +96,10 @@
 
 /* ── Trang ───────────────────────────────────────────────── */
 .bdt-trang { padding: 16px; min-height: 100%; }
-.bdt-trang.toan-man-hinh { background: var(--bdt-bg); position: fixed; inset: 0; z-index: 90; height: 100dvh; overflow: hidden; display: flex; flex-direction: column; }
+/* Lớp CRM (đo 02/10, giám sát docs/78 D1/D2): thanh trên `.smax-topnav` z 100, bottom nav Vuetify z 100 (cao 56), menu/
+   dialog Vuetify ≥ 2000. Toàn màn hình (1100) phải NẰM TRÊN thanh trên — thấp hơn thì hàng đầu bị che, bấm không được;
+   hộp thoại/xác nhận của bản đồ (1200) nằm trên toàn màn hình; bottom sheet (1050) trên bottom nav. */
+.bdt-trang.toan-man-hinh { background: var(--bdt-bg); position: fixed; inset: 0; z-index: 1100; height: 100dvh; overflow: hidden; display: flex; flex-direction: column; }
 .bdt-thanh { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; min-width: 0; }
 .bdt-tabs { display: flex; gap: 2px; height: 42px; padding: 4px; background: var(--bdt-bg-subtle); border: 1px solid var(--bdt-border); border-radius: 9999px; flex: none; }
 .bdt-tab { height: 32px; padding: 6px 14px; border-radius: 9999px; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; line-height: 19.5px; color: var(--bdt-muted); transition: background var(--bdt-t), color var(--bdt-t), box-shadow var(--bdt-t); }
@@ -128,7 +131,7 @@
 .bdt-tim-rong { padding: 10px; font-size: 12.5px; color: var(--bdt-muted); }
 
 /* Lưới chính */
-.bdt-luoi { display: grid; grid-template-columns: minmax(0, 1fr) minmax(19rem, 23rem); gap: 16px; height: max(560px, calc(100dvh - 6rem)); min-height: 0; }
+.bdt-luoi { display: grid; grid-template-columns: minmax(0, 1fr) minmax(304px, 368px); gap: 16px; height: max(560px, calc(100dvh - 96px)); min-height: 0; }
 .toan-man-hinh .bdt-luoi { flex: 1; height: auto; }
 .bdt-luoi.mot-cot { grid-template-columns: minmax(0, 1fr); }
 
@@ -324,7 +327,7 @@
 .bdt-o-the { border: 1px solid var(--bdt-border); border-radius: 14px; padding: 10px 12px; }
 
 /* bottom sheet (< 1024) */
-.bdt-panel.sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 80; max-height: 70dvh; border-radius: 20px 20px 0 0; box-shadow: 0 -12px 32px #10111629; padding-top: 8px; }
+.bdt-panel.sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 1050; max-height: 70dvh; padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px)); border-radius: 20px 20px 0 0; box-shadow: 0 -12px 32px #10111629; padding-top: 8px; }
 .bdt-panel.sheet .tay-cam { width: 40px; height: 4px; border-radius: 9999px; background: var(--bdt-border); margin: 0 auto 4px; }
 
 /* ── Tab Theo pha / Liên kết / Ghi chú ────────────────────── */
@@ -359,7 +362,7 @@
 .bdt-lk-o { padding: 12px 20px 14px; }
 .bdt-lk-o input { width: 100%; max-width: 448px; height: 36px; border-radius: 9999px; border: 1px solid var(--bdt-border); background: var(--bdt-surface); color: var(--bdt-text); padding: 0 14px; font: inherit; font-size: 14px; outline: none; }
 .bdt-lk-o input:focus { border-color: var(--bdt-brand); }
-.bdt-bang { display: grid; grid-template-columns: 3rem 1fr 1fr 1.4fr; }
+.bdt-bang { display: grid; grid-template-columns: 48px 1fr 1fr 1.4fr; }
 .bdt-bang-dau { display: contents; }
 .bdt-bang-dau > div { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--bdt-muted); background: color-mix(in srgb, var(--bdt-bg-subtle) 60%, transparent); padding: 10px 12px; border-top: 1px solid var(--bdt-border); border-bottom: 1px solid var(--bdt-border); }
 .bdt-bang-dau > div:first-child, .bdt-bang-dong > :first-child { padding-left: 20px; }
@@ -378,7 +381,7 @@
 .bdt-gc-the li b { color: var(--bdt-text); }
 
 /* ── Hộp thoại hướng dẫn ─────────────────────────────────── */
-.bdt-phu { position: fixed; inset: 0; z-index: 95; background: #00000033; backdrop-filter: blur(12px); display: grid; place-items: center; }
+.bdt-phu { position: fixed; inset: 0; z-index: 1200; background: #00000033; backdrop-filter: blur(12px); display: grid; place-items: center; }
 .bdt-hop { width: 80vw; height: 80dvh; border-radius: 20px; background: var(--bdt-surface); box-shadow: var(--bdt-soft-lg); display: grid; grid-template-rows: auto 1fr auto; overflow: hidden; color: var(--bdt-text); }
 .bdt-hop-dau { display: flex; align-items: center; gap: 14px; padding: 18px 20px; border-bottom: 1px solid var(--bdt-border); }
 .bdt-hop-dau .o-ico { width: 40px; height: 40px; border-radius: 9999px; background: var(--bdt-brand-050); color: var(--bdt-brand); display: grid; place-items: center; }
