@@ -12,10 +12,14 @@
 // quyền + tạm im của người nhận lúc gửi (CRM chỉ kiểm lúc lưu).
 //
 // CÔNG KHAI cho bridge của bot (x-api-key):
-//   GET  /api/public/bot-thong-bao/luat → {phien_ban, luat:[{loai, dich, che_do, dieu_kien, gom_giay, lich, phien_ban}], canh_bao}
+//   GET  /api/public/bot-thong-bao/luat → {phien_ban, luat:[{id, loai, dich, che_do, dieu_kien, gom_giay, lich, phien_ban}], canh_bao}
 //   POST /api/public/ban-do-tin         {phien_ban, composer:[…], nguon?:[…], dem:[…]} → {ok, phien_ban, so_composer}  (≤ 1 MB;
 //                                       hợp đồng docs/78 hop-dong-ban-do-tin.md; gỡ nhạy cảm/mở khoá composer đã biết ⇒ 409
-//                                       NHAY_CAM_DINH; nhật ký ban_do_tin)
+//                                       NHAY_CAM_DINH; nhật ký ban_do_tin). dem[].luat_id = id luật (GET trả `id`); `loai` còn
+//                                       nhận MỘT bản ⇒ CRM đổi sang id lúc lưu.
+//   POST /api/public/ban-do-tin/doi-soat-echo {echo_ids: string[≤200]} → {co, that_bai, khong} — CHỈ ĐỌC: echo nào đã có tin
+//                                       gửi đi (messages.client_echo_id) trong org; that_bai = tin lưu với sendStatus failed.
+//                                       Cùng luật khoá như POST ảnh chụp (có khoá riêng ⇒ chỉ khoá riêng).
 // KHOÁ (Codex v1 #1 — ảnh chụp quyết rào nhạy cảm): nhận `public_api_key` (chung mọi tích hợp) HOẶC `bot_ban_do_tin_api_key`
 // (khoá RIÊNG của bot, app_settings). Org đã đặt khoá riêng ⇒ POST ảnh chụp CHỈ nhận khoá riêng (khoá chung ⇒ 403
 // CAN_KHOA_RIENG_BOT); GET luật nhận cả hai. Ảnh chụp ĐẦU TIÊN được tin — nên đặt khoá riêng TRƯỚC lần đẩy đầu.
@@ -23,7 +27,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
 import { LoiLuatThongBao } from './bot-thong-bao-luat.js';
-import { danhSachLuat, docBanDo, taoLuat, suaLuat, xoaLuat, docLuatChoBot, luuAnhChup } from './bot-thong-bao-service.js';
+import { danhSachLuat, docBanDo, taoLuat, suaLuat, xoaLuat, docLuatChoBot, luuAnhChup, doiSoatEcho } from './bot-thong-bao-service.js';
 
 /** Thân POST ảnh chụp tối đa — 300 composer × ~4 KB chữ + 5.000 dòng đếm. */
 export const TRAN_THAN_ANH_CHUP = 1024 * 1024;
@@ -113,6 +117,16 @@ export async function botThongBaoPublicRoutes(app: FastifyInstance): Promise<voi
       if (err instanceof LoiLuatThongBao) return reply.code(err.status).send({ error: err.message, code: err.code });
       logger.error('[public-api] POST /ban-do-tin error:', err);
       return reply.status(500).send({ error: 'Failed to store message map snapshot' });
+    }
+  });
+
+  app.post('/api/public/ban-do-tin/doi-soat-echo', { preHandler: canKhoaRiengNeuCo }, async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      return await doiSoatEcho((request as unknown as { orgId: string }).orgId, request.body);
+    } catch (err) {
+      if (err instanceof LoiLuatThongBao) return reply.code(err.status).send({ error: err.message, code: err.code });
+      logger.error('[public-api] POST /ban-do-tin/doi-soat-echo error:', err);
+      return reply.status(500).send({ error: 'Failed to reconcile echo ids' });
     }
   });
 }

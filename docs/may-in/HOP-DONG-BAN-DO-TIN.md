@@ -61,7 +61,7 @@ vào composer. `id` cùng luật với composer và không trùng id composer. B
   "khoa_canh": "in_sau_chot→g_kho|luat-1",  // = "<composer>→<dich_kieu>|<luat_id ?? 'goc'>" — CRM kiểm KHỚP với 3 trường dưới
   "composer":  "in_sau_chot",                // id composer (có thể không có trong danh mục, vd `chua_khai`)
   "dich_kieu": "g_kho",                      // mã đích `^[a-z][a-z0-9_]{0,31}$`
-  "luat_id":   "luat-1",                     // id luật CRM (bot_luat_thong_bao.id) | null = gửi ở nơi gốc
+  "luat_id":   "luat-1",                     // `id` luật CRM (bot_luat_thong_bao.id — GET luật trả kèm, §6) | null = gửi ở nơi gốc
   "ket_qua":   "bong",                       // da_gui | chan_tam_im | loi | bong | chua_ro | bo (= CHECK tin_gui_so.ket_qua của bot; bo = nội dung rỗng)
   "cua_so":    "24h",                        // 24h | 7d
   "so":        7                             // số nguyên ≥ 0
@@ -70,6 +70,12 @@ vào composer. `id` cùng luật với composer và không trùng id composer. B
 
 - Đủ 7 trường, không thêm trường nào; `(khoa_canh, ket_qua, cua_so)` duy nhất trong ảnh chụp.
 - "24h sẽ gửi N" của giao diện = tổng `so` với `ket_qua = bong`, `cua_so = 24h` của các cạnh luật.
+- `luat_id` là **`id`** của luật (uuid, lấy từ `GET /api/public/bot-thong-bao/luat` → `luat[].id`), KHÔNG phải `loai`.
+  **Tương thích MỘT bản (02/10):** bot cũ gửi `loai` vào `luat_id` (và vào hậu tố `khoa_canh`) — CRM vẫn nhận, lúc lưu đổi
+  sang `id` của luật cùng org mang `loai` đó và viết lại `khoa_canh`; hai dòng trùng (khoa_canh, ket_qua, cua_so) sau khi
+  đổi ⇒ gộp (cộng `so`). `luat_id` không khớp id lẫn loai (luật đã xoá — số 7 ngày còn) ⇒ giữ nguyên. Đọc lại (§5) luôn ra
+  `id` cho ảnh chụp lưu SAU 02/10; ảnh chụp lưu trước có thể còn `loai` ⇒ giao diện quy về luật theo `id`, không khớp thì
+  thử `loai`. Bản sau sẽ bỏ nhánh `loai` (CRM log `warn` mỗi lần còn đổi).
 - Bot đếm từ sổ `tin_gui_so` (`composer, cid, luat_id, ket_qua`) — `dich_kieu` là KIỂU đích, không phải cid (không gửi
   định danh nhóm/người sang CRM).
 
@@ -82,7 +88,8 @@ mảng đã chuẩn hoá ở §2–§4 (round-trip giữ nguyên mọi trường
 
 - **Nhạy cảm DÍNH** (`bot_ban_do_tin.composer_dinh`): với composer đã biết, ảnh chụp mới gỡ nhãn `nhay_cam` hoặc bỏ `khoa`
   ⇒ `409 NHAY_CAM_DINH`, giữ bản cũ. Vắng mặt không xoá khỏi sổ.
-- **Phát luật cho bot** (`GET /api/public/bot-thong-bao/luat`) kiểm theo HỢP ảnh chụp hiện tại ∪ sổ dính (Codex v1 #1):
+- **Phát luật cho bot** (`GET /api/public/bot-thong-bao/luat` → `{phien_ban, luat:[{id, loai, dich, che_do, dieu_kien,
+  gom_giay, lich, phien_ban}], canh_bao}` — `id` có từ 02/10, là giá trị bot ghi vào `luat_id`) kiểm theo HỢP ảnh chụp hiện tại ∪ sổ dính (Codex v1 #1):
   composer vắng khỏi ảnh chụp vẫn mang nhãn của sổ; composer không có ở cả hai ⇒ luật trả `dich: []` + `canh_bao`
   (fail closed). Trang quản trị (`GET /luat-thong-bao` → `canhBao`) thấy đúng cảnh báo đó.
 - **Ảnh chụp ĐẦU TIÊN được tin** (sổ rỗng thì không có gì để so). Giảm rủi ro: đặt khoá RIÊNG của bot TRƯỚC lần đẩy đầu —
@@ -106,3 +113,26 @@ CRM thực thi (`docAnhChup`, 02/10): `ai_soan` **thiếu** hoặc ngoài 4 giá
 là chuỗi ≤ 1000 hoặc null (rỗng ⇒ `null`, sai kiểu ⇒ 400); `ly_do_khoa` khác rỗng ở composer `kieu ≠ "khoa"` ⇒ 400. Ảnh chụp
 đã lưu TRƯỚC 02/10 đọc ra ba trường = `null` (không đoán). Dòng đếm khối gốc đi đúng §4 (đã nhận từ trước — `luat_id=null`
 ⇔ hậu tố `|goc`); `ket_qua = "bo"` nhận theo §4.
+
+## 7. Đối soát tin `chua_ro` (bổ sung 02/10)
+
+`POST /api/public/ban-do-tin/doi-soat-echo` — CHỈ ĐỌC, cùng luật khoá như `POST /api/public/ban-do-tin` (§6: org đã có khoá
+riêng ⇒ chỉ khoá riêng, khoá chung ⇒ `403 CAN_KHOA_RIENG_BOT`; thiếu/sai khoá ⇒ 401). Org lấy từ khoá.
+
+```jsonc
+// vào
+{ "echo_ids": ["tb:812:0", "tb:812:1"] }      // 0–200 chuỗi, mỗi chuỗi 1–200 ký tự (cắt khoảng trắng), khử trùng
+// ra 200
+{ "co": ["tb:812:0"], "that_bai": [], "khong": ["tb:812:1"] }   // giữ thứ tự gửi lên
+```
+
+- `co` — có tin GỬI ĐI (`messages.sender_type = 'self'`) mang `client_echo_id` đó trong một hội thoại CỦA ORG ⇒ bot đổi
+  `chua_ro` → `da_gui`.
+- `that_bai` — tin có lưu nhưng Zalo từ chối (`metadata.sendStatus = 'failed'`; CRM lưu cả tin gửi hỏng) ⇒ KHÔNG phải đã gửi;
+  bot tự quyết (`loi`), vẫn không gửi lại tự động.
+- `khong` — không thấy (kể cả có ở org KHÁC) ⇒ bot giữ `chua_ro`.
+- Sai hình (thiếu `echo_ids`, không phải mảng, > 200, phần tử rỗng / không phải chuỗi / > 200 ký tự) ⇒
+  `400 DOI_SOAT_KHONG_HOP_LE`.
+- Echo là `echoId` bot gửi kèm khi gửi tin qua `POST /api/v1/conversations/:id/messages` (CRM lưu vào `client_echo_id`,
+  UNIQUE theo hội thoại, từ 15/06 — không thêm cột). Chỉ mục `messages_client_echo_id_idx` (riêng phần, migration
+  `20261002090600_messages_idx_client_echo`, CONCURRENTLY) cho tra theo echo trên cả org.

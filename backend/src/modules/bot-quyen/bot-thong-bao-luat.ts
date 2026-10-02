@@ -122,6 +122,8 @@ export const TRAN = {
   jsonNho: 4096,
   gomGiay: 86_400,
   nhayCam: 20,
+  echoIds: 200,
+  echoDai: 200,
 } as const;
 
 const RE_ID = /^[a-z][a-z0-9_.]{0,63}$/;
@@ -279,6 +281,52 @@ export function docAnhChup(body: unknown): AnhChup {
     return r;
   });
   return { phien_ban: pb.trim(), composer, nguon, dem };
+}
+
+/**
+ * `luat_id` của số đếm = `id` luật CRM (`bot_luat_thong_bao.id`, GET luật trả kèm từ 02/10). TƯƠNG THÍCH MỘT BẢN: bot cũ gửi
+ * `loai` (id composer) vào `luat_id` ⇒ đổi sang id của luật mang loai đó + viết lại `khoa_canh`. Id khớp trước (id là uuid,
+ * loai theo RE_ID — không chồng nhau, nhưng id vẫn thắng nếu có). `luat_id` lạ (luật đã xoá, số 7 ngày còn) ⇒ giữ nguyên.
+ * Sau khi đổi, hai dòng cùng (khoa_canh, ket_qua, cua_so) ⇒ gộp (cộng `so`, vị trí lần đầu). `doiTuLoai` = số dòng đã đổi
+ * (để ghi log khi bot còn gửi dạng cũ — gỡ nhánh này ở bản sau).
+ */
+export function chuanLuatIdDem(
+  dem: readonly DemCanh[], luat: ReadonlyArray<{ id: string; loai: string }>,
+): { dem: DemCanh[]; doiTuLoai: number } {
+  const ids = new Set(luat.map((l) => l.id));
+  const theoLoai = new Map(luat.map((l) => [l.loai, l.id]));
+  const ra = new Map<string, DemCanh>();
+  let doiTuLoai = 0;
+  for (const d of dem) {
+    let r = d;
+    if (d.luat_id !== null && !ids.has(d.luat_id) && theoLoai.has(d.luat_id)) {
+      const id = theoLoai.get(d.luat_id)!;
+      r = { ...d, luat_id: id, khoa_canh: khoaCanh(d.composer, d.dich_kieu, id) };
+      doiTuLoai++;
+    }
+    const k = `${r.khoa_canh}|${r.ket_qua}|${r.cua_so}`;
+    const cu = ra.get(k);
+    ra.set(k, cu ? { ...cu, so: cu.so + r.so } : r);
+  }
+  return { dem: [...ra.values()], doiTuLoai };
+}
+
+/**
+ * Thân `POST /api/public/ban-do-tin/doi-soat-echo` — `{echo_ids: string[]}` (≤ 200, mỗi chuỗi 1–200 ký tự sau khi cắt khoảng
+ * trắng — CRM lưu `clientEchoId` đã cắt). Khử trùng, giữ thứ tự. Sai hình ⇒ 400 DOI_SOAT_KHONG_HOP_LE.
+ */
+export function docDoiSoatEcho(body: unknown): string[] {
+  const x = laObj(body) ? body.echo_ids : undefined;
+  if (!Array.isArray(x) || x.length > TRAN.echoIds) {
+    throw sai('DOI_SOAT_KHONG_HOP_LE', `echo_ids phải là mảng ≤ ${TRAN.echoIds} chuỗi`);
+  }
+  const ra = new Set<string>();
+  for (const e of x) {
+    const t = typeof e === 'string' ? e.trim() : '';
+    if (!t || t.length > TRAN.echoDai) throw sai('DOI_SOAT_KHONG_HOP_LE', `mỗi echo_id là chuỗi 1–${TRAN.echoDai} ký tự`);
+    ra.add(t);
+  }
+  return [...ra];
 }
 
 /** Danh mục composer từ cột jsonb đã lưu (đã qua `docAnhChup` lúc lưu). */
@@ -484,6 +532,8 @@ export function kiemTheoDanhMuc(
 // ── Payload công khai cho bot ───────────────────────────────────────────────
 
 export interface LuatCongKhai {
+  /** id luật CRM — bot ghi vào `tin_gui_so.luat_id` và gửi lại ở `dem[].luat_id` của ảnh chụp. */
+  id: string;
   loai: string;
   dich: Dich[];
   che_do: CheDo;
@@ -508,7 +558,7 @@ export interface LuatBotDoc {
  */
 export function ghepLuatCongKhai(
   rows: ReadonlyArray<{
-    loai: string; dich: unknown; cheDo: string; dieuKien: unknown; gomGiay: number; lich: unknown; phienBan: number;
+    id: string; loai: string; dich: unknown; cheDo: string; dieuKien: unknown; gomGiay: number; lich: unknown; phienBan: number;
   }>,
   danhMuc: Map<string, ComposerAnh> | null,
 ): LuatBotDoc {
@@ -539,6 +589,7 @@ export function ghepLuatCongKhai(
       dich.push(dd);
     }
     luat.push({
+      id: r.id,
       loai: r.loai,
       dich,
       che_do: (CHE_DO as readonly string[]).includes(r.cheDo) ? (r.cheDo as CheDo) : 'tat',
