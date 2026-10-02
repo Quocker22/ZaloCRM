@@ -4537,10 +4537,15 @@ model PrintSuCo {
   nhomSuCo   String    @map("nhom_su_co")
   chiTiet    String?   @map("chi_tiet")
   luc        DateTime  @default(now()) @db.Timestamptz(3)
+  /// Thứ tự ổn định (µs lúc CRM nhận, đơn điệu) — mở/đóng sự cố xếp theo (luc, thu_tu), KHÔNG theo id (Codex v2 #2).
+  thuTu      BigInt    @default(dbgenerated("((EXTRACT(epoch FROM clock_timestamp()) * (1000000)::numeric))::bigint")) @map("thu_tu")
+  /// uuid đóng dấu lúc nhận — khử trùng ghi bù từ tệp hàng thử lại sau khởi động lại (Codex v2 #3).
+  maGhi      String?   @unique @map("ma_ghi")
   botNhanLuc DateTime? @map("bot_nhan_luc") @db.Timestamptz(3)
 
   @@index([orgId, luc(sort: Desc)])
   @@index([orgId, mayInId, id])
+  @@index([orgId, mayInId, nhomSuCo, luc, thuTu])
   @@map("print_su_co")
 }
 

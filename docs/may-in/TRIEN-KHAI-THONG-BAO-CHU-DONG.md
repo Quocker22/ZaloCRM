@@ -9,6 +9,7 @@
 | `20261002090300_print_su_kien_trigger_tao` | HAI trigger trên `print_jobs`: `print_jobs_su_kien_tao` (AFTER INSERT ⇒ `null → trang_thai`) + `print_jobs_su_kien_doi` (AFTER UPDATE OF trang_thai ⇒ `OLD → NEW` khi đổi, hoặc khi có mã `zalocrm.ma_loi`); hàm SECURITY DEFINER, `search_path = pg_catalog, public, pg_temp`, ghi `public.print_su_kien` | SHARE ROW EXCLUSIVE ngắn trên `print_jobs` (chặn GHI job trong lúc tạo trigger) |
 | `20261002090400_print_su_co_nhom` | cột `print_su_co.nhom_su_co` + index | bảng mới, tức thì |
 | `20261002090500_bot_ban_do_tin_dinh` | cột `bot_ban_do_tin.composer_dinh`, `bot_ban_do_tin.nguon`; nới CHECK `doi_tuong` (+`ban_do_tin`) | ACCESS EXCLUSIVE ngắn trên `bot_quyen_nhat_ky` |
+| `20261002090700_print_su_co_thu_tu` | cột `print_su_co.thu_tu` (bigint NOT NULL, µs lúc CRM nhận — mở/đóng sự cố xếp theo `(luc, thu_tu)`, KHÔNG theo id) + `ma_ghi` (text UNIQUE — khử trùng ghi bù sau khởi động lại) + index `(org_id, may_in_id, nhom_su_co, luc, thu_tu)` (Codex CRM+UI v2 #2/#3) | bảng mới, tức thì |
 
 `20261002090200_bot_luat_thong_bao_gieo` (gieo luật bằng migration) **đã bị xoá** khỏi nhánh trước khi lên đâu — luật chủ
 chọn gieo bằng script (bước 4). DB thử nào lỡ áp nó: `DELETE FROM _prisma_migrations WHERE migration_name =
@@ -65,7 +66,8 @@ SELECT tgname FROM pg_trigger WHERE tgname IN ('print_jobs_su_kien_tao', 'print_
 SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'bot_quyen_nhat_ky_doi_tuong_check';
 -- 090400 / 090500: cột có chưa?
 SELECT table_name, column_name FROM information_schema.columns
-WHERE (table_name, column_name) IN (('print_su_co','nhom_su_co'), ('bot_ban_do_tin','composer_dinh'), ('bot_ban_do_tin','nguon'));
+WHERE (table_name, column_name) IN (('print_su_co','nhom_su_co'), ('print_su_co','thu_tu'), ('print_su_co','ma_ghi'),
+  ('bot_ban_do_tin','composer_dinh'), ('bot_ban_do_tin','nguon'));
 ```
 
 - Không có gì được áp (thường gặp): `npx prisma migrate resolve --rolled-back <tên migration>` rồi `npx prisma migrate
@@ -141,3 +143,18 @@ thông báo mất sự kiện tương ứng. Bật lại = chạy lại hai câu
 - Đích `nv` / `nguoi_gay_ra` CRM chỉ kiểm lúc LƯU — bot kiểm lại quyền + tạm im của người nhận lúc gửi.
 - Cột `luc` / `bot_nhan_luc` của `print_su_kien` / `print_su_co` là **timestamptz** — so thẳng với `now()`; psycopg trả
   datetime có múi giờ.
+
+
+## Hàng thử lại sự cố máy in — tệp ghi trước (Codex CRM+UI v2 #2/#3)
+
+- Mọi dòng `print_su_co` đi qua MỘT hàng tuần tự (`su-kien-in.ts taoHangThuLaiSuCo`): dòng mới KHÔNG vượt dòng đang chờ; mỗi
+  mục đóng dấu `(luc, thu_tu, ma_ghi)` lúc CRM NHẬN (không dùng giờ máy Windows của app — lệch đồng hồ).
+- Hàng GHI TRƯỚC ra tệp `PRINT_SU_CO_HANG_FILE`, mặc định `<UPLOAD_DIR>/may-in/su-co-cho.json` = volume `file_storage`
+  (`/var/lib/zalo-crm/files`) — bền qua redeploy. Đặt `PRINT_SU_CO_HANG_FILE=` (rỗng) để tắt (chỉ RAM). Ghi tệp lỗi ⇒ log
+  ERROR một lần, chạy tiếp bằng RAM. Khởi động ⇒ nạp tệp, ghi bù ngay; mục đã commit mà chưa xoá khỏi tệp ⇒ `ma_ghi` trùng ⇒ bỏ.
+- MỘT tiến trình backend mỗi volume (hai tiến trình chung tệp ghi đè nhau).
+- Khe còn lại: app KHÔNG ack `su-co` (print-agent `net.rs` emit trơn; hộp thư đi chỉ gửi lại khi emit LỖI) ⇒ gói đã tới
+  socket mà tiến trình chết trước khi ghi tệp (đồng bộ, vài µs) vẫn mất; trần 500 mục bỏ mục cũ nhất khi DB chập rất lâu.
+  Muốn kín: ack-sau-commit ở app (đổi giao thức app — chưa làm).
+- Bot đọc `print_su_co` để biết nhóm sự cố đang mở/đóng: xếp theo `(luc, thu_tu)` (CRM giữ FIFO nên thứ tự `id` cũng đúng
+  với mọi dòng CRM ghi qua hàng, nhưng `(luc, thu_tu)` mới là hợp đồng).
