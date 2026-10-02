@@ -211,7 +211,50 @@ export function docDich(x: unknown): Dich[] {
   return [...ra.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([, d]) => d);
 }
 
-/** Lý do một đích KHÔNG được phép cho composer này (null = được). Dùng cả lúc ghi lẫn lúc phát cho bot. */
+// ── Nhạy cảm DÍNH (tự rà P1-5) ──────────────────────────────────────────────
+
+/** Sổ dính: id composer → nhãn nhạy cảm + đã từng khoá. Chỉ CỘNG, không bao giờ bớt qua API công khai. */
+export type SoDinh = Record<string, { nhay_cam: string[]; khoa: boolean }>;
+
+/**
+ * Ảnh chụp do bot gửi bằng khoá API — khoá lộ là ai cũng gửi được "danh mục" gỡ nhãn nhạy cảm để mở đường bản sao vào
+ * nhóm khách. Nên: với id composer ĐÃ có trong sổ, ảnh chụp mới phải giữ mọi nhãn cũ và không đổi khoa → định tuyến được.
+ * Vắng mặt trong ảnh chụp mới KHÔNG xoá khỏi sổ (bỏ ra rồi thêm lại không lách được). Bớt nhạy cảm thật = việc của người
+ * vận hành trên DB (sửa `composer_dinh`), có nhật ký riêng.
+ */
+export function kiemNhayCamDinh(dinh: unknown, composer: readonly ComposerAnh[]): { viPham: string[]; dinh: SoDinh } {
+  const cu: SoDinh = {};
+  if (laObj(dinh)) {
+    for (const [id, v] of Object.entries(dinh)) {
+      if (!laObj(v)) continue;
+      cu[id] = {
+        nhay_cam: Array.isArray(v.nhay_cam) ? v.nhay_cam.filter((x): x is string => typeof x === 'string') : [],
+        khoa: v.khoa === true,
+      };
+    }
+  }
+  const viPham: string[] = [];
+  const moi: SoDinh = { ...cu };
+  for (const c of composer) {
+    const truoc = cu[c.id];
+    if (truoc) {
+      const mat = truoc.nhay_cam.filter((n) => !c.nhay_cam.includes(n));
+      if (mat.length > 0) viPham.push(`${c.id}: bỏ nhãn nhạy cảm ${mat.join(', ')}`);
+      if (truoc.khoa && c.kieu !== 'khoa') viPham.push(`${c.id}: mở khoá (khoa → ${c.kieu})`);
+    }
+    const nhayCam = [...new Set([...(truoc?.nhay_cam ?? []), ...c.nhay_cam])].sort();
+    const khoa = (truoc?.khoa ?? false) || c.kieu === 'khoa';
+    if (nhayCam.length > 0 || khoa) moi[c.id] = { nhay_cam: nhayCam, khoa };
+  }
+  return { viPham, dinh: moi };
+}
+
+/**
+ * Lý do một đích KHÔNG được phép cho composer này (null = được). Dùng cả lúc ghi lẫn lúc phát cho bot.
+ * Chỉ xét được những gì CRM biết: đích `nv` (zalo_uid còn trong org lúc lưu — kiemTheoDanhMuc) và `nguoi_gay_ra` (người
+ * gõ của từng sự kiện) có thể hết hợp lệ SAU khi lưu (NV nghỉ, bị khoá, người gây ra là khách) — bot KIỂM LẠI quyền +
+ * tạm im của người nhận SÁT LÚC GỬI (thuc-thi.md §5 P0-5); CRM không hứa đích nv/nguoi_gay_ra còn đúng ở thời điểm phát.
+ */
 export function lyDoCam(c: ComposerAnh, d: Dich): string | null {
   if (d.kieu === 'chuc_nang' && d.gia_tri === 'khach' && c.nhay_cam.length > 0) {
     return `Tin "${c.ten ?? c.id}" có dữ liệu nhạy cảm (${c.nhay_cam.join(', ')}) — không gửi vào nhóm khách`;

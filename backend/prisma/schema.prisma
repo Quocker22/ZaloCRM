@@ -4892,6 +4892,9 @@ model BotBanDoTin {
   phienBan String   @map("phien_ban")
   composer Json
   dem      Json
+  /// Sổ nhạy cảm DÍNH theo id composer {id: {nhay_cam: [...], khoa: bool}} — hợp của MỌI ảnh chụp đã nhận (tự rà P1-5).
+  /// Ảnh chụp mới không gỡ được nhãn / mở khoá composer đã có trong sổ (409) — kể cả bỏ composer ra rồi thêm lại.
+  composerDinh Json @default("{}") @map("composer_dinh")
   luc      DateTime @default(now())
 
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)

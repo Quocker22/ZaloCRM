@@ -160,14 +160,49 @@ function cauNickCrm(ai: string, e: NhatKy): string {
   return `${ai} ${e.tuDong ? 'nhận ra' : 'đánh dấu'} Zalo ${uid} là ${nick}${chuBangChung(sau)}`;
 }
 
+const NHAN_CHE_DO: Record<string, string> = { tat: 'Tắt', bong: 'Bóng', bat: 'Bật' };
+
+/** Luật thông báo (docs/78 C2): ảnh {loai, dich, cheDo, …}. */
+function cauLuatThongBao(ai: string, e: NhatKy): string {
+  const loai = chuoi(e.sau, 'loai') ?? chuoi(e.truoc, 'loai') ?? '(không rõ)';
+  const luat = `luật thông báo “${loai}”`;
+  const cheDo = (a: Anh) => NHAN_CHE_DO[chuoi(a, 'cheDo') ?? ''] ?? chuoi(a, 'cheDo') ?? '?';
+  if (!e.truoc && e.sau) return `${ai} tạo ${luat} (${cheDo(e.sau)})`;
+  if (e.truoc && !e.sau) return `${ai} xoá ${luat}`;
+  if (cheDo(e.truoc) !== cheDo(e.sau)) return `${ai} sửa ${luat} (${cheDo(e.truoc)} → ${cheDo(e.sau)})`;
+  return `${ai} sửa ${luat}`;
+}
+
+/** Ảnh chụp bản đồ tin bot gửi bằng khoá API (tự rà P1-5): sau = {phienBan, soComposer, them, bo, doi}; null = bị từ chối. */
+function cauBanDoTin(ai: string, e: NhatKy): string {
+  if (!e.sau) return `${ai} gửi bản đồ tin bị TỪ CHỐI`;
+  const ds = (k: string) => {
+    const v = e.sau?.[k];
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  };
+  const phan = [['thêm', ds('them')], ['bỏ', ds('bo')], ['đổi', ds('doi')]]
+    .filter(([, v]) => v.length > 0).map(([t, v]) => `${t} ${(v as string[]).join(', ')}`);
+  const so = typeof e.sau.soComposer === 'number' ? `: ${e.sau.soComposer} loại tin` : '';
+  return `${ai} cập nhật bản đồ tin ${chuoi(e.sau, 'phienBan') ?? ''}${so}${phan.length ? ` — ${phan.join('; ')}` : ''}`;
+}
+
+/** Ai thực hiện: user CRM, hoặc tác nhân máy ghi trong ai_id (`api_key:<id>` = bot qua khoá API, `cli:<script>`). */
+function tenAi(e: NhatKy): string {
+  if (e.aiId.startsWith('api_key:')) return 'Bot (khoá API)';
+  if (e.aiId.startsWith('cli:')) return 'Script quản trị';
+  return e.ai?.fullName?.trim() || 'Người dùng đã bị xoá';
+}
+
 export function cauNhatKy(e: NhatKy, tuy: { tenNguoiDung?: (id: string) => string | null } = {}): string {
   if (e.tuDong) return cauTuDong(e);
-  const ai = e.ai?.fullName?.trim() || 'Người dùng đã bị xoá';
+  const ai = tenAi(e);
   const than = e.doiTuong === 'nhom'
     ? cauNhom(ai, e)
     : e.doiTuong === 'nhan_vien'
       ? cauNhanVien(ai, e, tuy.tenNguoiDung ?? (() => null))
-      : e.doiTuong === 'nick_crm' ? cauNickCrm(ai, e) : `${ai} thay đổi ${e.doiTuong}`;
+      : e.doiTuong === 'nick_crm' ? cauNickCrm(ai, e)
+        : e.doiTuong === 'luat_thong_bao' ? cauLuatThongBao(ai, e)
+          : e.doiTuong === 'ban_do_tin' ? cauBanDoTin(ai, e) : `${ai} thay đổi ${e.doiTuong}`;
   const lyDo = e.lyDo?.trim();
   return lyDo ? `${than} — lý do: ${lyDo}` : than;
 }

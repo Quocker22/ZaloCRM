@@ -168,7 +168,7 @@ describeCanDb('bot-thong-bao — luật thông báo + bản đồ tin (DB)', () 
     expect(r.json().code).toBe('CHUA_CO_BAN_DO');
     expect(r.json().error).toMatch(/chưa gửi danh mục/);
     const l = await prisma.botLuatThongBao.create({ data: { orgId: ORG_A, loai: 'in_sau_chot' } });
-    expect((await goi('PUT', `/luat-thong-bao/${l.id}`, OWNER, { cheDo: 'bat' })).statusCode).toBe(409);
+    expect((await goi('PUT', `/luat-thong-bao/${l.id}`, OWNER, { cheDo: 'bat', phienBan: 1 })).statusCode).toBe(409);
     expect((await goi('DELETE', `/luat-thong-bao/${l.id}`, OWNER, { lyDo: 'dọn' })).statusCode).toBe(200);
     expect(await prisma.botLuatThongBao.count({ where: { orgId: ORG_A } })).toBe(0);
   });
@@ -217,12 +217,15 @@ describeCanDb('bot-thong-bao — luật thông báo + bản đồ tin (DB)', () 
     expect(s.statusCode, s.body).toBe(200);
     expect(s.json().luat).toMatchObject({ cheDo: 'bat', gomGiay: 60, phienBan: 2, doi: true, suaBoi: ADMIN, lich: { gio: '08-18' } });
 
-    const trung = await goi('PUT', `/luat-thong-bao/${l.id}`, ADMIN, { cheDo: 'bat' });
+    const trung = await goi('PUT', `/luat-thong-bao/${l.id}`, ADMIN, { cheDo: 'bat', phienBan: 2 });
     expect(trung.json().luat).toMatchObject({ doi: false, phienBan: 2 });
     const cu = await goi('PUT', `/luat-thong-bao/${l.id}`, OWNER, { cheDo: 'tat', phienBan: 1 });
     expect([cu.statusCode, cu.json().code]).toEqual([409, 'PHIEN_BAN_CU']);
 
-    const boLich = await goi('PUT', `/luat-thong-bao/${l.id}`, OWNER, { lich: null });
+    // P2: phienBan BẮT BUỘC khi sửa (thiếu ⇒ 400, không ghi đè mù).
+    const thieu = await goi('PUT', `/luat-thong-bao/${l.id}`, OWNER, { cheDo: 'tat' });
+    expect([thieu.statusCode, thieu.json().code]).toEqual([400, 'PHIEN_BAN_THIEU']);
+    const boLich = await goi('PUT', `/luat-thong-bao/${l.id}`, OWNER, { lich: null, phienBan: 2 });
     expect(boLich.json().luat).toMatchObject({ lich: null, phienBan: 3 });
     expect((await prisma.botLuatThongBao.findUniqueOrThrow({ where: { id: l.id } })).lich).toBeNull();
 
@@ -254,7 +257,7 @@ describeCanDb('bot-thong-bao — luật thông báo + bản đồ tin (DB)', () 
       dich: [{ kieu: 'chuc_nang', gia_tri: 'khach' }, { kieu: 'chuc_nang', gia_tri: 'kho' }],
     }]);
     expect((await docLuat(KHOA_A)).phien_ban).toBe(a.phien_ban);
-    await goi('PUT', `/luat-thong-bao/${t.json().luat.id}`, OWNER, { gomGiay: 30 });
+    await goi('PUT', `/luat-thong-bao/${t.json().luat.id}`, OWNER, { gomGiay: 30, phienBan: 1 });
     const b = await docLuat(KHOA_A);
     expect(b.phien_ban).not.toBe(a.phien_ban);
     // Bot đổi danh mục: in_sau_chot nay mang giá ⇒ nhóm khách bị bỏ khi phát, có cảnh báo.
@@ -263,6 +266,9 @@ describeCanDb('bot-thong-bao — luật thông báo + bản đồ tin (DB)', () 
     expect(c.luat[0].dich).toEqual([{ kieu: 'chuc_nang', gia_tri: 'kho' }]);
     expect(c.canh_bao).toHaveLength(1);
     expect(c.phien_ban).not.toBe(b.phien_ban);
+    // P2: trang quản trị thấy ĐÚNG cảnh báo bot nhận (đích bị bỏ khi phát).
+    const ad = await goi('GET', '/luat-thong-bao', OWNER);
+    expect(ad.json().canhBao).toEqual(c.canh_bao);
   });
 
   it('cách ly org: org B không thấy / không sửa / không xoá luật org A; khoá B chỉ đọc luật B', async () => {
@@ -271,16 +277,59 @@ describeCanDb('bot-thong-bao — luật thông báo + bản đồ tin (DB)', () 
     const t = await goi('POST', '/luat-thong-bao', OWNER, { loai: 'in_sau_chot', dich: [{ kieu: 'chuc_nang', gia_tri: 'kho' }] });
     const id = t.json().luat.id;
     expect((await goi('GET', '/luat-thong-bao', OWNER_B)).json().luat).toEqual([]);
-    expect((await goi('PUT', `/luat-thong-bao/${id}`, OWNER_B, { cheDo: 'bat' })).statusCode).toBe(404);
+    expect((await goi('PUT', `/luat-thong-bao/${id}`, OWNER_B, { cheDo: 'bat', phienBan: 1 })).statusCode).toBe(404);
     expect((await goi('DELETE', `/luat-thong-bao/${id}`, OWNER_B)).statusCode).toBe(404);
     expect((await prisma.botLuatThongBao.findUniqueOrThrow({ where: { id } })).cheDo).toBe('bong');
     expect((await docLuat(KHOA_B)).luat).toEqual([]);
     expect((await docLuat(KHOA_A)).luat).toHaveLength(1);
     // NV của org B không dùng được làm đích cho org A.
     await prisma.botNhanVien.create({ data: { orgId: ORG_B, zaloUid: '5001', tenGoi: 'B', vai: 'kho' } });
-    const r = await goi('PUT', `/luat-thong-bao/${id}`, OWNER, { dich: [{ kieu: 'nv', gia_tri: '5001' }] });
+    const r = await goi('PUT', `/luat-thong-bao/${id}`, OWNER, { dich: [{ kieu: 'nv', gia_tri: '5001' }], phienBan: 1 });
     expect(r.json().code).toBe('NV_KHONG_CO');
     expect((await nhatKy(ORG_B))).toHaveLength(0);
+  });
+
+  // ── Ảnh chụp: nhạy cảm DÍNH + nhật ký (tự rà P1-5) ─────────────────────────
+
+  it('nhạy cảm DÍNH: ảnh chụp mới không gỡ được nhay_cam / không mở khoá composer (409, giữ bản cũ) — kể cả bỏ ra rồi thêm lại', async () => {
+    expect((await guiAnh(KHOA_A)).statusCode).toBe(200);
+    const gia = (doi: (c: (typeof ANH.composer)[number]) => object | null, pb = 'gia') => ({
+      ...ANH, phien_ban: pb, composer: ANH.composer.map(doi).filter(Boolean),
+    });
+    const goNhayCam = await guiAnh(KHOA_A, gia((c) => (c.id === 'xuat_hoa_don_tool' ? { ...c, nhay_cam: [] } : c)));
+    expect([goNhayCam.statusCode, goNhayCam.json().code]).toEqual([409, 'NHAY_CAM_DINH']);
+    const moKhoa = await guiAnh(KHOA_A, gia((c) => (c.id === 'the_don' ? { ...c, kieu: 'thuan' } : c)));
+    expect([moKhoa.statusCode, moKhoa.json().code]).toEqual([409, 'NHAY_CAM_DINH']);
+    expect((await prisma.botBanDoTin.findUniqueOrThrow({ where: { orgId: ORG_A } })).phienBan).toBe('dm-1');
+    // Bỏ composer ra (được) rồi thêm lại không nhạy cảm ⇒ vẫn 409 (sổ dính không quên).
+    expect((await guiAnh(KHOA_A, gia((c) => (c.id === 'xuat_hoa_don_tool' ? null : c), 'bo'))).statusCode).toBe(200);
+    expect((await guiAnh(KHOA_A, gia((c) => (c.id === 'xuat_hoa_don_tool' ? { ...c, nhay_cam: [] } : c), 'lai'))).statusCode).toBe(409);
+    // Thêm nhạy cảm / thêm composer mới / khoá thêm thì luôn được.
+    const them = await guiAnh(KHOA_A, {
+      ...ANH, phien_ban: 'them',
+      composer: [...ANH.composer.map((c) => (c.id === 'xuat_hoa_don_tool' ? { ...c, nhay_cam: ['sdt', 'tien'] } : c.id === 'in_sau_chot' ? { ...c, kieu: 'khoa' } : c)),
+        { id: 'moi', kieu: 'thuan' }],
+    });
+    expect(them.statusCode, them.body).toBe(200);
+    // Ảnh chụp giả đã bị từ chối ⇒ nhóm khách vẫn bị chặn cho composer nhạy cảm.
+    const r = await goi('POST', '/luat-thong-bao', OWNER, { loai: 'xuat_hoa_don_tool', dich: [{ kieu: 'chuc_nang', gia_tri: 'khach' }] });
+    expect(r.json().code).toBe('LO_DU_LIEU_NHOM_KHACH');
+  });
+
+  it('nhật ký ảnh chụp: ai = khoá API; chỉ ghi khi DANH MỤC đổi (số đếm đổi không ghi); lần bị từ chối cũng ghi', async () => {
+    const khoa = await prisma.appSetting.findFirstOrThrow({ where: { orgId: ORG_A, settingKey: 'public_api_key' } });
+    await guiAnh(KHOA_A);
+    await guiAnh(KHOA_A, { ...ANH, dem: [{ composer: 'in_sau_chot', so: 3 }] });
+    await guiAnh(KHOA_A, { ...ANH, phien_ban: 'dm-2', composer: [...ANH.composer, { id: 'moi', kieu: 'thuan' }] });
+    await guiAnh(KHOA_A, { ...ANH, phien_ban: 'gia', composer: ANH.composer.map((c) => ({ ...c, nhay_cam: [] })) });
+    const nk = await prisma.botQuyenNhatKy.findMany({ where: { orgId: ORG_A, doiTuong: 'ban_do_tin' }, orderBy: { luc: 'asc' } });
+    expect(nk.map((r) => r.aiId)).toEqual([`api_key:${khoa.id}`, `api_key:${khoa.id}`, `api_key:${khoa.id}`]);
+    expect(nk[0]).toMatchObject({ truoc: null, sau: { phienBan: 'dm-1', soComposer: 3 } });
+    expect(nk[1]).toMatchObject({ truoc: { phienBan: 'dm-1' }, sau: { phienBan: 'dm-2', soComposer: 4, them: ['moi'] } });
+    expect(nk[2].lyDo).toMatch(/^Từ chối/);
+    expect(nk[2].sau).toBeNull();
+    // Trang Quyền bot đọc chung nhật ký.
+    expect((await goi('GET', '/nhat-ky', OWNER)).json().nhatKy.filter((r: { doiTuong: string }) => r.doiTuong === 'ban_do_tin')).toHaveLength(3);
   });
 
   // ── Gieo luật chủ chọn 02/10 (script quản trị, KHÔNG migration) ─────────

@@ -3,7 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   docDich, docLuatVao, docAnhChup, danhMucTuAnh, kiemTheoDanhMuc, ghepLuatCongKhai, LoiLuatThongBao, docThamSoGieo,
-  LUAT_CHU_CHON_02_10,
+  LUAT_CHU_CHON_02_10, kiemNhayCamDinh,
   type ComposerAnh,
 } from '../src/modules/bot-quyen/bot-thong-bao-luat.js';
 
@@ -135,5 +135,25 @@ describe('gieo luật chủ chọn 02/10 — tham số script', () => {
       { loai: 'xuat_hoa_don_tool', dich: [{ kieu: 'chuc_nang', gia_tri: 'ke_toan' }] },
       { loai: 'in_sau_chot', dich: [{ kieu: 'chuc_nang', gia_tri: 'kho' }] },
     ]);
+  });
+});
+
+describe('kiemNhayCamDinh — nhạy cảm DÍNH theo id composer (tự rà P1-5)', () => {
+  const dinh0 = {};
+  it('lần đầu: sổ = ảnh chụp; không vi phạm', () => {
+    const kq = kiemNhayCamDinh(dinh0, [C('a', 'ban_sao', ['tien']), C('k', 'khoa'), C('t', 'thuan')]);
+    expect(kq.viPham).toEqual([]);
+    expect(kq.dinh).toEqual({ a: { nhay_cam: ['tien'], khoa: false }, k: { nhay_cam: [], khoa: true } });
+  });
+  it('gỡ nhãn nhạy cảm / mở khoá ⇒ vi phạm; composer vắng mặt KHÔNG xoá khỏi sổ; thêm nhãn / khoá thêm ⇒ cộng vào sổ', () => {
+    const { dinh } = kiemNhayCamDinh(dinh0, [C('a', 'ban_sao', ['tien']), C('k', 'khoa')]);
+    expect(kiemNhayCamDinh(dinh, [C('a', 'ban_sao', []), C('k', 'khoa')]).viPham).toEqual(['a: bỏ nhãn nhạy cảm tien']);
+    expect(kiemNhayCamDinh(dinh, [C('a', 'ban_sao', ['tien']), C('k', 'thuan')]).viPham).toEqual(['k: mở khoá (khoa → thuan)']);
+    const vang = kiemNhayCamDinh(dinh, [C('k', 'khoa')]);
+    expect(vang.viPham).toEqual([]);
+    expect(vang.dinh.a).toEqual({ nhay_cam: ['tien'], khoa: false });
+    const them = kiemNhayCamDinh(dinh, [C('a', 'khoa', ['gia', 'tien']), C('k', 'khoa')]);
+    expect(them.viPham).toEqual([]);
+    expect(them.dinh.a).toEqual({ nhay_cam: ['gia', 'tien'], khoa: true });
   });
 });
