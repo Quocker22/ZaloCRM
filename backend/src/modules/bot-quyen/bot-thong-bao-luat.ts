@@ -643,7 +643,7 @@ export function ghepLuatCongKhai(
   return { phien_ban, luat, canh_bao };
 }
 
-// ── Gieo luật chủ chọn 02/10 (script quản trị — scripts/gieo-luat-thong-bao.ts) ──
+// ── Gieo luật chủ chọn 02/10 (script quản trị — src/scripts/gieo-luat-thong-bao.ts) ──
 
 /**
  * Luật chủ chọn 02/10 (docs/78 luat-chu-chon-02-10.json, dịch theo thuc-thi.md §5 P0-5): bản sao hoá đơn → nhóm kế toán,

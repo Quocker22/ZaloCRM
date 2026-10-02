@@ -1,6 +1,6 @@
 # Triển khai: sự kiện in bền + luật thông báo (docs/78 C1/C2) — runbook
 
-Áp cho nhánh `feat/ban-do-tin` (backend). Năm migration, đúng thứ tự:
+Áp cho nhánh `feat/ban-do-tin` (backend). Bảy migration, đúng thứ tự:
 
 | migration | làm gì | khoá |
 |---|---|---|
@@ -9,6 +9,7 @@
 | `20261002090300_print_su_kien_trigger_tao` | HAI trigger trên `print_jobs`: `print_jobs_su_kien_tao` (AFTER INSERT ⇒ `null → trang_thai`) + `print_jobs_su_kien_doi` (AFTER UPDATE OF trang_thai ⇒ `OLD → NEW` khi đổi, hoặc khi có mã `zalocrm.ma_loi`); hàm SECURITY DEFINER, `search_path = pg_catalog, public, pg_temp`, ghi `public.print_su_kien` | SHARE ROW EXCLUSIVE ngắn trên `print_jobs` (chặn GHI job trong lúc tạo trigger) |
 | `20261002090400_print_su_co_nhom` | cột `print_su_co.nhom_su_co` + index | bảng mới, tức thì |
 | `20261002090500_bot_ban_do_tin_dinh` | cột `bot_ban_do_tin.composer_dinh`, `bot_ban_do_tin.nguon`; nới CHECK `doi_tuong` (+`ban_do_tin`) | ACCESS EXCLUSIVE ngắn trên `bot_quyen_nhat_ky` |
+| `20261002090600_messages_idx_client_echo` | chỉ mục riêng phần `messages_client_echo_id_idx` trên `messages(client_echo_id)` (đối soát tin bot `chua_ro`) — `CREATE INDEX CONCURRENTLY`, Prisma chạy KHÔNG bọc giao dịch | không khoá ghi `messages` (CONCURRENTLY) — dựng lâu trên bảng lớn |
 | `20261002090700_print_su_co_thu_tu` | cột `print_su_co.thu_tu` (bigint NOT NULL, µs lúc CRM nhận — mở/đóng sự cố xếp theo `(luc, thu_tu)`, KHÔNG theo id) + `ma_ghi` (text UNIQUE — khử trùng ghi bù sau khởi động lại) + index `(org_id, may_in_id, nhom_su_co, luc, thu_tu)` (Codex CRM+UI v2 #2/#3) | bảng mới, tức thì |
 
 `20261002090200_bot_luat_thong_bao_gieo` (gieo luật bằng migration) **đã bị xoá** khỏi nhánh trước khi lên đâu — luật chủ
@@ -84,6 +85,10 @@ báo thấy "không có sự cố" chứ không thấy sự cố sai. Chỉ gỡ
 ```sql
 BEGIN;
 SET LOCAL lock_timeout = '5s';
+-- 090700: thứ tự + khử trùng ghi bù của print_su_co (hai chỉ mục rồi hai cột)
+DROP INDEX IF EXISTS print_su_co_org_id_may_in_id_nhom_su_co_luc_thu_tu_idx;
+DROP INDEX IF EXISTS print_su_co_ma_ghi_key;
+ALTER TABLE print_su_co DROP COLUMN IF EXISTS thu_tu, DROP COLUMN IF EXISTS ma_ghi;
 -- 090500 + 090100: nhật ký của đối tượng mới phải xoá TRƯỚC khi siết CHECK lại
 DELETE FROM bot_quyen_nhat_ky WHERE doi_tuong IN ('luat_thong_bao', 'ban_do_tin');
 ALTER TABLE bot_quyen_nhat_ky DROP CONSTRAINT bot_quyen_nhat_ky_doi_tuong_check;
@@ -107,8 +112,21 @@ DROP TABLE IF EXISTS print_su_kien;
 DROP TABLE IF EXISTS print_su_co;
 DELETE FROM _prisma_migrations WHERE migration_name IN (
   '20261002090000_print_su_kien', '20261002090100_bot_luat_thong_bao', '20261002090300_print_su_kien_trigger_tao',
-  '20261002090400_print_su_co_nhom', '20261002090500_bot_ban_do_tin_dinh');
+  '20261002090400_print_su_co_nhom', '20261002090500_bot_ban_do_tin_dinh', '20261002090700_print_su_co_thu_tu');
+-- Khoá RIÊNG của bot (bước 4.0) — chỉ còn ý nghĩa khi tính năng còn; gỡ cùng lúc để khoá chung lại nhận ảnh chụp:
+DELETE FROM app_settings WHERE setting_key = 'bot_ban_do_tin_api_key';   -- thêm `AND org_id = '<org>'` nếu chỉ gỡ một org
 COMMIT;
+```
+
+090600 (`messages_client_echo_id_idx`) gỡ RIÊNG, NGOÀI giao dịch (`DROP INDEX CONCURRENTLY` không chạy được trong
+`BEGIN … COMMIT`; dạng không CONCURRENTLY khoá GHI cả bảng `messages`). Chỉ mục vô hại với image cũ — chỉ gỡ khi bỏ hẳn tính
+năng:
+
+```sql
+DROP INDEX CONCURRENTLY IF EXISTS messages_client_echo_id_idx;
+DELETE FROM _prisma_migrations WHERE migration_name = '20261002090600_messages_idx_client_echo';
+-- Kiểm: không còn dòng 20261002% nào (trừ migration của nhánh khác cùng ngày, nếu có)
+SELECT migration_name FROM _prisma_migrations WHERE migration_name LIKE '20261002%' ORDER BY 1;
 ```
 
 Tắt tạm sự kiện in (giữ bảng, ví dụ trigger gây sự cố hiệu năng): `DROP TRIGGER print_jobs_su_kien_doi ON print_jobs;`
@@ -122,8 +140,14 @@ thông báo mất sự kiện tương ứng. Bật lại = chạy lại hai câu
    'bot_ban_do_tin_api_key', '<khoá ngẫu nhiên ≥ 32 ký tự>', now());` rồi đặt khoá đó vào env bridge của bot. Có khoá riêng
    ⇒ `POST /api/public/ban-do-tin` bằng khoá chung bị 403 `CAN_KHOA_RIENG_BOT`.
 1. Chờ bot gửi ảnh chụp bản đồ tin đầu tiên (`SELECT phien_ban, luc FROM bot_ban_do_tin WHERE org_id = '<org>'`).
-2. Gieo luật chủ chọn 02/10 ở chế độ BÓNG (ghi sổ, không gửi):
-   `npx tsx scripts/gieo-luat-thong-bao.ts --org <org_id>` — chưa có ảnh chụp thì script từ chối (409), chạy lại sau.
+2. Gieo luật chủ chọn 02/10 ở chế độ BÓNG (ghi sổ, không gửi). Image prod CHỈ có `dist/` (không có `tsx`, không có
+   `src/`) — script được biên dịch cùng app vào `dist/scripts/`:
+   ```bash
+   docker exec <container app> node dist/scripts/gieo-luat-thong-bao.js --help          # in cách dùng, không chạm DB
+   docker exec <container app> node dist/scripts/gieo-luat-thong-bao.js --org <org_id>  # mặc định --che-do bong
+   ```
+   (`DATABASE_URL` lấy từ env của container app.) Chưa có ảnh chụp thì script từ chối (409, mã thoát 1), chạy lại sau.
+   Máy dev: `npx tsx src/scripts/gieo-luat-thong-bao.ts --org <org_id>` trong `backend/`.
 3. Chủ xem số bóng trên trang Bản đồ tin, rồi bật từng luật (PUT `/api/v1/bot-quyen/luat-thong-bao/:id` với
    `{cheDo: 'bat', phienBan}` — thiếu `phienBan` ⇒ 400).
 
