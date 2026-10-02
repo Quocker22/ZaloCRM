@@ -1,0 +1,368 @@
+[
+ {
+  "id": "model_tra_loi",
+  "de_xuat": false,
+  "khi_nao": "Sau mỗi lượt model trả lời bằng chữ (tra cứu, giải thích, hỏi lại tự do) — hooks lọc SILENT/chữ nát rồi adapter gửi.",
+  "vi_du": "Dạ đơn #D512 của anh Tiến em đã lên xong, anh xem thẻ phía trên giúp em; giá dây vàng nắng em để theo giá anh nhập ạ.",
+  "nguon_cau": "hermes_plugins/lednelia/adapter.py:4480 (send); hermes_plugins/lednelia/hooks.py:1185 (transform_llm_output) — CHỮ TỰ DO của model, không có mẫu",
+  "ghi_chu": "Chữ tự do. Lưới thay câu: chữ lẫn ký tự ngoài tiếng Việt → 'Dạ, em ghi nhận ạ.' (adapter.py:99 _CAU_AN_TOAN); câu hứa 'gửi sau' → 'Dạ em chưa gửi được ảnh/file đó ạ. Anh/chị xem bản xem trước em vừa gửi, hoặc mở đơn trên Odoo giúp em nhé.' (adapter.py:108). Model bị cấm nêu tổng tiền/nói 'đã chốt' (_RE_DONG_CAM hooks.py:140)."
+ },
+ {
+  "id": "thong_bao_gateway",
+  "de_xuat": false,
+  "khi_nao": "Khi Hermes định gửi thông báo hệ thống tiếng Anh (model không trả lời, đang bận, lỗi) — adapter thay bằng câu Việt hoặc bỏ hẳn.",
+  "vi_du": "⚠️ Hệ thống đang gặp lỗi tạm thời, anh/chị thử lại sau ít phút ạ.",
+  "nguon_cau": "hermes_plugins/lednelia/adapter.py:59-70 (_THONG_BAO_HE_THONG), áp ở :216 viet_hoa_thong_bao_he_thong",
+  "ghi_chu": "3 câu thay: (1) 'returned no response' → 'Em chưa ghi được lệnh nào từ tin vừa rồi. Anh/chị nhắn lại giúp em: khách, hàng, số lượng, đơn giá nhé.' (bỏ hẳn nếu vừa applied/needs_input); (2) mở đầu ⏳ → '⏳ Em đang xử lý tin trước, anh/chị chờ em chút ạ.'; (3) mở đầu ⚠️/❌ → câu ở ví dụ. SILENT/gateway/cron/session reset → BỎ, không gửi gì. Tiền tố '♻️ Recovered reply…:' bị cắt, giữ thân."
+ },
+ {
+  "id": "fallback_chua_ghi_lenh",
+  "de_xuat": false,
+  "khi_nao": "Lượt lên đơn mà model không gọi tool đơn nào và trả rỗng (vd NV gõ 'anh tiến lấy thêm' không rõ hàng).",
+  "vi_du": "Em chưa ghi được lệnh nào từ tin vừa rồi. Anh/chị nhắn lại giúp em: khách, hàng, số lượng, đơn giá (ví dụ: \"cty loteck, 112 tấm p10 full ngoài trời x 185k\").",
+  "nguon_cau": "hermes_plugins/lednelia/hooks.py:151 (FALLBACK_NO_COMMAND)"
+ },
+ {
+  "id": "luoi_luot_im_lang",
+  "de_xuat": false,
+  "khi_nao": "Lượt lên đơn sắp kết thúc im lặng trong khi engine báo thẻ hỏi chưa tới NV (ca #D496) — gửi lại chính thẻ hỏi engine đã dựng.",
+  "vi_du": "🔴 #D512 · THIẾU SẢN PHẨM\n👤 Anh Tiến (Bình Định) · …678\n\n⚠️ Chưa xác định được 1 sản phẩm\n\nd2 · \"nguồn 30a\"\n1) Nguồn tổ ong 12V 30A (cái)\n2) Nguồn tổ ong 24V 15A (cái)\n0) Huỷ dòng\n\n👉 Chọn: d2:1",
+  "nguon_cau": "hermes_plugins/lednelia/hooks.py:1166 (_luoi_luot_im_lang trả rec.cau_hoi_chua_gui); văn bản = lednelia_donhang/render.py:497 cau_hoi_gop",
+  "ghi_chu": "Nội dung y hệt the_cau_hoi (menu chọn SP/khách/đơn vị) — chỉ khác đường gửi."
+ },
+ {
+  "id": "hop_ghep_tha_cau",
+  "de_xuat": false,
+  "khi_nao": "Câu model viết để kèm thẻ (loi_nhan) chờ quá HAN_GHI_CHU_GIAY mà không thẻ nào tới lấy — thả ra thành tin riêng.",
+  "vi_du": "Em đã ghi giá dây vàng nắng 38k theo anh nhập, anh xem giúp em nhé.",
+  "nguon_cau": "hermes_plugins/lednelia/runtime.py:1410 (_tha_ghi_chu → fn(conversation_key, cau)) — câu của model, không có mẫu",
+  "ghi_chu": "Khi được ghép thì nó là dòng cuối '↳ …' (in nghiêng) của thẻ xem trước; khi thả riêng thì KHÔNG có '↳'."
+ },
+ {
+  "id": "the_xem_truoc",
+  "de_xuat": false,
+  "khi_nao": "Ngay sau khi cap_nhat_don áp được bản mới và nháp Odoo đã đồng bộ (mỗi lần NV thêm/sửa dòng, giá, khách).",
+  "vi_du": "📦 #D512 · Bản 3\n👤 Anh Tiến (Bình Định) · …678\n🛒 SẢN PHẨM · 2\n01 · Led dây 12V 120 bóng/m vàng nắng · 50 m × 38.000đ · 👤 Bạn nhập\n02 · Nguồn tổ ong 12V 30A · 4 cái × 265.000đ · 🖥️ Phần mềm\n💰 TỔNG · 2.960.000đ\n🟢 SẴN SÀNG CHỐT\n↳ Em đã ghi giá d1 = 38k theo anh nhập ạ.",
+  "nguon_cau": "lednelia_donhang/render.py:372-454 (preview), dòng hàng :188 _dong, tiền :245 _dong_tien, ↳ :334 dong_loi_nhan; gửi ở lednelia_donhang/outbox.py:651-656",
+  "ghi_chu": "Biến thể chân tin: 🟢 SẴN SÀNG CHỐT; '🔴 CHƯA THỂ CHỐT · thiếu giá 02' + '👉 Gửi: 02=…' (khi đó dòng tiền là '💰 Tạm tính: 1.900.000đ · Ship 0đ · VAT 0% · CK 0đ' và dòng hàng '02 · … · 4 cái × ⚠️ chưa giá'); '🔴 CHƯA THỂ CHỐT · <lý do LY_DO_CHAN_VI>'. Có ship/VAT/CK ⇒ '💰 Hàng …đ · CK …đ cả đơn · VAT 8% …đ · Ship …đ' + 'TỔNG · …đ'. Báo giá giữ lại thêm dòng '↳ Đơn GIỮ LẠI (chưa chốt) — không phải đơn đang làm' và chân '🟢 SẴN SÀNG CHỐT · Nhắn \"chốt #D512\"'. Đoán khách/SP từ 1 ứng viên ⇒ ' · ⚠️' cuối dòng 👤 / '⚠️ ' trước tên hàng. Trong nhóm SĐT chỉ còn 3 số cuối (…678) — code che như vậy, không phải 09xx…678; tin riêng chắc chắn thì hiện đủ số."
+ },
+ {
+  "id": "anh_bao_gia",
+  "de_xuat": false,
+  "khi_nao": "Ngay sau thẻ xem trước, mỗi bản đơn có nháp Odoo — ảnh báo giá Odoo vẽ lại theo bản mới nhất.",
+  "vi_du": "[Ảnh PNG báo giá Odoo S17440, mỗi trang một ảnh]\ncaption:\nBáo giá S17440 — #D512 bản 3\n🔗 Xử lý đơn: https://quyetanh.com/r/k7Qm2",
+  "nguon_cau": "lednelia_donhang/outbox.py:660-663 (caption_anh('Báo giá {S} — {#D} bản {n}')); lednelia_donhang/render.py:599 caption_anh, :610 caption_trang",
+  "ghi_chu": "Nhiều trang ⇒ dòng đầu thành 'Báo giá S17440 — #D512 bản 3 (trang 1/2)'. Link dài Odoo được adapter rút gọn thành <ODOO_PUBLIC_URL>/r/<mã> (docs/64)."
+ },
+ {
+  "id": "the_cau_hoi",
+  "de_xuat": false,
+  "khi_nao": "cap_nhat_don trả needs_input: bot chưa chắc sản phẩm/khách/đơn vị/giá lệch — gửi menu để NV gõ số.",
+  "vi_du": "🔴 #D512 · THIẾU SẢN PHẨM\n👤 Anh Tiến (Bình Định) · …678\n\n⚠️ Chưa xác định được 1 sản phẩm\n\nd2 · \"nguồn 30a\"\n1) Nguồn tổ ong 12V 30A (cái)\n2) Nguồn tổ ong 24V 15A (cái)\n0) Huỷ dòng\n\n👉 Chọn: d2:1",
+  "nguon_cau": "lednelia_donhang/render.py:497 cau_hoi_gop + :457 cau_hoi_dong; lựa chọn dựng ở lednelia_donhang/apply.py:1460-1500; gửi lednelia_donhang/outbox.py:1037",
+  "ghi_chu": "Câu không phải chọn SP thì đầu tin '🔴 #D512 · CẦN ANH/CHỊ CHỌN' + '⚠️ Cần chọn cho N mục'. Ví dụ đơn vị lệch: 'Dòng d1 Led dây 12V 120 bóng/m vàng nắng: nhập \"cuộn\" nhưng sản phẩm tính theo \"m\".' 1) Dùng m 0) Huỷ dòng (đổi SP). Giá lệch: 'Dòng d2 …: giá nhập 180.000đ lệch 32,1% so với giá bán 265.000đ. Dùng giá nào?'. Khách: '\"anh tiến\" có 4 khách:' 1) … 0) Bỏ qua (nhắn lại tên/SĐT khác). >1 câu ⇒ chân '👉 Chọn: d1:1, d2:2   (hoặc gõ gọn lần lượt: 1,2)'. SP gần giống nhau ⇒ nhãn rút gọn kèm '— còn 465'."
+ },
+ {
+  "id": "hoi_lai_tool",
+  "de_xuat": false,
+  "khi_nao": "Model gọi tool hoi_lai để hỏi NV một câu có lựa chọn (vd VAT, chọn đơn, xác nhận ý).",
+  "vi_du": "Anh muốn thêm VAT cho đơn #D512 không ạ?\n1) VAT 8%\n2) VAT 10%\n0) Bỏ qua\n👉 Gõ số để chọn.",
+  "nguon_cau": "lednelia_donhang/engine.py:4168 (render.cau_hoi(cau_hoi, opts)); lednelia_donhang/render.py:585 cau_hoi",
+  "ghi_chu": "Câu hỏi do model viết; khung đánh số + '0) Bỏ qua' + '👉 Gõ số để chọn.' do mã. Không có lựa chọn ⇒ gửi trần câu model."
+ },
+ {
+  "id": "gui_lai_preview",
+  "de_xuat": false,
+  "khi_nao": "NV gõ 'gửi lại' (hoặc chốt khi mã hết hạn/đơn vừa đổi) — gửi lại thẻ hiện tại + ảnh báo giá.",
+  "vi_du": "📦 #D512 · Bản 3\n👤 Anh Tiến (Bình Định) · …678\n🛒 SẢN PHẨM · 2\n01 · Led dây 12V 120 bóng/m vàng nắng · 50 m × 38.000đ · 👤 Bạn nhập\n02 · Nguồn tổ ong 12V 30A · 4 cái × 265.000đ · 🖥️ Phần mềm\n💰 TỔNG · 2.960.000đ\n🟢 SẴN SÀNG CHỐT\n\n[kèm ảnh báo giá] caption:\nBáo giá S17440 — #D512 bản 3\n🔗 Xử lý đơn: https://quyetanh.com/r/k7Qm2",
+  "nguon_cau": "lednelia_donhang/engine.py:4130-4140 (_preview_hien_tai); ảnh lednelia_donhang/outbox.py:897-899 (gui_anh_lai)",
+  "ghi_chu": "Đi qua cổng chốt thì có câu dẫn trước thẻ: 'Mã XN XZ4B đã hết hạn. Đây là bản mới nhất:' ({R}:719) hoặc 'Đơn #D512 đã đổi sang bản 3 sau khi gửi mã. Đây là bản mới nhất:' ({R}:710)."
+ },
+ {
+  "id": "ma_chot_het_hieu_luc",
+  "de_xuat": false,
+  "khi_nao": "Admin (người khác) vừa sửa đơn trong lúc NV đang giữ mã chốt — báo về làn của người giữ mã.",
+  "vi_du": "Mã chốt XZ4B của anh/chị đã HẾT HIỆU LỰC vì Quyết vừa sửa đơn này. Xem thẻ bản mới nhất rồi gõ mã mới trên thẻ đó.",
+  "nguon_cau": "lednelia_donhang/engine.py:2063-2065",
+  "ghi_chu": "Không có tên người sửa ⇒ 'vì một người khác vừa sửa đơn này'."
+ },
+ {
+  "id": "cong_so_tra_loi",
+  "de_xuat": false,
+  "khi_nao": "NV gõ số / 'd2:1' / reply vào thẻ hỏi — cổng tất định áp lựa chọn (không qua model), chỉ nhắn khi có gì cần nói.",
+  "vi_du": "Đã ghi nhận lựa chọn. d2 → Nguồn tổ ong 12V 30A",
+  "nguon_cau": "lednelia_donhang/engine.py:4057 ('Đã ghi nhận lựa chọn. {tom_tat}'); các câu khác lednelia_donhang/engine.py:3730-3842, :3932-3953, :3992, :4023-4059, :2131",
+  "ghi_chu": "Biến thể (~20): 'Câu này chọn một trong: 0, 1, 2.' · 'Chọn một trong: 0, 1.' · 'Tin đó hỏi 2 mục nên em chưa rõ anh/chị trả lời câu nào — nhắn kiểu \"d1:1\" (câu:lựa chọn), hoặc gõ gọn lần lượt (vd 1,1) giúp em.' · 'Câu anh/chị vừa trả lời đã xử lý rồi. Câu đang chờ là câu trong tin mới nhất của em — nhắn số theo tin đó giúp em.' · 'Không có câu hỏi nào đang chờ trả lời. Anh/chị nhắn nội dung đơn hoặc \"gửi lại\" để xem đơn đang mở.' · 'Câu hỏi đó đã quá hạn (30 phút) — anh/chị nhắn lại nội dung giúp em.' · 'Đơn vừa thay đổi; gửi lại lựa chọn sau khi xem bản mới.' · 'Chưa áp dụng: câu 2: chọn một trong 0, 1' · 'Không áp dụng được lựa chọn: <lý do>' · CH-LAI-SO 'Anh/chị reply vào đúng tin câu hỏi của em rồi gõ số nhé.'. Phần sau \"Đã ghi nhận lựa chọn.\" là tom_tat của engine (ví dụ ở đây là giả định; comment engine.py:390 nêu dạng \"#D… đang đóng\"). Áp được thì thẻ xem trước mới thường đi ngay sau."
+ },
+ {
+  "id": "chot_huong_dan_tu_choi",
+  "de_xuat": false,
+  "khi_nao": "NV gõ 'chốt …' nhưng sai mã / khác hội thoại / không phải người lên đơn / đơn NCC / đang xử lý tin sửa / 'chốt' trần không reply.",
+  "vi_du": "Để chốt #D512, anh/chị gõ đúng: chốt XZ4B",
+  "nguon_cau": "lednelia_donhang/engine.py:3285 (_chot_thieu_ma); các nhánh khác lednelia_donhang/engine.py:3045, :3260, :3287-3289, :3437-3514; lednelia_donhang/render.py:723, :730; lednelia_donhang/cau_he_thong.py:CH-LAI",
+  "ghi_chu": "Biến thể: 'Không có mã xác nhận XZ4B nào đang chờ. Nhắn \"gửi lại\" để nhận lại bản xem trước.' · 'Mã XZ4B không thuộc hội thoại này.' · 'Chỉ NV lên đơn (hoặc admin) mới chốt được đơn này.' · 'Em đang xử lý tin sửa anh/chị vừa gửi. Đợi bản xem trước mới rồi gõ lại mã chốt nhé.' · 'Em đang đẩy bản xem trước lên Odoo, vài giây nữa anh/chị nhắn \"chốt\" lại nhé.' · 'Đơn #D512 chưa có mã chốt (chưa đủ điều kiện hoặc bản xem trước chưa gửi). Nhắn \"gửi lại\" để xem bản hiện tại.' · 'Không có đơn nào đang chờ chốt.' · CH-LAI 'Anh/chị reply vào đúng thẻ đơn của em rồi gõ \"chốt\" nhé.' · NCC: '❌ Không chốt #D512: khách của đơn \"…\" là NHÀ CUNG CẤP (mã NCC…) — không lên đơn bán cho nhà cung cấp. Lên đơn MỚI cho khách (mã KH…); …'."
+ },
+ {
+  "id": "dang_chot",
+  "de_xuat": false,
+  "khi_nao": "Ngay khi NV gõ/reply 'chốt' hợp lệ, trước khi Odoo xác nhận đơn.",
+  "vi_du": "⏳ Đang chốt #D512 bản 3 trên Odoo…",
+  "nguon_cau": "lednelia_donhang/render.py:734 dang_chot; gửi lednelia_donhang/engine.py:3565",
+  "ghi_chu": "Admin chốt đơn của NV khác ⇒ tin trước đó: 'Quyết chốt hộ #D512 — đơn của Hưng.' ({E}:3558)."
+ },
+ {
+  "id": "da_chot",
+  "de_xuat": false,
+  "khi_nao": "Odoo xác nhận đơn xong (outbox confirm thành công) — báo đơn đã vào sổ thật.",
+  "vi_du": "Đã chốt #D512 = S17440 — Anh Tiến (Bình Định) — 2.960.000đ (Hưng chốt 14:32). Kế toán hoàn tất trên Odoo.\nLink xử lý: https://quyetanh.com/r/k7Qm2",
+  "nguon_cau": "lednelia_donhang/render.py:624 da_chot; gửi lednelia_donhang/outbox.py:771",
+  "ghi_chu": "Đơn có hoá đơn ngay ⇒ chèn ' Hoá đơn INV/2026/028491.' trước ' Kế toán hoàn tất…', link trỏ hoá đơn."
+ },
+ {
+  "id": "anh_hoa_don_sau_chot",
+  "de_xuat": false,
+  "khi_nao": "Ngay sau tin 'Đã chốt' — ảnh hoá đơn (nếu Odoo đã có) hoặc ảnh đơn đã xác nhận.",
+  "vi_du": "[Ảnh PNG hoá đơn Odoo]\ncaption:\nHoá đơn INV/2026/028491 — #D512\n🔗 Xử lý đơn: https://quyetanh.com/r/p3Xa9",
+  "nguon_cau": "lednelia_donhang/outbox.py:774-776 (caption_anh)",
+  "ghi_chu": "Chưa có hoá đơn ⇒ caption 'Đơn S17440 — #D512' + dòng 🔗."
+ },
+ {
+  "id": "chot_that_bai",
+  "de_xuat": false,
+  "khi_nao": "Odoo từ chối xác nhận / đơn đã bị huỷ trên Odoo / đơn Odoo lệch bản đã duyệt khi chốt.",
+  "vi_du": "Odoo từ chối #D512: Không thể xác nhận đơn: sản phẩm Nguồn tổ ong 12V 30A chưa có tài khoản doanh thu.\n\n📦 #D512 · Bản 3\n👤 Anh Tiến (Bình Định) · …678\n🛒 SẢN PHẨM · 2\n01 · Led dây 12V 120 bóng/m vàng nắng · 50 m × 38.000đ · 👤 Bạn nhập\n02 · Nguồn tổ ong 12V 30A · 4 cái × 265.000đ · 🖥️ Phần mềm\n💰 TỔNG · 2.960.000đ\n🟢 SẴN SÀNG CHỐT",
+  "nguon_cau": "lednelia_donhang/render.py:742 loi_odoo; lednelia_donhang/outbox.py:819-822 (_that_bai_chot: câu lỗi + gửi lại preview), :722-723 (đã huỷ), :1468-1473 (_bao_loi)",
+  "ghi_chu": "Phần sau ':' là chuỗi lỗi Odoo nguyên văn (ví dụ trên là giả định). Biến thể: 'Không chốt được #D512: đơn S17440 đã bị HUỶ trên Odoo rồi. Nếu vẫn cần bán, anh/chị lên lại đơn mới giúp em nhé.' · 'Chưa chốt được #D512: Đơn trên Odoo khác bản đã duyệt: khách 4411 ≠ 4410' (drift) rồi gửi lại thẻ có mã mới."
+ },
+ {
+  "id": "in_sau_chot",
+  "de_xuat": false,
+  "khi_nao": "NV gõ 'chốt XZ4B và in' — sau khi chốt, bot xuất hoá đơn rồi xếp lệnh in.",
+  "vi_du": "Đơn S17440 đã chốt · hoá đơn INV/2026/028491 đã vào sổ · đã xếp hàng in (bản KHÔNG GIÁ).",
+  "nguon_cau": "hermes_plugins/lednelia/cong_cu_tools.py:651-658 (in_sau_chot); gửi lednelia_donhang/outbox.py:793-805",
+  "ghi_chu": "Biến thể: 'Đơn S17440 đã chốt, nhưng em CHƯA XUẤT ĐƯỢC HOÁ ĐƠN để in — anh/chị xử lý giúp trong Odoo.' · 'Đơn S17440 đã chốt và xuất hoá đơn INV/… (đã vào sổ Odoo). Em CHƯA IN được vì hệ thống chưa nối hàng đợi máy in — anh/chị in giúp trong Odoo nhé.' · 'Đơn S17440 đã chốt nhưng em CHƯA IN ĐƯỢC — hệ thống chưa nối hàng đợi máy in. Anh/chị in giúp trong Odoo nhé.' · 'Đơn S17440 đã chốt xong, nhưng em CHƯA IN ĐƯỢC (<lỗi>). Anh/chị in giúp trong Odoo, hoặc nhắn \"in đơn\" lại sau nhé.' Hiện KHÔNG có tin báo 'đã in xong' — xem đề xuất in_xong."
+ },
+ {
+  "id": "huy_xac_nhan",
+  "de_xuat": false,
+  "khi_nao": "NV gõ 'huỷ XZ4B' hoặc model gọi huy_don — bot huỷ mã chốt rồi hỏi có ngưng hẳn đơn không.",
+  "vi_du": "Đã huỷ mã xác nhận của #D512. Đơn vẫn là nháp; nhắn sửa hoặc huỷ hẳn đơn.\n\nHuỷ hẳn đơn #D512 (Anh Tiến (Bình Định), 2.960.000đ)? Em ngưng làm đơn này, đơn nháp trên Odoo vẫn còn (kế toán bỏ hẳn nếu cần).\n1) Huỷ đơn\n0) Giữ lại\n👉 Gõ số để chọn.",
+  "nguon_cau": "lednelia_donhang/render.py:738 da_huy_xac_nhan; lednelia_donhang/engine.py:3682-3694 (_cau_hoi_huy), gửi :3622, :4361",
+  "ghi_chu": "Hai tin riêng (ví dụ ghép bằng dòng trống). Tool huy_don chỉ gửi tin thứ hai. Mã không tồn tại ⇒ 'Không có mã xác nhận XZ4B nào đang chờ. Nhắn \"gửi lại\" để nhận lại bản xem trước.' · CH-LAI-HUY 'Anh/chị reply vào đúng thẻ đơn của em rồi gõ \"huỷ\" nhé.'"
+ },
+ {
+  "id": "dong_phien",
+  "de_xuat": false,
+  "khi_nao": "Phiên đơn bị ngưng (NV chọn 1 'Huỷ đơn') hoặc tự đóng sau 24 giờ không chốt — nháp Odoo giữ nguyên.",
+  "vi_du": "Em đã ngưng làm đơn #D512. Đơn nháp S17440 vẫn còn nguyên trên Odoo — cần bỏ hẳn thì nhờ kế toán ạ.\nLink xử lý: https://quyetanh.com/r/k7Qm2",
+  "nguon_cau": "lednelia_donhang/render.py:680-707 dong_phien; gửi lednelia_donhang/outbox.py:983 (và :944 khi chưa lên Odoo)",
+  "ghi_chu": "Biến thể đầu câu: 'Đã đóng #D512 — quá 24 giờ chưa chốt.' · 'Đã đóng #D512.'. Chưa lên Odoo mà có hàng: 'Em đã ngưng làm đơn #D512. Đơn này chưa lên được Odoo nên em không giữ lại được — 2 dòng hàng của Anh Tiến (Bình Định), tạm tính 2.960.000đ. Cần làm tiếp thì anh/chị nhắn lại giúp em ạ.' Đơn đã bán/huỷ sẵn trên Odoo: 'Em ngưng làm #D512 — S17440 đã BÁN trên Odoo rồi, em giữ nguyên. Cần sửa đơn đã bán thì làm trong Odoo hoặc nhờ kế toán.' Chế độ thử: '[BÓNG] Em ngưng làm #D512 — chế độ thử, không ghi Odoo.'"
+ },
+ {
+  "id": "treo_bao_gia",
+  "de_xuat": false,
+  "khi_nao": "NV mở đơn mới khi đơn cũ chưa chốt — đơn cũ được GIỮ LẠI thành báo giá trên Odoo.",
+  "vi_du": "Giữ #D512 — Anh Tiến (Bình Định) — 2.960.000đ làm BÁO GIÁ trên Odoo (S17440), chưa chốt và không mất. Khi khách đồng ý, nhắn \"chốt #D512\".\nLink xử lý: https://quyetanh.com/r/k7Qm2",
+  "nguon_cau": "lednelia_donhang/render.py:637-655 treo_bao_gia; gửi lednelia_donhang/outbox.py:872",
+  "ghi_chu": "Khách là NCC ⇒ '…làm BÁO GIÁ trên Odoo (S17440), chưa chốt. Khách của đơn là NHÀ CUNG CẤP (mã NCC…) — KHÔNG chốt được; muốn bán thì lên đơn MỚI cho khách (mã KH…).'"
+ },
+ {
+  "id": "canh_bao_odoo_lech",
+  "de_xuat": false,
+  "khi_nao": "Lúc đồng bộ nháp, bot thấy đơn trên Odoo đã bị ai đó sửa tay hoặc đã đổi trạng thái (xác nhận/huỷ) ngoài luồng bot.",
+  "vi_du": "Lưu ý: S17440 đã bị sửa trên Odoo ngoài luồng; bot ghi đè theo bản 3.",
+  "nguon_cau": "lednelia_donhang/outbox.py:639 (drift); :631 (state_unexpected)",
+  "ghi_chu": "Biến thể trạng thái: 'Đơn #D512 (S17440) đã ở trạng thái sale trên Odoo — không sửa được qua bot.' (state Odoo in thô: sale/done)."
+ },
+ {
+  "id": "in_hoa_don_tool",
+  "de_xuat": false,
+  "khi_nao": "NV nhờ 'in đơn anh Tiến' — model gọi in_hoa_don: ảnh hoá đơn gửi kèm, model chuyển lời câu kết quả.",
+  "vi_du": "[Ảnh PNG hoá đơn] caption: Hoá đơn INV/2026/028491\n\n(chữ của model, dựa trên câu tool:) Dạ em đã xếp hàng in hoá đơn INV/2026/028491 (đơn S17440) · Anh Tiến (Bình Định) · 2.960.000đ — bản KHÔNG GIÁ. Máy in ở shop sẽ nhả trong ít giây ạ. Đơn này chưa có hoá đơn nên em đã xuất hoá đơn và vào sổ Odoo trước khi in.\nLink: https://quyetanh.com/r/p3Xa9",
+  "nguon_cau": "lednelia_donhang/cong_cu/don_hang.py:2330-2360 (_ket_qua_in), caption :2352 'Hoá đơn {so}'; lỗi :2060-2070",
+  "ghi_chu": "Chữ cuối do MODEL viết lại từ van_ban của tool (không nguyên văn). Ảnh caption chỉ 'Hoá đơn <số>' (không #D, không link). Lỗi: model báo 'KHÔNG in được: không xuất được hoá đơn để in — <lý do Odoo>'. Bản có giá: 'bản CÓ GIÁ'."
+ },
+ {
+  "id": "xuat_hoa_don_tool",
+  "de_xuat": false,
+  "khi_nao": "NV nhờ 'xuất hoá đơn đơn anh Tiến' — model gọi xuat_hoa_don: ảnh hoá đơn + model báo số hoá đơn.",
+  "vi_du": "[Ảnh PNG hoá đơn] caption: Hoá đơn INV/2026/028491\n\n(chữ của model:) Dạ em đã xuất hoá đơn chính thức INV/2026/028491 (đã vào sổ) cho đơn S17440 · Anh Tiến (Bình Định) · 2.960.000đ. Hoá đơn đã phát hành số, muốn huỷ phải đảo bút toán trong Odoo ạ.\nLink: https://quyetanh.com/r/p3Xa9",
+  "nguon_cau": "lednelia_donhang/cong_cu/don_hang.py:1678-1700 (van_ban), caption :1690; từ chối :1640-1650",
+  "ghi_chu": "Model diễn đạt lại. Đã có trước: 'Đơn S17440 ĐÃ có hoá đơn từ trước: INV/… · … KHÔNG xuất thêm.' Đơn của NV khác: thêm 'Lưu ý: đơn S17440 là đơn của Hưng, không phải đơn anh/chị đang mở.'"
+ },
+ {
+  "id": "bao_cao_soan_tin",
+  "de_xuat": false,
+  "khi_nao": "NV hỏi số liệu ('doanh số tháng này', 'mã nào sắp hết'…) — tool báo cáo trả tin soạn sẵn theo khuôn docs/73, có thể kèm ảnh biểu đồ.",
+  "vi_du": "📊 DOANH SỐ — Tháng 10/2026 (tạm tính đến 01/10)\n\n💰 186 tr · 41 HĐ · 33 khách\n📊 Tháng 9/2026: 160 tr/ngày — hôm nay chưa hết ngày, chưa so\n🧾 TB 4,5 tr/HĐ\n\n🕐 01/10/2026 18:05\n\n[kèm ảnh biểu đồ] caption: 📈 Doanh thu 12 tháng",
+  "nguon_cau": "lednelia_donhang/soan_tin/mau/doanh_so.tpl (khuôn); loai/doanh_so.py; giao.py:45,67; hermes_plugins/lednelia/cong_cu_tools.py:970-1095",
+  "ghi_chu": "15 loại, mỗi loại một khuôn .tpl: doanh_so, xep_hang_ban (_ngay/_nhan_vien/_chi_nhanh), top_san_pham, cong_no_khach, khach_hang, canh_bao_ton ('⚠️ SẮP HẾT HÀNG · toàn công ty — còn ≤ 14 ngày bán' / '📦 TỒN DƯỚI …'), ban_ton, ton_kho, linh_hoat, lai_gop_khach, gia_khach, don_cho, san_pham, xem_don, thong_so. Dạng số theo test test_soan_tin_khuon.py ('4,82 tỷ', '720 tr', '▲ 12,4% so với tháng trước', thanh '█████████░'). Số trong ví dụ là giả định."
+ },
+ {
+  "id": "tri_thuc_pdf",
+  "de_xuat": false,
+  "khi_nao": "NV hỏi thông số/tài liệu sản phẩm — tool tri thức gửi PDF (tài liệu gốc hoặc PDF thông số tự dựng) kèm chú thích.",
+  "vi_du": "[Tệp PDF: thong-so.pdf]\ncaption: Thông số kỹ thuật: Led dây 12V 120 bóng/m vàng nắng\n\n(chữ model sau đó:) Dạ em gửi anh file thông số dây 120 bóng/m ạ.",
+  "nguon_cau": "lednelia_donhang/cong_cu/tri_thuc.py:537 ('Thông số kỹ thuật: ' + tên, cắt 150), :692 (caption = tiêu đề tài liệu)",
+  "ghi_chu": "Tài liệu có sẵn ⇒ caption chỉ là tiêu đề tài liệu, vd 'Catalogue nguồn tổ ong 2026'. Giá bị gỡ khỏi PDF thông số (_bo_dong_gia)."
+ },
+ {
+  "id": "kho_tool_anh_phieu",
+  "de_xuat": false,
+  "khi_nao": "Model tạo đơn mua/phiếu kho từ tin/ảnh NV — gửi ảnh phiếu nháp để soát trước khi gõ 'nhập <mã>'.",
+  "vi_du": "[Ảnh PNG phiếu nhập P00091, từng trang]\ncaption: Phiếu nhập P00091 (NHÁP — soát trước khi nhập)\n\n(chữ model:) Đã gửi 1 ảnh phiếu để soát. Người có quyền kho soát kỹ (KHÔNG sửa lại được sau khi nhập) rồi gõ: nhập K7RT — hệ thống sẽ xác nhận đơn mua, nhận hàng vào kho và đối chiếu số.",
+  "nguon_cau": "lednelia_donhang/cong_cu/mua_hang.py:713-719; lednelia_donhang/cong_cu/kho.py:315-335 (gui_anh_phieu, '(trang i/n)')",
+  "ghi_chu": "Chuyển kho: '… Người có quyền kho xem lại rồi gõ: chuyển <mã>' (kho.py:472). Nhiều trang ⇒ caption + ' (trang 1/2)'."
+ },
+ {
+  "id": "kho_cong",
+  "de_xuat": false,
+  "khi_nao": "Người có quyền kho gõ 'nhập K7RT' / 'chuyển K7RT' / 'nhận <phiếu>' — cổng ngoài model xác nhận phiếu trên Odoo.",
+  "vi_du": "Đã nhập kho đơn mua P00091 (phiếu WH/IN/00412):\n✓ Led dây 12V 120 bóng/m vàng nắng ×500 · tồn Kho HN 120 → 620\n✓ Nguồn tổ ong 12V 30A ×40 · tồn Kho HN 12 → 52\n\n[ảnh] caption: Phiếu nhập P00091 — ĐÃ nhập kho",
+  "nguon_cau": "lednelia_donhang/cong_cu/kho.py:585 + cong_cu/kiem_so.py:138-170 (bang_kiem_so); lednelia_donhang/kho_cong.py:51-75, :147, :178-188",
+  "ghi_chu": "Biến thể: TC-KHO 'Anh/chị chưa được nhập/chuyển kho nên em chưa làm được. Anh/chị nhờ anh bật nhé.' · 'Mã K7RT không khớp phiếu nhập nào đang chờ trong hội thoại này. Kiểm lại mã trong tin xem trước, hoặc tạo lại phiếu.' · 'Mã K7RT đã được dùng rồi (phiếu P00091). Không chạy lại — kiểm bằng: đối chiếu phiếu P00091' · 'Mã K7RT đã quá hạn 24 giờ. Nhắn lại nội dung nhập kho để em tạo phiếu + mã mới.' · '⚠ CHƯA CHẮC ĐÚNG SỐ — đơn mua P00091, phiếu …:\\n⚠ <SP>: lệnh 500 nhưng sổ ghi 450\\nKHÔNG coi là nhập xong. Người kiểm trên Odoo trước khi làm gì tiếp.' · 'Không có phiếu chờ nhận mã \\'HN/RECV/0007\\'. Xem các phiếu đang chờ bằng: việc cần lưu ý.' · 'Lệnh kho gặp lỗi hệ thống (…). Kiểm trên Odoo trước khi gõ lại — …'. Tên phiếu WH/IN/00412, tên kho là giả định."
+ },
+ {
+  "id": "phieu_thu_nhan_dien",
+  "de_xuat": false,
+  "khi_nao": "NV gửi ảnh bill chuyển khoản + tag bot — bot đọc số tiền, nhận khách, gửi thẻ phiếu thu chờ mã 'thu XXXX'.",
+  "vi_du": "Đã nhận diện khách hàng: Anh Tiến (Bình Định) (KH01234)\n(khớp số tài khoản người chuyển)\n🧾 Phiếu thu 2.960.000đ — Anh Tiến (Bình Định) (KH01234)\nCông nợ: 5.460.000đ → 2.500.000đ\n👉 Người có quyền thu gõ: thu M3QP  (hạn 10 phút)",
+  "nguon_cau": "lednelia_donhang/phieu_thu.py:276-277 (dòng 'Đã nhận diện…'), :81-95 (_cau_preview), :207-220 (_cau_chon), :223-225; gửi hermes_plugins/lednelia/adapter.py:3675-3682",
+  "ghi_chu": "Người gửi có quyền thu và bill không nghi trùng ⇒ ghi luôn (ra tin của phieu_thu_cong). Nhiều ứng viên: 'Em tìm thấy nhiều khách phù hợp với bill 2.960.000đ:\\n1. Anh Tiến (Bình Định) · KH01234 · nợ 5.460.000đ\\n   (lý do)\\n2. …\\n👉 Trả lời 1 hoặc 2\\nKhông đúng khách? Gửi tên / mã KH / SĐT khách · \"huỷ\" để bỏ'. Không tìm thấy: 'Em chưa xác định được khách của bill 2.960.000đ.\\nGửi giúp em một trong các thông tin: tên khách hàng · mã khách hàng · số điện thoại'. Nghi trùng: '⚠️ Bill này giống phiếu … đã ghi ngày … — nếu đúng là khoản khác, gõ: thu M3QP'. Lỗi: 'Em chưa lập được phiếu thu (lỗi hệ thống) — thử lại sau ít phút.' Lý do trong ngoặc là giả định (từ reasons của Odoo)."
+ },
+ {
+  "id": "phieu_thu_cong",
+  "de_xuat": false,
+  "khi_nao": "Người có quyền thu gõ 'thu M3QP', NV chọn khách 1/2/3, hoặc nhắn chữ 'anh Tiến vừa chuyển 2tr96' — cổng tất định ghi phiếu thu.",
+  "vi_du": "✅ Đã thu 2.960.000đ — Anh Tiến (Bình Định) (KH01234) · phiếu PBNK/2026/00321\nCông nợ: 5.460.000đ → 2.500.000đ\n🔗 Phiếu thu: https://quyetanh.com/r/T9vb4",
+  "nguon_cau": "lednelia_donhang/phieu_thu.py:696-716 (_cau_ket_qua); từ chối :719-724; các câu cổng :387-475, :478-554, :565-660",
+  "ghi_chu": "Biến thể: '✅ Phiếu này đã ghi trước đó …' · '⛔ Không ghi: mã giao dịch này đã có phiếu thu.' · '⛔ Không ghi mã M3QP: <lý do> Gửi lại: thu <mã KH> (trả lời vào ảnh bill).' · 'Mã M3QP đã ghi rồi: phiếu … (người duyệt …).' · 'Mã M3QP quá hạn 10 phút. Gửi lại: thu <mã KH> (trả lời vào ảnh bill) để lập preview mới.' · 'Chưa ghi được do kết nối Odoo (…). Gõ lại `thu M3QP` sau ít phút — không sợ ghi trùng.' · 'Em không ghi tiền theo lời nhắn. Để ghi phiếu thu 2.960.000đ cho Anh Tiến (Bình Định), người có quyền thu gõ đúng: thu M3QP (hạn tới 14:42).' · 'Đã xác nhận khách hàng Anh Tiến (Bình Định) (KH01234).' · 'Chọn số từ 1 đến 3 giúp em'. Số phiếu PBNK/… là giả định."
+ },
+ {
+  "id": "phieu_thu_tu_choi_anh",
+  "de_xuat": false,
+  "khi_nao": "NV tag bot thu tiền mà ảnh không phải bill / gửi nhiều bill / bill không đọc được / tính năng thu chưa bật.",
+  "vi_du": "Mỗi lần gửi MỘT ảnh bill — em chưa lập phiếu cho nhiều bill cùng lúc.",
+  "nguon_cau": "hermes_plugins/lednelia/adapter.py:3487-3488, :3664-3672",
+  "ghi_chu": "4 câu cố định: 'Ảnh gần nhất không phải bill chuyển khoản nên em chưa lập phiếu thu. Gửi ảnh bill và tag em nhé.' · câu ví dụ · 'Em nhận ra đây là bill chuyển khoản nhưng chưa đọc được chi tiết — anh/chị gửi lại ảnh rõ hơn nhé.' · 'Tính năng thu tiền từ ảnh chuyển khoản chưa bật.'"
+ },
+ {
+  "id": "anh_doc_loi",
+  "de_xuat": false,
+  "khi_nao": "NV gửi ảnh danh sách hàng để lên đơn mà bot không đọc được / ảnh không phải danh sách hàng / đọc được nhưng không ghi được dòng nào.",
+  "vi_du": "Em chưa đọc được ảnh này ạ. Anh/chị chụp rõ hơn hoặc gõ giúp em nội dung (tên hàng + số lượng).",
+  "nguon_cau": "hermes_plugins/lednelia/adapter.py:3498-3501 (bảng tran/khac/hong), :3545, :3582, :3654",
+  "ghi_chu": "Biến thể: 'Em tạm không đọc thêm ảnh được, anh/chị gõ giúp em nội dung nhé.' · 'Ảnh vừa gửi không phải danh sách hàng/hoá đơn nên em không lấy được dữ liệu; anh/chị gõ giúp em nhé.' · 'Em chưa xử lý được nội dung anh/chị gửi kèm ảnh, anh/chị nhắn lại giúp em nhé.' · 'Em đã đọc ảnh nhưng chưa xử lý được, anh/chị gửi lại giúp em nhé.' · 'Em chưa ghi được dòng nào từ ảnh; anh/chị gõ giúp em tên hàng + số lượng nhé.'"
+ },
+ {
+  "id": "kho_phieu_lech_dong",
+  "de_xuat": false,
+  "khi_nao": "Bot tạo phiếu nhập nháp từ ảnh nhưng phiếu có ít dòng hơn ảnh — nhắc soát trước khi gõ 'nhập <mã>'.",
+  "vi_du": "Phiếu nháp có 7 dòng nhưng ảnh có 9 dòng hàng — anh/chị soát dòng thiếu trước khi gõ nhập <mã> nhé.",
+  "nguon_cau": "hermes_plugins/lednelia/adapter.py:3632-3633"
+ },
+ {
+  "id": "tag_trong",
+  "de_xuat": false,
+  "khi_nao": "NV chỉ @tag bot mà không kèm chữ (và không gom được tin trước) — có hoặc không có ảnh chưa đọc.",
+  "vi_du": "Dạ, anh/chị nhắn nội dung giúp em nhé.",
+  "nguon_cau": "hermes_plugins/lednelia/adapter.py:923-926 (_CAU_TAG_TRONG[_CO_ANH]); gửi :2226, :2352",
+  "ghi_chu": "Có ảnh vừa gửi chưa đọc: 'Dạ, anh/chị nhắn kèm yêu cầu cho ảnh vừa gửi giúp em nhé (vd: lên đơn cho anh Vấn / nhập kho).'"
+ },
+ {
+  "id": "tin_hong",
+  "de_xuat": false,
+  "khi_nao": "Một tin NV gây lỗi hệ thống khi xử lý (vào sổ tin_hong) — báo đúng một lần, nêu tên người gửi.",
+  "vi_du": "Em chưa xử lý được tin vừa rồi của Hưng (lỗi hệ thống, không phải do anh/chị gõ sai). Anh/chị nhắn lại giúp em nhé.",
+  "nguon_cau": "hermes_plugins/lednelia/adapter.py:1868-1869 (_CAU_TIN_HONG), :1903",
+  "ghi_chu": "Không có tên ⇒ '…tin vừa rồi của anh/chị (lỗi hệ thống…'."
+ },
+ {
+  "id": "don_dai_thieu",
+  "de_xuat": false,
+  "khi_nao": "NV gửi một tin dài nhiều dòng; sau khi bot tách phần và thử 2 lần vẫn còn dòng chưa vào đơn hoặc chưa có tên khách.",
+  "vi_du": "⚠ Tin dài: 2 dòng chưa vào được đơn (em đã thử 2 lần). Anh/chị nhắn lại riêng các dòng này:\n• 20m dây 2835 trắng x 15k\n• 3 nguồn 5A",
+  "nguon_cau": "lednelia_donhang/don_dai.py:136-139 (thong_bao_thieu); gửi hermes_plugins/lednelia/adapter.py:3139, :3141",
+  "ghi_chu": "Thiếu khách: '⚠ Đơn từ tin dài chưa có TÊN KHÁCH — anh/chị nhắn tên khách giúp em.' Hơn 20 dòng ⇒ thêm '…'. Dòng liệt kê là chữ NV gõ (ví dụ giả định)."
+ },
+ {
+  "id": "im_nv",
+  "de_xuat": false,
+  "khi_nao": "NV @tag bot trong nhóm đang tạm im (có người ngoài/chưa xếp loại/thiếu danh sách) — bot nhắn RIÊNG cho NV, tối đa 1 lần/NV/nhóm/ngày.",
+  "vi_du": "Nhóm Đại lý Bình Định em đang tạm không trả lời (có người ngoài công ty); anh/chị gửi yêu cầu vào đây ạ.",
+  "nguon_cau": "lednelia_donhang/cau_he_thong.py:97 (IM-NV), VI_IM_NV; gửi hermes_plugins/lednelia/adapter.py:4240-4270",
+  "ghi_chu": "{vì}: 'có người ngoài công ty' · 'nhóm chưa được xếp loại' · 'em chưa đọc đủ danh sách thành viên'. Nhóm chưa có tên đăng ký ⇒ 'Nhóm anh/chị vừa nhắn em đang tạm không trả lời (…)'. Lý do người nghỉ/lỗi rào ⇒ KHÔNG gửi. Tên nhóm là giả định."
+ },
+ {
+  "id": "ri_c",
+  "de_xuat": false,
+  "khi_nao": "NV gọi bot ở nhóm đang im vì có khách/người ngoài — bot chuyển cả lượt sang tin riêng, mở đầu bằng câu này.",
+  "vi_du": "🔒 Nhóm Đại lý Bình Định có người ngoài công ty nên phần anh/chị vừa gọi em, em làm ở tin riêng này. Đơn lên ở đây; sửa và chốt đơn cũng ở đây — trong nhóm em không chốt được.",
+  "nguon_cau": "lednelia_donhang/cau_he_thong.py:106-107 (RI-C), cau_r11c; gửi hermes_plugins/lednelia/adapter.py:4373",
+  "ghi_chu": "Sau câu này mọi tin của lượt (thẻ xem trước, câu hỏi…) đi DM; trong DM chắc chắn SĐT khách hiện đủ số."
+ },
+ {
+  "id": "ri_ok",
+  "de_xuat": false,
+  "khi_nao": "Ngay sau khi gửi riêng (RI-C) thành công — báo một dòng vào NHÓM đang im (tin duy nhất được miễn rào im).",
+  "vi_du": "🔒 Em đã gửi riêng anh/chị Hưng phần này.",
+  "nguon_cau": "lednelia_donhang/cau_he_thong.py:102 (RI-OK), :121-128 tin_ri_ok; gửi hermes_plugins/lednelia/adapter.py:4386",
+  "ghi_chu": "Không có tên NV ⇒ '🔒 Em đã gửi riêng anh/chị phần này.'"
+ },
+ {
+  "id": "bc_ha_bao_chu",
+  "de_xuat": true,
+  "khi_nao": "(CHƯA GỬI — hiện chỉ ghi WARNING + sổ nhom_zalo_so) Dự kiến: người ngoài công ty vừa lên tiếng trong một nhóm NỘI BỘ làm nhóm tự im — báo riêng cho chủ/admin.",
+  "vi_du": "⚠️ Nhóm Kho HN nội bộ vừa có người ngoài công ty lên tiếng — em tạm im phía NV ở nhóm này.",
+  "nguon_cau": "hermes_plugins/lednelia/adapter.py:3929-3975 (chỉ log mã BC-HA); câu đề xuất có sẵn ở docs/76-ke-hoach-phan-quyen/ke-hoach.md:369 (bảng §15, mã BC-HA)",
+  "ghi_chu": "Đề xuất lấy nguyên câu BC-HA của docs/76 §15. Có thể thêm dòng thứ hai '👉 Kiểm danh sách thành viên trên trang quyền' — chưa có trong bảng §15, chờ chủ. Không đưa tên/uid người ngoài vào câu (N7). Tên nhóm là giả định."
+ },
+ {
+  "id": "in_xong",
+  "de_xuat": true,
+  "khi_nao": "Máy in ở chi nhánh báo đã in xong tờ của một đơn (job hoàn tất) — báo về nhóm kho/người gõ.",
+  "vi_du": "🖨️ Đã in S17440 — Anh Tiến (Bình Định) · máy HN · 14:33\n(hoá đơn INV/2026/028491 · bản KHÔNG GIÁ)",
+  "nguon_cau": "(mới) thong_bao/loai/in_xong.py — dựng theo mẫu docs/78 ban-do-tin.html:144 + câu 'đã xếp hàng in (bản KHÔNG GIÁ)' ở cong_cu_tools.py:658",
+  "ghi_chu": "Tên khách qua ten_khach_ra_zalo (che SĐT trong tên khi ở nhóm). Không nêu tiền."
+ },
+ {
+  "id": "in_su_co",
+  "de_xuat": true,
+  "khi_nao": "Máy in báo sự cố vật lý (hết giấy, kẹt giấy, mở nắp) trong khi có lệnh in đang chờ.",
+  "vi_du": "⚠️ Máy HN hết giấy — S17440 đang chờ in.\n👉 Thêm giấy là máy tự in tiếp, không cần gõ lại.",
+  "nguon_cau": "(mới) thong_bao/loai/in_su_co.py — mẫu docs/78 ban-do-tin.html:145; câu 'bật lại là in' theo don_hang.py:2341",
+  "ghi_chu": "Biến thể {sự cố}: hết giấy · kẹt giấy · mở nắp · mất kết nối. Một tin/sự cố, không lặp mỗi job."
+ },
+ {
+  "id": "in_that_bai",
+  "de_xuat": true,
+  "khi_nao": "Lệnh in quá hạn (vd 5 phút) chưa in được hoặc máy báo lỗi không tự hồi — báo nhóm kho + DM người gõ.",
+  "vi_du": "❌ S17440 chưa in được sau 5 phút (máy HN offline). Kho kiểm giúp.\n👉 In tay trong Odoo, hoặc nhắn \"in đơn S17440\" lại sau khi máy bật.",
+  "nguon_cau": "(mới) thong_bao/loai/in_that_bai.py — mẫu docs/78 ban-do-tin.html:146; câu chỉ đường theo outbox.py:801-803",
+  "ghi_chu": "Hoá đơn đã vào sổ dù chưa in — nên nói rõ nếu tu_xuat: 'hoá đơn INV/… đã vào sổ'."
+ },
+ {
+  "id": "don_chot_admin",
+  "de_xuat": true,
+  "khi_nao": "Một đơn bán vừa được xác nhận trên Odoo (qua bot hoặc ai đó bấm trên Odoo) — báo nhóm admin.",
+  "vi_du": "✅ Chốt S17440 — Anh Tiến (Bình Định) · 2.960.000đ · NV Hưng (qua bot)\nLink xử lý: https://quyetanh.com/r/k7Qm2",
+  "nguon_cau": "(mới) nguồn sổ mốc Odoo incokit.moc — mẫu docs/78 ban-do-tin.html:147; khuôn câu theo render.da_chot (render.py:624)",
+  "ghi_chu": "Biến thể nguồn: '(qua bot)' · '(bấm trên Odoo)'. Có giá ⇒ chỉ gửi nhóm admin."
+ },
+ {
+  "id": "bao_cao_ngay",
+  "de_xuat": true,
+  "khi_nao": "18:00 mỗi ngày — tự gửi nhóm admin: doanh số hôm nay, đơn chờ, cảnh báo tồn (không ai hỏi).",
+  "vi_du": "📊 DOANH SỐ — Hôm nay 01/10/2026\n\n💰 38,6 tr · 9 HĐ · 8 khách\n▲ 12,4% so với hôm qua (34,3 tr)\n🧾 TB 4,3 tr/HĐ\n\n⏳ 3 đơn nháp chưa chốt · 6 mã sắp hết (≤ 7 ngày)\n\n🕐 01/10/2026 18:00",
+  "nguon_cau": "(mới) nguồn lịch — dùng lại soan_tin/mau/doanh_so.tpl + don_cho.tpl + canh_bao_ton.tpl (docs/73); mẫu docs/78 ban-do-tin.html:148",
+  "ghi_chu": "Dòng ⏳ gộp tóm tắt từ don_cho/canh_bao_ton là đề xuất (chưa có trong khuôn)."
+ },
+ {
+  "id": "canh_bao_ton_ngay",
+  "de_xuat": true,
+  "khi_nao": "08:00 mỗi sáng — tự gửi nhóm kho danh sách mã sắp hết theo tốc độ bán.",
+  "vi_du": "⚠️ SẮP HẾT HÀNG · toàn công ty — còn ≤ 14 ngày bán\n\n📉 6 mã sắp hết (2 mã dưới 7 ngày)\n1. Led dây 12V 120 bóng/m vàng nắng — còn 120 m · ~4 ngày · 🚚 về 500 (05/10)\n2. Nguồn tổ ong 12V 30A — còn 12 cái · ~6 ngày · kho khác 40\n3. …\n… còn 3 mã — gấp nhất ở trên\n\n🕐 02/10/2026 08:00",
+  "nguon_cau": "(mới) nguồn lịch — khuôn có sẵn lednelia_donhang/soan_tin/mau/canh_bao_ton.tpl (nhánh SẮP HẾT); mẫu docs/78 ban-do-tin.html:149",
+  "ghi_chu": "Không có mã nào ⇒ '✅ Không có mã nào chỉ đủ bán ≤ 14 ngày.' — đề xuất KHÔNG gửi gì trong ca này để khỏi làm ồn nhóm."
+ }
+]
