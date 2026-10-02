@@ -12,7 +12,12 @@ import { describeCanDb } from './helpers/can-db.js';
 import { prisma } from '../src/shared/database/prisma-client.js';
 import { registerAgentWs } from '../src/modules/ai/may-in/agent-ws.js';
 import { AgentRegistry } from '../src/modules/ai/may-in/agent-registry.js';
-import { ghiSuCoIn, docTrangThaiMayDaLuu, type PrismaSuCoIn, type SuCoIn } from '../src/modules/ai/may-in/su-kien-in.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import {
+  ghiSuCoIn, docTrangThaiMayDaLuu, taoHangThuLaiSuCo, type PrismaSuCoIn, type SuCoIn,
+} from '../src/modules/ai/may-in/su-kien-in.js';
 import { dichVuHangDoiRong } from './ai/may-in/prisma-gia-hang-doi.js';
 
 const ORG = 'test-psc-org';
@@ -68,12 +73,15 @@ describeCanDb('print_su_co qua socket THẬT — lưu rồi mới đánh dấu, 
     await prisma.$disconnect();
   });
 
+  /** Tệp hàng thử lại của "tiến trình" (null = chỉ RAM). Giữ qua tatServer/batServer = cùng volume sau khởi động lại. */
+  let tepHang: string | null = null;
+
   /** Dựng server mới (= một tiến trình backend mới: registry + dấu RAM rỗng). */
   async function batServer(): Promise<void> {
     httpServer = createServer();
     io = new IoServer(httpServer);
     registry = new AgentRegistry({ msChoKetQua: 300 });
-    registerAgentWs(io, registry, {
+    hangServer = registerAgentWs(io, registry, {
       layMayInTheoToken: async (t) => (t === TOKEN ? { token: TOKEN } : null),
       ghiNhatKy: () => undefined,
       capNhatJobTre: vi.fn(async () => 1),
@@ -85,13 +93,20 @@ describeCanDb('print_su_co qua socket THẬT — lưu rồi mới đánh dấu, 
       msChoThongTin: 50,
       // hàng thử lại sự cố: nhịp ngắn cho test (thật: 30 s)
       msThuLaiSuCo: 50,
+      tepThuLaiSuCo: tepHang,
     });
     await new Promise<void>((resolve) => httpServer.listen(0, () => resolve()));
     const addr = httpServer.address();
     if (addr && typeof addr === 'object') port = addr.port;
   }
 
+  let hangTam: { dung: () => void } | null = null;
+  let hangServer: { dung: () => void } | undefined;
   async function tatServer(): Promise<void> {
+    hangTam?.dung();
+    hangTam = null;
+    hangServer?.dung(); // tiến trình "chết": hàng thử lại của nó không chạy tiếp
+    hangServer = undefined;
     for (const c of clients) c.disconnect();
     clients.length = 0;
     io.close();
@@ -108,6 +123,8 @@ describeCanDb('print_su_co qua socket THẬT — lưu rồi mới đánh dấu, 
   afterEach(async () => {
     hong = false;
     await tatServer();
+    if (tepHang) rmSync(join(tepHang, '..'), { recursive: true, force: true });
+    tepHang = null;
     delete process.env.AI_MAY_IN_AGENT_TOKEN;
   });
 
@@ -244,5 +261,74 @@ describeCanDb('print_su_co qua socket THẬT — lưu rồi mới đánh dấu, 
     expect(await suCoDb()).toEqual([
       ['tam_giu', 'het_giay'], ['tam_giu', 'ket_giay'], ['het_su_co', 'het_giay'], ['het_su_co', 'ket_giay'], ['tam_giu', 'het_giay'],
     ]);
+  });
+
+  // ── Codex v2 #2: thứ tự ổn định (luc, thu_tu) + FIFO ─────────────────────────
+  const d = () => ({ prisma: prismaChap, cho: async () => undefined, orgMacDinh: () => ORG });
+  /** Nhóm đã ĐÓNG? = dòng cuối của nhóm theo (luc, thu_tu) là hồi phục. */
+  async function nhomDong(nhom: string): Promise<boolean> {
+    const r = (await prisma.$queryRaw`SELECT ma_su_co FROM print_su_co WHERE org_id = ${ORG} AND nhom_su_co = ${nhom}
+      ORDER BY luc DESC, thu_tu DESC, id DESC LIMIT 1`) as Array<{ ma_su_co: string }>;
+    return r.length > 0 && ['het_su_co', 'tiep_tuc_in'].includes(r[0].ma_su_co);
+  }
+
+  it('DB chập lúc het_giay + tam_giu, sống lại lúc tiep_tuc_in (hàng thử lại + DB thật) ⇒ ĐÚNG thứ tự, nhóm ĐÓNG; hết giấy lại trong 10 phút ⇒ sự cố MỚI', async () => {
+    const h = taoHangThuLaiSuCo({ ghi: (sc) => ghiSuCoIn(sc, d()), msNhip: 60_000 });
+    hangTam = h;
+    hong = true;
+    expect(await h.ghi({ maSuCo: 'het_giay', agentToken: TOKEN })).toBe('loi_db');
+    expect(await h.ghi({ maSuCo: 'tam_giu', maGoc: 'het_giay', agentToken: TOKEN })).toBe('loi_db');
+    hong = false;
+    expect(await h.ghi({ maSuCo: 'tiep_tuc_in', maGoc: 'het_giay', agentToken: TOKEN })).toBe('da_luu');
+    expect(await suCoDb()).toEqual([['het_giay', 'het_giay'], ['tam_giu', 'het_giay'], ['tiep_tuc_in', 'het_giay']]);
+    expect(await nhomDong('het_giay')).toBe(true);
+    expect(await h.ghi({ maSuCo: 'het_giay', agentToken: TOKEN })).toBe('da_luu'); // tái phát sau hồi phục = sự cố mới
+    expect(await nhomDong('het_giay')).toBe(false);
+    expect(await suCoDb()).toHaveLength(4);
+  });
+
+  it('dòng ghi TRỄ mang giờ cũ (id lớn hơn hồi phục) ⇒ truy vấn mở/đóng theo (luc, thu_tu) — không theo id: nhóm vẫn đóng, sự cố sau là MỚI', async () => {
+    const t = Date.now();
+    expect(await ghiSuCoIn({ maSuCo: 'tiep_tuc_in', maGoc: 'het_giay', agentToken: TOKEN, luc: new Date(t - 60_000), thuTu: (t - 60_000) * 1000 }, d())).toBe('da_luu');
+    // het_giay xảy ra TRƯỚC hồi phục nhưng tới DB sau (id lớn hơn)
+    expect(await ghiSuCoIn({ maSuCo: 'het_giay', agentToken: TOKEN, luc: new Date(t - 120_000), thuTu: (t - 120_000) * 1000 }, d())).toBe('da_luu');
+    expect(await nhomDong('het_giay')).toBe(true);
+    // bản cũ (so id): het_giay trễ "chưa có hồi phục sau nó" ⇒ gộp mất lần hết giấy thật này
+    expect(await ghiSuCoIn({ maSuCo: 'het_giay', agentToken: TOKEN }, d())).toBe('da_luu');
+    expect(await ghiSuCoIn({ maSuCo: 'het_giay', agentToken: TOKEN }, d())).toBe('trung');
+    // trạng thái máy đã lưu đọc theo (luc, thu_tu)
+    expect(await docTrangThaiMayDaLuu(TOKEN, d())).toBe('het_giay');
+  });
+
+  it('ghi bù cùng ma_ghi (đã commit, chưa kịp xoá khỏi tệp) ⇒ trung, đúng MỘT dòng; thu_tu + ma_ghi lưu đúng', async () => {
+    const sc: SuCoIn = { maSuCo: 'ket_giay', agentToken: TOKEN, maGhi: '7d5c1a7e-0000-4000-8000-000000000001', luc: new Date(), thuTu: 1_900_000_000_000_000 };
+    expect(await ghiSuCoIn(sc, d())).toBe('da_luu');
+    // hồi phục chen giữa ⇒ lần sau KHÔNG gộp theo cửa sổ — chỉ ma_ghi giữ nó lại
+    expect(await ghiSuCoIn({ maSuCo: 'het_su_co', maGoc: 'ket_giay', agentToken: TOKEN }, d())).toBe('da_luu');
+    expect(await ghiSuCoIn(sc, d())).toBe('trung');
+    const r = await prisma.printSuCo.findMany({ where: { orgId: ORG, maSuCo: 'ket_giay' } });
+    expect(r).toHaveLength(1);
+    expect(r[0].maGhi).toBe(sc.maGhi);
+    expect(r[0].thuTu).toBe(1_900_000_000_000_000n);
+  });
+
+  it('Codex v2 #3 — khởi động lại TRƯỚC commit: su-co nhận lúc DB chập, tiến trình chết ⇒ tiến trình mới (cùng tệp) ghi bù đúng giờ nhận', async () => {
+    tepHang = join(mkdtempSync(join(tmpdir(), 'psc-hang-')), 'cho.json');
+    await tatServer();
+    await batServer();
+    const c = await noi();
+    hong = true;
+    const truoc = Date.now();
+    c.emit('su-co', { loai: 'ket_giay', mayIn: 'HP' });
+    await cho(150);
+    expect(await suCoDb()).toEqual([]);
+    await tatServer(); // chết khi CHƯA commit (DB vẫn chập)
+    hong = false;
+    await batServer(); // tiến trình mới, cùng volume
+    await choToi(async () => (await suCoDb()).length > 0);
+    const r = await prisma.printSuCo.findMany({ where: { orgId: ORG } });
+    expect(r.map((x) => x.maSuCo)).toEqual(['ket_giay']);
+    expect(r[0].luc.getTime()).toBeGreaterThanOrEqual(truoc - 5);
+    expect(r[0].luc.getTime()).toBeLessThan(truoc + 150);
   });
 });

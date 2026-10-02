@@ -73,6 +73,11 @@ async function guiAnh(khoa: string, body: unknown = ANH) {
   return pub.inject({ method: 'POST', url: '/api/public/ban-do-tin', headers: { 'x-api-key': khoa }, payload: body as object });
 }
 
+/** Luật ghi THẲNG vào DB (SQL tay / bản trước Codex v2 #6) — đường API không lưu được nhóm khách nữa. */
+async function chenLuat(o: { loai: string; cheDo?: string; dich: unknown[] }) {
+  return prisma.botLuatThongBao.create({ data: { orgId: ORG_A, loai: o.loai, cheDo: o.cheDo ?? 'bong', dich: o.dich as never } });
+}
+
 async function docLuat(khoa: string) {
   const r = await pub.inject({ method: 'GET', url: '/api/public/bot-thong-bao/luat', headers: { 'x-api-key': khoa } });
   expect(r.statusCode, r.body).toBe(200);
@@ -270,12 +275,23 @@ describeCanDb('bot-thong-bao — luật thông báo + bản đồ tin (DB)', () 
     }
     expect(await prisma.botLuatThongBao.count({ where: { orgId: ORG_A } })).toBe(0);
     expect(await nhatKy()).toHaveLength(0);
-    // Nhóm khách cho composer KHÔNG nhạy cảm + NV có thật ⇒ được.
+    // Nhóm khách cho composer KHÔNG nhạy cảm ⇒ vẫn 400: bot chưa hỗ trợ đích nhóm khách (Codex v2 #6).
+    const khach = await goi('POST', '/luat-thong-bao', ADMIN, { loai: 'in_sau_chot', dich: [{ kieu: 'chuc_nang', gia_tri: 'khach' }] });
+    expect([khach.statusCode, khach.json().code]).toEqual([400, 'BOT_CHUA_HO_TRO_NHOM_KHACH']);
+    expect(khach.json().error).toMatch(/Bot chưa hỗ trợ gửi nhóm khách/);
+    expect(await prisma.botLuatThongBao.count({ where: { orgId: ORG_A } })).toBe(0);
+    // NV có thật + người gây ra ⇒ được.
     await prisma.botNhanVien.create({ data: { orgId: ORG_A, zaloUid: '4001', tenGoi: 'Kho', vai: 'kho' } });
     const ok = await goi('POST', '/luat-thong-bao', ADMIN, {
-      loai: 'in_sau_chot', dich: [{ kieu: 'chuc_nang', gia_tri: 'khach' }, { kieu: 'nv', gia_tri: '4001' }, { kieu: 'nguoi_gay_ra' }],
+      loai: 'in_sau_chot', dich: [{ kieu: 'nv', gia_tri: '4001' }, { kieu: 'nguoi_gay_ra' }],
     });
     expect(ok.statusCode, ok.body).toBe(201);
+    // PUT thêm nhóm khách vào luật đã có ⇒ cũng 400, luật giữ nguyên.
+    const sua = await goi('PUT', `/luat-thong-bao/${ok.json().luat.id}`, ADMIN, {
+      phienBan: 1, dich: [{ kieu: 'nguoi_gay_ra' }, { kieu: 'chuc_nang', gia_tri: 'khach' }],
+    });
+    expect([sua.statusCode, sua.json().code]).toEqual([400, 'BOT_CHUA_HO_TRO_NHOM_KHACH']);
+    expect((await prisma.botLuatThongBao.findFirstOrThrow({ where: { orgId: ORG_A } })).phienBan).toBe(1);
   });
 
   it('SQL tay cũng không lưu được nhom_goc / chế độ lạ (CHECK của migration)', async () => {
@@ -325,36 +341,43 @@ describeCanDb('bot-thong-bao — luật thông báo + bản đồ tin (DB)', () 
     expect((await goi('GET', '/nhat-ky', OWNER)).json().nhatKy.filter((r: { doiTuong: string }) => r.doiTuong === 'luat_thong_bao')).toHaveLength(4);
   });
 
-  it('GET luật cho bot: phien_ban ổn định khi không đổi, đổi khi sửa; ảnh chụp mới đánh dấu nhạy cảm ⇒ CRM bỏ đích nhóm khách', async () => {
+  it('GET luật cho bot: phien_ban ổn định khi không đổi, đổi khi sửa; nhóm khách (dòng cũ) bị bỏ + cảnh báo; nhạy cảm ⇒ lý do đổi', async () => {
     await guiAnh(KHOA_A);
-    const t = await goi('POST', '/luat-thong-bao', OWNER, {
-      loai: 'in_sau_chot', cheDo: 'bat', dich: [{ kieu: 'chuc_nang', gia_tri: 'kho' }, { kieu: 'chuc_nang', gia_tri: 'khach' }],
-    });
-    expect(t.statusCode, t.body).toBe(201);
+    // Dòng có nhóm khách chỉ còn tới từ SQL tay / bản trước Codex v2 #6 — API không lưu được nữa.
+    const t = await chenLuat({ loai: 'in_sau_chot', cheDo: 'bat', dich: [{ kieu: 'chuc_nang', gia_tri: 'khach' }, { kieu: 'chuc_nang', gia_tri: 'kho' }] });
     const a = await docLuat(KHOA_A);
     expect(a.luat).toEqual([{
-      id: t.json().luat.id, loai: 'in_sau_chot', che_do: 'bat', dieu_kien: {}, gom_giay: 0, lich: null, phien_ban: 1,
-      dich: [{ kieu: 'chuc_nang', gia_tri: 'khach' }, { kieu: 'chuc_nang', gia_tri: 'kho' }],
+      id: t.id, loai: 'in_sau_chot', che_do: 'bat', dieu_kien: {}, gom_giay: 0, lich: null, phien_ban: 1,
+      dich: [{ kieu: 'chuc_nang', gia_tri: 'kho' }],
     }]);
+    expect(a.canh_bao).toEqual(['in_sau_chot: bỏ đích chuc_nang:khach — Bot chưa hỗ trợ gửi nhóm khách']);
     expect((await docLuat(KHOA_A)).phien_ban).toBe(a.phien_ban);
-    await goi('PUT', `/luat-thong-bao/${t.json().luat.id}`, OWNER, { gomGiay: 30, phienBan: 1 });
-    const b = await docLuat(KHOA_A);
-    expect(b.phien_ban).not.toBe(a.phien_ban);
-    // Bot đổi danh mục: in_sau_chot nay mang giá ⇒ nhóm khách bị bỏ khi phát, có cảnh báo.
+    const ad0 = await goi('GET', '/luat-thong-bao', OWNER);
+    expect(ad0.json().canhBao).toEqual(a.canh_bao); // trang thấy đúng cảnh báo bot nhận
+    // Sửa luật còn mang nhóm khách ⇒ 400 (phải bỏ đích đó) — không lưu tiếp một đích bot không gửi.
+    const s1 = await goi('PUT', `/luat-thong-bao/${t.id}`, OWNER, { gomGiay: 30, phienBan: 1 });
+    expect([s1.statusCode, s1.json().code]).toEqual([400, 'BOT_CHUA_HO_TRO_NHOM_KHACH']);
+    // Bot đổi danh mục: in_sau_chot nay mang giá ⇒ nhóm khách bị bỏ vì NHẠY CẢM (lý do cứng hơn), cảnh báo đổi.
     await guiAnh(KHOA_A, { ...ANH, composer: ANH.composer.map((c) => (c.id === 'in_sau_chot' ? { ...c, nhay_cam: ['gia'] } : c)) });
     const c = await docLuat(KHOA_A);
     expect(c.luat[0].dich).toEqual([{ kieu: 'chuc_nang', gia_tri: 'kho' }]);
-    expect(c.canh_bao).toHaveLength(1);
-    expect(c.phien_ban).not.toBe(b.phien_ban);
+    expect(c.canh_bao).toEqual([expect.stringMatching(/^in_sau_chot: bỏ đích chuc_nang:khach — .*nhạy cảm/)]);
+    expect(c.phien_ban).not.toBe(a.phien_ban);
+    // Bỏ nhóm khách + sửa ⇒ được, phien_ban đổi, hết cảnh báo.
+    const s2 = await goi('PUT', `/luat-thong-bao/${t.id}`, OWNER, { gomGiay: 30, phienBan: 1, dich: [{ kieu: 'chuc_nang', gia_tri: 'kho' }] });
+    expect(s2.statusCode, s2.body).toBe(200);
+    const b = await docLuat(KHOA_A);
+    expect(b.canh_bao).toEqual([]);
+    expect(b.phien_ban).not.toBe(c.phien_ban);
     // P2: trang quản trị thấy ĐÚNG cảnh báo bot nhận (đích bị bỏ khi phát).
     const ad = await goi('GET', '/luat-thong-bao', OWNER);
-    expect(ad.json().canhBao).toEqual(c.canh_bao);
+    expect(ad.json().canhBao).toEqual(b.canh_bao);
   });
 
   it('Codex v1 #1: composer BỊ BỎ khỏi ảnh chụp (không có trong sổ dính) ⇒ GET NGAY SAU bỏ mọi đích của luật đó + cảnh báo (fail closed)', async () => {
     await guiAnh(KHOA_A);
     const t = await goi('POST', '/luat-thong-bao', OWNER, {
-      loai: 'in_sau_chot', cheDo: 'bat', dich: [{ kieu: 'chuc_nang', gia_tri: 'kho' }, { kieu: 'chuc_nang', gia_tri: 'khach' }],
+      loai: 'in_sau_chot', cheDo: 'bat', dich: [{ kieu: 'chuc_nang', gia_tri: 'kho' }, { kieu: 'nguoi_gay_ra' }],
     });
     expect(t.statusCode, t.body).toBe(201);
     expect((await docLuat(KHOA_A)).luat[0].dich).toHaveLength(2);
@@ -368,9 +391,7 @@ describeCanDb('bot-thong-bao — luật thông báo + bản đồ tin (DB)', () 
 
   it('Codex v1 #1 (tái hiện): nhãn nhạy cảm DÍNH rồi bỏ composer khỏi ảnh chụp ⇒ GET vẫn bỏ đích nhóm khách (hợp sổ dính), giữ đích nội bộ', async () => {
     await guiAnh(KHOA_A);
-    await goi('POST', '/luat-thong-bao', OWNER, {
-      loai: 'in_sau_chot', cheDo: 'bat', dich: [{ kieu: 'chuc_nang', gia_tri: 'kho' }, { kieu: 'chuc_nang', gia_tri: 'khach' }],
-    });
+    await chenLuat({ loai: 'in_sau_chot', cheDo: 'bat', dich: [{ kieu: 'chuc_nang', gia_tri: 'kho' }, { kieu: 'chuc_nang', gia_tri: 'khach' }] });
     await guiAnh(KHOA_A, { ...ANH, phien_ban: 'gia', composer: ANH.composer.map((c) => (c.id === 'in_sau_chot' ? { ...c, nhay_cam: ['gia'] } : c)) });
     expect((await docLuat(KHOA_A)).luat[0].dich).toEqual([{ kieu: 'chuc_nang', gia_tri: 'kho' }]);
     // Cùng khoá API: bỏ in_sau_chot ra khỏi ảnh chụp (được chấp nhận) — bản cũ phát lại đích khách ở GET kế tiếp.
@@ -504,6 +525,17 @@ describeCanDb('bot-thong-bao — luật thông báo + bản đồ tin (DB)', () 
     const d = { khoa_canh: 'in_sau_chot→g_kho|in_sau_chot', composer: 'in_sau_chot', dich_kieu: 'g_kho', luat_id: 'in_sau_chot', ket_qua: 'bong', cua_so: '24h', so: 1 };
     expect((await guiAnh(KHOA_A, { ...ANH, phien_ban: 'dm-x', dem: [d] })).statusCode).toBe(200);
     expect((await goi('GET', '/ban-do-tin', OWNER)).json().banDo.dem).toEqual([d]);
+  });
+
+  it('Codex v2 #5: dem.luat_phien_ban_tu (tuỳ chọn) lưu + đọc lại nguyên vẹn; dòng không có trường giữ không có', async () => {
+    await guiAnh(KHOA_A);
+    const t = await goi('POST', '/luat-thong-bao', OWNER, { loai: 'in_sau_chot', dich: [{ kieu: 'chuc_nang', gia_tri: 'kho' }] });
+    const id = t.json().luat.id as string;
+    const co = { khoa_canh: `in_sau_chot→g_kho|${id}`, composer: 'in_sau_chot', dich_kieu: 'g_kho', luat_id: id, ket_qua: 'bong', cua_so: '24h', so: 5, luat_phien_ban_tu: 1 };
+    const khong = { ...co, cua_so: '7d', so: 9 } as Record<string, unknown>;
+    delete khong.luat_phien_ban_tu;
+    expect((await guiAnh(KHOA_A, { ...ANH, phien_ban: 'pb', dem: [co, khong] })).statusCode).toBe(200);
+    expect((await goi('GET', '/ban-do-tin', OWNER)).json().banDo.dem).toEqual([co, khong]);
   });
 
   // ── Đối soát chua_ro: POST /api/public/ban-do-tin/doi-soat-echo ────────────────────────────────────────────────────

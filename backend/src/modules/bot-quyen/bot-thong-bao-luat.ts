@@ -89,6 +89,12 @@ export interface DemCanh {
   ket_qua: (typeof KET_QUA_DEM)[number];
   cua_so: (typeof CUA_SO_DEM)[number];
   so: number;
+  /**
+   * Codex v2 #5 (TUỲ CHỌN, bot thêm sau): phiên bản luật (`luat.phien_ban` lúc bot xếp tin — `tin_bao.phien_ban`) THẤP NHẤT
+   * trong các tin được đếm ở dòng này. ≥ phiên bản luật hiện tại ⇒ số đếm phản ánh ĐÚNG cấu hình đang xem; nhỏ hơn / null
+   * (không biết) / vắng (bot cũ) ⇒ giao diện nói "chưa đủ dữ liệu cho cấu hình mới". Chỉ dòng có `luat_id`.
+   */
+  luat_phien_ban_tu?: number | null;
 }
 
 export interface AnhChup {
@@ -141,7 +147,7 @@ function chuTuyChon(x: unknown, ten: string, dai: number): string | null {
 
 // ── Ảnh chụp bản đồ tin (bot → CRM) ─────────────────────────────────────────
 
-const TRUONG_DEM = ['khoa_canh', 'composer', 'dich_kieu', 'luat_id', 'ket_qua', 'cua_so', 'so'] as const;
+const TRUONG_DEM = ['khoa_canh', 'composer', 'dich_kieu', 'luat_id', 'ket_qua', 'cua_so', 'so', 'luat_phien_ban_tu'] as const;
 
 function docDanToi(x: unknown, chu: string): CanhDanToi[] {
   if (x === undefined || x === null) return [];
@@ -193,9 +199,17 @@ function docDem(d: unknown, i: number): DemCanh {
   if (d.khoa_canh !== khoaCanh(d.composer, d.dich_kieu, luatId)) {
     throw sai('ANH_CHUP_KHONG_HOP_LE', `dem[${i}].khoa_canh phải là "${khoaCanh(d.composer, d.dich_kieu, luatId)}"`);
   }
+  const pbt = d.luat_phien_ban_tu;
+  if (pbt !== undefined && pbt !== null) {
+    if (typeof pbt !== 'number' || !Number.isInteger(pbt) || pbt < 1) {
+      throw sai('ANH_CHUP_KHONG_HOP_LE', `dem[${i}].luat_phien_ban_tu phải là số nguyên ≥ 1 hoặc null`);
+    }
+    if (luatId === null) throw sai('ANH_CHUP_KHONG_HOP_LE', `dem[${i}].luat_phien_ban_tu chỉ dùng cho dòng có luat_id`);
+  }
   return {
     khoa_canh: d.khoa_canh as string, composer: d.composer, dich_kieu: d.dich_kieu, luat_id: luatId,
     ket_qua: d.ket_qua as DemCanh['ket_qua'], cua_so: d.cua_so as DemCanh['cua_so'], so: d.so,
+    ...(pbt !== undefined ? { luat_phien_ban_tu: pbt as number | null } : {}),
   };
 }
 
@@ -283,6 +297,14 @@ export function docAnhChup(body: unknown): AnhChup {
   return { phien_ban: pb.trim(), composer, nguon, dem };
 }
 
+/** Gộp hai dòng cùng (khoa_canh, ket_qua, cua_so): cộng `so`; `luat_phien_ban_tu` = MIN, một bên không biết ⇒ null. */
+function gopDem(a: DemCanh, b: DemCanh): DemCanh {
+  const r: DemCanh = { ...a, so: a.so + b.so };
+  const x = a.luat_phien_ban_tu, y = b.luat_phien_ban_tu;
+  if (x === undefined && y === undefined) return r;
+  return { ...r, luat_phien_ban_tu: typeof x === 'number' && typeof y === 'number' ? Math.min(x, y) : null };
+}
+
 /**
  * `luat_id` của số đếm = `id` luật CRM (`bot_luat_thong_bao.id`, GET luật trả kèm từ 02/10). TƯƠNG THÍCH MỘT BẢN: bot cũ gửi
  * `loai` (id composer) vào `luat_id` ⇒ đổi sang id của luật mang loai đó + viết lại `khoa_canh`. Id khớp trước (id là uuid,
@@ -306,7 +328,7 @@ export function chuanLuatIdDem(
     }
     const k = `${r.khoa_canh}|${r.ket_qua}|${r.cua_so}`;
     const cu = ra.get(k);
-    ra.set(k, cu ? { ...cu, so: cu.so + r.so } : r);
+    ra.set(k, cu ? gopDem(cu, r) : r);
   }
   return { dem: [...ra.values()], doiTuLoai };
 }
@@ -499,6 +521,22 @@ export function lyDoCam(c: ComposerAnh, d: Dich): string | null {
 }
 
 /**
+ * Chức năng nhóm BOT nhận làm đích (= lednelia-agent `thong_bao/dong_bo_luat.py` CHUC_NANG: admin|kho|ke_toan|sales). Bot BỎ
+ * chức năng khác (chỉ cảnh báo phía bot — "gửi MỌI nhóm khách là phát tán; fail closed"). Codex v2 #6: CRM từ chối lưu
+ * (`BOT_CHUA_HO_TRO_NHOM_KHACH`) và bỏ + cảnh báo khi phát, để trang không báo "đang gửi" cho đích bot không bao giờ gửi.
+ */
+export const CHUC_NANG_BOT_HO_TRO: readonly string[] = ['admin', 'kho', 'ke_toan', 'sales'];
+export const CAU_BOT_CHUA_HO_TRO_KHACH = 'Bot chưa hỗ trợ gửi nhóm khách';
+
+/** Đích bot chưa hỗ trợ (null = bot nhận). */
+export function lyDoBotChuaHoTro(d: Dich): string | null {
+  if (d.kieu === 'chuc_nang' && !CHUC_NANG_BOT_HO_TRO.includes(d.gia_tri ?? '')) {
+    return d.gia_tri === 'khach' ? CAU_BOT_CHUA_HO_TRO_KHACH : `Bot chưa hỗ trợ đích chức năng "${d.gia_tri}"`;
+  }
+  return null;
+}
+
+/**
  * Kiểm luật theo danh mục: composer có, không khoá, mọi đích hợp lệ (nhóm khách + nhạy cảm ⇒ 400; NV phải có trong
  * danh sách NV của org). `danhMuc` null = bot chưa gửi ảnh chụp ⇒ 409 (không có metadata để kiểm cứng).
  */
@@ -522,6 +560,8 @@ export function kiemTheoDanhMuc(
   for (const d of dich) {
     const ly = lyDoCam(c, d);
     if (ly) throw sai('LO_DU_LIEU_NHOM_KHACH', ly);
+    const chua = lyDoBotChuaHoTro(d);
+    if (chua) throw sai('BOT_CHUA_HO_TRO_NHOM_KHACH', `${chua} — bỏ đích "Nhóm khách" rồi lưu lại`);
     if (d.kieu === 'nv' && !uidNv.has(d.gia_tri!)) {
       throw sai('NV_KHONG_CO', `Không có nhân viên bot với zalo_uid ${d.gia_tri} trong tổ chức`);
     }
@@ -581,7 +621,7 @@ export function ghepLuatCongKhai(
         continue;
       }
       const dd: Dich = { kieu: d.kieu as KieuDich, gia_tri: typeof d.gia_tri === 'string' ? d.gia_tri : null };
-      const ly = lyDoCam(c!, dd);
+      const ly = lyDoCam(c!, dd) ?? lyDoBotChuaHoTro(dd);
       if (ly) {
         canh_bao.push(`${r.loai}: bỏ đích ${dd.kieu}:${dd.gia_tri ?? ''} — ${ly}`);
         continue;

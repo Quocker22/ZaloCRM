@@ -63,10 +63,12 @@ describe('kiemTheoDanhMuc — luật cứng', () => {
     expect(loi(() => kiemTheoDanhMuc('khong_co', [], DM, new Set())).code).toBe('COMPOSER_LA');
     expect(loi(() => kiemTheoDanhMuc('the_don', [{ kieu: 'chuc_nang', gia_tri: 'kho' }], DM, new Set())).code).toBe('COMPOSER_KHOA');
   });
-  it('nhóm KHÁCH cho composer có dữ liệu nhạy cảm ⇒ 400; composer không nhạy cảm ⇒ được', () => {
+  it('nhóm KHÁCH: composer nhạy cảm ⇒ 400 LO_DU_LIEU; composer KHÔNG nhạy cảm cũng 400 — bot chưa hỗ trợ đích nhóm khách (Codex v2 #6)', () => {
     expect(loi(() => kiemTheoDanhMuc('xuat_hoa_don_tool', [{ kieu: 'chuc_nang', gia_tri: 'khach' }], DM, new Set())).code)
       .toBe('LO_DU_LIEU_NHOM_KHACH');
-    expect(kiemTheoDanhMuc('chao', [{ kieu: 'chuc_nang', gia_tri: 'khach' }], DM, new Set()).id).toBe('chao');
+    expect(loi(() => kiemTheoDanhMuc('chao', [{ kieu: 'chuc_nang', gia_tri: 'khach' }], DM, new Set())))
+      .toEqual({ status: 400, code: 'BOT_CHUA_HO_TRO_NHOM_KHACH' });
+    expect(kiemTheoDanhMuc('chao', [{ kieu: 'chuc_nang', gia_tri: 'kho' }], DM, new Set()).id).toBe('chao');
     expect(kiemTheoDanhMuc('xuat_hoa_don_tool', [{ kieu: 'chuc_nang', gia_tri: 'ke_toan' }], DM, new Set()).id).toBe('xuat_hoa_don_tool');
   });
   it('đích NV phải có trong danh sách NV của org', () => {
@@ -177,6 +179,31 @@ describe('docAnhChup — hợp đồng ảnh chụp (Codex v1 #7, hop-dong-ban-d
   });
 });
 
+describe('dem.luat_phien_ban_tu — phiên bản luật THẤP NHẤT trong các tin được đếm (Codex v2 #5, tuỳ chọn)', () => {
+  const tot = { phien_ban: 'v1', composer: [{ id: 'in_sau_chot', kieu: 'ban_sao', ai_soan: 'ma' }] };
+  const dl = { khoa_canh: 'in_sau_chot→g_kho|L1', composer: 'in_sau_chot', dich_kieu: 'g_kho', luat_id: 'L1', ket_qua: 'bong', cua_so: '24h', so: 4 };
+  it('nhận số nguyên ≥ 1 (dòng luật) hoặc null; vắng ⇒ round-trip KHÔNG thêm trường (bot cũ)', () => {
+    expect(docAnhChup({ ...tot, dem: [{ ...dl, luat_phien_ban_tu: 3 }] }).dem).toEqual([{ ...dl, luat_phien_ban_tu: 3 }]);
+    expect(docAnhChup({ ...tot, dem: [{ ...dl, luat_phien_ban_tu: null }] }).dem).toEqual([{ ...dl, luat_phien_ban_tu: null }]);
+    expect(docAnhChup({ ...tot, dem: [dl] }).dem[0]).not.toHaveProperty('luat_phien_ban_tu');
+  });
+  it('sai hình ⇒ 400: 0, âm, lẻ, chuỗi; có số mà luat_id null (dòng khối gốc không có luật)', () => {
+    for (const v of [0, -1, 1.5, '2']) {
+      expect(loi(() => docAnhChup({ ...tot, dem: [{ ...dl, luat_phien_ban_tu: v }] })).code, String(v)).toBe('ANH_CHUP_KHONG_HOP_LE');
+    }
+    const goc = { khoa_canh: 'in_sau_chot→nhom_goc|goc', composer: 'in_sau_chot', dich_kieu: 'nhom_goc', luat_id: null, ket_qua: 'da_gui', cua_so: '24h', so: 1 };
+    expect(loi(() => docAnhChup({ ...tot, dem: [{ ...goc, luat_phien_ban_tu: 2 }] })).code).toBe('ANH_CHUP_KHONG_HOP_LE');
+  });
+  it('gộp hai dòng cùng cạnh (đổi loai → id) ⇒ lấy MIN; một bên không biết (vắng/null) ⇒ null (không hứa cấu hình mới)', () => {
+    const LUAT = [{ id: 'L1', loai: 'in_sau_chot' }];
+    const cu = { ...dl, luat_id: 'in_sau_chot', khoa_canh: 'in_sau_chot→g_kho|in_sau_chot' };
+    expect(chuanLuatIdDem([{ ...dl, luat_phien_ban_tu: 3 }, { ...cu, luat_phien_ban_tu: 2 }] as DemCanh[], LUAT).dem)
+      .toEqual([{ ...dl, so: 8, luat_phien_ban_tu: 2 }]);
+    expect(chuanLuatIdDem([{ ...dl, luat_phien_ban_tu: 3 }, cu] as DemCanh[], LUAT).dem).toEqual([{ ...dl, so: 8, luat_phien_ban_tu: null }]);
+    expect(chuanLuatIdDem([dl, cu] as DemCanh[], LUAT).dem[0]).not.toHaveProperty('luat_phien_ban_tu');
+  });
+});
+
 describe('danhMucHop — ảnh chụp hiện tại ∪ sổ dính (Codex v1 #1)', () => {
   it('nhãn/khoá trong sổ dính cộng vào composer hiện tại; composer CHỈ còn trong sổ ⇒ có mặt, đánh dấu chi_trong_so_dinh', () => {
     const m = danhMucHop([C('a', 'ban_sao', []), C('t', 'thuan')], { a: { nhay_cam: ['tien'], khoa: false }, k: { nhay_cam: ['gia'], khoa: true } });
@@ -216,6 +243,21 @@ describe('ghepLuatCongKhai — payload bot', () => {
     ], DM);
     expect(r.luat).toEqual([expect.objectContaining({ loai: 'xuat_hoa_don_tool', dich: [{ kieu: 'chuc_nang', gia_tri: 'ke_toan' }] })]);
     expect(r.canh_bao).toHaveLength(3);
+  });
+  it('Codex v2 #6 — luật cũ/SQL tay có nhóm khách (composer không nhạy cảm) ⇒ CRM bỏ khi phát + canh_bao "Bot chưa hỗ trợ gửi nhóm khách"', () => {
+    const r = ghepLuatCongKhai([dong({ loai: 'chao', dich: [{ kieu: 'chuc_nang', gia_tri: 'khach' }, { kieu: 'chuc_nang', gia_tri: 'kho' }] })], DM);
+    expect(r.luat[0].dich).toEqual([{ kieu: 'chuc_nang', gia_tri: 'kho' }]);
+    expect(r.canh_bao).toEqual(['chao: bỏ đích chuc_nang:khach — Bot chưa hỗ trợ gửi nhóm khách']);
+  });
+  it('XUYÊN HỢP ĐỒNG CRM → bot (dong_bo_luat.chuyen_dich): mọi đích chuc_nang CRM phát nằm trong tập bot nhận', () => {
+    // = lednelia-agent/lednelia_donhang/thong_bao/dong_bo_luat.py CHUC_NANG (admin|kho|ke_toan|sales → g_*); chức năng khác bot BỎ
+    // + chỉ cảnh báo phía bot ⇒ CRM phải tự bỏ và hiện ở canhBao (không để trang báo "đang gửi" cho đích bot không gửi).
+    const BOT_NHAN = new Set(['admin', 'kho', 'ke_toan', 'sales']);
+    const tat = ['admin', 'sales', 'kho', 'ke_toan', 'khach'].map((g) => ({ kieu: 'chuc_nang', gia_tri: g }));
+    const r = ghepLuatCongKhai([dong({ loai: 'chao', dich: tat })], DM);
+    for (const d of r.luat[0].dich) if (d.kieu === 'chuc_nang') expect(BOT_NHAN.has(d.gia_tri!)).toBe(true);
+    expect(r.luat[0].dich).toHaveLength(4);
+    expect(r.canh_bao).toHaveLength(1);
   });
   it('fail closed (Codex v1 #1): composer KHÔNG có trong ảnh chụp lẫn sổ dính ⇒ bỏ MỌI đích của luật + cảnh báo; chưa có ảnh chụp ⇒ bỏ hết', () => {
     const r = ghepLuatCongKhai([dong({ loai: 'da_bo', dich: [{ kieu: 'chuc_nang', gia_tri: 'kho' }, { kieu: 'chuc_nang', gia_tri: 'khach' }] })], DM);

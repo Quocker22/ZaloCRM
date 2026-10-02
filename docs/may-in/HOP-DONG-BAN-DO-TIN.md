@@ -64,11 +64,19 @@ vào composer. `id` cùng luật với composer và không trùng id composer. B
   "luat_id":   "luat-1",                     // `id` luật CRM (bot_luat_thong_bao.id — GET luật trả kèm, §6) | null = gửi ở nơi gốc
   "ket_qua":   "bong",                       // da_gui | chan_tam_im | loi | bong | chua_ro | bo (= CHECK tin_gui_so.ket_qua của bot; bo = nội dung rỗng)
   "cua_so":    "24h",                        // 24h | 7d
-  "so":        7                             // số nguyên ≥ 0
+  "so":        7,                            // số nguyên ≥ 0
+  "luat_phien_ban_tu": 2                     // TUỲ CHỌN (Codex CRM+UI v2 #5) — xem dưới
 }
 ```
 
-- Đủ 7 trường, không thêm trường nào; `(khoa_canh, ket_qua, cua_so)` duy nhất trong ảnh chụp.
+- 7 trường bắt buộc + 1 tuỳ chọn `luat_phien_ban_tu`, không thêm trường nào khác; `(khoa_canh, ket_qua, cua_so)` duy nhất
+  trong ảnh chụp.
+- `luat_phien_ban_tu` (số nguyên ≥ 1 | null | vắng): phiên bản luật (`phien_ban` của luật CRM lúc bot xếp tin —
+  `tin_bao.phien_ban`) **THẤP NHẤT** trong các tin được đếm ở dòng này = `MIN(tin_bao.phien_ban)`. Chỉ dòng có `luat_id`
+  (dòng `luat_id = null` mang số ⇒ 400). `null`/vắng = không biết (bot cũ). Giao diện: mọi dòng 24h của luật có
+  `luat_phien_ban_tu ≥ phien_ban` hiện tại ⇒ số bóng 24h phản ánh ĐÚNG cấu hình đang xem; ngược lại hiện "chưa đủ dữ liệu
+  cho cấu hình mới". CRM gộp hai dòng trùng (đổi `loai` → `id`) ⇒ MIN; một bên không biết ⇒ `null`. Bot chưa gửi thì vẫn
+  hợp lệ — giao diện chỉ gọi là "số bóng lịch sử 24h".
 - "24h sẽ gửi N" của giao diện = tổng `so` với `ket_qua = bong`, `cua_so = 24h` của các cạnh luật.
 - `luat_id` là **`id`** của luật (uuid, lấy từ `GET /api/public/bot-thong-bao/luat` → `luat[].id`), KHÔNG phải `loai`.
   **Tương thích MỘT bản (02/10):** bot cũ gửi `loai` vào `luat_id` (và vào hậu tố `khoa_canh`) — CRM vẫn nhận, lúc lưu đổi
@@ -92,6 +100,10 @@ mảng đã chuẩn hoá ở §2–§4 (round-trip giữ nguyên mọi trường
   gom_giay, lich, phien_ban}], canh_bao}` — `id` có từ 02/10, là giá trị bot ghi vào `luat_id`) kiểm theo HỢP ảnh chụp hiện tại ∪ sổ dính (Codex v1 #1):
   composer vắng khỏi ảnh chụp vẫn mang nhãn của sổ; composer không có ở cả hai ⇒ luật trả `dich: []` + `canh_bao`
   (fail closed). Trang quản trị (`GET /luat-thong-bao` → `canhBao`) thấy đúng cảnh báo đó.
+- **Nhóm khách** (`chuc_nang: khach`, Codex CRM+UI v2 #6): bot chưa có đích này (`dong_bo_luat.py` chỉ nhận
+  `admin|kho|ke_toan|sales`). CRM từ chối LƯU (`POST/PUT` ⇒ `400 BOT_CHUA_HO_TRO_NHOM_KHACH`, composer nhạy cảm vẫn ra
+  `LO_DU_LIEU_NHOM_KHACH` trước) và khi PHÁT bỏ đích đó + `canh_bao` "`<loai>: bỏ đích chuc_nang:khach — Bot chưa hỗ trợ gửi
+  nhóm khách`" (dòng cũ / SQL tay). Giao diện khoá ô "Nhóm khách" kèm lý do.
 - **Ảnh chụp ĐẦU TIÊN được tin** (sổ rỗng thì không có gì để so). Giảm rủi ro: đặt khoá RIÊNG của bot TRƯỚC lần đẩy đầu —
   `app_settings` dòng `(org_id, setting_key = 'bot_ban_do_tin_api_key', value_plain = <khoá ngẫu nhiên>)`. Có khoá riêng
   ⇒ `POST /api/public/ban-do-tin` chỉ nhận khoá đó (khoá chung `public_api_key` ⇒ `403 CAN_KHOA_RIENG_BOT`); `GET` luật nhận

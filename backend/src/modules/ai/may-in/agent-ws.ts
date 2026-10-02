@@ -59,7 +59,7 @@ import {
 import { taoBoGuiHangDoi, MS_GUI_HANG_DOI_TOI_THIEU } from './hang-doi-app.js';
 import {
   BINH_THUONG, capNhatJobCoSuKien, daLuuSuCo, docTrangThaiMayDaLuu, ghiSuCoIn, nhomSuCo, PHUT_GOP_SU_CO, taoHangThuLaiSuCo,
-  MS_THU_LAI_SU_CO, type PrismaSuKienIn, type SuCoIn,
+  MS_THU_LAI_SU_CO, tepHangThuLaiMacDinh, type PrismaSuKienIn, type SuCoIn,
 } from './su-kien-in.js';
 
 interface KetQuaTuAgent {
@@ -144,6 +144,11 @@ export interface AgentWsDeps {
   docTrangThaiMay?: (agentToken: string) => Promise<string>;
   /** Nhịp hàng thử lại sự cố một lần khi DB lỗi (ms, mặc định MS_THU_LAI_SU_CO). */
   msThuLaiSuCo?: number;
+  /**
+   * Tệp nhật ký GHI TRƯỚC của hàng thử lại sự cố (Codex v2 #3) — `undefined` = mặc định `tepHangThuLaiMacDinh()` (volume
+   * file_storage), `null` = chỉ RAM.
+   */
+  tepThuLaiSuCo?: string | null;
   /**
    * Cửa sổ gộp `su-co` lặp của CÙNG (job, mã) trên một socket — nhật ký + tình trạng (ms, mặc định PHUT_GOP_SU_CO).
    * Dòng print_su_co gộp riêng ở DB theo (máy, mã) — su-kien-in.ts ghiSuCoIn.
@@ -284,11 +289,11 @@ async function layMayInTuDb(token: string): Promise<MayInTraVe | null> {
  * thiếu nó thì tắt hẳn tính năng (nhất quán với tu-env.ts: thiếu cấu hình =
  * tắt hẳn).
  */
-export function registerAgentWs(io: Server, registry: AgentRegistry, deps: AgentWsDeps = {}): void {
+export function registerAgentWs(io: Server, registry: AgentRegistry, deps: AgentWsDeps = {}): { dung: () => void } | undefined {
   const envToken = process.env.AI_MAY_IN_AGENT_TOKEN;
   if (!envToken) {
     logger.warn('[may-in] AI_MAY_IN_AGENT_TOKEN chưa đặt — không bật WS /print-agent');
-    return;
+    return undefined;
   }
   const layMayInTheoToken = deps.layMayInTheoToken ?? layMayInTuDb;
   const ghiNhatKy: (m: MucNhatKy) => void = deps.ghiNhatKy ?? ghiNhatKyThat;
@@ -296,8 +301,15 @@ export function registerAgentWs(io: Server, registry: AgentRegistry, deps: Agent
   const ghiSuCo = deps.ghiSuCo ?? ((sc: SuCoIn) => ghiSuCoIn(sc, { orgMacDinh: deps.orgMacDinh ?? orgMacDinhTuEnv }));
   const docTrangThaiMay = deps.docTrangThaiMay
     ?? ((t: string) => docTrangThaiMayDaLuu(t, { orgMacDinh: deps.orgMacDinh ?? orgMacDinhTuEnv }));
-  /** Sự cố MỘT LẦN (su-co, tam_giu, hồi phục khi in được): DB lỗi ⇒ giữ trong RAM, thử lại theo nhịp (Codex v1 #2). */
-  const hangThuLai = taoHangThuLaiSuCo({ ghi: ghiSuCo, msNhip: deps.msThuLaiSuCo ?? MS_THU_LAI_SU_CO });
+  /**
+   * MỌI dòng print_su_co đi qua MỘT hàng tuần tự (Codex v2 #2): sự cố một lần (su-co, tam_giu, hồi phục) xếp CUỐI hàng, đóng
+   * dấu (luc, thu_tu) lúc NHẬN; đường trạng thái máy chỉ ghi khi hàng rỗng (`ghiNeuRanh`). DB lỗi ⇒ giữ, thử lại theo nhịp;
+   * hàng ghi trước ra đĩa nên khởi động lại không mất (Codex v2 #3).
+   */
+  const hangThuLai = taoHangThuLaiSuCo({
+    ghi: ghiSuCo, msNhip: deps.msThuLaiSuCo ?? MS_THU_LAI_SU_CO,
+    tep: deps.tepThuLaiSuCo === undefined ? tepHangThuLaiMacDinh() : deps.tepThuLaiSuCo,
+  });
   /**
    * Trạng thái máy ĐÃ LƯU trong print_su_co, theo token (một token = một máy = một org): `binh_thuong` hoặc mã sự cố cấp máy.
    * Chỉ đặt SAU khi ghi thành công; chưa có ⇒ nạp từ dòng cuối trong DB (tiến trình mới). Nhịp báo trạng thái so với giá trị
@@ -401,12 +413,8 @@ export function registerAgentWs(io: Server, registry: AgentRegistry, deps: Agent
         } else {
           sc = { maSuCo: ma, agentToken: token, chiTiet: [mayIn && `máy in "${mayIn}"`, chiTiet].filter(Boolean).join(' — ') || null };
         }
-        let kq: unknown;
-        try {
-          kq = await ghiSuCo(sc);
-        } catch {
-          kq = 'loi_db';
-        }
+        // Hàng sự cố một lần còn mục ⇒ KHÔNG ghi vượt (loi_db) — nhịp sau ghi lại khi hàng đã xả (Codex v2 #2).
+        const kq = await hangThuLai.ghiNeuRanh(sc);
         // khong_luu (không xác định được org) — thử lại vô ích: coi như đã xử lý để không ghi lại mỗi 20 s.
         if (daLuuSuCo(kq) || kq === 'khong_luu') daLuuTheoMay.set(token, ma);
       } finally {
@@ -572,9 +580,10 @@ export function registerAgentWs(io: Server, registry: AgentRegistry, deps: Agent
         if (goChip && (!cd || nhomSuCo('het_su_co', cu!.ma) !== nhomSuCo('tiep_tuc_in', maGocCd))) {
           hoiPhuc.push({ maSuCo: 'het_su_co', maGoc: cu!.ma, ...chung });
         }
+        // Xếp hàng ĐỒNG BỘ cả hai (thứ tự giữ), rồi chờ kết quả.
+        const choKq = hoiPhuc.map((sc) => hangThuLai.ghi(sc));
         void (async () => {
-          let du = true;
-          for (const sc of hoiPhuc) du = daLuuSuCo(await hangThuLai.ghi(sc)) && du;
+          const du = (await Promise.all(choKq)).every(daLuuSuCo);
           // Máy đã về bình thường VÀ mọi hồi phục đã nằm trong DB ⇒ trạng thái đã lưu = bình thường. Chưa đủ ⇒ để nguyên:
           // nhịp "bình thường" kế tiếp tự ghi bù (dongBoTrangThaiBen).
           if (du && goChip) daLuuTheoMay.set(token, BINH_THUONG);
@@ -743,8 +752,11 @@ export function registerAgentWs(io: Server, registry: AgentRegistry, deps: Agent
       if (laMaCapMayIn(loai)) {
         registry.capNhatTinhTrang(token, { ma: loai, chiTiet: chiTiet ?? undefined, luc: new Date(), nguon: 'job' });
       }
-      // Ngữ cảnh có thể phải tra DB (backend vừa khởi động lại) — ghi bất đồng bộ.
-      void (async () => {
+      // Bền (docs/78 C1) — XẾP HÀNG NGAY lúc nhận (Codex v2 #2: giữ chỗ trong hàng tuần tự + đóng dấu (luc, thu_tu) trước
+      // mọi await — hồi phục tới sau không vượt được sự cố này); ngữ cảnh job tra DB chậm (backend vừa khởi động lại) đi
+      // vào `boSung`, hàng chờ nó ở đầu hàng. Nhật ký ghi khi có ngữ cảnh.
+      const chiTietBen = [mayIn && `máy in "${mayIn}"`, chiTiet].filter(Boolean).join(' — ') || null;
+      const boSung = (async (): Promise<Partial<SuCoIn>> => {
         const nc = jobId ? (await nguCanhCua(jobId))?.nc ?? null : null;
         ghiNhatKy({
           loai,
@@ -757,11 +769,11 @@ export function registerAgentWs(io: Server, registry: AgentRegistry, deps: Agent
           agentJobId: jobId,
           chiTiet: { mayIn, chiTiet, lucApp: chuTuApp(o.luc, 40) },
         });
-        // Bền (docs/78 C1) — trạm thông báo đọc print_su_co (có chờ, thử lại; DB lỗi ⇒ hàng thử lại). Sau nhật ký.
-        const kq = await hangThuLai.ghi({
-          maSuCo: loai, agentToken: token, orgId: nc?.orgId ?? null, printJobId: nc?.printJobId ?? null,
-          soHoaDon: nc?.soHoaDon ?? null, chiTiet: [mayIn && `máy in "${mayIn}"`, chiTiet].filter(Boolean).join(' — ') || null,
-        });
+        return { orgId: nc?.orgId ?? null, printJobId: nc?.printJobId ?? null, soHoaDon: nc?.soHoaDon ?? null };
+      })();
+      const choKq = hangThuLai.ghi({ maSuCo: loai, agentToken: token, chiTiet: chiTietBen }, boSung);
+      void (async () => {
+        const kq = await choKq;
         if (!daLuuSuCo(kq)) {
           if (daGhiSuCo.get(khoa) === bayGio) daGhiSuCo.delete(khoa);
         } else if (laMaCapMayIn(loai)) {
@@ -883,4 +895,5 @@ export function registerAgentWs(io: Server, registry: AgentRegistry, deps: Agent
       matKetNoi.set(token, { tu, hen, daBao: false });
     });
   });
+  return { dung: () => hangThuLai.dung() };
 }
