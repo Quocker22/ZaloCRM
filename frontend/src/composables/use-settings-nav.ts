@@ -134,6 +134,8 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
       { id: 'agent-operators', label: 'Nhân viên sai bot', icon: 'mdi-account-cog-outline', route: '/settings/crm/agent-operators', permission: 'admin', resource: 'settings', aliases: ['sai bot', 'nhân viên bot', 'uid nhân viên', 'operator', 'agent operator', 'quyền bot'] },
       // Quyền bot (docs/77, 30/09) — nhóm Zalo nào bot trả lời + ai là nhân viên, vai gì. Backend CHỈ owner/admin.
       { id: 'bot-quyen', label: 'Quyền bot', icon: 'mdi-shield-key-outline', route: '/settings/bot-quyen', permission: 'admin', resource: 'settings', aliases: ['quyền bot', 'phân quyền bot', 'chức năng nhóm', 'bot im', 'xếp loại nhóm', 'nhóm khách', 'vai nhân viên'] },
+      // Bản đồ tin (docs/78 C3, 02/10) — tin nào bot gửi, khi nào, đi đâu; luật thêm đích/bản sao.
+      { id: 'ban-do-tin', label: 'Bản đồ tin', icon: 'mdi-map-marker-path', route: '/settings/ban-do-tin', permission: 'admin', resource: 'settings', aliases: ['bản đồ tin', 'composer', 'luồng tin', 'thông báo chủ động', 'tin bot', 'luật thông báo'] },
       { id: 'agent-notify', label: 'Người nhận thông báo', icon: 'mdi-bell-cog-outline', route: '/settings/crm/agent-notify', permission: 'admin', resource: 'settings', aliases: ['nhận thông báo', 'báo nhân viên', 'báo sale', 'nơi nhận', 'khách cần hỗ trợ', 'thread bao sale', 'notify'] },
       // Máy in nhiều chi nhánh (Task 7, 10/09) — admin gen token cho app print-agent-rs.
       { id: 'print-agents', label: 'Máy in', icon: 'mdi-printer', route: '/settings/crm/print-agents', permission: 'admin', resource: 'settings', aliases: ['máy in', 'print', 'in hoá đơn', 'token máy in', 'chi nhánh in'] },

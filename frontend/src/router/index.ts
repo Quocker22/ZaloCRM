@@ -158,6 +158,8 @@ const routes: RouteRecordRaw[] = [
       { path: 'crm/agent-operators',   name: 'Settings.AgentOperators',  component: () => import('@/views/settings/AgentOperatorsPage.vue'), meta: { resource: 'settings' } },
       // Quyền bot (docs/77 §3.3, 30/09) — chức năng nhóm Zalo + nhân viên/vai của bot. Backend chỉ owner/admin.
       { path: 'bot-quyen',             name: 'Settings.BotQuyen',        component: () => import('@/views/settings/BotQuyenPage.vue'), meta: { resource: 'settings' } },
+      // Bản đồ tin (docs/78 C3, 02/10) — mọi tin bot gửi từ đầu tới cuối + luật đích. Backend chỉ owner/admin.
+      { path: 'ban-do-tin',            name: 'Settings.BanDoTin',        component: () => import('@/views/settings/BanDoTinPage.vue'), meta: { resource: 'settings' } },
       { path: 'crm/agent-notify',      name: 'Settings.AgentNotify',     component: () => import('@/views/settings/AgentNotifyTargetsPage.vue'), meta: { resource: 'settings' } },
       // Máy in nhiều chi nhánh (Task 7, 10/09) — admin gen token cho app print-agent-rs.
       { path: 'crm/print-agents',      name: 'Settings.PrintAgents',     component: () => import('@/views/settings/PrintAgentsPage.vue'), meta: { resource: 'settings' } },
