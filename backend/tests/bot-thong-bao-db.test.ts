@@ -29,9 +29,9 @@ const ORGS = [ORG_A, ORG_B];
 const ANH = {
   phien_ban: 'dm-1',
   composer: [
-    { id: 'xuat_hoa_don_tool', ten: 'Xuất hoá đơn', pha: 'chot', kieu: 'ban_sao', dich_goc: 'nhom_goc', nhay_cam: ['tien'] },
-    { id: 'in_sau_chot', ten: 'In sau chốt', pha: 'chot', kieu: 'ban_sao', dich_goc: 'nhom_goc', nhay_cam: [] },
-    { id: 'the_don', ten: 'Thẻ đơn', pha: 'len_don', kieu: 'khoa', dich_goc: 'nhom_goc', nhay_cam: ['gia'] },
+    { id: 'xuat_hoa_don_tool', ten: 'Xuất hoá đơn', pha: 'chot', kieu: 'ban_sao', ai_soan: 'ma', dich_goc: 'nhom_goc', nhay_cam: ['tien'] },
+    { id: 'in_sau_chot', ten: 'In sau chốt', pha: 'chot', kieu: 'ban_sao', ai_soan: 'ma', dich_goc: 'nhom_goc', nhay_cam: [] },
+    { id: 'the_don', ten: 'Thẻ đơn', pha: 'len_don', kieu: 'khoa', ai_soan: 'ma', dich_goc: 'nhom_goc', nhay_cam: ['gia'] },
   ],
   dem: [{
     khoa_canh: 'xuat_hoa_don_tool→nhom_goc|goc', composer: 'xuat_hoa_don_tool', dich_kieu: 'nhom_goc', luat_id: null,
@@ -145,7 +145,7 @@ describeCanDb('bot-thong-bao — luật thông báo + bản đồ tin (DB)', () 
   // ── Ảnh chụp ───────────────────────────────────────────────────────────────
 
   it('ảnh chụp: lưu bản MỚI NHẤT (thay bản cũ), sai hình ⇒ 400 không ghi; admin đọc được', async () => {
-    expect((await guiAnh(KHOA_A, { ...ANH, composer: [{ id: 'X', kieu: 'thuan' }] })).statusCode).toBe(400);
+    expect((await guiAnh(KHOA_A, { ...ANH, composer: [{ id: 'X', kieu: 'thuan', ai_soan: 'ma' }] })).statusCode).toBe(400);
     expect(await prisma.botBanDoTin.count({ where: { orgId: ORG_A } })).toBe(0);
     const r1 = await guiAnh(KHOA_A);
     expect(r1.statusCode, r1.body).toBe(200);
@@ -165,14 +165,21 @@ describeCanDb('bot-thong-bao — luật thông báo + bản đồ tin (DB)', () 
       pha: [{ id: 'chot', ten: 'Chốt' }], dich: ['nhom_goc', 'g_kho'], // bot gửi kèm — CRM bỏ qua (không lưu)
       composer: [
         {
-          id: 'xuat_hoa_don_tool', ten: 'Xuất hoá đơn', pha: 'xuat_hd', kieu: 'ban_sao', de_xuat: false, dich_goc: ['nhom_goc'],
+          id: 'xuat_hoa_don_tool', ten: 'Xuất hoá đơn', pha: 'xuat_hd', kieu: 'ban_sao', ai_soan: 'ma', ly_do_khoa: null, goi_y: null,
+          de_xuat: false, dich_goc: ['nhom_goc'],
           nhay_cam: ['tien'], khi_nao: 'Sau khi xuất HĐ', vi_du: 'Em đã xuất S17440', nguon_cau: 'cong_cu/don_hang.py:2340',
           ghi_chu: 'Chữ do mã', dan_toi: [['in_sau_chot', 'nghiep_vu']],
         },
         {
-          id: 'in_sau_chot', ten: 'In sau chốt', pha: 'in', kieu: 'ban_sao', de_xuat: true, dich_goc: ['nhom_goc'], nhay_cam: [],
+          id: 'in_sau_chot', ten: 'In sau chốt', pha: 'in', kieu: 'ban_sao', ai_soan: 'model', ly_do_khoa: null,
+          goi_y: 'Ứng viên: thêm nhóm Kế toán', de_xuat: true, dich_goc: ['nhom_goc'], nhay_cam: [],
           khi_nao: 'Sau lệnh in', vi_du: 'Em đã phát lệnh in', nguon_cau: 'cong_cu_tools.py:422', ghi_chu: '',
           dan_toi: [{ den: 'xuat_hoa_don_tool', kieu: 'hoi_lai', vi_sao: 'NV hỏi lại' }],
+        },
+        {
+          id: 'the_don', ten: 'Thẻ đơn', pha: 'len_don', kieu: 'khoa', ai_soan: 'mau', ly_do_khoa: 'Mang mã chốt — chỉ ở nhóm gốc',
+          goi_y: null, de_xuat: false, dich_goc: ['nhom_goc', 'dm_nguoi_go'], nhay_cam: ['gia'], khi_nao: null, vi_du: null,
+          nguon_cau: null, ghi_chu: null, dan_toi: [],
         },
       ],
       nguon: [{ id: 'nguon_may_in', ten: 'Máy in (sự kiện CRM)', pha: 'in', mo_ta: 'Bảng sự kiện in', dan_toi: [['in_sau_chot', 'su_kien']] }],
@@ -181,6 +188,9 @@ describeCanDb('bot-thong-bao — luật thông báo + bản đồ tin (DB)', () 
         { khoa_canh: 'xuat_hoa_don_tool→nhom_goc|goc', composer: 'xuat_hoa_don_tool', dich_kieu: 'nhom_goc', luat_id: null, ket_qua: 'da_gui', cua_so: '7d', so: 31 },
         { khoa_canh: 'in_sau_chot→g_kho|luat-1', composer: 'in_sau_chot', dich_kieu: 'g_kho', luat_id: 'luat-1', ket_qua: 'bong', cua_so: '24h', so: 7 },
         { khoa_canh: 'chua_khai→nhom_goc|goc', composer: 'chua_khai', dich_kieu: 'nhom_goc', luat_id: null, ket_qua: 'chan_tam_im', cua_so: '7d', so: 1 },
+        // bổ sung 02/10: số đếm KHỐI GỐC theo mã hàng bản đồ (luat_id null, "…|goc"), kể cả ket_qua "bo"
+        { khoa_canh: 'the_don→dm_nguoi_go|goc', composer: 'the_don', dich_kieu: 'dm_nguoi_go', luat_id: null, ket_qua: 'da_gui', cua_so: '24h', so: 9 },
+        { khoa_canh: 'the_don→nguoi_giu_ma|goc', composer: 'the_don', dich_kieu: 'nguoi_giu_ma', luat_id: null, ket_qua: 'bo', cua_so: '7d', so: 2 },
       ],
     };
     const r = await guiAnh(KHOA_A, day);
@@ -190,6 +200,7 @@ describeCanDb('bot-thong-bao — luật thông báo + bản đồ tin (DB)', () 
     expect(bd.composer).toEqual([
       { ...day.composer[0], dan_toi: [{ den: 'in_sau_chot', kieu: 'nghiep_vu' }] },
       { ...day.composer[1], ghi_chu: null },
+      day.composer[2],
     ]);
     expect(bd.nguon).toEqual([{ ...day.nguon[0], dan_toi: [{ den: 'in_sau_chot', kieu: 'su_kien' }] }]);
     expect(bd.dem).toEqual(day.dem);
@@ -197,6 +208,12 @@ describeCanDb('bot-thong-bao — luật thông báo + bản đồ tin (DB)', () 
     // Số đếm không khoá cạnh / không cửa sổ ⇒ 400, giữ bản cũ.
     const sai = await guiAnh(KHOA_A, { ...day, phien_ban: 'sai', dem: [{ so: 12 }] });
     expect([sai.statusCode, sai.json().code]).toEqual([400, 'ANH_CHUP_KHONG_HOP_LE']);
+    expect((await goi('GET', '/ban-do-tin', OWNER)).json().banDo.phienBan).toBe(day.phien_ban);
+    // bổ sung 02/10: ai_soan ngoài 4 giá trị / thiếu ⇒ 400, giữ bản cũ
+    for (const ai of ['nguoi', undefined]) {
+      const r400 = await guiAnh(KHOA_A, { ...day, phien_ban: 'sai-ai', composer: day.composer.map((c, i) => (i === 0 ? { ...c, ai_soan: ai } : c)) });
+      expect([r400.statusCode, r400.json().code]).toEqual([400, 'ANH_CHUP_KHONG_HOP_LE']);
+    }
     expect((await goi('GET', '/ban-do-tin', OWNER)).json().banDo.phienBan).toBe(day.phien_ban);
   });
 
@@ -397,7 +414,7 @@ describeCanDb('bot-thong-bao — luật thông báo + bản đồ tin (DB)', () 
     const them = await guiAnh(KHOA_A, {
       ...ANH, phien_ban: 'them',
       composer: [...ANH.composer.map((c) => (c.id === 'xuat_hoa_don_tool' ? { ...c, nhay_cam: ['sdt', 'tien'] } : c.id === 'in_sau_chot' ? { ...c, kieu: 'khoa' } : c)),
-        { id: 'moi', kieu: 'thuan' }],
+        { id: 'moi', kieu: 'thuan', ai_soan: 'ma' }],
     });
     expect(them.statusCode, them.body).toBe(200);
     // Ảnh chụp giả đã bị từ chối ⇒ nhóm khách vẫn bị chặn cho composer nhạy cảm.
@@ -409,7 +426,7 @@ describeCanDb('bot-thong-bao — luật thông báo + bản đồ tin (DB)', () 
     const khoa = await prisma.appSetting.findFirstOrThrow({ where: { orgId: ORG_A, settingKey: 'public_api_key' } });
     await guiAnh(KHOA_A);
     await guiAnh(KHOA_A, { ...ANH, dem: [{ ...ANH.dem[0], so: 3 }] });
-    await guiAnh(KHOA_A, { ...ANH, phien_ban: 'dm-2', composer: [...ANH.composer, { id: 'moi', kieu: 'thuan' }] });
+    await guiAnh(KHOA_A, { ...ANH, phien_ban: 'dm-2', composer: [...ANH.composer, { id: 'moi', kieu: 'thuan', ai_soan: 'ma' }] });
     await guiAnh(KHOA_A, { ...ANH, phien_ban: 'gia', composer: ANH.composer.map((c) => ({ ...c, nhay_cam: [] })) });
     const nk = await prisma.botQuyenNhatKy.findMany({ where: { orgId: ORG_A, doiTuong: 'ban_do_tin' }, orderBy: { luc: 'asc' } });
     expect(nk.map((r) => r.aiId)).toEqual([`api_key:${khoa.id}`, `api_key:${khoa.id}`, `api_key:${khoa.id}`]);

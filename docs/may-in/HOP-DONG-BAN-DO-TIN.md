@@ -29,7 +29,7 @@ liệu đo — sai tên trường là mất số âm thầm).
 |---|---|---|---|
 | `id` | `^[a-z][a-z0-9_.]{0,63}$` | có | duy nhất trong ảnh chụp, không trùng id nguồn |
 | `kieu` | `khoa` \| `ban_sao` \| `thuan` | có | `khoa` = 🔒 không định tuyến được |
-| `nhay_cam` | mảng nhãn `^[a-z][a-z0-9_]{0,31}$`, ≤ 20 | không (mặc định `[]`) | khử trùng + sắp xếp. Nhãn bot dùng: `gia sdt tien doanh_so lai` |
+| `nhay_cam` | mảng nhãn `^[a-z][a-z0-9_]{0,31}$`, ≤ 20 | không (mặc định `[]`) | khử trùng + sắp xếp. Nhãn bot dùng: `gia sdt tien doanh_so lai ten_khach` |
 | `ten` | chuỗi ≤ 200 | không | |
 | `pha` | chuỗi ≤ 64 | không | mã pha của bot (`hoi len_don chot xuat_hd in thu_tien kho bao_cao he_thong`) |
 | `de_xuat` | boolean | không (mặc định `false`) | composer đề xuất mới (chưa có trong mã gửi) |
@@ -62,7 +62,7 @@ vào composer. `id` cùng luật với composer và không trùng id composer. B
   "composer":  "in_sau_chot",                // id composer (có thể không có trong danh mục, vd `chua_khai`)
   "dich_kieu": "g_kho",                      // mã đích `^[a-z][a-z0-9_]{0,31}$`
   "luat_id":   "luat-1",                     // id luật CRM (bot_luat_thong_bao.id) | null = gửi ở nơi gốc
-  "ket_qua":   "bong",                       // da_gui | chan_tam_im | loi | bong | chua_ro (= CHECK tin_gui_so.ket_qua của bot)
+  "ket_qua":   "bong",                       // da_gui | chan_tam_im | loi | bong | chua_ro | bo (= CHECK tin_gui_so.ket_qua của bot; bo = nội dung rỗng)
   "cua_so":    "24h",                        // 24h | 7d
   "so":        7                             // số nguyên ≥ 0
 }
@@ -90,3 +90,19 @@ mảng đã chuẩn hoá ở §2–§4 (round-trip giữ nguyên mọi trường
   ⇒ `POST /api/public/ban-do-tin` chỉ nhận khoá đó (khoá chung `public_api_key` ⇒ `403 CAN_KHOA_RIENG_BOT`); `GET` luật nhận
   cả hai. Bot đặt khoá riêng vào env của bridge, không dùng chung với tích hợp khác.
 - Không có nội dung tin thật trong ảnh chụp: `vi_du` là câu mẫu bot tự khai; số đếm không mang cid.
+
+## Bổ sung 02/10 (sau vòng 2 giao diện) — trường composer bắt buộc thêm
+
+| trường | kiểu | ý nghĩa | dùng ở bản đồ |
+|---|---|---|---|
+| `ai_soan` | `"ma" \| "model" \| "mau" \| "anh"` | ai soạn tin | nhãn khối Mã/Model/Mẫu/Ảnh (như bản mẫu chủ đã xem) |
+| `ly_do_khoa` | string \| null | vì sao đích cố định (chỉ khi `kieu="khoa"`) | dòng 🔒 trong panel |
+| `goi_y` | string \| null | gợi ý cấu hình (vd "Ứng viên: thêm nhóm Kế toán") | panel |
+
+Số đếm cho khối gốc: bot gửi thêm dòng `dem` với `luat_id=null`, `dich_kieu` = đích gốc (`nhom_goc`/`dm_nguoi_go`/`nguoi_giu_ma`…), `khoa_canh="<composer>→<dich_kieu>|goc"` — để khối gốc cũng có số 24h/7d. `dich_kieu` của bot dùng đúng mã hàng bản đồ: `nhom_goc, dm_nguoi_go, nguoi_giu_ma, chu_don, g_kho, g_admin, g_ketoan, g_sales, g_kythuat, nv, g_khach`.
+CRM chuẩn hoá phải GIỮ ba trường mới (kiểm kiểu; `ai_soan` ngoài 4 giá trị ⇒ 400).
+
+CRM thực thi (`docAnhChup`, 02/10): `ai_soan` **thiếu** hoặc ngoài 4 giá trị (phân biệt hoa thường) ⇒ 400; `ly_do_khoa`/`goi_y`
+là chuỗi ≤ 1000 hoặc null (rỗng ⇒ `null`, sai kiểu ⇒ 400); `ly_do_khoa` khác rỗng ở composer `kieu ≠ "khoa"` ⇒ 400. Ảnh chụp
+đã lưu TRƯỚC 02/10 đọc ra ba trường = `null` (không đoán). Dòng đếm khối gốc đi đúng §4 (đã nhận từ trước — `luat_id=null`
+⇔ hậu tố `|goc`); `ket_qua = "bo"` nhận theo §4.

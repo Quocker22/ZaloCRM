@@ -20,6 +20,10 @@ export type CheDo = (typeof CHE_DO)[number];
 export const KIEU_COMPOSER = ['khoa', 'ban_sao', 'thuan'] as const;
 export type KieuComposer = (typeof KIEU_COMPOSER)[number];
 
+/** Ai soạn tin (bổ sung 02/10) — nhãn khối Mã/Model/Mẫu/Ảnh trên bản đồ. */
+export const AI_SOAN = ['ma', 'model', 'mau', 'anh'] as const;
+export type AiSoan = (typeof AI_SOAN)[number];
+
 export const KIEU_DICH = ['chuc_nang', 'nv', 'nguoi_gay_ra'] as const;
 export type KieuDich = (typeof KIEU_DICH)[number];
 
@@ -53,6 +57,12 @@ export interface ComposerAnh {
   nguon_cau: string | null;
   ghi_chu: string | null;
   dan_toi: CanhDanToi[];
+  /** Bổ sung 02/10 — bắt buộc trong ảnh chụp mới; `null` chỉ ở bản lưu cũ / `chi_trong_so_dinh`. */
+  ai_soan: AiSoan | null;
+  /** Vì sao đích cố định — chỉ khi `kieu = khoa` (dòng 🔒 trong panel). */
+  ly_do_khoa: string | null;
+  /** Gợi ý cấu hình (vd "Ứng viên: thêm nhóm Kế toán"). */
+  goi_y: string | null;
   /** Chỉ trong `danhMucHop`: composer không còn trong ảnh chụp hiện tại, metadata lấy từ sổ dính. */
   chi_trong_so_dinh?: boolean;
 }
@@ -66,7 +76,8 @@ export interface NguonAnh {
   dan_toi: CanhDanToi[];
 }
 
-export const KET_QUA_DEM = ['da_gui', 'chan_tam_im', 'loi', 'bong', 'chua_ro'] as const;
+/** = CHECK tin_gui_so.ket_qua của bot (`bo` = nội dung rỗng cho đích, bot so_gui.KET_QUA). */
+export const KET_QUA_DEM = ['da_gui', 'chan_tam_im', 'loi', 'bong', 'chua_ro', 'bo'] as const;
 export const CUA_SO_DEM = ['24h', '7d'] as const;
 
 /** Một dòng số đếm theo CẠNH (bot tin_gui_so): khoá cạnh = `<composer>→<dich_kieu>|<luat_id|goc>`. */
@@ -215,6 +226,13 @@ export function docAnhChup(body: unknown): AnhChup {
     if (c.de_xuat !== undefined && c.de_xuat !== null && typeof c.de_xuat !== 'boolean') {
       throw sai('ANH_CHUP_KHONG_HOP_LE', `composer ${c.id}: de_xuat phải là true/false`);
     }
+    if (typeof c.ai_soan !== 'string' || !(AI_SOAN as readonly string[]).includes(c.ai_soan)) {
+      throw sai('ANH_CHUP_KHONG_HOP_LE', `composer ${c.id}: ai_soan (bắt buộc) phải là ${AI_SOAN.join('|')}`);
+    }
+    const lyDoKhoa = chuTuyChon(c.ly_do_khoa, `composer ${c.id}: ly_do_khoa`, 1000) || null;
+    if (lyDoKhoa && c.kieu !== 'khoa') {
+      throw sai('ANH_CHUP_KHONG_HOP_LE', `composer ${c.id}: ly_do_khoa chỉ dùng khi kieu = khoa`);
+    }
     return {
       id: c.id,
       ten: chuTuyChon(c.ten, 'ten', 200),
@@ -228,6 +246,9 @@ export function docAnhChup(body: unknown): AnhChup {
       nguon_cau: chuTuyChon(c.nguon_cau, 'nguon_cau', 1000) || null,
       ghi_chu: chuTuyChon(c.ghi_chu, 'ghi_chu', 4000) || null,
       dan_toi: docDanToi(c.dan_toi, `composer ${c.id}`),
+      ai_soan: c.ai_soan as AiSoan,
+      ly_do_khoa: lyDoKhoa,
+      goi_y: chuTuyChon(c.goi_y, `composer ${c.id}: goi_y`, 1000) || null,
     };
   });
   const nguonVao = body.nguon ?? [];
@@ -267,7 +288,12 @@ export function danhMucTuAnh(composer: unknown): Map<string, ComposerAnh> {
   for (const c of composer) {
     if (!laObj(c) || typeof c.id !== 'string') continue;
     const nc = Array.isArray(c.nhay_cam) ? c.nhay_cam.filter((x): x is string => typeof x === 'string') : [];
-    m.set(c.id, { ...(c as unknown as ComposerAnh), nhay_cam: nc });
+    // Bản lưu trước 02/10 không có ai_soan/ly_do_khoa/goi_y ⇒ null (không đoán).
+    const aiSoan = typeof c.ai_soan === 'string' && (AI_SOAN as readonly string[]).includes(c.ai_soan) ? (c.ai_soan as AiSoan) : null;
+    m.set(c.id, {
+      ...(c as unknown as ComposerAnh), nhay_cam: nc, ai_soan: aiSoan,
+      ly_do_khoa: typeof c.ly_do_khoa === 'string' ? c.ly_do_khoa : null, goi_y: typeof c.goi_y === 'string' ? c.goi_y : null,
+    });
   }
   return m;
 }
@@ -294,7 +320,8 @@ export function danhMucHop(composer: unknown, dinh: unknown): Map<string, Compos
       } else {
         m.set(id, {
           id, ten: null, pha: null, kieu: khoa ? 'khoa' : 'ban_sao', de_xuat: false, dich_goc: [], nhay_cam: [...new Set(nhan)].sort(),
-          khi_nao: null, vi_du: null, nguon_cau: null, ghi_chu: null, dan_toi: [], chi_trong_so_dinh: true,
+          khi_nao: null, vi_du: null, nguon_cau: null, ghi_chu: null, dan_toi: [], ai_soan: null, ly_do_khoa: null, goi_y: null,
+          chi_trong_so_dinh: true,
         });
       }
     }
