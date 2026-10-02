@@ -306,7 +306,12 @@ export async function loaiTruTaiLieuNoiBo(orgId: string, aiId: string, ap: boole
     .filter((t) => t.dauHieu.length > 0);
   const can = deXuat.filter((t) => !t.daLoaiTru).map((t) => t.id);
   if (!ap || can.length === 0) return { deXuat, doi: 0 };
-  const { doi } = await withTenant(orgId, () => loaiTruTaiLieu(orgId, aiId, { ids: can, lyDo: 'tự loại lúc chuyển: có dấu hiệu nội bộ' }));
+  // Chia lô ≤ TOI_DA_MOT_LO (service bác lô lớn hơn) — mỗi lô một giao dịch; lô hỏng ⇒ NÉM sau khi các lô trước đã ghi (chạy lại an toàn).
+  let doi = 0;
+  for (let i = 0; i < can.length; i += TOI_DA_MOT_LO) {
+    const lo = can.slice(i, i + TOI_DA_MOT_LO);
+    doi += (await withTenant(orgId, () => loaiTruTaiLieu(orgId, aiId, { ids: lo, lyDo: 'tự loại lúc chuyển: có dấu hiệu nội bộ' }))).doi;
+  }
   return { deXuat, doi };
 }
 

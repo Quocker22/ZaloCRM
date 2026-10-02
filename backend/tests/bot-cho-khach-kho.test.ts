@@ -7,7 +7,7 @@
 //   • ưu tiên đoạn nói đúng mã SP.
 import { describe, it, expect } from 'vitest';
 import {
-  bamTuDoan, dauHieuNoiBo, lamSachChoKhach, docYeuCauTim, uuTienTheoSanPham, MAU_KY_TU, mauNoiDung, tapToken, khopNeo, dongCoGia,
+  bamTuDoan, dauHieuNoiBo, lamSachChoKhach, docYeuCauTim, uuTienTheoSanPham, MAU_KY_TU, mauNoiDung, tapToken, khopNeo, dongCoGia, tieuDeSach,
 } from '../src/modules/bot-quyen/bot-cho-khach-kho.js';
 import { LoiChoKhach } from '../src/modules/bot-quyen/bot-cho-khach-hop-dong.js';
 
@@ -64,6 +64,27 @@ describe('lamSachChoKhach — bỏ DÒNG bẩn trước khi gửi bot', () => {
   });
   it('mọi dòng bẩn ⇒ chuỗi rỗng', () => {
     expect(lamSachChoKhach('Giá bán: 120.000đ\n0912345678')).toBe('');
+  });
+});
+
+describe('lamSachChoKhach — các dạng Codex v2 tái hiện (02/10 khuya)', () => {
+  it('bảng có cột Giá/Tồn ⇒ bỏ CẢ CỘT ở mọi hàng, giữ cột thông số', () => {
+    const s = lamSachChoKhach('| Model | Refresh | Giá | Tồn |\n|---|---|---|---|\n| P3.076 | 3840Hz | 120 | 30 |');
+    expect(s).toContain('P3.076');
+    expect(s).toContain('3840Hz');
+    expect(s).not.toMatch(/120|30 \||Giá|Tồn/);
+  });
+  it('bảng tab có cột "Số lượng tồn" ⇒ bỏ cột', () => {
+    expect(lamSachChoKhach('Model\tIP\tSố lượng tồn\nP10\tIP65\t42')).toBe('Model\tIP\nP10\tIP65');
+  });
+  it('"Còn hàng: 30 tấm", "còn 30 tấm", "1200k", "1.200k" bị bỏ; "3000K", "Điện áp 5V" giữ', () => {
+    expect(lamSachChoKhach('Còn hàng: 30 tấm\ncòn 30 tấm\nGiá 1200k\nchỉ 1.200k\nNhiệt độ màu 3000K\nĐiện áp 5V'))
+      .toBe('Nhiệt độ màu 3000K\nĐiện áp 5V');
+  });
+  it('tiêu đề có giá/SĐT ⇒ nhãn trung tính; tiêu đề sạch giữ nguyên', () => {
+    expect(tieuDeSach('P3.076 giá bán 900k')).toBe('Tài liệu kỹ thuật');
+    expect(tieuDeSach('Bảng giá P3.076')).toBe('Tài liệu kỹ thuật');
+    expect(tieuDeSach('LLR- P3.076 .3840hz outdoor')).toBe('LLR- P3.076 .3840hz outdoor');
   });
 });
 

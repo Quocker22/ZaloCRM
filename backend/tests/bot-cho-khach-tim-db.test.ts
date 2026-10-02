@@ -122,6 +122,18 @@ describeCanDb('tìm thông số trong kho tri thức CRM cho bot (DB)', () => {
     expect(chu).toContain('5500 nits');
   });
 
+  it('mã SP chỉ nằm ở TIÊU ĐỀ (đoạn không nhắc mã), không embedding ⇒ vẫn tìm ra theo từ khoá tiêu đề; tiêu đề có giá ⇒ nhãn trung tính', async () => {
+    await napKho(ORG_A, 'kb-tieu-de', 'LLR- P2.5 .7680hz indoor', ['Điện áp: 5V\nKích thước: 320x160mm']);
+    await napKho(ORG_A, 'kb-gia-tieu-de', 'P2.5 giá bán 900k', ['Độ sáng: 800 nits']);
+    const kq = await ketQua('cho-khach', KHOA_A, { truy_van: 'thông số P2.5', so_doan: 5, san_pham: { ten: 'P2.5', ma: null, neo: [['p2']] } });
+    const d = kq.find((x) => x.tai_lieu_id === 'kb-tieu-de');
+    expect(d?.noi_dung).toBe('Điện áp: 5V\nKích thước: 320x160mm');
+    expect(d?.tieu_de).toBe('LLR- P2.5 .7680hz indoor');
+    const g = kq.find((x) => x.tai_lieu_id === 'kb-gia-tieu-de');
+    expect(g?.tieu_de).toBe('Tài liệu kỹ thuật');
+    expect(JSON.stringify(kq)).not.toMatch(/900k/);
+  });
+
   it('cách ly org: khoá B không thấy tài liệu của A; loại trừ của B không ảnh hưởng A', async () => {
     await loaiTru(ORG_B, 'kb-p3076');
     expect((await ketQua('cho-khach', KHOA_A, CAU))[0].tai_lieu_id).toBe('kb-p3076');

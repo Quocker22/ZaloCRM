@@ -57,7 +57,7 @@ export function dongCoGia(dong: string): boolean {
   if (/\b(chiet khau|giam gia|bang gia|bao gia)\b/.test(k)) return true;
   if (/\d[\d.,]*\s*(?:₫|đ|vnđ|vnd|usd)(?![a-zà-ỹ])/i.test(dong)) return true;
   if (/(?:^|[^\w])\$\s*\d|\d\s*\$/.test(dong)) return true;
-  if (/(?<![\w.,])\d{1,3}(?:[.,]\d)?\s?k(?![a-zA-Z0-9])/.test(dong)) return true;   // "120k" — K HOA là nhiệt độ màu
+  if (/(?<![\w.,])\d[\d.,]*\s?k(?![a-zA-Z0-9])/.test(dong)) return true;   // "120k", "1200k", "1.200k" — K HOA là nhiệt độ màu
   if (/\d\s?tr(?:\d|(?![a-zà-ỹ]))/i.test(dong)) return true;                           // "1tr2", "1,2tr"
   return false;
 }
@@ -65,7 +65,9 @@ export function dongCoGia(dong: string): boolean {
 const RE_SDT = /(?<!\d)(?:\+?84[\s.-]?|0)(?:[35789]\d|2\d{2})(?:[\s.-]?\d){7}(?!\d)/;
 const RE_LINK = /\b(?:https?:\/\/|www\.)|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|vn|net|org|info|biz|io|cn|dev|shop|store|xyz)\b/i;
 const RE_EMAIL = /[\w.+-]+@[\w-]+\.[\w.-]+/;
-const RE_TON = /\b(?:ton(?:\s*kho)?|so luong ton|stock|inventory)\s*[:=]?\s*\d/;
+const RE_TON = /\b(?:ton(?:\s*kho)?|so luong ton|sl ton|hang ton|con hang|con lai|stock|in stock|inventory)\s*[:=]?\s*\d|\bcon\s*\d[\d.,]*\s*(?:tam|cai|cuon|bo|chiec|met|m|hop|thung|module)\b/;
+/** Tiêu đề cột bảng mang giá/tồn ⇒ bỏ CẢ CỘT (dòng hàng chỉ là số trơn, không tự lộ nghĩa). */
+const RE_COT_BAN = /\b(?:gia|don gia|thanh tien|price|cost|ton|ton kho|sl ton|stock|inventory|con hang|so luong|sl|chiet khau|ck)\b/;
 const RE_LIEN_HE = /\b(?:lien he|hotline|zalo|goi ngay|inbox|nhan tin|san hang|san so luong|co san hang)\b/;
 
 /** Dòng KHÔNG được tới bot: giá/tiền, SĐT, đường dẫn, email, số tồn, liên hệ mua bán. */
@@ -74,9 +76,49 @@ export function dongBan(dong: string): boolean {
   return dongCoGia(dong) || RE_SDT.test(dong) || RE_LINK.test(dong) || RE_EMAIL.test(dong) || RE_TON.test(k) || RE_LIEN_HE.test(k);
 }
 
-/** Bỏ dòng bẩn; giữ dòng còn lại theo thứ tự. Mọi dòng bẩn ⇒ ''. */
+const laDongBang = (d: string): boolean => (d.match(/\|/g) ?? []).length >= 2 || (d.match(/\t/g) ?? []).length >= 1;
+const laDongKe = (d: string): boolean => /^[\s|:+-]+$/.test(d) && d.includes('-');
+
+function oBang(d: string): { cells: string[]; tach: string } {
+  const tach = (d.match(/\|/g) ?? []).length >= 2 ? '|' : '\t';
+  let t = d.trim();
+  if (tach === '|') t = t.replace(/^\|/, '').replace(/\|$/, '');
+  return { cells: t.split(tach).map((x) => x.trim()), tach };
+}
+
+/**
+ * Bảng (markdown "|" hoặc tab): dòng ĐẦU là tiêu đề; cột nào có tiêu đề giá/tồn/số lượng/chiết khấu ⇒ bỏ cả cột ở MỌI dòng của
+ * bảng (giá "120" trong ô không có chữ "đ" nên lưới theo dòng không bắt được). Sau đó vẫn qua lưới theo dòng.
+ */
+function boCotBan(dong: string[]): string[] {
+  const ra: string[] = [];
+  let i = 0;
+  while (i < dong.length) {
+    if (!laDongBang(dong[i])) { ra.push(dong[i]); i++; continue; }
+    let j = i;
+    while (j < dong.length && (laDongBang(dong[j]) || laDongKe(dong[j]))) j++;
+    const khoi = dong.slice(i, j);
+    const dau = oBang(khoi[0]);
+    const bo = new Set(dau.cells.map((c, k) => (RE_COT_BAN.test(boDau(c)) ? k : -1)).filter((k) => k >= 0));
+    for (const d of khoi) {
+      if (laDongKe(d)) continue;
+      if (bo.size === 0) { ra.push(d); continue; }
+      const giu = oBang(d).cells.filter((_, k) => !bo.has(k));
+      if (giu.some((c) => c)) ra.push(dau.tach === '|' ? `| ${giu.join(' | ')} |` : giu.join('\t'));
+    }
+    i = j;
+  }
+  return ra;
+}
+
+/** Bỏ cột giá/tồn của bảng, rồi bỏ dòng bẩn; giữ dòng còn lại theo thứ tự. Mọi dòng bẩn ⇒ ''. */
 export function lamSachChoKhach(noiDung: string): string {
-  return noiDung.replace(/\r\n?/g, '\n').split('\n').filter((d) => d.trim() && !dongBan(d)).join('\n').trim();
+  return boCotBan(noiDung.replace(/\r\n?/g, '\n').split('\n')).filter((d) => d.trim() && !dongBan(d)).join('\n').trim();
+}
+
+/** Tiêu đề tài liệu cũng tới khách/NV — có giá/SĐT/link/tồn ⇒ thay bằng nhãn trung tính. */
+export function tieuDeSach(tieuDe: string): string {
+  return tieuDe && !dongBan(tieuDe) ? tieuDe : 'Tài liệu kỹ thuật';
 }
 
 /**
@@ -296,7 +338,16 @@ async function xepVaLoc(
   // Xếp hạng TRÊN MỌI ứng viên (không cắt topK trước — nhánh từ khoá của `xepHangDoan` dừng ở topK+3 hàng ĐẦU theo thứ tự
   // đọc, nên đoạn đúng mã nằm sau dễ bị bỏ), rồi ưu tiên đoạn chứa nhiều token PHÂN BIỆT (có chữ số: "p3076", "3840hz",
   // "v7512") của câu hỏi — tính trên tiêu đề + đoạn; hoà ⇒ giữ thứ tự hybrid.
-  const hits = await xepHangDoan(deps.embed, ung, cauTim, Math.max(UNG_VIEN, ung.length), deps.cfg);
+  // Từ khoá tìm trên TIÊU ĐỀ + đoạn (mã SP hay chỉ nằm ở tiêu đề: "LLR- P3.076 .3840hz outdoor"); nội dung trả vẫn là đoạn gốc.
+  const goc = new Map(ung.map((r) => [r.id, r.content]));
+  const coTieuDe = ung.map((r) => ({ ...r, content: `${tieuDe.get(r.documentId) ?? ''}\n${r.content}` }));
+  const hits = await xepHangDoan(deps.embed, coTieuDe, cauTim, Math.max(UNG_VIEN, ung.length), deps.cfg);
+  // Có neo SP ⇒ MỌI ứng viên đã đúng SP: đoạn mà vector/từ khoá bỏ sót (câu ngắn "thông số P2.5" không có từ ≥ 3 ký tự,
+  // embedding chết) vẫn được xét sau các đoạn đã xếp.
+  if (neo) {
+    const daXep = new Set(hits.map((h) => h.chunkId));
+    for (const r of coTieuDe) if (!daXep.has(r.id)) hits.push({ chunkId: r.id, content: r.content, score: 0 });
+  }
   const docCua = new Map(ung.map((r) => [r.id, r.documentId]));
   const phanBiet = [...tapToken(cauTim)].filter((t) => t.length >= 2 && /\d/.test(t));
   const diemPb = new Map(hits.map((h) => {
@@ -309,10 +360,10 @@ async function xepVaLoc(
   for (const h of hits) {
     const id = docCua.get(h.chunkId);
     if (!id) continue;
-    const sach = lamSachChoKhach(h.content);
+    const sach = lamSachChoKhach(goc.get(h.chunkId) ?? '');
     if (!sach || daCo.has(sach)) continue;
     daCo.add(sach);
-    ra.push({ tieuDe: tieuDe.get(id) ?? '', noiDung: sach, id, diem: Number.isFinite(h.score) ? h.score : 0 });
+    ra.push({ tieuDe: tieuDeSach(tieuDe.get(id) ?? ''), noiDung: sach, id, diem: Number.isFinite(h.score) ? h.score : 0 });
   }
   return uuTienTheoSanPham(ra, yc.sanPham).slice(0, yc.soDoan)
     .map((x) => ({ tai_lieu_id: x.id, tieu_de: x.tieuDe, noi_dung: x.noiDung, diem: Math.round(x.diem * 1000) / 1000 }));

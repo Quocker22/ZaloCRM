@@ -249,6 +249,16 @@ describeCanDb('bot-cho-khach — duyệt tài liệu RAG + mô tả SP cho khác
     expect((await nhatKy('tai_lieu_loai_tru')).map((x) => x.aiId)).toEqual(['cli:test']);
   });
 
+  it('loaiTruTaiLieuNoiBo: 501 tài liệu nội bộ ⇒ chia lô ≤ 500, loại đủ 501', async () => {
+    const ids = Array.from({ length: 501 }, (_, i) => `noi-bo-${String(i).padStart(3, '0')}`);
+    await prisma.knowledgeDocument.createMany({ data: ids.map((id) => ({ id, orgId: ORG_A, title: `Bảng giá ${id}`, source: 'x', content: 'x' })) });
+    await prisma.knowledgeChunk.createMany({
+      data: ids.map((id) => ({ orgId: ORG_A, documentId: id, ord: 0, content: 'Bảng giá đại lý', embedding: [1, 0, 0], embedProvider: 't', embedModel: 't', embedDim: 3 })),
+    });
+    expect((await loaiTruTaiLieuNoiBo(ORG_A, 'cli:test', true)).doi).toBe(501);
+    expect(await prisma.botTaiLieuLoaiTru.count({ where: { orgId: ORG_A } })).toBe(501);
+  });
+
   // ── Công khai: danh mục ─────────────────────────────────────────────────────
 
   it('POST danh mục: sai hình / băm lệch ⇒ 400 và GIỮ bản cũ; khoá sai ⇒ 401', async () => {
