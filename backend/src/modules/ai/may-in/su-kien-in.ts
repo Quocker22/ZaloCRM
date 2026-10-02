@@ -7,7 +7,8 @@
 //      sinh khi UPDATE đổi ĐÚNG một dòng (count 0 = job vừa bị huỷ / kết quả trễ đã chốt ⇒ không có chuyện gì xảy ra).
 //      Dòng job bị khoá (`FOR UPDATE`) TRƯỚC khi UPDATE ⇒ `tu_trang_thai` là trạng thái THẬT lúc đổi (kể cả khi điều kiện
 //      là một tập trạng thái), `org_id` đọc từ chính dòng job.
-//   2. `taoJobCoSuKien` = INSERT job + sự kiện tạo (tu null → cho_in) cùng giao dịch.
+//   2. `taoJobCoSuKien` = INSERT job; sự kiện tạo (tu null → cho_in) do TRIGGER DB ghi cùng giao dịch (phủ cả job bot
+//      INSERT thẳng bằng SQL).
 //   3. `ghiSuCoIn` = sự cố MÁY IN (`su-co`, `tam_giu`) — không gắn trạng thái job; ghi CÓ CHỜ, lỗi thử lại một lần,
 //      vẫn lỗi thì logger.error (không bao giờ ném ra luồng in).
 // Hàm 1–2 NÉM khi DB lỗi — đúng như updateMany trơn trước đây (người gọi đã xử lý lỗi ghi job).
@@ -89,26 +90,21 @@ export async function capNhatJobCoSuKien(p: PrismaSuKienIn, a: ThamSoDoiTrangTha
   });
 }
 
-/** INSERT job + sự kiện tạo (null → trạng thái đầu) cùng giao dịch. Trả dòng job đã tạo. */
+/**
+ * INSERT job. Sự kiện tạo (null → trạng thái đầu) do TRIGGER `print_jobs_su_kien_tao` ghi CÙNG giao dịch (migration
+ * 20261002090300) — trigger phủ cả job bot INSERT thẳng bằng psycopg và in lại bằng SQL tay; mã ở đây KHÔNG ghi thêm
+ * (ghi cả hai = hai dòng tạo). Bản giả trong test không có trigger: giả lập đúng một dòng nếu bản giả có bảng sự kiện.
+ */
 export async function taoJobCoSuKien(p: PrismaSuKienIn, data: Dong): Promise<Dong> {
   const sang = sangCua(data);
   if (!p.printJob.create) throw new Error('taoJobCoSuKien: thiếu printJob.create');
-  if (!p.$transaction) {
-    const job = (await p.printJob.create({ data })) as Dong;
-    if (p.printSuKien) {
-      await p.printSuKien.create({
-        data: { orgId: job.orgId, jobId: job.id, tuTrangThai: null, sangTrangThai: sang, maLoi: null },
-      });
-    }
-    return job;
-  }
-  return giaoDich(p, async (tx) => {
-    const job = (await tx.printJob.create({ data })) as Dong;
-    await tx.printSuKien.create({
+  const job = (await p.printJob.create({ data })) as Dong;
+  if (!p.$transaction && p.printSuKien) {
+    await p.printSuKien.create({
       data: { orgId: job.orgId, jobId: job.id, tuTrangThai: null, sangTrangThai: sang, maLoi: null },
     });
-    return job;
-  });
+  }
+  return job;
 }
 
 // ── Sự cố máy in ────────────────────────────────────────────────────────────

@@ -4490,7 +4490,7 @@ model PrintJob {
 
 /// Sự kiện ĐỔI TRẠNG THÁI print_jobs (docs/78 C1, 02/10) — nguồn BỀN cho trạm thông báo của bot (in xong / in thất
 /// bại / không rõ / huỷ…). Ghi CÙNG GIAO DỊCH với UPDATE có điều kiện của job và CHỈ khi UPDATE đổi đúng một dòng
-/// (su-kien-in.ts `capNhatJobCoSuKien`) — không dựa nhật ký print_logs (fire-and-forget). Dòng tạo job: tuTrangThai null.
+/// (su-kien-in.ts `capNhatJobCoSuKien`) — không dựa nhật ký print_logs (fire-and-forget). Dòng tạo job (tuTrangThai null) do TRIGGER print_jobs_su_kien_tao ghi — phủ cả job bot INSERT bằng SQL thô.
 /// Bot đọc `WHERE bot_nhan_luc IS NULL ORDER BY id`, ghi sự kiện của nó rồi đặt `bot_nhan_luc` (xác nhận TỪNG HÀNG — không
 /// dùng con trỏ id: id cấp lúc INSERT, commit có thể đảo thứ tự). Không FK sang print_jobs: sự kiện sống lâu hơn job.
 model PrintSuKien {

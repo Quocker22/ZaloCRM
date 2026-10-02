@@ -79,9 +79,21 @@ describeCanDb('print_su_kien / print_su_co — sự kiện in bền (DB)', () =>
   });
   beforeEach(donDep);
 
-  it('tạo job ⇒ đúng một sự kiện null → cho_in, cùng org, chưa nhận', async () => {
+  it('tạo job qua CRM (themJobIn) ⇒ đúng một sự kiện null → cho_in, cùng org, chưa nhận', async () => {
     const id = await taoJob();
     expect(await suKien(id, false)).toEqual([{ tu: null, sang: 'cho_in', ma: null, org: ORG, nhan: null }]);
+  });
+
+  it('INSERT print_jobs bằng SQL THÔ (bot psycopg / in lại tay) ⇒ trigger ghi đúng MỘT sự kiện tạo', async () => {
+    // Đúng câu lệnh bot chạy (lednelia-agent cong_cu_tools.py `_ghi_job_in`) — không đi qua Prisma.
+    await prisma.$executeRaw`INSERT INTO print_jobs (id, org_id, conversation_id, hoa_don_id, so_hoa_don, report, agent_token, trang_thai, lan_thu, created_at, updated_at)
+      VALUES ('psk-raw-1', ${ORG}, NULL, 7, 'INV/RAW1', 'r', NULL, 'cho_in', 0, now(), now())`;
+    expect(await suKien('psk-raw-1', false)).toEqual([{ tu: null, sang: 'cho_in', ma: null, org: ORG, nhan: null }]);
+    // Trạng thái lạ (ngoài CHECK của print_su_kien) KHÔNG được làm hỏng việc tạo job — chỉ không có sự kiện.
+    await prisma.$executeRaw`INSERT INTO print_jobs (id, org_id, hoa_don_id, so_hoa_don, report, trang_thai, lan_thu, updated_at)
+      VALUES ('psk-raw-2', ${ORG}, 8, 'INV/RAW2', 'r', 'trang_thai_la', 0, now())`;
+    expect(await prisma.printJob.count({ where: { id: 'psk-raw-2' } })).toBe(1);
+    expect(await suKien('psk-raw-2', false)).toEqual([]);
   });
 
   it('app in xong (kênh đồng bộ): cho_in → dang_gui → da_in, mỗi bước MỘT sự kiện', async () => {

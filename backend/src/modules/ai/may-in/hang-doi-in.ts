@@ -97,7 +97,7 @@ export interface ThamSoThemJob {
   agentToken?: string;
 }
 
-/** Xếp một hoá đơn vào hàng in. Không đụng máy in — cron lo. Sự kiện tạo (→ cho_in) ghi cùng giao dịch. */
+/** Xếp một hoá đơn vào hàng in. Không đụng máy in — cron lo. Sự kiện tạo (→ cho_in) do trigger DB ghi cùng giao dịch. */
 export async function themJobIn(prisma: PrismaHangDoiIn, p: ThamSoThemJob): Promise<void> {
   await taoJobCoSuKien(prisma, {
     orgId: p.orgId,
