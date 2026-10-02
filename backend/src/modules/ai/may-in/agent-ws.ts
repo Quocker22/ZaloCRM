@@ -57,7 +57,7 @@ import {
   type PhamViHangDoi,
 } from './huy-lenh-in.js';
 import { taoBoGuiHangDoi, MS_GUI_HANG_DOI_TOI_THIEU } from './hang-doi-app.js';
-import { capNhatJobCoSuKien, ghiSuCoIn, type PrismaSuKienIn, type SuCoIn } from './su-kien-in.js';
+import { capNhatJobCoSuKien, ghiSuCoIn, PHUT_GOP_SU_CO, type PrismaSuKienIn, type SuCoIn } from './su-kien-in.js';
 
 interface KetQuaTuAgent {
   jobId: string;
@@ -133,6 +133,11 @@ export interface AgentWsDeps {
    * Mặc định su-kien-in.ts ghiSuCoIn (Prisma thật, có chờ, thử lại, không ném).
    */
   ghiSuCo?: (sc: SuCoIn) => Promise<unknown>;
+  /**
+   * Cửa sổ gộp `su-co` lặp của CÙNG (job, mã) trên một socket — nhật ký + tình trạng (ms, mặc định PHUT_GOP_SU_CO).
+   * Dòng print_su_co gộp riêng ở DB theo (máy, mã) — su-kien-in.ts ghiSuCoIn.
+   */
+  msGopSuCo?: number;
   /**
    * Tra print_jobs theo id — dựng lại ngữ cảnh khi bộ nhớ đã mất (backend khởi
    * động lại giữa lúc in: mỗi lần deploy). Mặc định Prisma thật.
@@ -278,6 +283,7 @@ export function registerAgentWs(io: Server, registry: AgentRegistry, deps: Agent
   const ghiNhatKy: (m: MucNhatKy) => void = deps.ghiNhatKy ?? ghiNhatKyThat;
   const capNhatJobTre = deps.capNhatJobTre ?? capNhatJobTreThat;
   const ghiSuCo = deps.ghiSuCo ?? ((sc: SuCoIn) => ghiSuCoIn(sc, { orgMacDinh: deps.orgMacDinh ?? orgMacDinhTuEnv }));
+  const msGopSuCo = deps.msGopSuCo ?? PHUT_GOP_SU_CO * 60_000;
   const layJobTheoId = deps.layJobTheoId ?? layJobTheoIdThat;
   const coLenhInMoiHon = deps.coLenhInMoiHon ?? coLenhInMoiHonThat;
   const nhanNhatKyApp = deps.nhanNhatKyApp ?? nhanNhatKyAppThat;
@@ -467,7 +473,8 @@ export function registerAgentWs(io: Server, registry: AgentRegistry, deps: Agent
       const nc = registry.layNguCanhCua(token, jobId);
       const hd = nc ? ` hoá đơn ${nc.soHoaDon}` : ' một hoá đơn';
       const cu = registry.layTinhTrang(token);
-      if (cu && laMaChanIn(cu.ma)) {
+      const goChip = !!cu && laMaChanIn(cu.ma);
+      if (cu && goChip) {
         registry.capNhatTinhTrang(token, { ma: 'binh_thuong', luc: new Date(), nguon: 'may' });
         ghiNhatKy({
           loai: 'binh_thuong',
@@ -486,6 +493,15 @@ export function registerAgentWs(io: Server, registry: AgentRegistry, deps: Agent
           orgId: nc?.orgId,
           chiTiet: { tamGiuTu: cd.tu.toISOString(), suCo: cd.ma },
         });
+      }
+      // Hồi phục BỀN (docs/78 tự rà P1-3) — MỘT dòng cho một lần hồi phục: đóng cầu dao (`tiep_tuc_in`, các hoá đơn đang
+      // giữ được in tiếp) bao luôn việc gỡ chip; chỉ gỡ chip (cầu dao vốn đóng) ⇒ `het_su_co`.
+      if (cd || goChip) {
+        void ghiSuCo({
+          maSuCo: cd ? 'tiep_tuc_in' : 'het_su_co', maGoc: cd?.ma ?? cu?.ma ?? null, agentToken: token,
+          orgId: nc?.orgId ?? null, printJobId: nc?.printJobId ?? null, soHoaDon: nc?.soHoaDon ?? null,
+          chiTiet: `đã in${hd}`,
+        }).catch(() => undefined);
       }
     }
 
@@ -620,7 +636,9 @@ export function registerAgentWs(io: Server, registry: AgentRegistry, deps: Agent
     }
 
     // Sự cố trong lúc in một job — app gửi NGAY khi thấy lần đầu (hợp đồng §2).
-    const daGhiSuCo = new Set<string>();
+    // Gộp gửi lặp theo CỬA SỔ THỜI GIAN (không phải Set sống suốt socket: `su-co` không jobId của cùng mã bị chặn MÃI —
+    // lần hết giấy thứ hai trong ngày không bao giờ được ghi). Dòng bền gộp lần nữa ở DB theo (máy, mã) — ghiSuCoIn.
+    const daGhiSuCo = new Map<string, number>();
     socket.on('su-co', (sc: unknown) => {
       const o = (sc && typeof sc === 'object' ? sc : {}) as Record<string, unknown>;
       const loai = o.loai;
@@ -635,9 +653,11 @@ export function registerAgentWs(io: Server, registry: AgentRegistry, deps: Agent
       }
       const jobId = typeof o.jobId === 'string' ? o.jobId.slice(0, 200) : null;
       const khoa = `${jobId ?? '-'}|${loai}`;
-      if (daGhiSuCo.has(khoa)) return; // app lỡ gửi lặp → một dòng
+      const bayGio = Date.now();
+      const truoc = daGhiSuCo.get(khoa);
+      if (truoc !== undefined && bayGio - truoc < msGopSuCo) return; // app lỡ gửi lặp → một dòng
       if (daGhiSuCo.size > 500) daGhiSuCo.clear();
-      daGhiSuCo.add(khoa);
+      daGhiSuCo.set(khoa, bayGio);
       const chiTiet = chuTuApp(o.chiTiet, 500);
       const mayIn = chuTuApp(o.mayIn, 200);
       // Chỉ mã CẤP MÁY IN mới là tình trạng máy; PDF hỏng/Sumatra lỗi/không xác
@@ -701,20 +721,37 @@ export function registerAgentWs(io: Server, registry: AgentRegistry, deps: Agent
       // dao bập bênh mỗi 20 s, nhật ký ghi "báo hết lỗi" sai sự thật (V1 vòng 2).
       if (!laMaChanIn(ma) && cu && laMaChanIn(cu.ma) && cu.nguon === 'job') return;
       // Máy báo KHÔNG chặn in sau một sự cố CẤP MÁY → đóng cầu dao (in tiếp).
+      let daDongCauDao = false;
       if (!laMaChanIn(ma) && cu && laMaChanIn(cu.ma) && cu.nguon === 'may') {
         const cd = registry.dongCauDaoTheoTrangThai(token);
         if (cd) {
+          daDongCauDao = true;
           ghiNhatKy({
             loai: 'tiep_tuc_in',
             noiDung: `Máy in${mayIn ? ` "${mayIn}"` : ''} báo hết lỗi — tiếp tục in các hoá đơn đang chờ`,
             agentToken: token,
             chiTiet: { tamGiuTu: cd.tu.toISOString(), suCo: cd.ma },
           });
+          void ghiSuCo({
+            maSuCo: 'tiep_tuc_in', maGoc: cd.ma ?? cu.ma, agentToken: token,
+            chiTiet: [mayIn && `máy in "${mayIn}"`, 'báo hết lỗi'].filter(Boolean).join(' — '),
+          }).catch(() => undefined);
         }
       }
       const { doi, maCu } = registry.capNhatTinhTrang(token, { ma, chiTiet: chiTiet ?? undefined, luc: new Date(), nguon: 'may' });
       // Không đổi, hoặc lần đầu biết mà đang bình thường → không có gì đáng ghi.
       if (!doi || (maCu === null && ma === 'binh_thuong')) return;
+      // Sự cố BỀN lúc máy RẢNH (docs/78 tự rà P1-3): đổi sang mã sự cố ⇒ một dòng; về bình thường ⇒ dòng hồi phục
+      // `het_su_co` (ma_goc = mã cũ) — trừ khi vừa ghi `tiep_tuc_in` cho đúng lần hồi phục này.
+      if (ma !== 'binh_thuong') {
+        void ghiSuCo({
+          maSuCo: ma, agentToken: token, chiTiet: [mayIn && `máy in "${mayIn}"`, chiTiet].filter(Boolean).join(' — ') || null,
+        }).catch(() => undefined);
+      } else if (maCu && !daDongCauDao) {
+        void ghiSuCo({
+          maSuCo: 'het_su_co', maGoc: maCu, agentToken: token, chiTiet: mayIn ? `máy in "${mayIn}"` : null,
+        }).catch(() => undefined);
+      }
       const noiDung = ma === 'binh_thuong'
         ? `Máy in${mayIn ? ` "${mayIn}"` : ''} đã hết sự cố${maCu ? ` (${nhanCua(maCu)})` : ''}, hoạt động bình thường`
         : `${nhanCua(ma)}${mayIn ? ` (máy in "${mayIn}")` : ''}${them(chiTiet)}`;

@@ -4520,15 +4520,20 @@ model PrintSuCo {
   mayInTen   String?   @map("may_in_ten")
   printJobId String?   @map("print_job_id")
   soHoaDon   String?   @map("so_hoa_don")
-  /// Mã sự cố (nhat-ky.ts MA_SU_CO) hoặc `tam_giu` (cầu dao giữ các hoá đơn sau).
+  /// Mã sự cố (nhat-ky.ts MA_SU_CO), `tam_giu` (cầu dao giữ các hoá đơn sau), hoặc hồi phục `het_su_co` / `tiep_tuc_in`.
   maSuCo     String    @map("ma_su_co")
-  /// `tam_giu`: mã sự cố gây ngắt (null = app không trả lời). Mã sự cố trơn: null.
+  /// `tam_giu`: mã sự cố gây ngắt (null = app không trả lời) · hồi phục (`het_su_co`/`tiep_tuc_in`): mã sự cố vừa hết.
+  /// Mã sự cố trơn: null.
   maGoc      String?   @map("ma_goc")
+  /// MỘT sự cố = một nhóm: ma_goc ?? ma_su_co (su-kien-in.ts nhomSuCo) — su-co het_giay, tam_giu(het_giay) và hồi phục
+  /// của nó cùng nhóm `het_giay`; bot gom theo (máy, nhom_su_co).
+  nhomSuCo   String    @map("nhom_su_co")
   chiTiet    String?   @map("chi_tiet")
   luc        DateTime  @default(now())
   botNhanLuc DateTime? @map("bot_nhan_luc")
 
   @@index([orgId, luc(sort: Desc)])
+  @@index([orgId, mayInId, id])
   @@map("print_su_co")
 }
 

@@ -96,6 +96,16 @@ describeCanDb('print_su_kien / print_su_co — sự kiện in bền (DB)', () =>
     expect(await suKien('psk-raw-2', false)).toEqual([]);
   });
 
+  it('trigger ghi `luc` theo giờ UTC như Prisma — đúng cả khi phiên DB đặt múi giờ khác (không lệch 7 giờ)', async () => {
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SET LOCAL TimeZone = 'Asia/Ho_Chi_Minh'`;
+      await tx.$executeRaw`INSERT INTO print_jobs (id, org_id, hoa_don_id, so_hoa_don, report, trang_thai, lan_thu, updated_at)
+        VALUES ('psk-raw-tz', ${ORG}, 9, 'INV/TZ', 'r', 'cho_in', 0, now())`;
+    });
+    const e = await prisma.printSuKien.findFirstOrThrow({ where: { jobId: 'psk-raw-tz' } });
+    expect(Math.abs(e.luc.getTime() - Date.now())).toBeLessThan(60_000);
+  });
+
   it('app in xong (kênh đồng bộ): cho_in → dang_gui → da_in, mỗi bước MỘT sự kiện', async () => {
     const id = await taoJob();
     await chayMotLuotIn(deps(client({ daInXong: true })));
@@ -246,11 +256,59 @@ describeCanDb('print_su_kien / print_su_co — sự kiện in bền (DB)', () =>
 
   it('ghiSuCoIn: su-co của app ⇒ một dòng, che token trong chi tiết; không biết org ⇒ không ghi, không ném', async () => {
     await prisma.printAgent.create({ data: { orgId: ORG, ten: 'Máy HCM', token: TOKEN, warehouseIds: [3] } });
-    expect(await ghiSuCoIn({ maSuCo: 'ket_giay', agentToken: TOKEN, chiTiet: `khay 2 ${TOKEN}` })).toBe(true);
+    expect(await ghiSuCoIn({ maSuCo: 'ket_giay', agentToken: TOKEN, chiTiet: `khay 2 ${TOKEN}` })).toBe('da_luu');
     const r = await prisma.printSuCo.findFirstOrThrow({ where: { orgId: ORG } });
     expect(r).toMatchObject({ maSuCo: 'ket_giay', mayInTen: 'Máy HCM', maGoc: null });
     expect(r.chiTiet).toContain('khay 2');
     expect(r.chiTiet).not.toContain(TOKEN);
-    expect(await ghiSuCoIn({ maSuCo: 'het_giay', agentToken: 'token-la' }, { orgMacDinh: () => null })).toBe(false);
+    expect(await ghiSuCoIn({ maSuCo: 'het_giay', agentToken: 'token-la' }, { orgMacDinh: () => null })).toBe('khong_luu');
+  });
+
+  it('gộp theo (máy, mã) trong 10 phút: lặp ⇒ một dòng (kể cả không có job); hồi phục chen giữa ⇒ ghi lại; quá 10 phút ⇒ ghi lại; máy khác ⇒ riêng', async () => {
+    await prisma.printAgent.create({ data: { orgId: ORG, ten: 'Máy HN', token: TOKEN, warehouseIds: [2] } });
+    await prisma.printAgent.create({ data: { orgId: ORG, ten: 'Máy HCM', token: `${TOKEN}-hcm`, warehouseIds: [3] } });
+    expect(await ghiSuCoIn({ maSuCo: 'het_giay', agentToken: TOKEN })).toBe('da_luu');
+    expect(await ghiSuCoIn({ maSuCo: 'het_giay', agentToken: TOKEN, printJobId: 'j2' })).toBe('trung');
+    expect(await ghiSuCoIn({ maSuCo: 'het_giay', agentToken: `${TOKEN}-hcm` })).toBe('da_luu');
+    expect(await ghiSuCoIn({ maSuCo: 'ket_giay', agentToken: TOKEN })).toBe('da_luu'); // mã khác ⇒ riêng
+    // Hồi phục rồi hết giấy lại ⇒ sự cố MỚI.
+    expect(await ghiSuCoIn({ maSuCo: 'het_su_co', maGoc: 'het_giay', agentToken: TOKEN })).toBe('da_luu');
+    expect(await ghiSuCoIn({ maSuCo: 'het_su_co', maGoc: 'het_giay', agentToken: TOKEN })).toBe('trung'); // hồi phục lặp
+    expect(await ghiSuCoIn({ maSuCo: 'het_giay', agentToken: TOKEN })).toBe('da_luu');
+    // Quá 10 phút không có hồi phục ⇒ ghi lại (không chặn mãi).
+    await prisma.$executeRaw`UPDATE print_su_co SET luc = luc - interval '11 minutes' WHERE org_id = ${ORG}`;
+    expect(await ghiSuCoIn({ maSuCo: 'het_giay', agentToken: TOKEN })).toBe('da_luu');
+    const hn = await prisma.printSuCo.findMany({ where: { orgId: ORG, mayInTen: 'Máy HN' }, orderBy: { id: 'asc' } });
+    expect(hn.map((r) => r.maSuCo)).toEqual(['het_giay', 'ket_giay', 'het_su_co', 'het_giay', 'het_giay']);
+    // Ghi song song cùng (máy, mã) ⇒ đúng MỘT dòng (khoá advisory).
+    await prisma.printSuCo.deleteMany({ where: { orgId: ORG } });
+    const kq = await Promise.all([1, 2, 3, 4].map(() => ghiSuCoIn({ maSuCo: 'mo_nap', agentToken: TOKEN })));
+    expect(kq.filter((k) => k === 'da_luu')).toHaveLength(1);
+    expect(await prisma.printSuCo.count({ where: { orgId: ORG, maSuCo: 'mo_nap' } })).toBe(1);
+  });
+
+  it('nhom_su_co: su-co het_giay, tam_giu (ma_goc het_giay) và hồi phục của nó là MỘT sự cố', async () => {
+    await prisma.printAgent.create({ data: { orgId: ORG, ten: 'Máy HN', token: TOKEN, warehouseIds: [2] } });
+    await ghiSuCoIn({ maSuCo: 'het_giay', agentToken: TOKEN });
+    await ghiSuCoIn({ maSuCo: 'tam_giu', maGoc: 'het_giay', agentToken: TOKEN, printJobId: 'j1' });
+    await ghiSuCoIn({ maSuCo: 'tiep_tuc_in', maGoc: 'het_giay', agentToken: TOKEN });
+    await ghiSuCoIn({ maSuCo: 'tam_giu', maGoc: null, agentToken: TOKEN }); // app không trả lời
+    const r = await prisma.printSuCo.findMany({ where: { orgId: ORG }, orderBy: { id: 'asc' } });
+    expect(r.map((x) => [x.maSuCo, x.nhomSuCo])).toEqual([
+      ['het_giay', 'het_giay'], ['tam_giu', 'het_giay'], ['tiep_tuc_in', 'het_giay'], ['tam_giu', 'khong_ro'],
+    ]);
+  });
+
+  it('ghiSuCoIn: lỗi DB lần đầu ⇒ chờ 200 ms rồi thử lại một lần; vẫn lỗi ⇒ khong_luu, không ném', async () => {
+    const cho = vi.fn(async () => undefined);
+    let lan = 0;
+    const gia = {
+      printAgent: { findUnique: async () => null },
+      printSuCo: { create: async () => { if (lan++ === 0) throw new Error('chập'); return {}; } },
+    };
+    expect(await ghiSuCoIn({ maSuCo: 'het_giay', orgId: ORG }, { prisma: gia, cho })).toBe('da_luu');
+    expect(cho).toHaveBeenCalledWith(200);
+    const hong = { ...gia, printSuCo: { create: async () => { throw new Error('chết'); } } };
+    expect(await ghiSuCoIn({ maSuCo: 'het_giay', orgId: ORG }, { prisma: hong, cho })).toBe('khong_luu');
   });
 });

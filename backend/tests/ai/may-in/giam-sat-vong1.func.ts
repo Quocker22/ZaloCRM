@@ -217,6 +217,10 @@ describe('agent-ws — V2, V3, chip tình trạng, cầu dao, mất kết nối 
     const loai = nhatKy.map((m) => m.loai);
     expect(loai).toContain('binh_thuong');
     expect(nhatKy.find((m) => m.loai === 'tiep_tuc_in')!.noiDung).toBe('Máy in hoạt động lại (đã in hoá đơn INV/7) — tiếp tục in các hoá đơn đang chờ');
+    // docs/78 tự rà P1-3: đóng cầu dao ⇒ đúng MỘT dòng hồi phục bền (gỡ chip cùng lúc KHÔNG thêm dòng thứ hai).
+    expect(suCo.filter((s) => s.maSuCo === 'tiep_tuc_in' || s.maSuCo === 'het_su_co')).toEqual([
+      expect.objectContaining({ maSuCo: 'tiep_tuc_in', maGoc: 'het_giay', agentToken: TOKEN, orgId: 'org1', printJobId: 'pjOk', soHoaDon: 'INV/7' }),
+    ]);
   });
 
   it('sự cố CẤP MÁY: "bình thường" tới SAU lúc ngắt → đóng cầu dao; su-co "binh_thuong" xử như trạng thái', async () => {
@@ -229,6 +233,8 @@ describe('agent-ws — V2, V3, chip tình trạng, cầu dao, mất kết nối 
     await cho(40);
     expect(registry.xetCauDao(TOKEN)).toBe('gui');
     expect(nhatKy.map((m) => m.loai)).toContain('tiep_tuc_in');
+    // P1-3: sự cố CẤP MÁY lúc rảnh được ghi bền; đóng cầu dao theo trạng thái ⇒ MỘT dòng hồi phục (không thêm het_su_co).
+    expect(suCo.map((s) => [s.maSuCo, s.maGoc ?? null])).toEqual([['het_giay', null], ['tiep_tuc_in', 'het_giay']]);
   });
 
   it('V1 vòng 2: sự cố chỉ JOB thấy (máy mạng) — "bình thường" cấp máy KHÔNG xoá chip, KHÔNG đóng cầu dao, KHÔNG ghi "hết lỗi"', async () => {

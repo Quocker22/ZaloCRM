@@ -44,6 +44,7 @@ describe('agent-ws — sự cố máy in + nhật ký', () => {
       coLenhInMoiHon: async () => false,
       dichVuHangDoi: dichVuHangDoiRong(),
       msChoThongTin: 100,
+      msGopSuCo: 150,
     });
     await new Promise<void>((resolve) => httpServer.listen(0, () => resolve()));
     const addr = httpServer.address();
@@ -121,6 +122,25 @@ describe('agent-ws — sự cố máy in + nhật ký', () => {
     const dong = nhatKy.filter((m) => m.loai === 'ket_giay' || m.loai === 'binh_thuong');
     expect(dong.map((m) => m.loai)).toEqual(['ket_giay', 'binh_thuong']);
     expect(dong[1].noiDung).toBe('Máy in "HP" đã hết sự cố (Kẹt giấy), hoạt động bình thường');
+    // docs/78 tự rà P1-3: máy RẢNH đổi trạng thái cũng là sự cố bền — kẹt giấy + dòng hồi phục het_su_co (ma_goc = mã cũ).
+    expect(suCo).toEqual([
+      { maSuCo: 'ket_giay', agentToken: TOKEN, chiTiet: 'máy in "HP" — Cửa sau' },
+      { maSuCo: 'het_su_co', maGoc: 'ket_giay', agentToken: TOKEN, chiTiet: 'máy in "HP"' },
+    ]);
+  });
+
+  it('su-co KHÔNG có jobId: gửi lặp trong cửa sổ gộp ⇒ một dòng; HẾT cửa sổ ⇒ ghi lại (không bị chặn mãi như Set theo socket)', async () => {
+    const { c } = await noi();
+    c.emit('su-co', { loai: 'het_giay', mayIn: 'HP' });
+    c.emit('su-co', { loai: 'het_giay', mayIn: 'HP' });
+    await cho(60);
+    expect(suCo.map((s) => s.maSuCo)).toEqual(['het_giay']);
+    expect(nhatKy.filter((m) => m.loai === 'het_giay')).toHaveLength(1);
+    await cho(150); // msGopSuCo = 150 trong test (thật: 10 phút)
+    c.emit('su-co', { loai: 'het_giay', mayIn: 'HP' });
+    await cho(60);
+    expect(suCo.map((s) => s.maSuCo)).toEqual(['het_giay', 'het_giay']);
+    expect(nhatKy.filter((m) => m.loai === 'het_giay')).toHaveLength(2);
   });
 
   it('ket-qua khong_ro tới kịp → registry nhận đúng trạng thái + mã', async () => {

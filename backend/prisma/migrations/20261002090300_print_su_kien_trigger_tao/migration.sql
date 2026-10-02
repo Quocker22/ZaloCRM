@@ -12,8 +12,10 @@ CREATE OR REPLACE FUNCTION "print_su_kien_tao_job"() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path FROM CURRENT AS $$
 BEGIN
     BEGIN
-        INSERT INTO "print_su_kien" ("org_id", "job_id", "tu_trang_thai", "sang_trang_thai")
-        VALUES (NEW."org_id", NEW."id", NULL, NEW."trang_thai");
+        -- `luc` theo GIỜ UTC như Prisma ghi (cột TIMESTAMP không múi giờ; Prisma gửi now() UTC) — DEFAULT CURRENT_TIMESTAMP
+        -- sẽ ra giờ theo TimeZone của phiên DB, lệch 7 giờ với các dòng mã CRM ghi nếu DB không đặt UTC.
+        INSERT INTO "print_su_kien" ("org_id", "job_id", "tu_trang_thai", "sang_trang_thai", "luc")
+        VALUES (NEW."org_id", NEW."id", NULL, NEW."trang_thai", (now() AT TIME ZONE 'UTC'));
     EXCEPTION WHEN check_violation THEN
         RAISE WARNING 'print_su_kien: bỏ sự kiện tạo job % — trạng thái lạ %', NEW."id", NEW."trang_thai";
     END;
