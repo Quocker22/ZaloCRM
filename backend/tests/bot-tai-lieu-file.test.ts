@@ -88,3 +88,30 @@ describe('layFileKemTriThuc (đường NV, kho/tải giả — không DB)', () =
     expect(await lay('thông số k10p', async () => tep('e.pdf', PDF), kho)).toEqual({ file: null, lyDo: 'qua_lon' });
   });
 });
+
+describe('dev 03/10 vòng 10 — tên file Zalo + file đúng tài liệu RAG', () => {
+  it('file BOT TỰ DỰNG (đuôi -<10 hex>.pdf, kể cả %-mã hoá) bị loại; tên gốc giữ; tenFileGoc giải %-mã hoá', async () => {
+    const { laFileBotDung, tenFileGoc } = await import('../src/modules/bot-quyen/bot-tai-lieu-file.js');
+    const { chuanTen } = await import('../src/modules/ai/odoo/tools/gui-tai-lieu.js');
+    for (const t of ['0-LLR-P10-RGB-4S-d9ead9e909.pdf', 'LLR-P10-RGB-4S-b00b1b8487.pdf', 'Ngu%E1%BB%93n-DF-12V400W-%C4%90%E1%BB%95-Keo-c3fc694508.pdf'])
+      expect(laFileBotDung(t), t).toBe(true);
+    for (const t of ['LLR P3.076-V2.0 OP LUNG.pdf', 'K10P.pdf', 'Datasheet BX-V7512.pdf']) expect(laFileBotDung(t), t).toBe(false);
+    expect(tenFileGoc('Ngu%E1%BB%93n%2012V600W%20NB.pdf')).toBe(chuanTen('Nguồn 12V600W NB'));
+  });
+  it('kho chỉ có file bot dựng ⇒ không gửi gì (kho_rong)', async () => {
+    const kq = await layFileKemTriThuc('org-x', { cau_hoi: 'thông số LLR P10 RGB 4S', duong: 'nhan_vien' },
+      { liet: async () => [{ tieuDe: '0-LLR-P10-RGB-4S-d9ead9e909.pdf', duongDan: 'http://x', kichThuoc: 1000 }], taiVe: async () => tep('z.pdf', PDF) });
+    expect(kq).toEqual({ file: null, lyDo: 'kho_rong' });
+  });
+  it('có tiêu đề tài liệu RAG ⇒ CHỈ file của đúng tài liệu đó (ốp lưng không nhận datasheet outdoor); không có ⇒ null', async () => {
+    const kho = [{ tieuDe: 'LLR- P3.076 .3840hz outdoor.pdf', duongDan: 'http://x/o', kichThuoc: 1000 }];
+    const tai = async () => tep('o.pdf', PDF);
+    const op = await layFileKemTriThuc('org-x', { cau_hoi: 'cho anh thông số P3.076 out ốp lưng 3840HZ (tấm)', tieu_de_doan: 'LLR P3.076-V2.0 OP LUNG', duong: 'nhan_vien' },
+      { liet: async () => kho, taiVe: tai });
+    expect(op.file).toBeNull();
+    const out = await layFileKemTriThuc('org-x', { cau_hoi: 'thông số LLR P3.076 3840hz outdoor', tieu_de_doan: 'LLR- P3.076 .3840hz outdoor', duong: 'nhan_vien' },
+      { liet: async () => kho, taiVe: tai });
+    expect(out.file?.tieuDe).toBe('LLR- P3.076 .3840hz outdoor.pdf');
+  });
+});
+
