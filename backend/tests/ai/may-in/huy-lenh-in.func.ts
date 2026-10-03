@@ -68,7 +68,7 @@ function dung(jobs: Dong[], tuy: { logs?: Dong[]; agents?: Dong[]; cauDao?: Reco
   // Như singleton thật: `ghi` + `ghi.cho` (chờ ghi xong). Dòng ghi vào cả `logs` để lần tra sau thấy.
   const ghiNhatKy = Object.assign((m: MucNhatKy) => {
     nhatKy.push(m);
-    logs.push({ printJobId: m.printJobId ?? null, loai: m.loai, tenKhach: m.tenKhach ?? null, createdAt: new Date() });
+    logs.push({ printJobId: m.printJobId ?? null, orgId: m.orgId ?? null, loai: m.loai, tenKhach: m.tenKhach ?? null, createdAt: new Date() });
   }, {
     cho: vi.fn(async (m: MucNhatKy) => {
       ghiNhatKy(m);
@@ -91,7 +91,7 @@ function dung(jobs: Dong[], tuy: { logs?: Dong[]; agents?: Dong[]; cauDao?: Reco
 describe('huyLenhIn — cho_in → da_huy CÓ ĐIỀU KIỆN', () => {
   it('cho_in → ok, cach chua_gui, trạng thái da_huy; MỘT dòng nhật ký `da_huy` kèm nguồn + tên khách; báo snapshot máy đó', async () => {
     const j = job();
-    const g = dung([j], { logs: [{ printJobId: j.id, tenKhach: 'Anh Lộc Beco', createdAt: new Date(BAY_GIO - 5000) }] });
+    const g = dung([j], { logs: [{ printJobId: j.id, orgId: 'org1', tenKhach: 'Anh Lộc Beco', createdAt: new Date(BAY_GIO - 5000) }] });
     const kq = await huyLenhIn(ORG1, [j.id], CRM, g.deps);
     expect(kq).toEqual([{ id: j.id, soHoaDon: j.soHoaDon, ok: true, trangThaiMoi: 'da_huy', cach: 'chua_gui', noiDung: 'Đã huỷ — hoá đơn chắc chắn không in' }]);
     expect(g.hang[0]).toMatchObject({ trangThai: 'da_huy', loiCuoi: 'Đã huỷ bởi ZaloCRM (Chị Hoa)' });
@@ -282,7 +282,7 @@ describe('boTheoDoi — CHỈ khong_ro → bo_qua, KHÔNG chặn việc in', () 
   it('đã bỏ trước đó → ok (daBoTruoc), không ghi thêm; không tìm thấy / máy khác → ok:false', async () => {
     const a = job({ trangThai: 'bo_qua' }); const b = job({ trangThai: 'khong_ro', agentToken: HN });
     // Lần bỏ thật đã có dòng nhật ký của nó → lần lặp không ghi thêm.
-    const g = dung([a, b], { logs: [{ printJobId: a.id, loai: 'bo_theo_doi', tenKhach: null, createdAt: new Date(BAY_GIO - 9000) }] });
+    const g = dung([a, b], { logs: [{ printJobId: a.id, orgId: 'org1', loai: 'bo_theo_doi', tenKhach: null, createdAt: new Date(BAY_GIO - 9000) }] });
     expect((await boTheoDoi(ORG1, [a.id], CRM, g.deps))[0]).toEqual({ id: a.id, ok: true, noiDung: NOI_DUNG_BO_THEO_DOI.daBoTruoc });
     expect((await boTheoDoi(ORG1, ['lạ'], CRM, g.deps))[0]).toEqual({ id: 'lạ', ok: false, noiDung: NOI_DUNG_BO_THEO_DOI.khongTimThay });
     expect((await boTheoDoi({ loai: 'may', token: HCM, tokenMacDinh: HN, orgMacDinh: 'org1' }, [b.id], { loai: 'app', may: 'X' }, g.deps))[0].ok).toBe(false);
@@ -313,9 +313,9 @@ describe('layHangDoi — hai nhóm, tên khách, tên máy (không token), tạm
   it('tên khách = dòng print_logs MỚI NHẤT có tên của cùng job; tên máy từ print_agents; KHÔNG BAO GIỜ trả token', async () => {
     const j1 = job({ agentToken: HCM }); const j2 = job({ agentToken: null }); const j3 = job({ agentToken: 'tokDaXoa_abcdefgh' });
     const logs = [
-      { printJobId: j1.id, tenKhach: 'Tên cũ', createdAt: new Date(BAY_GIO - 9000) },
-      { printJobId: j1.id, tenKhach: 'Anh Lộc Beco', createdAt: new Date(BAY_GIO - 5000) },
-      { printJobId: j1.id, tenKhach: null, createdAt: new Date(BAY_GIO - 1000) },
+      { printJobId: j1.id, orgId: 'org1', tenKhach: 'Tên cũ', createdAt: new Date(BAY_GIO - 9000) },
+      { printJobId: j1.id, orgId: 'org1', tenKhach: 'Anh Lộc Beco', createdAt: new Date(BAY_GIO - 5000) },
+      { printJobId: j1.id, orgId: 'org1', tenKhach: null, createdAt: new Date(BAY_GIO - 1000) },
     ];
     const g = dung([j1, j2, j3], { logs, agents: [{ id: 'mayHCM', orgId: 'org1', ten: 'Máy HCM', token: HCM }] });
     const hd = await layHangDoi(ORG1, {}, g.deps);

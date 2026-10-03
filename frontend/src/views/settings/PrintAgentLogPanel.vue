@@ -27,6 +27,13 @@
   Hàng đợi nếu N > 0, ngược lại Nhật ký in. Bấm chip trên thẻ máy (`moHangDoi`) mở thẳng thẻ Hàng
   đợi, lọc máy đó. Thẻ Hàng đợi báo `tamDung` (hộp xác nhận / đang huỷ) → chuyển lên trang cha để
   dừng nhịp nạp 15 giây.
+
+  Hai thẻ "Đã in (N)" | "Đã huỷ (N)" NGAY SAU Hàng đợi (26/09, chủ giao "log 30 ngày thôi"):
+  PrintAgentHistoryPanel — lịch sử 30 ngày gần nhất theo lúc in xong / lúc huỷ, tự nạp khi được
+  chọn. N = số của CẢ org trong 30 ngày (GET /lich-su/dem), nạp lúc gắn + mỗi nhịp 15 giây + khi
+  mở một trong hai thẻ; không lấy được (backend cũ, lỗi) thì thẻ chỉ hiện chữ, không báo lỗi.
+  `?nhatKy=da_in|da_huy` mở thẳng thẻ đó. "Đã huỷ" CHỈ là huỷ chắc chắn — "Bỏ khỏi hàng đợi"
+  không phải huỷ và không nằm ở đó.
 -->
 <template>
   <section v-if="!biCam" ref="goc" class="nk" aria-labelledby="nk-tieu-de">
@@ -48,6 +55,22 @@
             >
               <v-icon size="15" icon="mdi-tray-full" aria-hidden="true" />
               Hàng đợi in<span v-if="hangDoi" class="nk-the-dem" :class="{ 'nk-the-dem--cam': coTamGiu }"> ({{ soChoIn }})</span>
+            </button>
+            <button
+              v-for="tt in THE_LICH_SU"
+              :id="`nk-the-${tt}`"
+              :key="tt"
+              type="button"
+              role="tab"
+              class="nk-the-nut"
+              :class="{ 'nk-the-nut--chon': theChon === tt }"
+              :aria-selected="theChon === tt"
+              :aria-controls="`nk-vung-${tt}`"
+              :title="CHU_LICH_SU[tt].moTa"
+              @click="chonThe(tt)"
+            >
+              <v-icon size="15" :icon="CHU_LICH_SU[tt].bieuTuongThe" aria-hidden="true" />
+              {{ CHU_LICH_SU[tt].the }}<span v-if="soTrenThe(demLichSu, tt)" class="nk-the-dem">{{ soTrenThe(demLichSu, tt) }}</span>
             </button>
             <button
               id="nk-the-in"
@@ -79,6 +102,7 @@
           </div>
         </div>
         <p v-if="theChon === 'hang_doi'" class="nk-phu">Hoá đơn đang chờ in và lệnh chưa xác nhận đã in · tự làm mới 5 giây</p>
+        <p v-else-if="theChon === 'da_in' || theChon === 'da_huy'" class="nk-phu">{{ CHU_LICH_SU[theChon].moTa }}</p>
         <p v-else-if="theChon === 'in'" class="nk-phu">Nhận lệnh, gửi máy in, đã in, lỗi, hết giấy, kẹt giấy… · lưu 30 ngày</p>
         <p v-else class="nk-phu">Từng dòng app Máy in ở chi nhánh ghi ra (vết in, đọc USB, kết quả…) · lưu 30 ngày</p>
       </div>
@@ -287,6 +311,19 @@
       @tam-dung="(d) => emit('tamDungHangDoi', d)"
     />
 
+    <template v-for="tt in THE_LICH_SU" :key="tt">
+      <PrintAgentHistoryPanel
+        v-if="daMoLichSu[tt]"
+        v-show="theChon === tt"
+        :id="`nk-vung-${tt}`"
+        role="tabpanel"
+        :aria-labelledby="`nk-the-${tt}`"
+        :trang-thai="tt"
+        :may-ins="mayIns"
+        :hoat-dong="theChon === tt"
+      />
+    </template>
+
     <PrintAgentAppLogPanel
       v-if="daMoApp"
       v-show="theChon === 'app'"
@@ -303,8 +340,8 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import {
-  layNhatKy, maHttpCuaLoi, laYeuCauDaHuy,
-  type MayIn, type NhatKy, type LocMucDo, type ThamSoNhatKy,
+  layNhatKy, layDemLichSuIn, maHttpCuaLoi, laYeuCauDaHuy,
+  type MayIn, type NhatKy, type LocMucDo, type ThamSoNhatKy, type DemLichSu, type TrangThaiLichSu,
 } from '@/api/print-agents';
 import { kieuMucDo, nhanCua } from './may-in-nhan';
 import {
@@ -315,10 +352,12 @@ import { chonTabNhatKy, laTabNhatKy, type TabNhatKy } from './may-in-nhat-ky-app
 import type { HangDoiIn } from '@/api/print-agents';
 import PrintAgentAppLogPanel from './PrintAgentAppLogPanel.vue';
 import PrintAgentQueuePanel from './PrintAgentQueuePanel.vue';
+import PrintAgentHistoryPanel from './PrintAgentHistoryPanel.vue';
+import { CHU_LICH_SU, soTrenThe } from './may-in-lich-su';
 
 const props = defineProps<{
   mayIns: MayIn[];
-  /** Thẻ mở sẵn theo URL (`?nhatKy=hang_doi|in|app`) — thắng thẻ đã nhớ. */
+  /** Thẻ mở sẵn theo URL (`?nhatKy=hang_doi|da_in|da_huy|in|app`) — thắng thẻ đã nhớ. */
   tabDau?: string | null;
   /** Hàng đợi in trang cha nạp (null/vắng = chưa có — backend cũ hoặc chưa tải xong). */
   hangDoi?: HangDoiIn | null;
@@ -379,6 +418,16 @@ let daQuyetThe = laTabNhatKy(props.tabDau);
 /** Thẻ Log app / Hàng đợi chỉ gắn (và gọi API) từ lần đầu được chọn. */
 const daMoApp = ref(theChon.value === 'app');
 const daMoHangDoi = ref(theChon.value === 'hang_doi');
+/** Hai thẻ lịch sử (cạnh Hàng đợi) — cũng chỉ gắn từ lần đầu được chọn. */
+const THE_LICH_SU: readonly TrangThaiLichSu[] = ['da_in', 'da_huy'];
+const daMoLichSu = ref<Record<TrangThaiLichSu, boolean>>({
+  da_in: theChon.value === 'da_in',
+  da_huy: theChon.value === 'da_huy',
+});
+/** Số trên hai thẻ lịch sử (taiDemLichSu) — khai ở đây: datThe có thể chạy ngay trong setup. */
+const demLichSu = ref<DemLichSu | null>(null);
+let dangDemLichSu = false;
+let daRoiTrang = false;
 const locMayHangDoi = ref<{ mayInId: string | null; lan: number } | null>(null);
 const goc = ref<HTMLElement | null>(null);
 
@@ -411,6 +460,10 @@ function datThe(t: TabNhatKy): void {
   theChon.value = t;
   if (t === 'app') daMoApp.value = true;
   if (t === 'hang_doi') daMoHangDoi.value = true;
+  if (t === 'da_in' || t === 'da_huy') {
+    daMoLichSu.value = { ...daMoLichSu.value, [t]: true };
+    void taiDemLichSu(); // số trên thẻ khớp với danh sách vừa mở
+  }
   if (t === 'in' && !biCam.value) {
     // Mở trang ở thẻ Log app thì bảng này chưa tải lần nào; còn không: lấy ngay phần đã lỡ.
     if (!daTai.value && !dangTai.value) void taiLai();
@@ -647,6 +700,21 @@ watch(
   },
 );
 
+// ── Số trên hai thẻ "Đã in (N)" / "Đã huỷ (N)" ────────────────────────────
+/** Nạp NGẦM — không toast, không báo lỗi: không lấy được thì thẻ chỉ hiện chữ (giữ số cũ nếu có). */
+async function taiDemLichSu(): Promise<void> {
+  if (dangDemLichSu || biCam.value || daRoiTrang) return;
+  dangDemLichSu = true;
+  try {
+    const d = await layDemLichSuIn();
+    if (d && !daRoiTrang) demLichSu.value = d;
+  } catch {
+    // 403/404/5xx/mất mạng: bỏ qua — nhịp sau thử lại
+  } finally {
+    dangDemLichSu = false;
+  }
+}
+
 // ── Tự làm mới 15 giây ───────────────────────────────────────────────────
 let henGioLamMoi: ReturnType<typeof setInterval> | null = null;
 
@@ -660,6 +728,7 @@ function dungTuLamMoi(): void {
 function nhipLamMoi(): void {
   if (biCam.value || document.hidden) return; // tab ẩn: không gọi API vô ích
   emit('lamMoi');
+  void taiDemLichSu();
   if (theChon.value === 'in') void lamMoiNgam(); // đang xem Log app thì bảng này nghỉ
 }
 
@@ -676,13 +745,15 @@ watch(tuLamMoi, (bat) => {
 onMounted(() => {
   if (theChon.value === 'in') void taiLai(); // mở ở thẻ Log app: bảng này tải khi được chọn
   batHenGioLamMoi(); // bật sẵn — lần tải đầu là taiLai() ở trên, nhịp đầu sau 15 giây
-  // Mở từ link `?nhatKy=app`: cuộn tới mục này (dưới danh sách máy in).
-  if (props.tabDau === 'app' || props.tabDau === 'hang_doi') {
+  void taiDemLichSu(); // số trên hai thẻ lịch sử
+  // Mở từ link `?nhatKy=app|hang_doi|da_in|da_huy`: cuộn tới mục này (dưới danh sách máy in).
+  if (props.tabDau && props.tabDau !== 'in' && laTabNhatKy(props.tabDau)) {
     void nextTick(() => goc.value?.scrollIntoView?.({ block: 'start', behavior: 'smooth' }));
   }
 });
 
 onBeforeUnmount(() => {
+  daRoiTrang = true;
   dungTuLamMoi();
   huyHenGioTim();
   theHe++; // mọi phản hồi còn bay sau khi rời trang đều bị bỏ
@@ -703,9 +774,10 @@ onBeforeUnmount(() => {
 .nk-tieu-de-hang { display: flex; align-items: center; gap: 6px 14px; flex-wrap: wrap; }
 .nk-h2 { font-size: 14px; font-weight: 700; color: var(--at-ink, #141a24); margin: 0; }
 
-/* Hai thẻ Nhật ký in | Log app — khối phân đoạn, một chạm */
+/* Các thẻ Hàng đợi | Đã in | Đã huỷ | Nhật ký in | Log app — khối phân đoạn, một chạm. Năm thẻ
+   không vừa một hàng ở màn điện thoại (~390px) → XUỐNG DÒNG trong khối, không đẩy trang cuộn ngang. */
 .nk-the {
-  display: inline-flex; padding: 2px; gap: 2px; border-radius: 8px;
+  display: inline-flex; flex-wrap: wrap; max-width: 100%; padding: 2px; gap: 2px; border-radius: 8px;
   background: var(--at-surface-soft, #f1f4f9); border: 1px solid var(--at-hairline, #e7eaf0);
 }
 .nk-the-nut {

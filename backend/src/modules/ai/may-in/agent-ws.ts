@@ -61,6 +61,17 @@ import {
   BINH_THUONG, capNhatJobCoSuKien, daLuuSuCo, docTrangThaiMayDaLuu, ghiSuCoIn, nhomSuCo, PHUT_GOP_SU_CO, taoHangThuLaiSuCo,
   MS_THU_LAI_SU_CO, tepHangThuLaiMacDinh, type PrismaSuKienIn, type SuCoIn,
 } from './su-kien-in.js';
+import {
+  docThongTinApp,
+  khoaKetNoi,
+  daBietKetNoi,
+  moTaKetNoiApp,
+  cauDoiKetNoi,
+  cauNhanDienKetNoi,
+  chiTietThongTinApp,
+  type KetNoiMayIn,
+  type ThongTinApp,
+} from './thong-tin-app.js';
 
 interface KetQuaTuAgent {
   jobId: string;
@@ -93,6 +104,11 @@ export const HO_TRO_APP = ['khong_ro', 'su_co', 'trang_thai_may_in', 'nhat_ky_ap
 
 /** Thời gian chờ `thong-tin-app` trước khi ghi nhật ký `app_ket_noi` — gộp 2 sự kiện làm 1 dòng. */
 const MS_CHO_THONG_TIN = 1500;
+/**
+ * Dòng `app_ket_noi_doi` (kết nối máy in đổi: loai / ip / mayTraLoi) — tối đa một dòng mỗi chừng
+ * này mỗi socket. Đổi dồn trong lúc chờ thì gộp: tới hạn ghi MỘT dòng với trạng thái MỚI NHẤT.
+ */
+const MS_GIUA_DOI_KET_NOI = 60_000;
 /** Mất kết nối quá chừng này mà chưa nối lại → dòng cảnh báo `app_offline_lau`. */
 const MS_OFFLINE_LAU = 2 * 60_000;
 /**
@@ -188,6 +204,8 @@ export interface AgentWsDeps {
   msChoThongTin?: number;
   msOfflineLau?: number;
   msThuLaiTre?: number;
+  /** Cho test rút ngắn MS_GIUA_DOI_KET_NOI. */
+  msGiuaDoiKetNoi?: number;
 }
 
 export type KetQuaTre =
@@ -325,6 +343,7 @@ export function registerAgentWs(io: Server, registry: AgentRegistry, deps: Agent
   const msChoThongTin = deps.msChoThongTin ?? MS_CHO_THONG_TIN;
   const msOfflineLau = deps.msOfflineLau ?? MS_OFFLINE_LAU;
   const msThuLaiTre = deps.msThuLaiTre ?? MS_THU_LAI_TRE;
+  const msGiuaDoiKetNoi = deps.msGiuaDoiKetNoi ?? MS_GIUA_DOI_KET_NOI;
   const dichVuHangDoi = deps.dichVuHangDoi ?? taoDichVuHangDoi({ registry, tokenMacDinh: envToken, ghiNhatKy });
   const msGuiHangDoi = deps.msGuiHangDoi ?? MS_GUI_HANG_DOI_TOI_THIEU;
   const orgMacDinh = deps.orgMacDinh ?? orgMacDinhTuEnv;
@@ -478,38 +497,103 @@ export function registerAgentWs(io: Server, registry: AgentRegistry, deps: Agent
     });
 
     // ── Nhật ký kết nối: chờ thong-tin-app một chút để gộp thành 1 dòng ──
-    let thongTinApp: Record<string, string | null> | null = null;
+    let thongTinApp: ThongTinApp | null = null;
     let daGhiKetNoi = false;
+    /**
+     * Kết nối máy in ĐÃ BIẾT (có `loai`) mà dòng nhật ký GẦN NHẤT đã nói — mốc so "đổi". null =
+     * dòng app_ket_noi chưa nói được máy in nối kiểu gì (app nối trước khi nhận ra máy in).
+     */
+    let ketNoiDaGhi: KetNoiMayIn | null = null;
+    /** Đã ghi dòng "Đã nhận diện kết nối máy in" cho socket này chưa — tối đa MỘT dòng. */
+    let daNhanDien = false;
+    let lucGhiDoiKetNoi = 0;
+    let henGhiDoiKetNoi: ReturnType<typeof setTimeout> | null = null;
     const ghiKetNoi = (): void => {
       if (daGhiKetNoi) return;
       daGhiKetNoi = true;
       clearTimeout(henGhiKetNoi);
-      const mo = thongTinApp
-        ? [
-            thongTinApp.mayIn && `máy in "${thongTinApp.mayIn}"`,
-            thongTinApp.may && `máy tính ${thongTinApp.may}`,
-            thongTinApp.phienBan && `app v${thongTinApp.phienBan}`,
-          ].filter(Boolean).join(', ')
-        : '';
+      const mo = moTaKetNoiApp(thongTinApp);
+      const kn = thongTinApp?.ketNoi ?? null;
+      ketNoiDaGhi = daBietKetNoi(kn) ? kn : null;
       ghiNhatKy({
         loai: 'app_ket_noi',
         noiDung: `App máy in kết nối${mo ? ` (${mo})` : ''}${sauMatKetNoi}`,
         agentToken: token,
-        chiTiet: thongTinApp ? { ...thongTinApp } : null,
+        chiTiet: thongTinApp ? chiTietThongTinApp(thongTinApp) : null,
       });
     };
     const henGhiKetNoi = setTimeout(ghiKetNoi, msChoThongTin);
 
+    /** Ghi `app_ket_noi_doi` nếu kết nối HIỆN TẠI (đã biết) vẫn khác cái dòng gần nhất đã nói. */
+    const ghiDoiKetNoi = (): void => {
+      const moi = thongTinApp?.ketNoi ?? null;
+      if (!daBietKetNoi(moi) || !daBietKetNoi(ketNoiDaGhi) || khoaKetNoi(moi) === khoaKetNoi(ketNoiDaGhi)) return;
+      ghiNhatKy({
+        loai: 'app_ket_noi_doi',
+        noiDung: cauDoiKetNoi(moi, ketNoiDaGhi, thongTinApp?.mayIn ?? null),
+        agentToken: token,
+        chiTiet: { truoc: ketNoiDaGhi, sau: moi },
+      });
+      ketNoiDaGhi = moi;
+      lucGhiDoiKetNoi = Date.now();
+    };
+
+    /**
+     * `thong-tin-app` tới SAU dòng app_ket_noi (app ≥ 0.2.8 gửi lại khi kết nối đổi): KHÔNG ghi
+     * app_ket_noi thứ hai.
+     *   - Kết nối mới CHƯA biết (không `loai`) → không nói gì, giữ mốc cũ.
+     *   - Dòng gần nhất chưa biết kết nối (app nối trước khi nhận ra máy in) → MỘT dòng
+     *     `app_nhan_dien_ket_noi` "Đã nhận diện kết nối máy in …" mỗi socket — không phải "đổi".
+     *   - Còn lại: khoá `loai|ip|nhóm trả lời` (khoaKetNoi — máy lật sẵn sàng ↔ đang in KHÔNG tính)
+     *     khác dòng gần nhất → một dòng `app_ket_noi_doi`, tối đa 1 dòng / msGiuaDoiKetNoi / socket;
+     *     đổi dồn thì tới hạn ghi trạng thái mới nhất; đổi rồi quay về như cũ thì không ghi gì.
+     */
+    const xetDoiKetNoi = (): void => {
+      if (!daGhiKetNoi) return; // dòng app_ket_noi chưa ghi → nó sẽ mang thông tin mới nhất
+      const moi = thongTinApp?.ketNoi ?? null;
+      if (!daBietKetNoi(moi)) return;
+      if (!daBietKetNoi(ketNoiDaGhi)) {
+        if (daNhanDien) return;
+        daNhanDien = true;
+        ketNoiDaGhi = moi;
+        ghiNhatKy({
+          loai: 'app_nhan_dien_ket_noi',
+          noiDung: cauNhanDienKetNoi(moi, thongTinApp?.mayIn ?? null),
+          agentToken: token,
+          chiTiet: { ketNoi: moi },
+        });
+        return;
+      }
+      if (khoaKetNoi(moi) === khoaKetNoi(ketNoiDaGhi)) {
+        if (henGhiDoiKetNoi) clearTimeout(henGhiDoiKetNoi);
+        henGhiDoiKetNoi = null;
+        return;
+      }
+      if (henGhiDoiKetNoi) return; // đã hẹn — tới hạn tự lấy bản mới nhất
+      const conCho = lucGhiDoiKetNoi + msGiuaDoiKetNoi - Date.now();
+      if (conCho <= 0) {
+        ghiDoiKetNoi();
+        return;
+      }
+      henGhiDoiKetNoi = setTimeout(() => {
+        henGhiDoiKetNoi = null;
+        ghiDoiKetNoi();
+      }, conCho);
+      (henGhiDoiKetNoi as { unref?: () => void }).unref?.();
+    };
+
     socket.on('thong-tin-app', (tt: unknown) => {
-      const o = (tt && typeof tt === 'object' ? tt : {}) as Record<string, unknown>;
-      thongTinApp = {
-        phienBan: chuTuApp(o.phienBan, 40),
-        mayIn: chuTuApp(o.mayIn, 200),
-        khay: chuTuApp(o.khay, 40),
-        khoGiay: chuTuApp(o.khoGiay, 40),
-        may: chuTuApp(o.may, 100),
-      };
-      ghiKetNoi();
+      // Năm trường cũ + ketNoi / heDieuHanh / banBuild (thong-tin-app.ts) — khoá lạ bị bỏ.
+      thongTinApp = docThongTinApp(bocPayload(tt), chuTuApp);
+      registry.capNhatThongTinApp(token, {
+        phienBan: thongTinApp.phienBan,
+        ketNoi: thongTinApp.ketNoi,
+        heDieuHanh: thongTinApp.heDieuHanh,
+        banBuild: thongTinApp.banBuild,
+        luc: new Date(),
+      });
+      if (!daGhiKetNoi) ghiKetNoi();
+      else xetDoiKetNoi();
     });
 
     socket.on('ket-qua', (kq: KetQuaTuAgent) => {
@@ -865,6 +949,8 @@ export function registerAgentWs(io: Server, registry: AgentRegistry, deps: Agent
     socket.on('disconnect', (reason) => {
       logger.info(`[may-in] agent token ...${token.slice(-4)} disconnect (${reason}) — huỷ đăng ký, reject job đang chờ`);
       ghiKetNoi(); // rớt trước khi kịp ghi dòng kết nối → vẫn ghi đủ cặp
+      if (henGhiDoiKetNoi) clearTimeout(henGhiDoiKetNoi); // đổi kết nối còn hẹn: đã mất kết nối, thôi
+      henGhiDoiKetNoi = null;
       ghiNhatKy({
         loai: 'app_mat_ket_noi',
         noiDung: `App máy in mất kết nối (${reason})`,

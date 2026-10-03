@@ -21,6 +21,10 @@
   GET /may-in-agents/hang-doi (CHỈ admin) — thẻ mỗi máy có chip "N đang chờ" (N = lệnh đang/sẽ in
   của máy đó; cam nếu có hoá đơn tạm giữ vì máy in lỗi, xanh nếu chỉ đang gửi/chờ) — bấm chip mở
   thẻ "Hàng đợi in" lọc máy đó. Cùng dữ liệu truyền xuống mục Hàng đợi & nhật ký.
+
+  Máy in nối kiểu gì (26/09, app ≥ 0.2.8 gửi `ketNoi` qua thong-tin-app): dưới tên máy một dòng nhỏ
+  "🔌 USB" / "🌐 <moTa mạng LAN>" / "Máy in chia sẻ"; offline hoặc app cũ thì không hiện. Dòng
+  "Máy tính" trong thẻ: hệ điều hành + phiên bản app (may-in-ket-noi.ts).
 -->
 <template>
   <!-- Trang Atlas này là giao diện SÁNG (token --at-* chữ tối): ép theme hsLight cho cả trang và
@@ -165,6 +169,14 @@
             </div>
           </div>
 
+          <!-- Máy in nối kiểu gì (app ≥ 0.2.8): 🔌 USB / 🌐 mạng LAN / chia sẻ — không rõ thì không hiện -->
+          <div
+            v-if="ketNoiCua(m)"
+            class="pa-ket-noi-may"
+            :class="`pa-ket-noi-may--${ketNoiCua(m)!.kieu}`"
+            :title="ketNoiCua(m)!.tieuDe"
+          >{{ ketNoiCua(m)!.chu }}</div>
+
           <div
             v-if="chipCua(m)"
             class="pa-su-co"
@@ -193,6 +205,10 @@
             <div class="pa-tt-dong">
               <dt>Token</dt>
               <dd><code class="pa-token" title="Chỉ hiện 4 ký tự cuối">••••{{ m.tokenDuoi }}</code></dd>
+            </div>
+            <div v-if="mayTinhCua(m)" class="pa-tt-dong">
+              <dt>Máy tính</dt>
+              <dd class="pa-may-tinh">{{ mayTinhCua(m) }}</dd>
             </div>
           </dl>
         </article>
@@ -383,6 +399,7 @@ import {
 import PrintAgentLogPanel from './PrintAgentLogPanel.vue';
 import { chipTinhTrang, type ChipTinhTrang } from './may-in-nhat-ky';
 import { demChoInTheoMay } from './may-in-hang-doi';
+import { dongKetNoi, dongMayTinh, type DongKetNoi } from './may-in-ket-noi';
 
 const toast = useToast();
 const auth = useAuthStore();
@@ -412,6 +429,15 @@ const chipTheoMay = computed(() => {
 });
 function chipCua(m: MayIn): ChipTinhTrang | null {
   return chipTheoMay.value.get(m.id) ?? null;
+}
+
+// ── Máy in nối kiểu gì + máy tính (app ≥ 0.2.8, may-in-ket-noi.ts) ──
+const ketNoiTheoMay = computed(() => new Map(danhSach.value.map((m) => [m.id, dongKetNoi(m)] as const)));
+function ketNoiCua(m: MayIn): DongKetNoi | null {
+  return ketNoiTheoMay.value.get(m.id) ?? null;
+}
+function mayTinhCua(m: MayIn): string | null {
+  return dongMayTinh(m);
 }
 
 // ── Chỉ để hiện (viền thẻ + dòng tóm tắt) — không đổi dữ liệu ──
@@ -761,6 +787,15 @@ onBeforeUnmount(() => {
 }
 .pa-su-co--error { background: var(--at-atlas-danger-soft); color: #b42318; border-color: #fca5a5; }
 .pa-su-co--warning { background: var(--at-atlas-warning-soft); color: #92400e; border-color: #fcd34d; }
+
+/* Dòng "máy in nối kiểu gì" — nhỏ, xuống dòng tự do (câu LAN dài: IP + máy báo…), không cuộn ngang */
+.pa-ket-noi-may {
+  font-size: 12.5px; line-height: 1.4; color: var(--at-body); margin-top: -4px;
+  overflow-wrap: anywhere; white-space: normal;
+}
+.pa-ket-noi-may--mang { color: var(--at-action); }
+.pa-ket-noi-may--usb, .pa-ket-noi-may--chia_se { color: var(--at-body); }
+.pa-may-tinh { overflow-wrap: anywhere; }
 
 .pa-may-tt { margin: 0; padding-top: 10px; border-top: 1px solid var(--at-hairline); display: grid; gap: 8px; }
 .pa-tt-dong { display: grid; grid-template-columns: 96px 1fr; align-items: center; gap: 8px; }

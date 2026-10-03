@@ -20,6 +20,8 @@ vi.mock('@/api/print-agents', () => ({
   layNhatKy: vi.fn(async () => ({ items: [], tiepTheo: null })),
   layNhatKyApp: vi.fn(async () => ({ items: [], tiepTheo: null })),
   taiVeNhatKyApp: vi.fn(),
+  layDemLichSuIn: vi.fn(async () => null),
+  layLichSuIn: vi.fn(async () => ({ items: [], tiepTheo: null, tong: 0, tu: null })),
   maHttpCuaLoi: (e: { response?: { status?: number } } | null) => e?.response?.status,
   laYeuCauDaHuy: (e: { code?: string } | null) => e?.code === 'ERR_CANCELED',
 }));

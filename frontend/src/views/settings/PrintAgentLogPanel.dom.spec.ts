@@ -11,6 +11,7 @@ import type { NhatKy, ThamSoNhatKy, TrangNhatKy } from '@/api/print-agents';
 
 vi.mock('@/api/print-agents', () => ({
   layNhatKy: vi.fn(),
+  layDemLichSuIn: vi.fn(async () => null),
   maHttpCuaLoi: (e: { response?: { status?: number } } | null) => e?.response?.status,
   laYeuCauDaHuy: (e: { code?: string } | null) => e?.code === 'ERR_CANCELED',
 }));

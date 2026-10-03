@@ -120,15 +120,18 @@ export function conTroDuoi(ds: readonly DongCoMoc[], msChong = 2 * PHUT_MS, toiD
   return conTroCua(ds[i]);
 }
 
-// ── Chọn thẻ Hàng đợi in / Nhật ký in / Log app ─────────────────────────────
+// ── Chọn thẻ Hàng đợi in / Đã in / Đã huỷ / Nhật ký in / Log app ────────────
 
-export type TabNhatKy = 'hang_doi' | 'in' | 'app';
+/** `da_in` / `da_huy` (26/09): lịch sử 30 ngày cạnh "Hàng đợi in" (PrintAgentHistoryPanel). */
+export type TabNhatKy = 'hang_doi' | 'da_in' | 'da_huy' | 'in' | 'app';
 
-export const laTabNhatKy = (x: unknown): x is TabNhatKy => x === 'hang_doi' || x === 'in' || x === 'app';
+const CAC_TAB: readonly TabNhatKy[] = ['hang_doi', 'da_in', 'da_huy', 'in', 'app'];
+
+export const laTabNhatKy = (x: unknown): x is TabNhatKy => CAC_TAB.includes(x as TabNhatKy);
 
 /**
  * Thẻ mở sẵn (hợp đồng hàng đợi/huỷ §6.1):
- *   1. URL `?nhatKy=hang_doi|in|app` — người mở link chọn rõ ràng, luôn thắng;
+ *   1. URL `?nhatKy=hang_doi|da_in|da_huy|in|app` — người mở link chọn rõ ràng, luôn thắng;
  *   2. có hoá đơn TẠM GIỮ (máy in đang lỗi) → "Hàng đợi in", BẤT KỂ thẻ đã nhớ: đang sự cố hết
  *      giấy thì việc đầu tiên là thấy các hoá đơn đang chờ (bản 5438b68 đã nhớ in/app cho mọi
  *      người — không được để nó che hàng đợi lúc sự cố);
