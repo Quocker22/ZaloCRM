@@ -418,17 +418,26 @@ export async function kemFileTriThuc(
 ): Promise<{ tieuDe: string; duongDanCucBo: string } | null> {
   if (!laCauHoiThongSo(cauHoi)) return null;
   const kho = await deps.liet();
-  if (kho.length === 0) return null;
+  const file = timFileKemTriThuc(cauHoi, tieuDeDoanDau, kho);
+  if (!file) return null;
+  try {
+    return { tieuDe: file.tieuDe, duongDanCucBo: await deps.taiVe(file) };
+  } catch {
+    return null; // tải lỗi thì coi như không có file — đừng chặn câu trả lời chữ
+  }
+}
+
+/**
+ * Phần CHỌN FILE của `kemFileTriThuc` (thuần — không tải gì): cổng `laCauHoiThongSo`, rồi `timFileDuyNhat` trên câu hỏi, rồi trên
+ * tiêu đề đoạn RAG đầu tiên. Tách ra 03/10 (docs/79 §PDF cho khách) để bot Hermes dùng ĐÚNG luật này qua
+ * `POST /api/public/tai-lieu-ky-thuat/file` — một bộ khớp file, không viết lại bên bot.
+ */
+export function timFileKemTriThuc(cauHoi: string, tieuDeDoanDau: string | undefined, kho: TaiLieu[]): TaiLieu | null {
+  if (!laCauHoiThongSo(cauHoi) || kho.length === 0) return null;
   for (const cau of [cauHoi, tieuDeDoanDau ?? '']) {
     if (!cau.trim()) continue;
     const file = timFileDuyNhat(cau, kho);
-    if (file) {
-      try {
-        return { tieuDe: file.tieuDe, duongDanCucBo: await deps.taiVe(file) };
-      } catch {
-        return null; // tải lỗi thì coi như không có file — đừng chặn câu trả lời chữ
-      }
-    }
+    if (file) return file;
   }
   return null;
 }

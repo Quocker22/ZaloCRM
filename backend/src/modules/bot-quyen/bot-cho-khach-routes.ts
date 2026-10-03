@@ -23,6 +23,9 @@
 //                                        noi_dung, diem}]} — MỌI tài liệu của org TRỪ tài liệu loại trừ (đường KHÁCH)
 //   POST /api/public/tai-lieu-ky-thuat/tim  cùng thân/kết quả — MỌI tài liệu của org (đường NHÂN VIÊN)
 //   GET  /api/public/cho-khach/duyet     → {phien_ban, danh_muc_phien_ban, tai_lieu_cho_khach: [{id, noi_dung_bam}], mo_ta_da_duyet: [{product_id, mo_ta_bam}]}
+//   POST /api/public/tai-lieu-ky-thuat/file {cau_hoi, tieu_de_doan?, duong: khach|nhan_vien} → 200 application/pdf + header
+//                                        x-tai-lieu-ten (encodeURIComponent) | 204 + x-ly-do — FILE PDF GỐC kèm câu trả lời thông số,
+//                                        đúng luật `kemFileTriThuc` của agent CRM (docs/79 §PDF cho khách, 03/10; bot-tai-lieu-file.ts)
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { logger } from '../../shared/utils/logger.js';
 import { xacThucKhoa, canKhoaRiengNeuCo } from './bot-thong-bao-routes.js';
@@ -31,6 +34,7 @@ import {
   luuDanhMuc, docDuyetChoBot, danhSachTaiLieu, duyetTaiLieu, boDuyetTaiLieu, loaiTruTaiLieu, boLoaiTruTaiLieu, danhSachMoTa, duyetMoTa, boDuyetMoTa, toanVanTaiLieu,
 } from './bot-cho-khach-service.js';
 import { timChoKhach, timNoiBo } from './bot-cho-khach-kho.js';
+import { layFileKemTriThuc, type DepsFile } from './bot-tai-lieu-file.js';
 
 /** Thân POST tìm — vài trăm byte là đủ. */
 const TRAN_THAN_TIM = 16 * 1024;
@@ -84,7 +88,7 @@ export function dangKyChoKhach(app: FastifyInstance): void {
 
 type YeuCau = FastifyRequest & { orgId?: string; apiKeyId?: string };
 
-export async function botChoKhachPublicRoutes(app: FastifyInstance): Promise<void> {
+export async function botChoKhachPublicRoutes(app: FastifyInstance, opts?: { depsFile?: Partial<DepsFile> }): Promise<void> {
   app.addHook('preHandler', xacThucKhoa);
 
   app.post('/api/public/cho-khach/danh-muc', { bodyLimit: TRAN_THAN_DANH_MUC, preHandler: canKhoaRiengNeuCo }, async (request: FastifyRequest, reply: FastifyReply) => {
@@ -116,6 +120,20 @@ export async function botChoKhachPublicRoutes(app: FastifyInstance): Promise<voi
       if (err instanceof LoiChoKhach) return reply.code(err.status).send({ error: err.message, code: err.code });
       logger.error('[public-api] POST /tai-lieu-ky-thuat/tim error:', err);
       return reply.status(500).send({ error: 'Failed to search technical documents' });
+    }
+  });
+
+  // KHÔNG log cau_hoi. Không có file đủ chắc ⇒ 204 (không phải lỗi) — bot gửi câu chữ như thường.
+  app.post('/api/public/tai-lieu-ky-thuat/file', { bodyLimit: TRAN_THAN_TIM, preHandler: canKhoaRiengNeuCo }, async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const kq = await layFileKemTriThuc((request as YeuCau).orgId!, request.body, opts?.depsFile);
+      if (!kq.file) return reply.code(204).header('x-ly-do', kq.lyDo).send();
+      return reply.code(200).header('content-type', 'application/pdf')
+        .header('x-tai-lieu-ten', encodeURIComponent(kq.file.tieuDe)).send(kq.file.data);
+    } catch (err) {
+      if (err instanceof LoiChoKhach) return reply.code(err.status).send({ error: err.message, code: err.code });
+      logger.error('[public-api] POST /tai-lieu-ky-thuat/file error:', err);
+      return reply.status(500).send({ error: 'Failed to fetch technical document file' });
     }
   });
 
