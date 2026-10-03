@@ -26,6 +26,17 @@ import { logger } from '../../shared/utils/logger.js';
 // 2026-06-11 — createMediaMessage gộp 4 block message.create lặp (DRY, eng review E4).
 import { getUserFullName, createMediaMessage } from './chat-helpers.js';
 
+
+/** Tên file gửi Zalo: giải %-mã hoá (nếu có), bỏ thành phần đường dẫn, rỗng ⇒ "upload". */
+export function tenFileGuiZalo(ten: string | undefined | null): string {
+  let t = String(ten ?? '').trim();
+  if (/%[0-9A-Fa-f]{2}/.test(t)) {
+    try { t = decodeURIComponent(t); } catch { /* giữ nguyên */ }
+  }
+  t = t.replace(/[\\/\x00]/g, '_').replace(/^\.+/, '').trim();
+  return t || 'upload';
+}
+
 export const IMAGE_MAX = 100 * 1024 * 1024;
 export const VIDEO_MAX = 500 * 1024 * 1024;
 export const FILE_MAX = 1024 * 1024 * 1024;
@@ -142,7 +153,12 @@ export async function chatAttachmentRoutes(app: FastifyInstance) {
       const mirrors: UploadResult[] = [];
       try {
         await Promise.all(files.map(async (f, i) => {
-          const tmpPath = path.join(tmpRoot, `${i}-${f.filename || 'upload'}`);
+          // Zalo lấy TÊN FILE TẠM làm tên file người nhận thấy. Bản cũ `${i}-${tên}` ⇒ khách thấy "0-LLR%20P3.076….pdf" (03/10):
+          // mỗi file một thư mục con theo thứ tự (khỏi tiền tố chống trùng) + giải %-mã hoá của tên multipart (aiohttp mã hoá
+          // dấu cách / chữ có dấu) + bỏ ký tự đường dẫn.
+          const dir = path.join(tmpRoot, String(i));
+          await mkdir(dir, { recursive: true });
+          const tmpPath = path.join(dir, tenFileGuiZalo(f.filename));
           await writeFile(tmpPath, f.buffer);
           tmpPaths[i] = tmpPath;
           // 2026-06-22: NÉN ảnh trước khi LƯU mirror (R2) — giảm dung lượng. Ảnh GỬI khách dùng
