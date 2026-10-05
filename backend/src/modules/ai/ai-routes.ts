@@ -19,6 +19,7 @@ import { logger } from '../../shared/utils/logger.js';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { registerKnowledgeRoutes } from './knowledge/knowledge-routes.js';
 import { registerGuidelineRoutes } from './agent/guideline-routes.js';
+import { MAU_CHAO_MAC_DINH, TRAN_DO_DAI_CHAO } from './agent/noi-zalo/chao-nhom.js';
 
 async function assertConversationReadAccess(request: FastifyRequest, reply: FastifyReply, conversationId: string) {
   const user = request.user!;
@@ -342,6 +343,11 @@ export async function aiRoutes(app: FastifyInstance) {
         model: cfg.model,
         maxDaily: cfg.maxDaily,
         enabled: cfg.enabled,
+        // Bot Zalo — lời chào khi được thêm vào nhóm (chao-nhom.ts). null = câu mặc định.
+        chaoNhomEnabled: cfg.chaoNhomEnabled,
+        chaoNhomText: cfg.chaoNhomText,
+        chaoNhomMacDinh: MAU_CHAO_MAC_DINH,
+        chaoNhomTenShop: process.env.AI_CHAO_NHOM_TEN || 'Led Nelia',
       };
     } catch (err) {
       logger.error('[ai] assistant-config GET error:', err);
@@ -359,7 +365,17 @@ export async function aiRoutes(app: FastifyInstance) {
           aiAssistantEnabled?: boolean;
           aiAssistantPromptTemplate?: string | null;
           aiAssistantSkipNoisePattern?: string;
+          chaoNhomEnabled?: boolean;
+          chaoNhomText?: string | null;
         };
+        // Lời chào nhóm: rỗng ⇒ null (dùng câu mặc định); quá dài ⇒ từ chối (một tin Zalo, không phải bài viết).
+        let chaoNhomText: string | null | undefined = body.chaoNhomText;
+        if (typeof chaoNhomText === 'string') {
+          chaoNhomText = chaoNhomText.trim() || null;
+          if (chaoNhomText && chaoNhomText.length > TRAN_DO_DAI_CHAO) {
+            return reply.status(400).send({ error: `Lời chào tối đa ${TRAN_DO_DAI_CHAO} ký tự` });
+          }
+        }
         // Validate regex
         if (body.aiAssistantSkipNoisePattern) {
           try {
@@ -374,9 +390,12 @@ export async function aiRoutes(app: FastifyInstance) {
             aiAssistantEnabled: body.aiAssistantEnabled,
             aiAssistantPromptTemplate: body.aiAssistantPromptTemplate,
             aiAssistantSkipNoisePattern: body.aiAssistantSkipNoisePattern,
+            chaoNhomEnabled: typeof body.chaoNhomEnabled === 'boolean' ? body.chaoNhomEnabled : undefined,
+            chaoNhomText,
           },
         });
-        return { ok: true, aiAssistantEnabled: updated.aiAssistantEnabled };
+        return { ok: true, aiAssistantEnabled: updated.aiAssistantEnabled, chaoNhomEnabled: updated.chaoNhomEnabled,
+                 chaoNhomText: updated.chaoNhomText };
       } catch (err) {
         logger.error('[ai] assistant-config PUT error:', err);
         return reply.status(500).send({ error: 'Failed to update AI assistant config' });

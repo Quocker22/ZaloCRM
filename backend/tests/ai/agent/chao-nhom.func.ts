@@ -2,7 +2,7 @@
 // Function test: guard chống nói hớ ở màn chào nhóm (spec 2026-08-07).
 // Câu ngữ cảnh bot NÓI TRƯỚC CẢ NHÓM phải sạch tuyệt đối.
 import { describe, it, expect } from 'vitest';
-import { locCauNguCanh, khuonChao } from '../../../src/modules/ai/agent/noi-zalo/chao-nhom.js';
+import { locCauNguCanh, khuonChao, MAU_CHAO_MAC_DINH } from '../../../src/modules/ai/agent/noi-zalo/chao-nhom.js';
 
 describe('locCauNguCanh — chặn nói hớ', () => {
   it('giữ câu chủ đề sạch', () => {
@@ -53,5 +53,18 @@ describe('khuonChao', () => {
   it('chào như nhân viên mới, không xưng trợ lý / không quảng cáo báo giá (05/10)', () => {
     expect(khuonChao('Led Nelia')).toBe('Em là nhân viên mới của Led Nelia. Cả nhà cần gì cứ nhắn em ạ.');
     expect(khuonChao('Led Nelia')).not.toMatch(/trợ lý|báo giá/);
+  });
+});
+
+
+describe('khuonChao — câu chủ tự soạn trên Cài đặt (05/10)', () => {
+  it('có câu tự soạn ⇒ gửi đúng câu đó, thay {ten_shop} (mọi chỗ)', () => {
+    expect(khuonChao('Led Nelia', 'Chào cả nhà, {ten_shop} đây ạ. {ten_shop} luôn sẵn sàng!'))
+      .toBe('Chào cả nhà, Led Nelia đây ạ. Led Nelia luôn sẵn sàng!');
+  });
+  it('rỗng / chỉ khoảng trắng / null ⇒ câu mặc định', () => {
+    for (const mau of [null, undefined, '', '   ']) {
+      expect(khuonChao('Led Nelia', mau)).toBe(MAU_CHAO_MAC_DINH.replace('{ten_shop}', 'Led Nelia'));
+    }
   });
 });

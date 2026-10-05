@@ -6,15 +6,57 @@
   <div class="ai-page">
     <header class="ai-page-header">
       <div>
-        <h1 class="ai-page-title">🤖 Trợ lý AI cho Chat nội bộ</h1>
+        <h1 class="ai-page-title">🤖 Trợ lý AI</h1>
         <p class="ai-page-sub">
-          Cấu hình prompt và quy tắc cho trợ lý gợi ý sale khai thác thông tin + tự động trích xuất dữ liệu KH.
+          Lời chào của bot Zalo khi vào nhóm, và trợ lý gợi ý cho Chat nội bộ (khách không dùng Zalo).
         </p>
       </div>
       <div v-if="loading" class="loading-pill">⏳ Đang tải...</div>
     </header>
 
     <div v-if="config" class="ai-page-body">
+      <!-- 05/10/2026: Bot Zalo — lời chào khi nick bot được THÊM vào nhóm (backend chao-nhom.ts). Lưu riêng. -->
+      <section class="chao-card">
+        <div class="chao-head">
+          <div>
+            <div class="chao-title">💬 Bot Zalo · Lời chào khi được thêm vào nhóm</div>
+            <div class="toggle-hint">Bot gửi 1 lần duy nhất ở mỗi nhóm, ngay khi nick bot được thêm vào nhóm.</div>
+          </div>
+          <label class="chao-switch">
+            <input type="checkbox" v-model="config.chaoNhomEnabled" />
+            <span>{{ config.chaoNhomEnabled ? 'Đang bật' : 'Đang tắt' }}</span>
+          </label>
+        </div>
+        <textarea
+          v-model="chaoNhomDraft"
+          class="chao-editor"
+          rows="3"
+          :maxlength="TRAN_DO_DAI_CHAO"
+          :disabled="!config.chaoNhomEnabled"
+          :placeholder="config.chaoNhomMacDinh"
+        />
+        <div class="field-hint">
+          Gõ <code>{ten_shop}</code> để chèn tên shop ({{ config.chaoNhomTenShop }}). Để trống = dùng câu mặc định.
+          {{ chaoNhomDraft.length }}/{{ TRAN_DO_DAI_CHAO }} ký tự.
+        </div>
+        <div v-if="config.chaoNhomEnabled" class="chao-preview">
+          <span class="chao-preview-label">Bot sẽ gửi:</span>
+          <span class="chao-bubble">{{ chaoNhomPreview }}</span>
+        </div>
+        <div v-else class="chao-preview chao-off">Bot sẽ không chào khi được thêm vào nhóm.</div>
+        <div class="chao-actions">
+          <span v-if="chaoMsg" class="save-msg" :class="chaoOk ? 'ok' : 'err'">{{ chaoMsg }}</span>
+          <button class="btn-secondary" @click="chaoNhomDraft = config.chaoNhomMacDinh" :disabled="savingChao">
+            ↺ Câu mặc định
+          </button>
+          <button class="btn-primary" @click="saveChao" :disabled="savingChao">
+            {{ savingChao ? '⏳ Đang lưu...' : '💾 Lưu lời chào' }}
+          </button>
+        </div>
+      </section>
+
+      <h2 class="section-title">Trợ lý AI cho Chat nội bộ</h2>
+
       <!-- Toggle bật/tắt -->
       <div class="toggle-card">
         <label class="toggle-row">
@@ -127,6 +169,10 @@ interface AiAssistantConfig {
   model: string;
   maxDaily: number;
   enabled: boolean;
+  chaoNhomEnabled: boolean;
+  chaoNhomText: string | null;
+  chaoNhomMacDinh: string;
+  chaoNhomTenShop: string;
 }
 
 interface AiUsage {
@@ -143,6 +189,17 @@ const usage = ref<AiUsage | null>(null);
 const saveMessage = ref('');
 const saveOk = ref(false);
 const testPromptOpen = ref(false);
+// Lời chào nhóm (Bot Zalo) — bản nháp trong ô; rỗng = câu mặc định.
+const TRAN_DO_DAI_CHAO = 1000;
+const chaoNhomDraft = ref('');
+const savingChao = ref(false);
+const chaoMsg = ref('');
+const chaoOk = ref(false);
+const chaoNhomPreview = computed(() => {
+  if (!config.value) return '';
+  const mau = chaoNhomDraft.value.trim() || config.value.chaoNhomMacDinh;
+  return mau.split('{ten_shop}').join(config.value.chaoNhomTenShop);
+});
 
 const lowQuota = computed(() => {
   if (!usage.value || !config.value) return false;
@@ -158,6 +215,7 @@ async function load() {
     ]);
     config.value = cfgRes.data;
     usage.value = usageRes.data;
+    chaoNhomDraft.value = cfgRes.data.chaoNhomText ?? cfgRes.data.chaoNhomMacDinh;
   } catch (e: any) {
     saveMessage.value = e?.response?.data?.error || e?.message || 'Lỗi tải cài đặt';
     saveOk.value = false;
@@ -193,6 +251,31 @@ async function save() {
     saveOk.value = false;
   } finally {
     saving.value = false;
+  }
+}
+
+async function saveChao() {
+  if (!config.value || savingChao.value) return;
+  savingChao.value = true;
+  chaoMsg.value = '';
+  try {
+    // Đúng câu mặc định ⇒ lưu null (đổi câu mặc định trong code sau này vẫn áp dụng).
+    const t = chaoNhomDraft.value.trim();
+    const res = await api.put<{ chaoNhomEnabled: boolean; chaoNhomText: string | null }>('/ai/assistant-config', {
+      chaoNhomEnabled: config.value.chaoNhomEnabled,
+      chaoNhomText: !t || t === config.value.chaoNhomMacDinh ? null : t,
+    });
+    config.value.chaoNhomEnabled = res.data.chaoNhomEnabled;
+    config.value.chaoNhomText = res.data.chaoNhomText;
+    chaoNhomDraft.value = res.data.chaoNhomText ?? config.value.chaoNhomMacDinh;
+    chaoMsg.value = '✓ Đã lưu lời chào';
+    chaoOk.value = true;
+    setTimeout(() => (chaoMsg.value = ''), 3000);
+  } catch (e: any) {
+    chaoMsg.value = e?.response?.data?.error || e?.message || 'Lỗi lưu lời chào';
+    chaoOk.value = false;
+  } finally {
+    savingChao.value = false;
   }
 }
 
@@ -240,6 +323,41 @@ onMounted(load);
   flex-direction: column;
   gap: 16px;
 }
+.chao-card {
+  background: #fff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.chao-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.chao-title { font-weight: 600; font-size: 13px; color: #1f2937; }
+.chao-switch { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #334155; cursor: pointer; white-space: nowrap; }
+.chao-editor {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+}
+.chao-editor:disabled { background: #f8fafc; color: #94a3b8; }
+.chao-preview { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; }
+.chao-preview-label { color: #64748b; white-space: nowrap; padding-top: 6px; }
+.chao-bubble {
+  background: #eff6ff;
+  color: #1e3a8a;
+  border-radius: 10px;
+  padding: 6px 10px;
+  white-space: pre-wrap;
+  font-size: 13px;
+}
+.chao-off { color: #94a3b8; }
+.chao-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+.section-title { font-size: 14px; font-weight: 700; margin: 8px 0 0; color: #334155; }
 .toggle-card {
   background: #fff;
   border: 1px solid #e2e8f0;

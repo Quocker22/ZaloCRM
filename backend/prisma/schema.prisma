@@ -1754,6 +1754,10 @@ model AiConfig {
   agentNhanVienEnabled         Boolean  @default(false) @map("agent_nhan_vien_enabled")
   agentKhachEnabled            Boolean  @default(false) @map("agent_khach_enabled")
   agentKhachTuChotEnabled      Boolean  @default(false) @map("agent_khach_tu_chot_enabled")
+  /// Lời chào khi nick bot được THÊM vào nhóm Zalo (chao-nhom.ts) — trang Cài đặt › Trợ lý AI, mục Bot Zalo.
+  chaoNhomEnabled              Boolean  @default(true) @map("chao_nhom_enabled")
+  /// null/rỗng = câu mặc định khuonChao(); {ten_shop} được thay bằng tên shop.
+  chaoNhomText                 String?  @map("chao_nhom_text") @db.Text
   createdAt                    DateTime @default(now()) @map("created_at")
   updatedAt                    DateTime @updatedAt @map("updated_at")
 

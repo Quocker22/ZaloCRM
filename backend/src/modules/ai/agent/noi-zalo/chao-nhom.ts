@@ -55,10 +55,18 @@ export function locCauNguCanh(raw: string | null | undefined): string {
   return s;
 }
 
-/** Khuôn chào cố định — luôn dùng, bất kể có câu ngữ cảnh hay không. */
-export function khuonChao(tenShop: string): string {
-  // 05/10 NV Nelia: chào như nhân viên mới, không xưng "trợ lý" / không quảng cáo tư vấn-báo giá.
-  return `Em là nhân viên mới của ${tenShop}. Cả nhà cần gì cứ nhắn em ạ.`;
+/** Câu chào mặc định (05/10 NV Nelia: chào như nhân viên mới, không xưng "trợ lý" / không quảng cáo báo giá). */
+export const MAU_CHAO_MAC_DINH = 'Em là nhân viên mới của {ten_shop}. Cả nhà cần gì cứ nhắn em ạ.';
+/** Trần độ dài câu chủ tự soạn (Cài đặt › Trợ lý AI › Bot Zalo) — một tin Zalo, không phải bài viết. */
+export const TRAN_DO_DAI_CHAO = 1000;
+
+/**
+ * Lời chào gửi nhóm. `mau` = câu chủ soạn trên trang Cài đặt (ai_configs.chao_nhom_text); rỗng/null ⇒ mặc định.
+ * `{ten_shop}` trong câu được thay bằng tên shop.
+ */
+export function khuonChao(tenShop: string, mau?: string | null): string {
+  const m = (mau ?? '').trim() || MAU_CHAO_MAC_DINH;
+  return m.split('{ten_shop}').join(tenShop);
 }
 
 /** Gom text 30 tin gần nhất từ history zca-js, bỏ tin của bot + tin không phải text. */
@@ -130,6 +138,20 @@ export async function chaoNhomKhiThem(deps: ChaoNhomDeps): Promise<boolean> {
     return true;
   }
 
+  // 3c. Cài đặt của org (Cài đặt › Trợ lý AI › Bot Zalo): tắt ⇒ không chào và KHÔNG đặt cờ (bật lại rồi thêm nick
+  //     vào nhóm mới vẫn chào). Đọc lỗi ⇒ coi như mặc định (bật, câu mặc định) — y hành vi trước khi có cài đặt.
+  const cauHinh = await prisma.aiConfig
+    .findUnique({ where: { orgId }, select: { chaoNhomEnabled: true, chaoNhomText: true } })
+    .catch((err: Error) => {
+      logger.warn({ groupId, err: err.message }, '[chao-nhom] đọc cài đặt lời chào lỗi — dùng mặc định');
+      return null;
+    });
+  if (cauHinh && cauHinh.chaoNhomEnabled === false) {
+    logger.info({ groupId }, '[chao-nhom] chào nhóm đang TẮT trong Cài đặt — bỏ qua');
+    return true;
+  }
+  const cauTuSoan = (cauHinh?.chaoNhomText ?? '').trim() || null;
+
   // 4. Đặt cờ NGAY (trước LLM/gửi) để chống 2 event trùng. updateMany có điều kiện
   //    groupGreetedAt=null để race thật sự chỉ 1 bên thắng.
   const chiem = await prisma.conversation.updateMany({
@@ -141,9 +163,10 @@ export async function chaoNhomKhiThem(deps: ChaoNhomDeps): Promise<boolean> {
     return true;
   }
 
-  // 5. Đọc bối cảnh + sinh câu ngữ cảnh (mọi lỗi → chào khuôn thuần).
+  // 5. Đọc bối cảnh + sinh câu ngữ cảnh (mọi lỗi → chào khuôn thuần). Chủ đã TỰ SOẠN câu chào ⇒ gửi đúng câu đó,
+  //    không ghép câu do model viết (chủ soạn gì bot nói đúng vậy).
   let cauNguCanh = '';
-  try {
+  if (!cauTuSoan) try {
     const history = await api.getGroupChatHistory(groupId, SO_TIN_DOC);
     const boiCanh = gomBoiCanh(history, botUid);
     if (boiCanh) {
@@ -178,7 +201,8 @@ export async function chaoNhomKhiThem(deps: ChaoNhomDeps): Promise<boolean> {
   }
 
   // 6. Ghép + gửi.
-  const loiChao = cauNguCanh ? `${khuonChao(tenShop)}\n${cauNguCanh}` : khuonChao(tenShop);
+  const chao = khuonChao(tenShop, cauTuSoan);
+  const loiChao = cauNguCanh ? `${chao}\n${cauNguCanh}` : chao;
   const dich: DichGui = {
     accountId, threadId: groupId, threadType: 1, zaloUid: null, tenKhach: null, sdtKhach: null,
   };
