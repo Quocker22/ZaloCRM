@@ -302,21 +302,21 @@ describeCanDb('bot-quyen — xưng hô (docs/79 T1)', () => {
     }
   });
 
-  it('GET /api/public/nguoi-zalo/goi: CHỈ khoá tay; Zalo tự điền / không có / nick lạ ⇒ null; không lộ gì khác', async () => {
+  it('GET /api/public/nguoi-zalo/goi: giới theo Zalo (chủ chốt 05/10) — xác nhận > Zalo tự điền > hồ sơ; không có / nick lạ / mâu thuẫn ⇒ null; không lộ gì khác', async () => {
     const r = await hoiGoi(KHOA_A, { nick_uid: UID_NICK_A, uid: 'u-khach-khoa' });
     expect(r.statusCode).toBe(200);
     expect(r.json()).toEqual({ goi: 'chi', nguon: 'khoa_tay' });
     expect(Object.keys(r.json())).toEqual(['goi', 'nguon']);
-    expect((await hoiGoi(KHOA_A, { nick_uid: UID_NICK_A, uid: 'u-khach-tu' })).json()).toEqual({ goi: null, nguon: null });
+    expect((await hoiGoi(KHOA_A, { nick_uid: UID_NICK_A, uid: 'u-khach-tu' })).json()).toEqual({ goi: 'anh', nguon: 'zalo_tu_dien' });
     // Khoá CŨ không có dấu xác nhận ⇒ null.
-    expect((await hoiGoi(KHOA_A, { nick_uid: UID_NICK_A, uid: 'u-khach-khoa-cu' })).json()).toEqual({ goi: null, nguon: null });
+    expect((await hoiGoi(KHOA_A, { nick_uid: UID_NICK_A, uid: 'u-khach-khoa-cu' })).json()).toEqual({ goi: 'chi', nguon: 'zalo_tu_dien' });
     expect((await hoiGoi(KHOA_A, { nick_uid: UID_NICK_A, uid: 'u-khong-co' })).json()).toEqual({ goi: null, nguon: null });
     expect((await hoiGoi(KHOA_A, { nick_uid: 'nick-la', uid: 'u-khach-khoa' })).json()).toEqual({ goi: null, nguon: null });
     // Hội thoại của uid nằm ở nick HN — hỏi theo nick HCM thì không thấy Contact đó.
     expect((await hoiGoi(KHOA_A, { nick_uid: UID_NICK_A2, uid: 'u-khach-khoa' })).json()).toEqual({ goi: null, nguon: null });
     // NV: cùng luật (Hùng ở nick HCM khoá NỮ; Lan chỉ Zalo tự điền).
     expect((await hoiGoi(KHOA_A, { nick_uid: UID_NICK_A2, uid: 'u-hung2' })).json()).toEqual({ goi: 'chi', nguon: 'khoa_tay' });
-    expect((await hoiGoi(KHOA_A, { nick_uid: UID_NICK_A, uid: 'u-lan' })).json()).toEqual({ goi: null, nguon: null });
+    expect((await hoiGoi(KHOA_A, { nick_uid: UID_NICK_A, uid: 'u-lan' })).json()).toEqual({ goi: 'chi', nguon: 'zalo_tu_dien' });
     expect((await hoiGoi(KHOA_A, { nick_uid: UID_NICK_A, uid: 'u-minh' })).json()).toEqual({ goi: null, nguon: null });
   });
 

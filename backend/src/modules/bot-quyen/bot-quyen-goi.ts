@@ -10,12 +10,13 @@
 //   • giá trị NV đã XÁC NHẬN (Contact.gioiTinhXacNhanLuc — contact-routes.ts PUT CHỈ đặt khi giá trị giới tính THỰC ĐỔI hoặc
 //     nút "Xác nhận", gioi-tinh-xac-nhan.ts) thắng giá trị Zalo tự điền (SDK chỉ điền khi trống; Zalo có thể trả 0 = "Nam" mặc
 //     định cho người lạ — docs/79 nghiên cứu §6). genderLocked KHÔNG có dấu (khoá cũ: form lưu cả form từng đặt khoá ở MỌI lần
-//     bấm Lưu) KHÔNG được tin ⇒ xếp cùng hạng Zalo tự điền. Nhãn nguồn vẫn là 'khoa_tay' (giữ hợp đồng) = "đã xác nhận";
+//     bấm Lưu) KHÔNG được tin ⇒ xếp cùng hạng Zalo tự điền. Nhãn nguồn vẫn là 'khoa_tay' (giữ hợp đồng) = "đã xác nhận".
+//     (Ghi chú "Zalo trả 0 = Nam mặc định cho người lạ" ở bản cũ là GIẢ THUYẾT chưa kiểm — đo PROD 05/10 không thấy thiên Nam.);
 //   • hai giá trị khác nhau ở CÙNG mức ⇒ không gợi ý (null + lý do) — gọi sai giới tệ hơn gọi trung tính.
 //
 // Với NGƯỜI ZALO bất kỳ (khách trong nhóm — đường khách của bot, docs/79 T4): API công khai
-// GET /api/public/nguoi-zalo/goi chỉ trả anh/chị khi Contact của (nick, uid) có DẤU XÁC NHẬN (chủ chốt 02/10: "gọi khách
-// anh/chị khi giới tính đã được NV xác nhận"); còn lại null ⇒ bot xưng "mình".
+// GET /api/public/nguoi-zalo/goi dùng CÙNG thứ tự với NV (chủ chốt 05/10 "giới tính lấy theo zalo luôn" — thay chốt 02/10 chỉ
+// tin giá trị xác nhận); không có giới / mâu thuẫn ⇒ null ⇒ bot xưng "mình".
 //
 // Contact của một uid: (a) Contact.zaloUid = uid (uid Zalo là theo nick nhìn, nên chuỗi uid đã chỉ đúng một người), và
 // (b) Contact của hội thoại 1-1 (threadType user) trên nick đó có external_thread_id = uid. Contact đã gộp (mergedInto) ⇒
@@ -202,13 +203,20 @@ export async function gioiHoSoTheoUid(orgId: string, uids: readonly string[]): P
 
 /**
  * GET /api/public/nguoi-zalo/goi — (nick_uid, uid) ⇒ {goi, nguon}. nick_uid = ZaloAccount.zaloUid của nick nhìn uid (trong
- * org của khoá); nick lạ ⇒ null. CHỈ trả anh/chị khi đã có dấu xác nhận. Không trả gì khác (không tên, không id Contact).
+ * org của khoá); nick lạ ⇒ null. Chủ chốt 05/10: giới tính lấy THEO ZALO luôn — cùng thứ tự với NV (`tinhGoiGoiY`): NV đã xác
+ * nhận > Zalo tự điền ở Contact > hồ sơ Zalo (getUserInfo, bot_quyen_danh_tinh); mâu thuẫn ⇒ null ⇒ bot gọi khách "mình".
+ * (Giả thuyết cũ "Zalo trả Nam mặc định cho người ẩn giới" CHƯA từng được kiểm — đo PROD 05/10: 0 tên "Thị" bị ghi Nam, Zalo
+ * trả Nữ 11/39 hồ sơ và để TRỐNG 4/39 ⇒ không có bằng chứng thiên Nam.) Không trả gì khác (không tên, không id Contact).
  */
 export async function docGoiNguoiZalo(
   orgId: string, nickUid: string, uid: string,
-): Promise<{ goi: GoiNv | null; nguon: 'khoa_tay' | null }> {
+): Promise<{ goi: GoiNv | null; nguon: NguonGoi | null }> {
   const nicks = await prisma.zaloAccount.findMany({ where: { orgId, zaloUid: nickUid }, select: { id: true } });
   if (nicks.length === 0) return { goi: null, nguon: null };
-  const gioi = await gioiTheoUid(orgId, [{ uid, nickIds: nicks.map((n) => n.id) }]);
-  return tinhGoiKhoaTay(gioi.get(uid) ?? []);
+  const [gioi, hoSo] = await Promise.all([
+    gioiTheoUid(orgId, [{ uid, nickIds: nicks.map((n) => n.id) }]),
+    gioiHoSoTheoUid(orgId, [uid]),
+  ]);
+  const g = tinhGoiGoiY(gioi.get(uid) ?? [], hoSo.get(uid) ?? []);
+  return { goi: g.goi, nguon: g.nguon };
 }
