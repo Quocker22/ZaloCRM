@@ -1053,7 +1053,9 @@ export function attachZaloListener(ctx: ListenerContext): void {
           }
           // members rỗng + không biết botUid → không đủ tín hiệu, bỏ cho an toàn.
           if (members.length === 0 && !botUid) return;
-          const tenShop = process.env.AI_SHOP_NAME || acc?.org?.name || 'Shop';
+          // Lời chào nhóm xưng tên shop RIÊNG (05/10): tên tổ chức prod vẫn là mặc định "Shop LED Demo" và
+          // AI_SHOP_NAME còn đổi tin chiến dịch/catalog — chủ chỉ muốn đổi lời chào.
+          const tenShop = process.env.AI_CHAO_NHOM_TEN || 'Led Nelia';
           const { chaoNhomKhiThem } = await import('../ai/agent/noi-zalo/chao-nhom.js');
           await chaoNhomKhiThem({
             orgId, accountId, groupId: String(groupId),

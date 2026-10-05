@@ -57,7 +57,8 @@ export function locCauNguCanh(raw: string | null | undefined): string {
 
 /** Khuôn chào cố định — luôn dùng, bất kể có câu ngữ cảnh hay không. */
 export function khuonChao(tenShop: string): string {
-  return `Em chào cả nhà ạ 👋 Em là trợ lý của ${tenShop}, hỗ trợ tư vấn sản phẩm và báo giá. Cả nhà cần gì cứ nhắn em nhé!`;
+  // 05/10 NV Nelia: chào như nhân viên mới, không xưng "trợ lý" / không quảng cáo tư vấn-báo giá.
+  return `Em là nhân viên mới của ${tenShop}. Cả nhà cần gì cứ nhắn em ạ.`;
 }
 
 /** Gom text 30 tin gần nhất từ history zca-js, bỏ tin của bot + tin không phải text. */

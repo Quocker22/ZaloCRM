@@ -49,4 +49,9 @@ describe('khuonChao', () => {
     expect(s).toContain('LEDNELIA');
     expect(s).toContain('nhắn em');
   });
+
+  it('chào như nhân viên mới, không xưng trợ lý / không quảng cáo báo giá (05/10)', () => {
+    expect(khuonChao('Led Nelia')).toBe('Em là nhân viên mới của Led Nelia. Cả nhà cần gì cứ nhắn em ạ.');
+    expect(khuonChao('Led Nelia')).not.toMatch(/trợ lý|báo giá/);
+  });
 });
