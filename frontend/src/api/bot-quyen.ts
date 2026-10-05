@@ -205,12 +205,15 @@ export interface NhanVien {
   ghiChu: string | null;
   /** SĐT Zalo (tuỳ chọn) — nick khác tìm theo SĐT, chỉ nối khi globalId trùng. */
   soDienThoai?: string | null;
-  /** Xưng hô đã chọn — bot dùng. null = chưa chọn (bot gọi "anh/chị"). */
+  /** Xưng hô CHỌN TAY — luôn thắng. null = "Tự động": bot dùng `goiGoiY` (không có ⇒ "anh/chị"). */
   goi?: GoiNv | null;
-  /** GỢI Ý từ giới tính Zalo (KHÔNG tự áp): khoa_tay = NV đã XÁC NHẬN trên CRM (có dấu) · zalo_tu_dien = Zalo tự điền / khoá cũ. */
+  /**
+   * Giới tính CRM biết (bot dùng khi `goi` null): khoa_tay = NV đã XÁC NHẬN trên CRM · zalo_tu_dien = Contact Zalo tự điền ·
+   * zalo_ho_so = hồ sơ Zalo CRM tự đọc.
+   */
   goiGoiY?: GoiNv | null;
-  goiNguon?: 'khoa_tay' | 'zalo_tu_dien' | null;
-  /** Vì sao không gợi ý: chua_co_gioi · mau_thuan_khoa_tay · mau_thuan_zalo · khoa_tay_khac. */
+  goiNguon?: 'khoa_tay' | 'zalo_tu_dien' | 'zalo_ho_so' | null;
+  /** Vì sao không gợi ý: chua_co_gioi · mau_thuan_khoa_tay · mau_thuan_zalo · mau_thuan_ho_so · khoa_tay_khac. */
   goiGoiYLyDo?: string | null;
   capNhatLuc: string;
   capNhatBoi: { id: string; fullName: string } | null;

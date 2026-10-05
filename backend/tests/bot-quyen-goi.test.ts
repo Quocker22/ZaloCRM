@@ -5,7 +5,7 @@
 //   • hai giá trị khác nhau cùng mức ⇒ KHÔNG gợi ý (null + lý do) — gọi sai giới tệ hơn gọi trung tính;
 //   • API công khai cho bot (đường khách) CHỈ trả anh/chị khi đã khoá tay.
 import { describe, it, expect } from 'vitest';
-import { goiTuGioi, tinhGoiGoiY, tinhGoiKhoaTay, laGoi } from '../src/modules/bot-quyen/bot-quyen-goi.js';
+import { goiTuGioi, tinhGoiGoiY, tinhGoiKhoaTay, laGoi, goiHieuLuc } from '../src/modules/bot-quyen/bot-quyen-goi.js';
 import { ghepCauHinhCongKhai } from '../src/modules/bot-quyen/bot-quyen-cong-khai.js';
 
 const LUC = new Date('2026-10-02T00:00:00Z');
@@ -88,5 +88,48 @@ describe('payload công khai: nhan_vien[].goi', () => {
     const p = (g?: string | null) => ghepCauHinhCongKhai([], nv(g)).phien_ban;
     expect(new Set([p('anh'), p('chi'), p(null)]).size).toBe(3);
     expect(p(undefined)).toBe(p(null));
+  });
+});
+
+describe('tinhGoiGoiY — mức thấp nhất: giới tính HỒ SƠ ZALO (vòng danh tính, 05/10)', () => {
+  it.each([
+    ['chỉ hồ sơ Zalo (nữ) — NV không có Contact', [], ['female'], { goi: 'chi', nguon: 'zalo_ho_so', lyDo: null }],
+    ['hồ sơ trùng nhau ở hai nick', [], ['male', 'male'], { goi: 'anh', nguon: 'zalo_ho_so', lyDo: null }],
+    ['hồ sơ MÂU THUẪN ⇒ null', [], ['male', 'female'], { goi: null, nguon: null, lyDo: 'mau_thuan_ho_so' }],
+    ['hồ sơ trống / lạ ⇒ chưa có giới', [], [null, 'other'], { goi: null, nguon: null, lyDo: 'chua_co_gioi' }],
+    ['Zalo tự điền (Contact) THẮNG hồ sơ khác', [t('male')], ['female'], { goi: 'anh', nguon: 'zalo_tu_dien', lyDo: null }],
+    ['đã xác nhận THẮNG hồ sơ khác', [k('female')], ['male'], { goi: 'chi', nguon: 'khoa_tay', lyDo: null }],
+    ['Contact mâu thuẫn ⇒ null, KHÔNG rơi xuống hồ sơ', [t('male'), t('female')], ['male'], { goi: null, nguon: null, lyDo: 'mau_thuan_zalo' }],
+    ['khoá tay "khác" ⇒ không lấy hồ sơ', [k('other')], ['male'], { goi: null, nguon: null, lyDo: 'khoa_tay_khac' }],
+    ['Contact không có giới ⇒ dùng hồ sơ', [t(null)], ['female'], { goi: 'chi', nguon: 'zalo_ho_so', lyDo: null }],
+  ] as const)('%s', (_ten, ds, hoSo, kq) => {
+    expect(tinhGoiGoiY(ds as unknown as G, hoSo as unknown as string[])).toEqual(kq);
+  });
+
+  it('API công khai cho KHÁCH vẫn chỉ khoá tay (không có tham số hồ sơ)', () => {
+    expect(tinhGoiKhoaTay([t('male')])).toEqual({ goi: null, nguon: null });
+  });
+});
+
+describe('goiHieuLuc — giá trị bot DÙNG cho NV (payload công khai)', () => {
+  const y = (goi: 'anh' | 'chi' | null) => ({ goi });
+  it('chủ chọn tay ĐÈ gợi ý', () => {
+    expect(goiHieuLuc('anh', y('chi'))).toBe('anh');
+    expect(goiHieuLuc('chi', y(null))).toBe('chi');
+  });
+  it('trống / lạ ⇒ gợi ý (mọi nguồn); không có gợi ý ⇒ null', () => {
+    expect(goiHieuLuc(null, y('chi'))).toBe('chi');
+    expect(goiHieuLuc(undefined, y('anh'))).toBe('anh');
+    expect(goiHieuLuc('chị', y('anh'))).toBe('anh');
+    expect(goiHieuLuc(null, y(null))).toBeNull();
+    expect(goiHieuLuc(null, undefined)).toBeNull();
+  });
+  it('payload: goi = chủ chọn ?? gợi ý ⇒ đổi gợi ý cũng đổi phien_ban', () => {
+    const nv = (goi: string | null) => [{ zaloUid: '100', tenGoi: 'Ánh', vai: 'sales', trangThai: 'hoat_dong', goi }];
+    const tuDong = ghepCauHinhCongKhai([], nv(goiHieuLuc(null, y('chi'))));
+    expect(tuDong.nhan_vien[0].goi).toBe('chi');
+    const chuDe = ghepCauHinhCongKhai([], nv(goiHieuLuc('anh', y('chi'))));
+    expect(chuDe.nhan_vien[0].goi).toBe('anh');
+    expect(chuDe.phien_ban).not.toBe(tuDong.phien_ban);
   });
 });

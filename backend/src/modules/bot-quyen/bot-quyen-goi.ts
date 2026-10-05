@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // XƯNG HÔ (docs/79 T1, 02/10) — bot gọi một người là "anh" hay "chị".
 //
-// Nguồn sự thật DUY NHẤT cho NHÂN VIÊN là ô `BotNhanVien.goi` (anh | chi | null) do người giữ trang Quyền bot chọn. CRM chỉ
-// GỢI Ý từ `Contact.gender` của các Contact khớp mọi uid của người đó — KHÔNG BAO GIỜ tự ghi `goi`:
+// NHÂN VIÊN (sửa 05/10 — chủ: "bot nhắn đúng anh/chị TỰ ĐỘNG theo giới tính, không phải chọn tay"): bot dùng
+// `BotNhanVien.goi` (người giữ trang chọn tay — luôn THẮNG) ?? GỢI Ý dưới đây (`goiHieuLuc`, payload /api/public/bot-quyen).
+// CRM KHÔNG ghi gợi ý vào ô `goi` (ô đó chỉ là lựa chọn tay — "Tự động" = trống). Thứ tự nguồn gợi ý:
+//   khoa_tay (Contact đã xác nhận) > zalo_tu_dien (Contact.gender Zalo tự điền) > zalo_ho_so (giới tính HỒ SƠ ZALO đọc trong
+//   vòng danh tính — bot_quyen_danh_tinh.gioi_tinh, mọi uid của NV ở mọi nick; cho NV không có Contact, chỉ thấy trong nhóm).
+// Chi tiết hai mức Contact:
 //   • giá trị NV đã XÁC NHẬN (Contact.gioiTinhXacNhanLuc — contact-routes.ts PUT CHỈ đặt khi giá trị giới tính THỰC ĐỔI hoặc
 //     nút "Xác nhận", gioi-tinh-xac-nhan.ts) thắng giá trị Zalo tự điền (SDK chỉ điền khi trống; Zalo có thể trả 0 = "Nam" mặc
 //     định cho người lạ — docs/79 nghiên cứu §6). genderLocked KHÔNG có dấu (khoá cũ: form lưu cả form từng đặt khoá ở MỌI lần
@@ -17,12 +21,13 @@
 // (b) Contact của hội thoại 1-1 (threadType user) trên nick đó có external_thread_id = uid. Contact đã gộp (mergedInto) ⇒
 // xét thêm Contact chính (NV thường sửa giới trên bản chính).
 import { prisma } from '../../shared/database/prisma-client.js';
+import { NGUON_TIN_DUOC } from './bot-quyen-danh-tinh.js';
 
 export const GOI_NV = ['anh', 'chi'] as const;
 export type GoiNv = (typeof GOI_NV)[number];
-export type NguonGoi = 'khoa_tay' | 'zalo_tu_dien';
+export type NguonGoi = 'khoa_tay' | 'zalo_tu_dien' | 'zalo_ho_so';
 /** Vì sao không có gợi ý: chưa có giới · hai giá trị khoá tay khác nhau · hai giá trị Zalo tự điền khác nhau · khoá tay "khác". */
-export type LyDoKhongGoiY = 'chua_co_gioi' | 'mau_thuan_khoa_tay' | 'mau_thuan_zalo' | 'khoa_tay_khac';
+export type LyDoKhongGoiY = 'chua_co_gioi' | 'mau_thuan_khoa_tay' | 'mau_thuan_zalo' | 'khoa_tay_khac' | 'mau_thuan_ho_so';
 
 export interface GioiContact {
   gender: string | null;
@@ -57,8 +62,11 @@ function giaTriKhoaTay(ds: readonly GioiContact[]): Set<GoiNv | 'khac'> {
   return new Set(ds.filter(laKhoaTay).map((c) => goiTuGioi(c.gender) ?? 'khac'));
 }
 
-/** Gợi ý "Gọi là" cho NV — xem đầu file. Thuần. */
-export function tinhGoiGoiY(ds: readonly GioiContact[]): GoiGoiY {
+/**
+ * Gợi ý "Gọi là" cho NV — xem đầu file. Thuần. `hoSo` = giới tính hồ sơ Zalo (bot_quyen_danh_tinh) của mọi uid — mức THẤP
+ * NHẤT, chỉ dùng khi hai mức Contact không có gì. Mâu thuẫn ở một mức ⇒ null (KHÔNG rơi xuống mức thấp hơn).
+ */
+export function tinhGoiGoiY(ds: readonly GioiContact[], hoSo: ReadonlyArray<string | null> = []): GoiGoiY {
   const khoa = giaTriKhoaTay(ds);
   if (khoa.size > 1) return { goi: null, nguon: null, lyDo: 'mau_thuan_khoa_tay' };
   if (khoa.size === 1) {
@@ -68,7 +76,15 @@ export function tinhGoiGoiY(ds: readonly GioiContact[]): GoiGoiY {
   const tu = new Set(ds.filter((c) => !laKhoaTay(c)).map((c) => goiTuGioi(c.gender)).filter((x): x is GoiNv => !!x));
   if (tu.size > 1) return { goi: null, nguon: null, lyDo: 'mau_thuan_zalo' };
   if (tu.size === 1) return { goi: [...tu][0], nguon: 'zalo_tu_dien', lyDo: null };
+  const hs = new Set(hoSo.map((g) => goiTuGioi(g)).filter((x): x is GoiNv => !!x));
+  if (hs.size > 1) return { goi: null, nguon: null, lyDo: 'mau_thuan_ho_so' };
+  if (hs.size === 1) return { goi: [...hs][0], nguon: 'zalo_ho_so', lyDo: null };
   return { goi: null, nguon: null, lyDo: 'chua_co_gioi' };
+}
+
+/** Giá trị bot dùng cho NV: chủ chọn tay (anh/chi) thắng; trống ⇒ gợi ý (mọi nguồn); không có ⇒ null. Thuần. */
+export function goiHieuLuc(goiChon: string | null | undefined, goiY: Pick<GoiGoiY, 'goi'> | null | undefined): GoiNv | null {
+  return laGoi(goiChon) ? goiChon : goiY?.goi ?? null;
 }
 
 /** API công khai: CHỈ giá trị đã XÁC NHẬN (có dấu), không mâu thuẫn; còn lại null. Thuần. */
@@ -161,8 +177,27 @@ export async function goiGoiYChoNhanVien(
     uidCuaNv.set(nv.id, [...theoUid.keys()]);
     for (const [uid, nick] of theoUid) can.push({ uid, nickIds: nick ? [nick] : null });
   }
-  const gioi = await gioiTheoUid(orgId, can);
-  return new Map(ds.map((nv) => [nv.id, tinhGoiGoiY((uidCuaNv.get(nv.id) ?? []).flatMap((u) => gioi.get(u) ?? []))]));
+  const [gioi, hoSo] = await Promise.all([gioiTheoUid(orgId, can), gioiHoSoTheoUid(orgId, [...new Set(can.map((c) => c.uid))])]);
+  return new Map(ds.map((nv) => {
+    const uids = uidCuaNv.get(nv.id) ?? [];
+    return [nv.id, tinhGoiGoiY(uids.flatMap((u) => gioi.get(u) ?? []), uids.flatMap((u) => hoSo.get(u) ?? []))];
+  }));
+}
+
+/**
+ * Giới tính HỒ SƠ ZALO theo uid (mọi nick nhìn) từ bảng hệ thống bot_quyen_danh_tinh — CHỈ dòng nguồn tin được, có giới
+ * (vòng danh tính chỉ ghi giới từ hồ sơ sạch — không rào D1 / uid lệch; lần đọc hỏng sau đó giữ giới cũ). Một truy vấn.
+ */
+export async function gioiHoSoTheoUid(orgId: string, uids: readonly string[]): Promise<Map<string, string[]>> {
+  const kq = new Map<string, string[]>();
+  const ds = uids.filter(Boolean);
+  if (ds.length === 0) return kq;
+  const rows = await prisma.botQuyenDanhTinh.findMany({
+    where: { orgId, zaloUid: { in: ds }, nguon: { in: [...NGUON_TIN_DUOC] }, gioiTinh: { not: null } },
+    select: { zaloUid: true, gioiTinh: true },
+  });
+  for (const r of rows) if (r.gioiTinh) kq.set(r.zaloUid, [...(kq.get(r.zaloUid) ?? []), r.gioiTinh]);
+  return kq;
 }
 
 /**

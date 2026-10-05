@@ -30,14 +30,17 @@
 // `nick_crm` = [{nick_uid, uid, nick_ten}] — nick CRM KHÁC của org nhìn từ nick `nick_uid` (bảng bot_nick_crm_uid): bot
 // thêm vào nick_bot (không phải người ngoài, không phải nhân viên), sắp theo uid. phien_ban băm cả ba mảng.
 //
-// XƯNG HÔ (docs/79 T1, 02/10): `nhan_vien[].goi` = 'anh' | 'chi' | null — ô "Gọi là" người giữ trang Quyền bot ĐÃ CHỌN
-// (BotNhanVien.goi). LUÔN có khoá (null = chưa chọn ⇒ bot gọi "anh/chị" như cũ). Gợi ý từ giới tính Zalo KHÔNG bao giờ vào
-// payload. Đổi `goi` ⇒ phien_ban đổi. (Bản thêm ô này làm phien_ban của MỌI org đổi một lần lúc lên — bot áp lại, vô hại.)
+// XƯNG HÔ (docs/79 T1, 02/10; TỰ ĐỘNG 05/10): `nhan_vien[].goi` = 'anh' | 'chi' | null — ô "Gọi là" người giữ trang Quyền
+// bot ĐÃ CHỌN (BotNhanVien.goi) nếu có, KHÔNG thì gợi ý theo giới tính (bot-quyen-goi.ts `goiHieuLuc`: Contact đã xác nhận >
+// Zalo tự điền > hồ sơ Zalo; mâu thuẫn ⇒ null). LUÔN có khoá (null ⇒ bot gọi "anh/chị" như cũ). Chỉ giá trị đi vào payload —
+// nguồn gợi ý không. Đổi `goi` (chọn tay hoặc gợi ý đổi) ⇒ phien_ban đổi ⇒ bot áp lại.
 import { createHash } from 'node:crypto';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { withTenant } from '../../shared/tenant/tenant-context.js';
+import { logger } from '../../shared/utils/logger.js';
 import { tinhMacDinhNhom, chucNangHieuLuc } from './bot-quyen-mac-dinh.js';
 import { docNickCrm, nickCongTyTheoNick } from './bot-quyen-nick-crm.js';
+import { goiGoiYChoNhanVien, goiHieuLuc, type GoiGoiY } from './bot-quyen-goi.js';
 
 export interface NhomCongKhai {
   conversation_id: string;
@@ -213,7 +216,7 @@ export async function docCauHinhCongKhai(orgId: string, bayGio: Date = new Date(
       prisma.botNhanVien.findMany({
         where: { orgId },
         select: {
-          zaloUid: true, tenGoi: true, vai: true, trangThai: true, goi: true,
+          id: true, zaloUid: true, tenGoi: true, vai: true, trangThai: true, goi: true,
           uids: { select: { zaloUid: true, zaloAccountId: true, nguon: true } },
         },
       }),
@@ -222,6 +225,12 @@ export async function docCauHinhCongKhai(orgId: string, bayGio: Date = new Date(
       docNickCrm(orgId),
     ]);
     const nickCongTy = nickCongTyTheoNick(nickCrmDs);
+    // Xưng hô TỰ ĐỘNG (05/10): `goi` gửi bot = chủ chọn tay ?? gợi ý (Contact đã xác nhận > Zalo tự điền > hồ sơ Zalo).
+    // Lỗi đọc gợi ý ⇒ chỉ còn giá trị chủ chọn (không làm hỏng cả cấu hình).
+    const goiY = await goiGoiYChoNhanVien(orgId, nhanVien).catch((err) => {
+      logger.warn('[bot-quyen-cong-khai] gợi ý xưng hô lỗi — chỉ gửi giá trị chủ chọn:', err instanceof Error ? err.message : err);
+      return new Map<string, GoiGoiY>();
+    });
     // MỌI uid của mọi NV (docs/77 §8b) — thành viên nhóm là uid THEO NICK của nhóm.
     const trangThaiNv = new Map<string, string>();
     for (const n of nhanVien) {
@@ -250,7 +259,7 @@ export async function docCauHinhCongKhai(orgId: string, bayGio: Date = new Date(
       });
     }
     return ghepCauHinhCongKhai(nhom, nhanVien.map((n) => ({
-      zaloUid: n.zaloUid, tenGoi: n.tenGoi, vai: n.vai, trangThai: n.trangThai, goi: n.goi,
+      zaloUid: n.zaloUid, tenGoi: n.tenGoi, vai: n.vai, trangThai: n.trangThai, goi: goiHieuLuc(n.goi, goiY.get(n.id)),
       uids: n.uids.map((u) => ({
         zaloUid: u.zaloUid, nickUid: (u.zaloAccountId && uidNick.get(u.zaloAccountId)) || null, nguon: u.nguon,
       })),

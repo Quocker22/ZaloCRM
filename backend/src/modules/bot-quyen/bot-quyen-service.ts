@@ -397,11 +397,12 @@ export interface NhanVienView {
   ghiChu: string | null;
   /** SĐT Zalo (tuỳ chọn) — đường phụ tìm uid ở nick khác, chỉ nhận khi globalId sống trùng. */
   soDienThoai: string | null;
-  /** Xưng hô (docs/79 T1): anh | chi | null (chưa chọn ⇒ bot gọi "anh/chị"). CHỈ người giữ trang ghi. */
+  /** Xưng hô (docs/79 T1): anh | chi chọn TAY | null = "Tự động" (bot dùng gợi ý dưới, 05/10). CHỈ người giữ trang ghi. */
   goi: GoiNv | null;
   /**
-   * GỢI Ý từ Contact.gender của mọi uid người này (bot-quyen-goi.ts) — KHÔNG tự ghi vào `goi`. `goiNguon`: khoa_tay (NV đã
-   * sửa tay giới tính trên CRM) · zalo_tu_dien (Zalo tự điền, chưa ai xác nhận) · null. `goiGoiYLyDo` khi không gợi ý được.
+   * GỢI Ý theo giới tính mọi uid người này (bot-quyen-goi.ts) — KHÔNG ghi vào `goi`, nhưng bot dùng khi `goi` null.
+   * `goiNguon`: khoa_tay (đã xác nhận trên CRM) · zalo_tu_dien (Contact, Zalo tự điền) · zalo_ho_so (hồ sơ Zalo đọc trong
+   * vòng danh tính) · null. `goiGoiYLyDo` khi không gợi ý được.
    */
   goiGoiY: GoiNv | null;
   goiNguon: NguonGoi | null;

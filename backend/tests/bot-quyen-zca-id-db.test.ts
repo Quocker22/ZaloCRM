@@ -185,6 +185,47 @@ describeCanDb('bot-quyen — mã Zalo theo zca-js (P3-1/3/4, nghe từ listener)
     expect(dongVong[0]).toMatch(new RegExp(`org ${ORG}: vòng danh tính — nick=2 getUserInfo=2 \\(hỏi lại riêng=0\\) uid=6 findUser=0 rào=0 lỗi=0 hết_ngân_sách=0`));
   });
 
+  // ── Giới tính hồ sơ Zalo (xưng hô tự động, 05/10) ──────────────────────────────
+
+  it('Giới tính: vòng ghi gioi_tinh từ User.gender (0 nam / 1 nữ); dòng NV chưa từng đọc giới ⇒ đọc lại MỘT lần; rào D1 ⇒ không ghi giới', async () => {
+    await dung();
+    await ghiHoSoNickKetNoi(VT, VT_SELF, { userId: VT_SELF, globalId: G_VT, zaloName: 'Vận Tải Minh Thức' });
+    // NV Hưng (uid góc VTMT). Dòng danh tính CÒN TƯƠI của bản trước (chưa có giới) cho Hưng + Quốc (Quốc KHÔNG phải NV).
+    await prisma.botNhanVien.create({ data: { id: 'test-bqzi-nv-hung', orgId: ORG, zaloUid: HUNG_VT, tenGoi: 'Hưng', vai: 'sales', trangThai: 'hoat_dong' } });
+    await prisma.botNhanVienUid.create({ data: { orgId: ORG, nhanVienId: 'test-bqzi-nv-hung', zaloUid: HUNG_VT, zaloAccountId: VT, nguon: 'chon' } });
+    for (const [u, g] of [[HUNG_VT, G_HUNG], [QUOC_VT, G_QUOC]]) {
+      await prisma.botQuyenDanhTinh.create({ data: { orgId: ORG, zaloAccountId: VT, zaloUid: u, globalId: g, nguon: 'zalo_user_info' } });
+    }
+    const bang = structuredClone(BANG);
+    bang[VT][HUNG_VT].gender = 0;
+    bang[VT][QUOC_VT].gender = 1;
+    bang[VT][CL_TU_VT].gender = 1;
+    // Cẩm Loan nhìn từ VTMT: Zalo trả globalId của CHÍNH nick gọi ⇒ rào D1 ⇒ không nhận cả giới.
+    const z = taoZcaGia(bang, { ghiDe: { [VT]: { [CL_TU_VT]: { globalId: G_VT } } } });
+    _datZaloDanhTinhChoTest(taoApiTuZca((n) => z.nick(n)), { nickDung: [VT] });
+    await layDanhTinhZalo(ORG);
+    const hoi = () => z.goi.filter((g) => g.ham === 'getUserInfo').flatMap((g) => g.gui);
+    expect(hoi()).toContain(`${HUNG_VT}_0`);
+    expect(hoi()).not.toContain(`${QUOC_VT}_0`); // không phải NV, dòng còn tươi ⇒ không tốn lượt
+    expect(await dong(VT, HUNG_VT)).toMatchObject({ globalId: G_HUNG, gioiTinh: 'male', loi: null });
+    expect((await dong(VT, HUNG_VT))!.gioiTinhLuc).not.toBeNull();
+    expect(await dong(VT, QUOC_VT)).toMatchObject({ gioiTinh: null, gioiTinhLuc: null });
+    expect(await dong(VT, CL_TU_VT)).toMatchObject({ globalId: null, gioiTinh: null, loi: 'gid_cua_nick_goi' });
+
+    // Vòng sau: Hưng đã đọc giới ⇒ KHÔNG hỏi lại.
+    z.goi.length = 0;
+    _datZaloDanhTinhChoTest(taoApiTuZca((n) => z.nick(n)), { nickDung: [VT] });
+    await layDanhTinhZalo(ORG);
+    expect(hoi()).not.toContain(`${HUNG_VT}_0`);
+
+    // Hồ sơ sạch mà không mang giới ⇒ ghi null (đã đọc); hồ sơ hỏng (uid lệch) ⇒ GIỮ giới cũ.
+    await prisma.botQuyenDanhTinh.updateMany({ where: { orgId: ORG, zaloAccountId: VT, zaloUid: HUNG_VT }, data: { layLuc: new Date(0) } });
+    const z2 = taoZcaGia(BANG, { ghiDe: { [VT]: { [HUNG_VT]: { userId: QUOC_VT } } } });
+    _datZaloDanhTinhChoTest(taoApiTuZca((n) => z2.nick(n)), { nickDung: [VT] });
+    await layDanhTinhZalo(ORG);
+    expect(await dong(VT, HUNG_VT)).toMatchObject({ globalId: G_HUNG, gioiTinh: 'male', loi: 'uid_lech' });
+  });
+
   // ── Nghe từ listener ─────────────────────────────────────────────────────────
 
   it('Nghe: listener lưu globalId nó vừa đọc ⇒ Hưng 3395… (Cẩm Loan) nối 3835… (VTMT) dù vòng danh tính chạy lúc Cẩm Loan ĐÃ TẮT', async () => {

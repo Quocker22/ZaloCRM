@@ -655,34 +655,38 @@ describe('BotQuyenPage — tab Nhân viên: "Gọi là" anh/chị (docs/79 T1)',
     return w;
   }
 
-  it('cột "Gọi là": chip gợi ý theo nguồn; "Dùng" ⇒ PUT goi ⇒ dòng hiện giá trị mới, chip tắt', async () => {
+  it('cột "Gọi là": trống = "Tự động — Anh (…)"; chọn tay khác gợi ý ⇒ chip + "Về tự động" ⇒ PUT goi null', async () => {
     vi.mocked(suaNhanVien).mockImplementation(async (id, p) => ({
       nhanVien: nvGoi(id, 'Quyết', { goi: p.goi ?? null, goiGoiY: 'anh', goiNguon: 'khoa_tay' }), doi: true,
     }));
     const w = await moTab([
-      nvGoi('n1', 'Quyết', { goiGoiY: 'anh', goiNguon: 'khoa_tay' }),
+      nvGoi('n1', 'Quyết', { goi: 'chi', goiGoiY: 'anh', goiNguon: 'khoa_tay' }),
       nvGoi('n2', 'Lan', { goiGoiY: 'chi', goiNguon: 'zalo_tu_dien' }),
       nvGoi('n3', 'Minh', { goiGoiYLyDo: 'mau_thuan_khoa_tay' }),
       nvGoi('n4', 'Tú', { goiGoiYLyDo: 'chua_co_gioi' }),
+      nvGoi('n6', 'Ánh', { goiGoiY: 'chi', goiNguon: 'zalo_ho_so' }),
     ]);
     expect(w.find('thead').text()).toContain('Gọi là');
-    expect(hang(w, 'n1').find('[data-goi-y]').text()).toContain('Gợi ý: Anh (theo giới tính Zalo đã xác nhận)');
-    expect(hang(w, 'n2').find('[data-goi-y]').text()).toContain('Gợi ý: Chị (theo Zalo tự điền — chưa ai xác nhận)');
+    const oChon = (id: string) => hang(w, id).find('[data-o="goi"] select');
+    expect((oChon('n2').element as HTMLSelectElement).value).toBe('');
+    expect(oChon('n2').text()).toContain('Tự động — Chị (theo Zalo)');
+    expect(oChon('n6').text()).toContain('Tự động — Chị (theo hồ sơ Zalo)');
+    expect(oChon('n4').text()).toContain('Tự động — “anh/chị”');
+    expect(hang(w, 'n2').find('[data-goi-y]').exists()).toBe(false);
     expect(hang(w, 'n3').text()).toContain('mâu thuẫn');
-    expect(hang(w, 'n3').find('[data-goi-y]').exists()).toBe(false);
-    expect(hang(w, 'n4').find('[data-goi-y]').exists()).toBe(false);
-    expect((hang(w, 'n1').find('[data-o="goi"] select').element as HTMLSelectElement).value).toBe('');
+    expect(hang(w, 'n1').find('[data-goi-y]').text()).toContain('Gợi ý: Anh (theo giới tính Zalo đã xác nhận)');
+    expect(w.find('[data-nut="ap-goi-y-hang-loat"]').exists()).toBe(false);
 
     await hang(w, 'n1').find('[data-nut="nhan-goi-y"]').trigger('click');
     await flushPromises();
-    expect(suaNhanVien).toHaveBeenCalledWith('n1', { goi: 'anh' });
-    expect((hang(w, 'n1').find('[data-o="goi"] select').element as HTMLSelectElement).value).toBe('anh');
+    expect(suaNhanVien).toHaveBeenCalledWith('n1', { goi: null });
+    expect((oChon('n1').element as HTMLSelectElement).value).toBe('');
     expect(hang(w, 'n1').find('[data-goi-y]').exists()).toBe(false);
-    expect(toast.success).toHaveBeenCalled();
+    expect(toast.success).toHaveBeenCalledWith(expect.stringContaining('Tự động — bot gọi Quyết là “Anh”'));
     w.unmount();
   });
 
-  it('chọn tay trong ô: Chị ⇒ goi "chi"; "— chưa chọn" ⇒ goi null; lỗi ⇒ toast + tải lại', async () => {
+  it('chọn tay trong ô: Chị ⇒ goi "chi"; "Tự động" ⇒ goi null; lỗi ⇒ toast + tải lại', async () => {
     vi.mocked(suaNhanVien).mockImplementation(async (id, p) => ({ nhanVien: nvGoi(id, 'Lan', { goi: p.goi ?? null }), doi: true }));
     const w = await moTab([nvGoi('n2', 'Lan', { goi: 'anh' })]);
     await hang(w, 'n2').find('[data-o="goi"] select').setValue('chi');
@@ -699,38 +703,6 @@ describe('BotQuyenPage — tab Nhân viên: "Gọi là" anh/chị (docs/79 T1)',
     expect(toast.error).toHaveBeenCalledWith('Gọi là phải là một trong: anh, chi', expect.anything());
     expect(vi.mocked(layDanhSachNhanVien).mock.calls.length).toBeGreaterThan(soLanTai);
     w.unmount();
-  });
-
-  it('"Áp gợi ý đã xác nhận": chỉ dòng gợi ý KHOÁ TAY + chưa chọn; xong tải lại; không có dòng nào ⇒ không có nút', async () => {
-    vi.mocked(suaNhanVien).mockImplementation(async (id, p) => ({ nhanVien: nvGoi(id, 'x', { goi: p.goi ?? null }), doi: true }));
-    const w = await moTab([
-      nvGoi('n1', 'Quyết', { goiGoiY: 'anh', goiNguon: 'khoa_tay' }),
-      nvGoi('n2', 'Lan', { goiGoiY: 'chi', goiNguon: 'zalo_tu_dien' }),
-      nvGoi('n3', 'Minh', { goi: 'anh', goiGoiY: 'chi', goiNguon: 'khoa_tay' }),
-      nvGoi('n5', 'Hà', { goiGoiY: 'chi', goiNguon: 'khoa_tay' }),
-    ]);
-    const bulk = w.find('[data-nut="ap-goi-y-hang-loat"]');
-    expect(bulk.text()).toContain('Áp gợi ý đã xác nhận (2)');
-    const soLanTai = vi.mocked(layDanhSachNhanVien).mock.calls.length;
-    await bulk.trigger('click');
-    await flushPromises();
-    // Hộp xác nhận liệt kê TỪNG người + gợi ý; chưa bấm xác nhận thì chưa ghi gì.
-    expect(suaNhanVien).not.toHaveBeenCalled();
-    const hopAp = w.find('[data-o="ds-ap-goi-y"]');
-    expect(hopAp.findAll('li').map((li) => li.text())).toEqual(['Quyết → Anh', 'Hà → Chị']);
-    await w.find('.vo-dialog [data-o="ly-do"] input').setValue('đã xác nhận trên CRM');
-    await w.find('.vo-dialog [data-nut="xac-nhan-ly-do"]').trigger('click');
-    await flushPromises();
-    expect(vi.mocked(suaNhanVien).mock.calls).toEqual([
-      ['n1', { goi: 'anh', lyDo: 'đã xác nhận trên CRM' }], ['n5', { goi: 'chi', lyDo: 'đã xác nhận trên CRM' }],
-    ]);
-    expect(toast.success).toHaveBeenCalledWith(expect.stringContaining('2 người'));
-    expect(vi.mocked(layDanhSachNhanVien).mock.calls.length).toBeGreaterThan(soLanTai);
-    w.unmount();
-
-    const w2 = await moTab([nvGoi('n2', 'Lan', { goiGoiY: 'chi', goiNguon: 'zalo_tu_dien' })]);
-    expect(w2.find('[data-nut="ap-goi-y-hang-loat"]').exists()).toBe(false);
-    w2.unmount();
   });
 });
 

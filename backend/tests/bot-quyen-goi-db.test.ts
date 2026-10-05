@@ -3,7 +3,8 @@
 //   • API quản trị: GET /nhan-vien trả `goi` (đã chọn) + GỢI Ý goiGoiY/goiNguon/goiGoiYLyDo từ Contact.gender của MỌI uid
 //     (khoá tay thắng Zalo tự điền, mâu thuẫn ⇒ null + lý do, cách ly org, hội thoại nick khác không tính, Contact đã gộp ⇒
 //     xét bản chính) — và KHÔNG BAO GIỜ tự ghi `goi`; PUT/POST ghi `goi` + nhật ký trước/sau; giá trị sai ⇒ 400.
-//   • Payload công khai /api/public/bot-quyen: nhan_vien[].goi, phien_ban đổi theo goi.
+//   • Payload công khai /api/public/bot-quyen: nhan_vien[].goi = chủ chọn ?? gợi ý (TỰ ĐỘNG 05/10 — gồm giới tính hồ sơ Zalo
+//     bot_quyen_danh_tinh.gioi_tinh, mức thấp nhất), phien_ban đổi theo goi.
 //   • GET /api/public/nguoi-zalo/goi: khoá (401/403 khoá riêng), org lấy từ khoá, CHỈ trả khi khoá tay, không lộ gì khác.
 // Chạy: CO_DB_TEST=1 DATABASE_URL=<db test đã migrate> npm run test:db
 import { it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
@@ -35,6 +36,7 @@ async function donDep() {
   const orgs = [ORG_A, ORG_B];
   await prisma.botQuyenNhatKy.deleteMany({ where: { orgId: { in: orgs } } });
   await prisma.botNhanVien.deleteMany({ where: { orgId: { in: orgs } } });
+  await prisma.botQuyenDanhTinh.deleteMany({ where: { orgId: { in: orgs } } });
   await prisma.conversation.deleteMany({ where: { orgId: { in: orgs } } });
   await prisma.contact.updateMany({ where: { orgId: { in: orgs } }, data: { mergedInto: null } });
   await prisma.contact.deleteMany({ where: { orgId: { in: orgs } } });
@@ -160,7 +162,15 @@ describeCanDb('bot-quyen — xưng hô (docs/79 T1)', () => {
     await taoNv(ORG_A, 'test-bqg-nv-quan', 'Quân', [['u-quan', null]]);
     await taoNv(ORG_A, 'test-bqg-nv-tu', 'Tú', [['u-tu', NICK_A]]);
     await taoNv(ORG_A, 'test-bqg-nv-cu', 'Cũ', [['u-cu', NICK_A]]);
+    await prisma.botQuyenDanhTinh.deleteMany({ where: { orgId: { in: [ORG_A, ORG_B] } } });
   });
+
+  /** Dòng danh tính (giới tính hồ sơ Zalo) của uid nhìn từ nick. */
+  async function hoSo(orgId: string, nick: string, uid: string, gioiTinh: string | null, nguon = 'zalo_user_info') {
+    await prisma.botQuyenDanhTinh.create({
+      data: { orgId, zaloAccountId: nick, zaloUid: uid, globalId: `G-${uid}`, nguon, gioiTinh, gioiTinhLuc: new Date() },
+    });
+  }
 
   async function dsNv() {
     const res = await goi('GET', '/nhan-vien');
@@ -228,17 +238,57 @@ describeCanDb('bot-quyen — xưng hô (docs/79 T1)', () => {
     expect((await prisma.botNhanVien.findUniqueOrThrow({ where: { id: 'test-bqg-nv-lan' } })).goi).toBeNull();
   });
 
-  it('payload công khai: nhan_vien[].goi (null khi chưa chọn), phien_ban đổi khi goi đổi; gợi ý KHÔNG vào payload', async () => {
+  it('payload công khai: goi = chủ chọn ?? gợi ý (TỰ ĐỘNG); chủ chọn tay ĐÈ; phien_ban đổi theo goi; nguồn KHÔNG vào payload', async () => {
     const v1 = (await congKhai(KHOA_A)).json();
-    const hung = v1.nhan_vien.find((n: { ten_goi: string }) => n.ten_goi === 'Hùng');
-    expect(hung).toHaveProperty('goi', null);
+    const cua = (v: { nhan_vien: Array<{ ten_goi: string; goi: string | null }> }, ten: string) => v.nhan_vien.find((n) => n.ten_goi === ten)!;
+    const hung = cua(v1, 'Hùng');
     expect(Object.keys(hung)).toEqual(['zalo_uid', 'ten_goi', 'vai', 'trang_thai', 'goi', 'uids']);
-    expect(JSON.stringify(v1)).not.toMatch(/goiGoiY|goi_goi_y|khoa_tay|zalo_tu_dien/);
-    await goi('PUT', '/nhan-vien/test-bqg-nv-hung', { goi: 'chi' });
+    // Chưa ai chọn tay ⇒ bot nhận GỢI Ý: Hùng chị (khoá tay), Lan chị (Zalo tự điền), Quân anh; Minh mâu thuẫn / Tú chưa có ⇒ null.
+    expect(hung.goi).toBe('chi');
+    expect(cua(v1, 'Lan').goi).toBe('chi');
+    expect(cua(v1, 'Quân').goi).toBe('anh');
+    expect(cua(v1, 'Minh').goi).toBeNull();
+    expect(cua(v1, 'Tú').goi).toBeNull();
+    expect(JSON.stringify(v1)).not.toMatch(/goiGoiY|goi_goi_y|khoa_tay|zalo_tu_dien|zalo_ho_so/);
+    // Không ghi gì vào ô chọn tay.
+    expect(await prisma.botNhanVien.count({ where: { orgId: ORG_A, goi: { not: null } } })).toBe(0);
+    // Chủ chọn tay ĐÈ gợi ý.
+    await goi('PUT', '/nhan-vien/test-bqg-nv-hung', { goi: 'anh' });
     const v2 = (await congKhai(KHOA_A)).json();
-    expect(v2.nhan_vien.find((n: { ten_goi: string }) => n.ten_goi === 'Hùng').goi).toBe('chi');
+    expect(cua(v2, 'Hùng').goi).toBe('anh');
     expect(v2.phien_ban).not.toBe(v1.phien_ban);
     expect((await congKhai(KHOA_A)).json().phien_ban).toBe(v2.phien_ban);
+    // Về "Tự động" ⇒ lại theo gợi ý, phien_ban về đúng bản cũ.
+    await goi('PUT', '/nhan-vien/test-bqg-nv-hung', { goi: null });
+    expect((await congKhai(KHOA_A)).json().phien_ban).toBe(v1.phien_ban);
+  });
+
+  it('giới tính HỒ SƠ ZALO (bot_quyen_danh_tinh): NV không có Contact ⇒ gợi ý zalo_ho_so + payload; Contact thắng; mâu thuẫn ⇒ null; cách ly org', async () => {
+    // Tú: không Contact ở org A — hồ sơ Zalo nam ở HAI nick (đồng ý) ⇒ anh.
+    await hoSo(ORG_A, NICK_A, 'u-tu', 'male');
+    await hoSo(ORG_A, NICK_A2, 'u-tu', 'male');
+    // Lan: Contact Zalo tự điền nữ THẮNG hồ sơ nam.
+    await hoSo(ORG_A, NICK_A, 'u-lan', 'male');
+    // Cũ: hồ sơ nguồn KHÔNG tin được (zalo_api bản cũ) ⇒ bỏ qua — vẫn theo Contact.
+    await hoSo(ORG_A, NICK_A2, 'u-cu', 'female', 'zalo_api');
+    // Org B có dòng hồ sơ cùng chuỗi uid của Minh — KHÔNG lẫn sang org A.
+    await hoSo(ORG_B, NICK_B, 'u-minh', 'female');
+    const ds = await dsNv();
+    const goiY = (ten: string) => {
+      const n = ds.get(ten)!;
+      return { goi: n.goi, goiGoiY: n.goiGoiY, goiNguon: n.goiNguon, goiGoiYLyDo: n.goiGoiYLyDo };
+    };
+    expect(goiY('Tú')).toEqual({ goi: null, goiGoiY: 'anh', goiNguon: 'zalo_ho_so', goiGoiYLyDo: null });
+    expect(goiY('Lan')).toEqual({ goi: null, goiGoiY: 'chi', goiNguon: 'zalo_tu_dien', goiGoiYLyDo: null });
+    expect(goiY('Cũ')).toEqual({ goi: null, goiGoiY: 'anh', goiNguon: 'zalo_tu_dien', goiGoiYLyDo: null });
+    expect(goiY('Minh')).toEqual({ goi: null, goiGoiY: null, goiNguon: null, goiGoiYLyDo: 'mau_thuan_khoa_tay' });
+    const v = (await congKhai(KHOA_A)).json();
+    expect(v.nhan_vien.find((n: { ten_goi: string }) => n.ten_goi === 'Tú').goi).toBe('anh');
+
+    // Hồ sơ hai nick MÂU THUẪN ⇒ không gợi ý (gọi sai giới tệ hơn).
+    await prisma.botQuyenDanhTinh.updateMany({ where: { orgId: ORG_A, zaloAccountId: NICK_A2, zaloUid: 'u-tu' }, data: { gioiTinh: 'female' } });
+    expect((await dsNv()).get('Tú')).toMatchObject({ goiGoiY: null, goiNguon: null, goiGoiYLyDo: 'mau_thuan_ho_so' });
+    expect((await congKhai(KHOA_A)).json().nhan_vien.find((n: { ten_goi: string }) => n.ten_goi === 'Tú').goi).toBeNull();
   });
 
   it('GET /api/public/nguoi-zalo/goi: khoá + tham số', async () => {

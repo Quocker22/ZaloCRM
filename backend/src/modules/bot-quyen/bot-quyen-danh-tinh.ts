@@ -72,10 +72,25 @@ export interface HoSoZalo {
   /** phoneNumber (chỉ lưu cho dòng nick tự nhìn mình). */
   sdt?: string | null;
   /**
+   * Giới tính hồ sơ (User.gender — zca-js enum Gender: Male = 0, Female = 1). CHỈ nhận đúng 0/1 (số hoặc chuỗi); thiếu /
+   * giá trị lạ ⇒ null. Lưu ý: Zalo có thể trả 0 (Nam) MẶC ĐỊNH cho hồ sơ ẩn giới — không phân biệt được ở tầng API, nên
+   * nguồn này xếp THẤP NHẤT trong gợi ý "Gọi là" (bot-quyen-goi.ts) và chủ luôn chọn tay đè được.
+   */
+  gioiTinh?: GioiHoSo | null;
+  /**
    * Zalo CÓ trả uid này nhưng không dùng được (globalId null): `uid_lech` — `userId` của hồ sơ ≠ uid hỏi (User.ts:5);
    * `khong_doi` — uid nằm trong `unchanged_profiles` (không mang globalId).
    */
   loi?: 'uid_lech' | 'khong_doi';
+}
+
+export type GioiHoSo = 'male' | 'female';
+
+/** User.gender ⇒ 'male' | 'female' | null — đúng enum zca-js (0 = Male, 1 = Female). THUẦN. */
+export function gioiHoSo(g: unknown): GioiHoSo | null {
+  if (g === 0 || g === '0') return 'male';
+  if (g === 1 || g === '1') return 'female';
+  return null;
 }
 
 /** Cổng Zalo (tiêm được — test thay bằng bản giả trả số thật đo trên staging). */
@@ -83,7 +98,7 @@ export interface ZaloDanhTinhApi {
   /** getUserInfo qua nick `nickId` cho ≤ LO_UID uid. uid không có trong kết quả ⇒ vắng khỏi Map. */
   thongTin(nickId: string, uids: string[]): Promise<Map<string, HoSoZalo>>;
   /** findUser(sđt) qua nick `nickId` ⇒ uid NHÌN TỪ nick đó + globalId (null = không có tài khoản). */
-  timSdt(nickId: string, sdt: string): Promise<{ uid: string; globalId: string | null; ten: string | null } | null>;
+  timSdt(nickId: string, sdt: string): Promise<{ uid: string; globalId: string | null; ten: string | null; gioiTinh?: GioiHoSo | null } | null>;
 }
 
 /** globalId sạch: chuỗi, bỏ khoảng trắng; rỗng / '0' ⇒ null. THUẦN. */
@@ -118,10 +133,12 @@ export function bocThongTin(kq: unknown, uids: readonly string[]): Map<string, H
     }
     const id = h.userId === undefined || h.userId === null || h.userId === '' ? null : uidTron(h.userId);
     if (id && id !== uidTron(u)) { ra.set(u, { globalId: null, ten: null, sdt: null, loi: 'uid_lech' }); continue; }
+    const gioi = gioiHoSo(h.gender);
     ra.set(u, {
       globalId: sachGlobalId(h.globalId),
       ten: String(h.zaloName ?? h.zalo_name ?? h.displayName ?? h.display_name ?? '').trim() || null,
       sdt: chuanSdt(String(h.phoneNumber ?? '')),
+      ...(gioi ? { gioiTinh: gioi } : {}),
     });
   }
   return ra;
@@ -213,9 +230,13 @@ export function taoApiTuZca(layApi: (nickId: string) => ZcaDanhTinh): ZaloDanhTi
       return bocThongTin(await layApi(nickId).getUserInfo([...uids]), uids);
     },
     async timSdt(nickId, sdt) {
-      const f = (await layApi(nickId).findUser(sdt)) as { uid?: unknown; globalId?: unknown; zalo_name?: unknown; display_name?: unknown } | null | undefined;
+      const f = (await layApi(nickId).findUser(sdt)) as { uid?: unknown; globalId?: unknown; zalo_name?: unknown; display_name?: unknown; gender?: unknown } | null | undefined;
       if (!f?.uid) return null;
-      return { uid: uidTron(f.uid), globalId: sachGlobalId(f.globalId), ten: String(f.display_name ?? f.zalo_name ?? '').trim() || null };
+      const gioi = gioiHoSo(f.gender);
+      return {
+        uid: uidTron(f.uid), globalId: sachGlobalId(f.globalId), ten: String(f.display_name ?? f.zalo_name ?? '').trim() || null,
+        ...(gioi ? { gioiTinh: gioi } : {}),
+      };
     },
   };
 }
@@ -297,7 +318,7 @@ export interface KetQuaLay {
   boRao: number;
 }
 
-type Dong = { zaloUid: string; globalId: string | null; layLuc: Date; loi: string | null; nguon: string };
+type Dong = { zaloUid: string; globalId: string | null; layLuc: Date; loi: string | null; nguon: string; gioiTinhLuc: Date | null };
 
 /**
  * Giai đoạn MẠNG: đọc globalId sống cho uid cần của MỌI nick dùng được của org (theo ngân sách), ghi bảng hệ thống.
@@ -327,6 +348,12 @@ export async function layDanhTinhZalo(orgId: string): Promise<KetQuaLay> {
         where: { orgId, nguon: { in: ['chon', 'chu_xac_nhan', 'zalo_global_id'] } },
         select: { zaloUid: true, zaloAccountId: true, nhanVienId: true },
       });
+      // Xưng hô tự động (05/10): uid của NHÂN VIÊN mà dòng chưa từng lưu giới (gioi_tinh_luc NULL — dòng trước bản này) ⇒
+      // đọc lại MỘT lần (trong ngân sách như mọi uid) để có giới tính hồ sơ Zalo sớm, không đợi hết 7 ngày.
+      const uidNv = new Set([
+        ...nvUid.map((r) => r.zaloUid),
+        ...(await prisma.botNhanVien.findMany({ where: { orgId }, select: { zaloUid: true } })).map((r) => r.zaloUid),
+      ]);
       // SĐT nhân viên: ô SĐT của trang Quyền bot + SĐT tài khoản CRM liên kết (cơ chế thông báo hệ thống).
       const nvSdt = await sdtNhanVien(orgId);
       const bayGio = Date.now();
@@ -335,7 +362,7 @@ export async function layDanhTinhZalo(orgId: string): Promise<KetQuaLay> {
         const uidY = y.zaloUid!;
         const coSan = new Map<string, Dong>((await prisma.botQuyenDanhTinh.findMany({
           where: { orgId, zaloAccountId: y.id },
-          select: { zaloUid: true, globalId: true, layLuc: true, loi: true, nguon: true },
+          select: { zaloUid: true, globalId: true, layLuc: true, loi: true, nguon: true, gioiTinhLuc: true },
         })).map((r) => [r.zaloUid, r]));
         const gidTinDuoc = (u: string): string | null => {
           const r = coSan.get(u);
@@ -346,6 +373,7 @@ export async function layDanhTinhZalo(orgId: string): Promise<KetQuaLay> {
           const r = coSan.get(u);
           if (!r || !laNguonTinDuoc(r.nguon)) return true;
           if (u === uidY) return !gidTinDuoc(u); // globalId của chính nick không đổi; chưa có ⇒ đọc (cần cho rào D1)
+          if (uidNv.has(u) && !r.gioiTinhLuc && !r.loi) return true; // NV chưa từng đọc giới ⇒ đọc lại một lần
           if (r.loi) return bayGio - r.layLuc.getTime() > THU_LAI_LOI_MS;
           return bayGio - r.layLuc.getTime() > TUOI_DANH_TINH_MS;
         };
@@ -363,18 +391,23 @@ export async function layDanhTinhZalo(orgId: string): Promise<KetQuaLay> {
           const loi = loiRao ?? h?.loi ?? (h ? (h.globalId ? null : (cu ? 'gid_rong' : null)) : 'khong_tra');
           const khoa = { orgId_zaloAccountId_zaloUid: { orgId, zaloAccountId: y.id, zaloUid: u } };
           const luc = new Date();
+          // Giới tính: CHỈ từ hồ sơ sạch (không rào D1 — hồ sơ bị rào có thể là của người khác; không uid_lech/khong_doi).
+          // Hồ sơ sạch không mang giới ⇒ ghi null (đã đọc); hồ sơ hỏng ⇒ giữ giới cũ (không hạ về null).
+          const gioi: { gioiTinh?: GioiHoSo | null; gioiTinhLuc?: Date } =
+            h && !loiRao && !h.loi ? { gioiTinh: h.gioiTinh ?? null, gioiTinhLuc: luc } : {};
           if (cu && !(h?.globalId && !loiRao && !h.loi)) {
-            await prisma.botQuyenDanhTinh.update({ where: khoa, data: { layLuc: luc, loi } });
-            coSan.set(u, { ...coSan.get(u)!, layLuc: luc, loi });
+            await prisma.botQuyenDanhTinh.update({ where: khoa, data: { layLuc: luc, loi, ...gioi } });
+            coSan.set(u, { ...coSan.get(u)!, layLuc: luc, loi, gioiTinhLuc: gioi.gioiTinhLuc ?? coSan.get(u)!.gioiTinhLuc });
           } else {
             const g = loiRao || h?.loi ? null : h?.globalId ?? null;
             const data = {
               globalId: g, ten: loiRao ? null : h?.ten ?? null, nguon: NGUON_USER_INFO, layLuc: luc, loi,
               // SĐT CHỈ của chính nick (tìm lại nick này từ nick khác khi nó tắt) — không lưu SĐT người khác.
               soDienThoai: u === uidY && !loiRao ? (h?.sdt ?? null) : null,
+              ...gioi,
             };
             await prisma.botQuyenDanhTinh.upsert({ where: khoa, create: { orgId, zaloAccountId: y.id, zaloUid: u, ...data }, update: data });
-            coSan.set(u, { zaloUid: u, globalId: g, layLuc: luc, loi, nguon: NGUON_USER_INFO });
+            coSan.set(u, { zaloUid: u, globalId: g, layLuc: luc, loi, nguon: NGUON_USER_INFO, gioiTinhLuc: gioi.gioiTinhLuc ?? coSan.get(u)?.gioiTinhLuc ?? null });
           }
           kq.uid++;
         };
@@ -495,7 +528,10 @@ export async function layDanhTinhZalo(orgId: string): Promise<KetQuaLay> {
             if (cu && !f.globalId) {
               await prisma.botQuyenDanhTinh.update({ where: khoa, data: { layLuc: new Date(), loi: 'gid_rong', timTheoSdt: sdt } });
             } else {
-              const data = { globalId: f.globalId, ten: f.ten, nguon: NGUON_FIND_USER, layLuc: new Date(), loi: null, timTheoSdt: sdt };
+              const data = {
+                globalId: f.globalId, ten: f.ten, nguon: NGUON_FIND_USER, layLuc: new Date(), loi: null, timTheoSdt: sdt,
+                ...(f.gioiTinh ? { gioiTinh: f.gioiTinh, gioiTinhLuc: new Date() } : {}),
+              };
               await prisma.botQuyenDanhTinh.upsert({ where: khoa, create: { orgId, zaloAccountId: y.id, zaloUid: f.uid, ...data }, update: data });
             }
             kq.uid++;
@@ -614,7 +650,11 @@ export async function ghiHoSoTuTinDen(
       if (!gidNick) { daNghe.delete(khoaNghe); return 'bo'; }
       if (h.globalId === gidNick) return 'bo';
       const khoa = { orgId_zaloAccountId_zaloUid: { orgId, zaloAccountId, zaloUid: u } };
-      const data = { globalId: h.globalId, ten: h.ten, nguon: NGUON_USER_INFO, layLuc: new Date(), loi: null, soDienThoai: null };
+      const data = {
+        globalId: h.globalId, ten: h.ten, nguon: NGUON_USER_INFO, layLuc: new Date(), loi: null, soDienThoai: null,
+        // Giới chỉ ghi khi hồ sơ nghe được CÓ giới rõ (cache listener có thể thiếu trường gender ⇒ không hạ giới đã có).
+        ...(h.gioiTinh ? { gioiTinh: h.gioiTinh, gioiTinhLuc: new Date() } : {}),
+      };
       await prisma.botQuyenDanhTinh.upsert({ where: khoa, create: { orgId, zaloAccountId, zaloUid: u, ...data }, update: data });
       return 'ghi' as const;
     });

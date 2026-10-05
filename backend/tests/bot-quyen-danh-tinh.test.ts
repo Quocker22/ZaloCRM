@@ -2,7 +2,7 @@
 // Quyền bot (docs/77 §8b-an-toàn) — danh tính CHẮC từ globalId Zalo đọc trực tiếp: phần THUẦN (bóc kết quả getUserInfo,
 // làm sạch globalId, luật "nhiễm" — globalId mà hai uid trên CÙNG nick mang là globalId giữ chỗ).
 import { describe, it, expect } from 'vitest';
-import { bocThongTin, sachGlobalId, dungBanDanhTinh, chuanSdt, locLoHoSo, laNguonTinDuoc } from '../src/modules/bot-quyen/bot-quyen-danh-tinh.js';
+import { bocThongTin, sachGlobalId, dungBanDanhTinh, chuanSdt, locLoHoSo, laNguonTinDuoc, gioiHoSo } from '../src/modules/bot-quyen/bot-quyen-danh-tinh.js';
 
 const luc = new Date('2026-09-30T10:00:00Z');
 
@@ -26,6 +26,25 @@ describe('bot-quyen-danh-tinh (thuần)', () => {
     expect(m.get('u2')).toEqual({ globalId: null, ten: null, sdt: null });
     expect(m.has('u3')).toBe(false);
     expect(bocThongTin(null, ['x']).size).toBe(0);
+  });
+
+  it('gioiHoSo: đúng enum zca-js Gender (0 = Male, 1 = Female); khác ⇒ null', () => {
+    expect(gioiHoSo(0)).toBe('male');
+    expect(gioiHoSo('0')).toBe('male');
+    expect(gioiHoSo(1)).toBe('female');
+    expect(gioiHoSo('1')).toBe('female');
+    for (const x of [2, -1, null, undefined, '', 'male', true]) expect(gioiHoSo(x)).toBeNull();
+  });
+
+  it('bocThongTin: giới tính hồ sơ (User.gender) — chỉ khi rõ 0/1; uid lệch ⇒ không mang giới', () => {
+    const m = bocThongTin({ changed_profiles: {
+      a: { globalId: 'GA', gender: 1 }, b: { globalId: 'GB', gender: 0 }, c: { globalId: 'GC' }, d: { userId: 'x', globalId: 'GD', gender: 1 },
+    } }, ['a', 'b', 'c', 'd']);
+    expect(m.get('a')?.gioiTinh).toBe('female');
+    expect(m.get('b')?.gioiTinh).toBe('male');
+    expect(m.get('c')).not.toHaveProperty('gioiTinh');
+    expect(m.get('d')).toMatchObject({ loi: 'uid_lech' });
+    expect(m.get('d')).not.toHaveProperty('gioiTinh');
   });
 
   it('chuanSdt: 0xxx / +84xxx / 84xxx ⇒ 84xxx; sai ⇒ null', () => {

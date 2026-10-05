@@ -19,17 +19,6 @@
       </p>
       <div class="bq-cac-nut">
         <v-btn variant="outlined" size="small" prepend-icon="mdi-refresh" :loading="dangTai" @click="tai">Làm mới</v-btn>
-        <v-btn
-          v-if="dsApHangLoat.length > 0"
-          variant="tonal"
-          color="primary"
-          size="small"
-          prepend-icon="mdi-account-check-outline"
-          data-nut="ap-goi-y-hang-loat"
-          title="Đặt “Gọi là” theo giới tính NV đã xác nhận trên CRM — chỉ cho người chưa chọn"
-          :loading="dangApHangLoat"
-          @click="moHopApGoiY"
-        >Áp gợi ý đã xác nhận ({{ dsApHangLoat.length }})</v-btn>
         <v-btn color="primary" variant="flat" size="small" prepend-icon="mdi-plus" @click="moThem">Thêm nhân viên</v-btn>
       </div>
     </div>
@@ -71,7 +60,7 @@
                 :model-value="nv.goi ?? ''"
                 data-o="goi"
                 class="bq-goi-chon"
-                :items="DS_GOI"
+                :items="dsGoiCua(nv)"
                 item-title="title"
                 item-value="value"
                 density="compact"
@@ -89,9 +78,9 @@
                   color="primary"
                   data-nut="nhan-goi-y"
                   :disabled="dangLuuGoi.has(nv.id)"
-                  :aria-label="`Dùng gợi ý: gọi ${nv.tenGoi} là ${nhanGoi(nv.goiGoiY)}`"
-                  @click="datGoi(nv, nv.goiGoiY ?? null)"
-                >Dùng</v-btn>
+                  :aria-label="`Về tự động: gọi ${nv.tenGoi} là ${nhanGoi(nv.goiGoiY)}`"
+                  @click="datGoi(nv, null)"
+                >Về tự động</v-btn>
               </div>
               <span v-else-if="!nv.goi && cauKhongGoiY(nv)" class="bq-nho bq-mo">{{ cauKhongGoiY(nv) }}</span>
             </div>
@@ -161,20 +150,6 @@
       @da-luu="daLuu"
     />
 
-    <!-- "Áp gợi ý đã xác nhận": hộp xác nhận liệt kê TỪNG người + gợi ý trước khi ghi (tự soát P2-6). -->
-    <BotQuyenLyDoDialog
-      v-model="hopAp.mo"
-      :tieu-de="`Đặt “Gọi là” cho ${hopAp.ds.length} người?`"
-      mo-ta="Theo giới tính NV đã xác nhận trên CRM — chỉ người CHƯA chọn. Bot áp trong khoảng 1 phút."
-      nut-chu="Áp gợi ý"
-      :dang-lam="dangApHangLoat"
-      :loi="hopAp.loi"
-      @xac-nhan="apGoiYHangLoat"
-    >
-      <ul class="bq-ap-ds" data-o="ds-ap-goi-y">
-        <li v-for="nv in hopAp.ds" :key="nv.id">{{ nv.tenGoi }} → {{ nhanGoi(nv.goiGoiY) }}</li>
-      </ul>
-    </BotQuyenLyDoDialog>
     <BotQuyenLyDoDialog
       v-model="hopLyDo"
       :tieu-de="viec ? TIEU_DE[viec.loai](viec) : ''"
@@ -202,7 +177,7 @@ import { loiApi } from '@/views/settings/bot-quyen-loi';
 import { dinhDangGioVN } from '@/views/settings/may-in-nhat-ky';
 import BotQuyenNhanVienDialog from './BotQuyenNhanVienDialog.vue';
 import BotQuyenChoGan from './BotQuyenChoGan.vue';
-import { DS_GOI, nhanGoi, cauGoiY, cauKhongGoiY, coGoiYKhac, dongApHangLoat } from '@/views/settings/bot-quyen-goi';
+import { dsGoiCua, nhanGoi, cauGoiY, cauKhongGoiY, coGoiYKhac, goiDangDung } from '@/views/settings/bot-quyen-goi';
 
 defineProps<{ nguoiDungCrm: NguoiDungCrm[] }>();
 
@@ -318,10 +293,8 @@ async function lamViec(lyDo: string) {
   }
 }
 
-// ── "Gọi là" (docs/79 T1) — chọn là lưu ngay; gợi ý chỉ áp khi người giữ trang bấm ──
+// ── "Gọi là" (docs/79 T1; TỰ ĐỘNG 05/10) — chọn là lưu ngay; trống = Tự động (bot gọi theo giới tính CRM biết) ──
 const dangLuuGoi = ref<Set<string>>(new Set());
-const dangApHangLoat = ref(false);
-const dsApHangLoat = computed(() => dongApHangLoat(ds.value));
 
 function thayDong(moi: NhanVien | undefined) {
   if (!moi) return;
@@ -335,7 +308,9 @@ async function datGoi(nv: NhanVien, goi: GoiNv | null) {
   try {
     const { nhanVien } = await suaNhanVien(nv.id, { goi });
     thayDong(nhanVien);
-    toast.success(goi ? `Bot sẽ gọi ${nv.tenGoi} là “${nhanGoi(goi)}” (áp trong khoảng 1 phút).` : `Đã bỏ chọn — bot gọi ${nv.tenGoi} là “anh/chị”.`);
+    const tuDong = goiDangDung({ ...nv, goi: null });
+    toast.success(goi ? `Bot sẽ gọi ${nv.tenGoi} là “${nhanGoi(goi)}” (áp trong khoảng 1 phút).`
+      : `Tự động — bot gọi ${nv.tenGoi} là “${tuDong ? nhanGoi(tuDong) : 'anh/chị'}” theo giới tính (áp trong khoảng 1 phút).`);
   } catch (e) {
     const l = loiApi(e, 'Không lưu được “Gọi là”');
     if (!l.daBao) toast.error(l.chu, 6000);
@@ -347,41 +322,6 @@ async function datGoi(nv: NhanVien, goi: GoiNv | null) {
   }
 }
 
-const hopAp = ref<{ mo: boolean; ds: NhanVien[]; loi: string }>({ mo: false, ds: [], loi: '' });
-
-/** Chụp danh sách LÚC MỞ hộp — người giữ trang xác nhận đúng những người đang thấy, không phải danh sách đổi sau đó. */
-function moHopApGoiY() {
-  if (dsApHangLoat.value.length === 0) return;
-  hopAp.value = { mo: true, ds: [...dsApHangLoat.value], loi: '' };
-}
-
-async function apGoiYHangLoat(lyDo: string) {
-  const dsAp = hopAp.value.ds;
-  if (dsAp.length === 0) return;
-  dangApHangLoat.value = true;
-  let xong = 0;
-  let loi = '';
-  try {
-    for (const nv of dsAp) {
-      try {
-        await suaNhanVien(nv.id, { goi: nv.goiGoiY ?? null, ...(lyDo ? { lyDo } : {}) });
-        xong++;
-      } catch (e) {
-        loi = loiApi(e, 'Không lưu được').chu;
-      }
-    }
-    if (xong > 0) toast.success(`Đã áp gợi ý cho ${xong} người — bot áp trong khoảng 1 phút.`);
-    if (loi) {
-      hopAp.value.loi = `${dsAp.length - xong} người chưa áp được: ${loi}`;
-      toast.error(hopAp.value.loi, 6000);
-    } else {
-      hopAp.value.mo = false;
-    }
-  } finally {
-    dangApHangLoat.value = false;
-    await tai();
-  }
-}
 
 onMounted(tai);
 </script>
@@ -404,7 +344,6 @@ onMounted(tai);
 .bq-goi-chon { max-width: 150px; }
 .bq-goi-y { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; overflow-wrap: anywhere; }
 .bq-goi-y--chac { color: var(--bq-xanh); font-weight: 600; }
-.bq-ap-ds { margin: 8px 0 0; padding-left: 20px; max-height: 240px; overflow: auto; font-size: 13px; line-height: 1.6; }
 @media (max-width: 700px) {
   .bq-goi { max-width: none; }
 }

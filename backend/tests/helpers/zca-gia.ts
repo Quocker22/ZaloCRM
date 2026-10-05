@@ -26,6 +26,8 @@ export interface HoSoGia {
   phoneNumber?: string;
   /** Mặc định = uid hỏi (đo LIVE 01/10 qua POST /zalo-user-info/batch: userId = uid hỏi). */
   userId?: string;
+  /** User.gender (zca-js enum Gender: 0 = Male, 1 = Female). Vắng ⇒ không gửi trường. */
+  gender?: number;
 }
 
 export interface ZcaGiaOpts {
@@ -78,6 +80,7 @@ export function taoZcaGia(bang: Record<string, Record<string, HoSoGia>>, o: ZcaG
         changed[o.khoa === 'uid_0' ? `${uid}_0` : uid] = {
           userId: h.userId ?? uid, username: `t_${uid.slice(0, 6)}`, displayName: h.zaloName ?? '', zaloName: h.zaloName ?? '',
           avatar: '', phoneNumber: h.phoneNumber ?? '', isFr: 0, globalId: h.globalId,
+          ...(h.gender !== undefined ? { gender: h.gender } : {}),
         };
       }
       return { changed_profiles: changed, unchanged_profiles: unchanged, phonebook_version: 0 };

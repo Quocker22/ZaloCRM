@@ -4790,6 +4790,10 @@ model BotQuyenDanhTinh {
   soDienThoai   String?  @map("so_dien_thoai")
   /// Dòng do findUser: SĐT đã tra.
   timTheoSdt    String?  @map("tim_theo_sdt")
+  /// Giới tính hồ sơ Zalo (getUserInfo User.gender: 0 ⇒ male, 1 ⇒ female; khác ⇒ null). Gợi ý "Gọi là" mức thấp nhất (zalo_ho_so).
+  gioiTinh      String?  @map("gioi_tinh")
+  /// Lần cuối đọc hồ sơ đủ (có/không giới). NULL ⇒ uid nhân viên đọc lại một lần.
+  gioiTinhLuc   DateTime? @map("gioi_tinh_luc") @db.Timestamptz(6)
 
   org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   nhinTu ZaloAccount  @relation("BotQuyenDanhTinhNhinTu", fields: [zaloAccountId], references: [id], onDelete: Cascade)

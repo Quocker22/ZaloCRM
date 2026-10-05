@@ -17,7 +17,8 @@
 //                                             (zaloUids = uid cùng người ở nick khác; máy tự thêm uid nhận ra được — §8b)
 //   PUT    /nhan-vien/:id                     {tenGoi?, vai?, trangThai?, userId?, ghiChu?, goi?, lyDo?}
 //                                             goi = 'anh' | 'chi' | null (docs/79 T1). GET trả thêm goiGoiY/goiNguon/goiGoiYLyDo:
-//                                             GỢI Ý từ giới tính Zalo (ưu tiên khoá tay) — không bao giờ tự ghi `goi`.
+//                                             GỢI Ý từ giới tính (khoá tay > Zalo tự điền > hồ sơ Zalo) — không ghi `goi`
+//                                             nhưng BOT DÙNG gợi ý khi `goi` trống (null = "Tự động", 05/10).
 //   POST   /nhan-vien/:id/uid                 {zaloUid? | zaloUids?, lyDo} — thêm uid của CÙNG người ở nick khác (§8b);
 //                                             lyDo BẮT BUỘC; uid phải đã thấy trong tin, không là nick CRM (§8b-an-toàn)
 //   DELETE /nhan-vien/:id/uid/:uid            {lyDo} — GỠ uid (không gỡ uid chính) + ghi từ chối (máy không nối lại)
